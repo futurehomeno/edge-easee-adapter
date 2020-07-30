@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+
+if [ -d /run/systemd/system ] && [ "$1" = remove ]; then
+  deb-systemd-invoke stop easee.service >/dev/null
+  systemctl disable easee.service || true
+  rm /var/log/thingsplex/easee/* || true
+fi
