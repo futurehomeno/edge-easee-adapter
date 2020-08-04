@@ -1,4 +1,4 @@
-package easee
+package easeeapi
 
 import log "github.com/sirupsen/logrus"
 

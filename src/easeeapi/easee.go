@@ -1,4 +1,4 @@
-package easee
+package easeeapi
 
 import (
 	"encoding/json"
