@@ -5,19 +5,19 @@ version:=`git describe --tags | cut -c 2-`
 remote_host = "fh@cube.local"
 
 clean:
-	-rm  -f ./src/easee
+	-rm  -f ./easee
 
 init:
 	git config core.hooksPath .githooks
 
 build-go:
-	cd ./src;go build -o easee service.go;cd ../
+	cd ./src;go build -o ../easee service.go;cd ../
 
 build-go-arm: init
-	cd ./src;GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w" -o easee service.go;cd ../
+	cd ./src;GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w" -o ../easee service.go;cd ../
 
 build-go-amd: init
-	cd ./src;GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o easee service.go;cd ../
+	cd ./src;GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../easee service.go;cd ../
 
 
 configure-arm:
@@ -38,13 +38,13 @@ package-deb-doc:clean-deb
 	chmod a+x package/debian/DEBIAN/*
 	mkdir -p package/debian/var/log/thingsplex/easee package/debian/opt/thingsplex/easee/data package debian/usr/bin
 	mkdir -p package/build
-	cp ./src/easee package/debian/opt/thingsplex/easee
+	cp ./easee package/debian/opt/thingsplex/easee
 	cp $(version_file) package/debian/opt/thingsplex/easee
 	docker run --rm -v ${working_dir}:/build -w /build --name debuild debian dpkg-deb --build package/debian
 	@echo "Done"
 
 package-docker-amd:build-go-amd
-	cp ./src/easee package/docker/service
+	cp ./easee package/docker/service
 	cd ./package/docker;docker build -t easee .
 
 deb-arm : clean configure-arm build-go-arm package-deb-doc

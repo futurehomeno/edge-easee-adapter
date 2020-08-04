@@ -1,0 +1,8 @@
+Package: easee
+Version: 0.0.1-2-g535615d
+Replaces: easee
+Section: non-free/misc
+Priority: optional
+Architecture: armhf
+Maintainer: Tor Erik Skårdal <skardal@hey.com>
+Description: Easee adapter for the futurehome system
