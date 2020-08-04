@@ -1,0 +1,17 @@
+  
+.DS_Store
+easee
+*.exe
+
+
+# Debian packaging
+VERSION
+control
+*.deb
+package/build
+
+# IDE
+.idea
+.vscode
+
+src/testdata
