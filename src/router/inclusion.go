@@ -19,6 +19,7 @@ func (fc *FromFimpRouter) SendInclusionReports() {
 func (fc *FromFimpRouter) SendInclusionReport(chargerID string, oldMsg *fimpgo.FimpMessage) error {
 	inclusionReport := fc.createInclusionReport(chargerID)
 	msg := fimpgo.NewMessage("evt.thing.inclusion_report", model.ServiceName, fimpgo.VTypeObject, inclusionReport, nil, nil, oldMsg)
+	msg.Source = model.ServiceName
 	addr := fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: model.ServiceName, ResourceAddress: fc.configs.InstanceAddress}
 	err := fc.mqt.Publish(&addr, msg)
 	if err != nil {

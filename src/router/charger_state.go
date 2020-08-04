@@ -22,6 +22,7 @@ func (fc *FromFimpRouter) SendChargerState(chargerID string, oldMsg *fimpgo.Mess
 	}
 	state := fc.easee.Products[chargerID].ChargerState.ChargerOpMode
 	msg := fimpgo.NewStringMessage("evt.state.report", "chargepoint", fimpChargeState[state], nil, nil, oldPayload)
+	msg.Source = model.ServiceName
 	addr := fimpgo.Address{
 		MsgType:         fimpgo.MsgTypeEvt,
 		ResourceType:    fimpgo.ResourceTypeDevice,
@@ -71,6 +72,7 @@ func (fc *FromFimpRouter) SendMeterReport(chargerID string, unit string, oldMsg 
 			return fmt.Errorf("Not a valid unit")
 		}
 		msg := fimpgo.NewFloatMessage("evt.meter.report", "meter_elec", value, props, nil, oldPayload)
+		msg.Source = model.ServiceName
 		addr := fimpgo.Address{
 			MsgType:         fimpgo.MsgTypeEvt,
 			ResourceType:    fimpgo.ResourceTypeDevice,

@@ -209,6 +209,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				//loginMsg := fimpgo.NewMessage("evt.auth.login_report", model.ServiceName, fimpgo.VTypeString, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
 
 				msg := fimpgo.NewMessage("evt.auth.status_report", model.ServiceName, fimpgo.VTypeObject, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
+				msg.Source = model.ServiceName
 				if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
 					// if response topic is not set , sending back to default application event topic
 					fc.mqt.Publish(adr, msg)
@@ -238,6 +239,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				manifest.ConfigState = fc.configs
 			}
 			msg := fimpgo.NewMessage("evt.app.manifest_report", model.ServiceName, fimpgo.VTypeObject, manifest, nil, nil, newMsg.Payload)
+			msg.Source = model.ServiceName
 			if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
 				// if response topic is not set , sending back to default application event topic
 				fc.mqt.Publish(adr, msg)
@@ -245,6 +247,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 
 		case "cmd.app.get_state":
 			msg := fimpgo.NewMessage("evt.app.manifest_report", model.ServiceName, fimpgo.VTypeObject, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
+			msg.Source = model.ServiceName
 			if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
 				// if response topic is not set , sending back to default application event topic
 				fc.mqt.Publish(adr, msg)
@@ -253,6 +256,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 		case "cmd.config.get_extended_report":
 
 			msg := fimpgo.NewMessage("evt.config.extended_report", model.ServiceName, fimpgo.VTypeObject, fc.configs, nil, nil, newMsg.Payload)
+			msg.Source = model.ServiceName
 			if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
 				fc.mqt.Publish(adr, msg)
 			}
@@ -275,6 +279,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				AppState: *fc.appLifecycle.GetAllStates(),
 			}
 			msg := fimpgo.NewMessage("evt.app.config_report", model.ServiceName, fimpgo.VTypeObject, configReport, nil, nil, newMsg.Payload)
+			msg.Source = model.ServiceName
 			if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
 				fc.mqt.Publish(adr, msg)
 			}
@@ -305,6 +310,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				ErrorText:       "",
 			}
 			msg := fimpgo.NewMessage("evt.app.config_action_report", model.ServiceName, fimpgo.VTypeObject, val, nil, nil, newMsg.Payload)
+			msg.Source = model.ServiceName
 			if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
 				fc.mqt.Publish(adr, msg)
 			}
@@ -321,6 +327,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 			fc.appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
 			fc.appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
 			msg := fimpgo.NewMessage("evt.app.config_action_report", model.ServiceName, fimpgo.VTypeObject, val, nil, nil, newMsg.Payload)
+			msg.Source = model.ServiceName
 			if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
 				fc.mqt.Publish(adr, msg)
 			}

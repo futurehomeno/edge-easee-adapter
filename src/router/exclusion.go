@@ -12,6 +12,7 @@ func (fc *FromFimpRouter) SendExclusionReport(chargerID string, oldMsg *fimpgo.F
 		"address": chargerID,
 	}
 	msg := fimpgo.NewMessage("evt.thing.exclusion_report", model.ServiceName, fimpgo.VTypeObject, val, nil, nil, oldMsg)
+	msg.Source = model.ServiceName
 	addr := fimpgo.Address{
 		MsgType:         fimpgo.MsgTypeEvt,
 		ResourceType:    fimpgo.ResourceTypeAdapter,
