@@ -63,7 +63,7 @@ func (fc *FromFimpRouter) SendMeterReport(chargerID string, unit string, oldMsg 
 		var value float64
 		switch unit {
 		case "W":
-			value = fc.easee.Products[chargerID].ChargerState.TotalPower
+			value = fc.easee.Products[chargerID].ChargerState.TotalPower * 1000
 		case "kWh":
 			value = fc.easee.Products[chargerID].ChargerState.SessionEnergy
 		case "V":
