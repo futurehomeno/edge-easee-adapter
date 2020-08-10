@@ -149,11 +149,11 @@ func main() {
 				if err != nil {
 					log.Error(err)
 				}
-				err = fimpRouter.SendStateForAllChargers()
+				err = fimpRouter.SendChangedStateForAllChargers()
 				if err != nil {
 					log.Error(err)
 				}
-				err = fimpRouter.SendWattReportForAllProducts()
+				err = fimpRouter.SendWattReportIfValueChanged()
 				if err != nil {
 					log.Error(err)
 				}

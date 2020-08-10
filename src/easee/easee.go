@@ -123,6 +123,7 @@ func (e *Easee) GetChargerState(chargerID string) error {
 		return err
 	}
 	if product, ok := e.Products[chargerID]; ok {
+		product.LastState = product.ChargerState
 		product.ChargerState = state
 		e.Products[chargerID] = product
 	} else {

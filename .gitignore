@@ -1,8 +1,8 @@
   
 .DS_Store
-easee
-*.exe
 
+*.exe
+/easee
 
 # Debian packaging
 VERSION

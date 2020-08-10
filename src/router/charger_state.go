@@ -39,6 +39,19 @@ func (fc *FromFimpRouter) SendChargerState(chargerID string, oldMsg *fimpgo.Mess
 	return err
 }
 
+// SendChangedStateForAllChargers sends a new FIMP message if the state for the charger has changed.
+func (fc *FromFimpRouter) SendChangedStateForAllChargers() error {
+	for _, product := range fc.easee.Products {
+		if product.ChargeStateHasChanged() {
+			err := fc.SendChargerState(product.Charger.ID, nil)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // SendStateForAllChargers will send a FIMP state message for all chargers
 func (fc *FromFimpRouter) SendStateForAllChargers() error {
 	for _, product := range fc.easee.Products {
@@ -98,6 +111,20 @@ func (fc *FromFimpRouter) SendWattReportForAllProducts() error {
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// SendWattReportIfValueChanged sends a FIMP message if the wattage has changed.
+func (fc *FromFimpRouter) SendWattReportIfValueChanged() error {
+	for _, product := range fc.easee.Products {
+		if product.WattHasChanged() {
+			err := fc.SendMeterReport(product.Charger.ID, "W", nil)
+			if err != nil {
+				return err
+			}
+		}
+
 	}
 	return nil
 }

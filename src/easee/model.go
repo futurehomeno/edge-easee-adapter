@@ -9,6 +9,7 @@ type Product struct {
 	Charger       *Charger       `json:"charger"`
 	ChargerConfig *ChargerConfig `json:"chargerConfig"`
 	ChargerState  *ChargerState  `json:"chargerState"`
+	LastState     *ChargerState  `json:"lastState"`
 }
 
 // Site easee site structure
