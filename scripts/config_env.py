@@ -1,4 +1,5 @@
 import sys
+# coding=utf-8
 
 def set_deb_control(version , arch,file_name):
     template = "Package: easee\n"
