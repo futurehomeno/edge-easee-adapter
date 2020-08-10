@@ -7,7 +7,7 @@ def set_deb_control(version , arch,file_name):
     template+= "Section: non-free/misc\n"
     template+= "Priority: optional\n"
     template+= "Architecture: "+arch+"\n"
-    template+= "Maintainer: Tor Erik Skårdal <skardal@hey.com>\n"
+    template+= "Maintainer: Tor Erik Skardal <skardal@hey.com>\n"
     template+= "Description: Easee adapter for the futurehome system\n"
 
     f = open(file_name,"w")
