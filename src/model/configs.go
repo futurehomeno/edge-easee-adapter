@@ -32,8 +32,7 @@ type Configs struct {
 	AccessToken        string    `json:"accessToken"`
 	RefreshToken       string    `json:"refreshToken"`
 	ExpiresAt          time.Time `json:"expiresAt"`
-	Param1             bool      `json:"param_1"`
-	Param2             string    `json:"param_2"`
+	PollTimeSec        uint16    `json:"poll_time_sec"`
 }
 
 // NewConfigs creates a new config

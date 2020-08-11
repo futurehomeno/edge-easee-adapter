@@ -1,7 +1,34 @@
 {
-  "configs":[ ],
+  "configs":[
+    {
+      "id": "poll_time_sec",
+      "label": {"en": "Seconds"},
+      "val_t": "int",
+      "ui": {
+        "type": "input_number"
+      },
+      "val": {
+        "default": 10
+      },
+      "is_required": false,
+      "hidden": false,
+      "config_point": "any"
+    }
+  ],
   "ui_buttons": [],
-  "ui_blocks": [],
+  "ui_blocks": [
+    {
+      "id": "1",
+      "header": {
+        "en": "Polling"
+      },
+      "text": {"en": "Set polling interval, minimum value is 5, maximum value 3600"},
+      "configs": ["poll_time_sec"],
+      "buttons": [],
+      "footer": {"en": ""},
+      "hidden":false
+    }
+  ],
   "auth": {
     "type": "password",
     "code_grant_login_page_url" : "",

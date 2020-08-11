@@ -84,6 +84,7 @@ func main() {
 				log.Error(err)
 				configs.ClearTokens()
 				appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
+				appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
 				appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
 			} else {
 				configs.AccessToken = newUserToken.AccessToken
@@ -108,6 +109,7 @@ func main() {
 					easee.SaveProductsToFile()
 					fimpRouter.SendInclusionReports()
 					appLifecycle.SetConfigState(edgeapp.ConfigStateConfigured)
+					appLifecycle.SetConnectionState(edgeapp.ConnStateConnected)
 					appLifecycle.SetAppState(edgeapp.AppStateRunning, nil)
 				}
 			}
@@ -125,9 +127,8 @@ func main() {
 		appLifecycle.WaitForState("main", edgeapp.AppStateRunning)
 		log.Info("<main> Starting ticker")
 		// TODO: user config for timer
-		ticker := time.NewTicker(10 * time.Second)
+		ticker := time.NewTicker(time.Duration(configs.PollTimeSec) * time.Second)
 		for ; true; <-ticker.C {
-			log.Debug(time.Now())
 			if appLifecycle.AuthState() == edgeapp.AuthStateAuthenticated {
 				if configs.IsTokenExpired() {
 					newUserToken, err := client.RefreshTokens()
@@ -157,7 +158,9 @@ func main() {
 				if err != nil {
 					log.Error(err)
 				}
-
+				// TODO: improve ticker
+				ticker.Stop()
+				ticker = time.NewTicker(time.Duration(configs.PollTimeSec) * time.Second)
 			}
 		}
 		// Configure custom resources here

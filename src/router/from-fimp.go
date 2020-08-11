@@ -201,10 +201,12 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 					fc.easee.SaveProductsToFile()
 					fc.SendInclusionReports()
 					fc.appLifecycle.SetConfigState(edgeapp.ConfigStateConfigured)
+					fc.appLifecycle.SetConnectionState(edgeapp.ConnStateConnected)
 					fc.appLifecycle.SetAppState(edgeapp.AppStateRunning, nil)
 				} else {
 					fc.appLifecycle.SetConfigState(edgeapp.ConfigStateNotConfigured)
 					fc.appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
+					fc.appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
 				}
 				//loginMsg := fimpgo.NewMessage("evt.auth.login_report", model.ServiceName, fimpgo.VTypeString, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
 
@@ -269,15 +271,18 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				log.Error("Can't parse configuration object")
 				return
 			}
-			fc.configs.Param1 = conf.Param1
-			fc.configs.Param2 = conf.Param2
-			fc.configs.SaveToFile()
-			log.Debugf("App reconfigured . New parameters : %v", fc.configs)
-			// TODO: This is an example . Add your logic here or remove
-			configReport := edgeapp.ConfigReport{
-				OpStatus: "ok",
-				AppState: *fc.appLifecycle.GetAllStates(),
+			configReport := edgeapp.ConfigReport{}
+			if conf.PollTimeSec >= 5 && conf.PollTimeSec <= 3600 {
+				fc.configs.PollTimeSec = conf.PollTimeSec
+				fc.configs.SaveToFile()
+				log.Debugf("App reconfigured . New parameters : %v", fc.configs)
+				configReport.OpStatus = "ok"
+				configReport.AppState = *fc.appLifecycle.GetAllStates()
+			} else {
+				configReport.OpStatus = "error"
+				configReport.AppState = *fc.appLifecycle.GetAllStates()
 			}
+			// TODO: This is an example . Add your logic here or remove
 			msg := fimpgo.NewMessage("evt.app.config_report", model.ServiceName, fimpgo.VTypeObject, configReport, nil, nil, newMsg.Payload)
 			msg.Source = model.ServiceName
 			if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
