@@ -6,7 +6,6 @@ import (
 	"io/ioutil"
 	"path/filepath"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/thingsplex/easee-ad/utils"
 )
 
@@ -73,6 +72,9 @@ func (e *Easee) GetExpiresIn() float64 {
 
 // LoadProductsFromFile does that
 func (e *Easee) LoadProductsFromFile() error {
+	if !utils.FileExists(e.path) {
+		return fmt.Errorf("products.json file doesn't exist")
+	}
 	productsFileBody, err := ioutil.ReadFile(e.path)
 	if err != nil {
 		return err
@@ -89,6 +91,9 @@ func (e *Easee) GetProducts() error {
 	chargers, err := e.client.GetChargers()
 	if err != nil {
 		return err
+	}
+	if e.Products == nil {
+		e.Products = map[string]Product{}
 	}
 	for _, charger := range chargers {
 		e.Products[charger.ID] = Product{
@@ -198,18 +203,8 @@ func (e *Easee) HasProducts() bool {
 
 // IsConfigured not used
 func (e *Easee) IsConfigured() bool {
-	if !utils.FileExists(e.path) {
-		log.Info("products.json file doesn't exist.")
-		return false
-	}
-	err := e.LoadProductsFromFile()
-	if err != nil {
-		log.Error(err)
-		return false
-	}
 	if e.HasProducts() {
 		return true
 	}
 	return false
-
 }

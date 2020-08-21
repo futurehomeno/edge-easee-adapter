@@ -42,6 +42,8 @@ func main() {
 
 	mqtt := fimpgo.NewMqttTransport(configs.MqttServerURI, configs.MqttClientIdPrefix, configs.MqttUsername, configs.MqttPassword, true, 1, 1)
 	err = mqtt.Start()
+	defer mqtt.Stop()
+
 	responder := discovery.NewServiceDiscoveryResponder(mqtt)
 	responder.RegisterResource(model.GetDiscoveryResource())
 	responder.Start()
@@ -49,6 +51,11 @@ func main() {
 	userToken := easee.UserToken{}
 	client, err := easee.NewClient(&userToken)
 	easee := easee.NewEasee(client, configs.WorkDir)
+	err = easee.LoadProductsFromFile()
+	if err != nil {
+		log.Debug("Can't load easee state file.")
+		log.Error(err)
+	}
 
 	fimpRouter := router.NewFromFimpRouter(mqtt, easee, appLifecycle, configs)
 	fimpRouter.Start()
@@ -67,14 +74,8 @@ func main() {
 		userToken.AccessToken = configs.AccessToken
 		userToken.RefreshToken = configs.RefreshToken
 		easee.SetUserToken(&userToken)
-		if easee.IsConfigured() {
-			log.Debug("Easee is configured - Loading products from file")
-			appLifecycle.SetConfigState(edgeapp.ConfigStateConfigured)
-		} else {
-			appLifecycle.SetConfigState(edgeapp.ConfigStatePartConfigured)
-			// TODO: 		appLifecycle.WaitForState("main", edgeapp.AppStateRunning)
-			// Wait for partconfigured and get list of chargers
-		}
+		appLifecycle.SetAuthState(edgeapp.AuthStateAuthenticated)
+		// Check if token is expired
 		if configs.IsTokenExpired() {
 			// Get new tokens with refreshtoken
 			log.Info("Refreshing tokens")
@@ -82,41 +83,41 @@ func main() {
 			if err != nil || newUserToken == nil {
 				log.Debug("Did not manage to refeshtokens")
 				log.Error(err)
-				configs.ClearTokens()
-				appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
 				appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
-				appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
 			} else {
 				configs.AccessToken = newUserToken.AccessToken
 				configs.RefreshToken = newUserToken.RefreshToken
 				configs.SetExpiresAt(newUserToken.ExpiresIn)
 				configs.SaveToFile()
 				easee.SetUserToken(newUserToken)
-				appLifecycle.SetAuthState(edgeapp.AuthStateAuthenticated)
-				if !easee.IsConfigured() {
-					err = easee.GetProducts()
-					if err != nil {
-						log.Error(err)
-					}
-					err = easee.GetConfigForAllProducts()
-					if err != nil {
-						log.Error(err)
-					}
-					easee.GetStateForAllProducts()
-					if err != nil {
-						log.Error(err)
-					}
-					easee.SaveProductsToFile()
-					fimpRouter.SendInclusionReports()
-					appLifecycle.SetConfigState(edgeapp.ConfigStateConfigured)
-					appLifecycle.SetConnectionState(edgeapp.ConnStateConnected)
-					appLifecycle.SetAppState(edgeapp.AppStateRunning, nil)
-				}
 			}
+		}
+		if easee.IsConfigured() {
+			log.Debug("Easee is configured")
+			appLifecycle.SetConfigState(edgeapp.ConfigStateConfigured)
+			appLifecycle.SetConnectionState(edgeapp.ConnStateConnected)
+			appLifecycle.SetAppState(edgeapp.AppStateRunning, nil)
 		} else {
-			appLifecycle.SetAuthState(edgeapp.AuthStateAuthenticated)
+			// Need to configure Easee and set correct state. What if it doesn't work?
+			err = easee.GetProducts()
+			if err != nil {
+				log.Error(err)
+			}
+			err = easee.GetConfigForAllProducts()
+			if err != nil {
+				log.Error(err)
+			}
+			err = easee.GetStateForAllProducts()
+			if err != nil {
+				log.Error(err)
+			}
+			easee.SaveProductsToFile()
+			fimpRouter.SendInclusionReports()
+			appLifecycle.SetConfigState(edgeapp.ConfigStateConfigured)
+			appLifecycle.SetConnectionState(edgeapp.ConnStateConnected)
 			appLifecycle.SetAppState(edgeapp.AppStateRunning, nil)
 		}
+
 	} else {
 		appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
 	}
@@ -126,7 +127,6 @@ func main() {
 	for {
 		appLifecycle.WaitForState("main", edgeapp.AppStateRunning)
 		log.Info("<main> Starting ticker")
-		// TODO: user config for timer
 		ticker := time.NewTicker(time.Duration(configs.PollTimeSec) * time.Second)
 		for ; true; <-ticker.C {
 			if appLifecycle.AuthState() == edgeapp.AuthStateAuthenticated {
@@ -135,9 +135,8 @@ func main() {
 					if err != nil || newUserToken == nil {
 						log.Debug("Did not manage to refeshtokens")
 						log.Error(err)
-						configs.ClearTokens()
-						appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
-						appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
+						appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
+						continue
 					} else {
 						configs.AccessToken = newUserToken.AccessToken
 						configs.RefreshToken = newUserToken.RefreshToken
@@ -159,21 +158,12 @@ func main() {
 					log.Error(err)
 				}
 				// TODO: improve ticker
+				log.Debug("stop ticker and start new one")
 				ticker.Stop()
 				ticker = time.NewTicker(time.Duration(configs.PollTimeSec) * time.Second)
 			}
 		}
-		// Configure custom resources here
-		//if err := conFimpRouter.Start(); err !=nil {
-		//	appLifecycle.PublishEvent(model.EventConfigError,"main",nil)
-		//}else {
-		//	appLifecycle.WaitForState(model.StateConfiguring,"main")
-		//}
 		//TODO: Add logic here
 		appLifecycle.WaitForState("main", edgeapp.AppStateNotConfigured)
-		// TODO: check if easee "has" products
 	}
-
-	mqtt.Stop()
-	time.Sleep(5 * time.Second)
 }

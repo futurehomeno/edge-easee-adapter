@@ -2,6 +2,9 @@ package easee
 
 // ChargeStateHasChanged check if the charge state has changed.
 func (p *Product) ChargeStateHasChanged() bool {
+	if p.LastState.ChargerOpMode == 0 {
+		return false
+	}
 	if p.ChargerState.ChargerOpMode != p.LastState.ChargerOpMode {
 		return true
 	}

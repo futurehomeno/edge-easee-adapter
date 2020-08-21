@@ -11,7 +11,11 @@ func (fc *FromFimpRouter) SendExclusionReport(chargerID string, oldMsg *fimpgo.F
 	val := map[string]interface{}{
 		"address": chargerID,
 	}
-	msg := fimpgo.NewMessage("evt.thing.exclusion_report", model.ServiceName, fimpgo.VTypeObject, val, nil, nil, oldMsg)
+	var oldPayload *fimpgo.FimpMessage
+	if oldMsg != nil {
+		oldPayload = oldMsg
+	}
+	msg := fimpgo.NewMessage("evt.thing.exclusion_report", model.ServiceName, fimpgo.VTypeObject, val, nil, nil, oldPayload)
 	msg.Source = model.ServiceName
 	addr := fimpgo.Address{
 		MsgType:         fimpgo.MsgTypeEvt,
@@ -25,4 +29,14 @@ func (fc *FromFimpRouter) SendExclusionReport(chargerID string, oldMsg *fimpgo.F
 		return err
 	}
 	return nil
+}
+
+// SendExclusionReportForAllChargers sends a report for all chargers
+func (fc *FromFimpRouter) SendExclusionReportForAllChargers() {
+	for _, product := range fc.easee.Products {
+		err := fc.SendExclusionReport(product.Charger.ID, nil)
+		if err != nil {
+			log.Error(err)
+		}
+	}
 }

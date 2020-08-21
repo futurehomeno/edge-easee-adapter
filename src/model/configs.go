@@ -68,6 +68,9 @@ func (cf *Configs) LoadFromFile() error {
 func (cf *Configs) SaveToFile() error {
 	cf.ConfiguredBy = "auto"
 	cf.ConfiguredAt = time.Now().Format(time.RFC3339)
+	if cf.PollTimeSec < 5 {
+		cf.PollTimeSec = 10
+	}
 	bpayload, err := json.Marshal(cf)
 	err = ioutil.WriteFile(cf.path, bpayload, 0664)
 	if err != nil {

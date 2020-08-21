@@ -7,5 +7,11 @@
   "work_dir": "/opt/thingsplex/easee",
   "log_file": "/var/log/thingsplex/easee/easee.log",
   "log_level": "debug",
-  "log_format": "text"
+  "log_format": "text",
+  "configured_at": "",
+  "configured_by": "",
+  "accessToken": "",
+  "refreshToken": "",
+  "expiresAt": "",
+  "poll_time_sec": 10
 }

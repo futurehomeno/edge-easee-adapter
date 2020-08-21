@@ -161,7 +161,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 
 		// TODO: This is an example . Add your logic here or remove
 	case model.ServiceName:
-		adr := &fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: model.ServiceName, ResourceAddress: "1"}
+		adr := &fimpgo.Address{MsgType: fimpgo.MsgTypeEvt, ResourceType: fimpgo.ResourceTypeAdapter, ResourceName: model.ServiceName, ResourceAddress: fc.configs.InstanceAddress}
 		switch newMsg.Payload.Type {
 		case "cmd.auth.login":
 			if fc.appLifecycle.AuthState() == edgeapp.AuthStateNotAuthenticated {
@@ -194,12 +194,14 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 					if err != nil {
 						log.Error(err)
 					}
-					fc.easee.GetStateForAllProducts()
+					err = fc.easee.GetStateForAllProducts()
 					if err != nil {
 						log.Error(err)
 					}
 					fc.easee.SaveProductsToFile()
 					fc.SendInclusionReports()
+					fc.SendStateForAllChargers()
+					fc.SendWattReportForAllProducts()
 					fc.appLifecycle.SetConfigState(edgeapp.ConfigStateConfigured)
 					fc.appLifecycle.SetConnectionState(edgeapp.ConnStateConnected)
 					fc.appLifecycle.SetAppState(edgeapp.AppStateRunning, nil)
@@ -207,6 +209,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 					fc.appLifecycle.SetConfigState(edgeapp.ConfigStateNotConfigured)
 					fc.appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
 					fc.appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
+					fc.appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
 				}
 				//loginMsg := fimpgo.NewMessage("evt.auth.login_report", model.ServiceName, fimpgo.VTypeString, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
 
@@ -371,6 +374,29 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 			} else {
 				log.Error("Incorrect address")
 
+			}
+		case "cmd.auth.logout":
+			// Exclud all products
+			// Remove config and products.json
+			// Clear tokens in memory
+			// Send fimp message with auth state
+			if fc.easee.IsConfigured() {
+				fc.SendExclusionReportForAllChargers()
+				fc.easee.ClearProducts()
+				fc.configs.ClearTokens()
+
+				fc.appLifecycle.SetConfigState(edgeapp.ConfigStateNotConfigured)
+				fc.appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
+				fc.appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
+				fc.appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
+
+				msg := fimpgo.NewMessage("evt.auth.status_report", model.ServiceName, fimpgo.VTypeObject, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
+				msg.Source = model.ServiceName
+				if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
+					// if response topic is not set , sending back to default application event topic
+					fc.mqt.Publish(adr, msg)
+				}
+				log.Info("Logged out successfully")
 			}
 		}
 

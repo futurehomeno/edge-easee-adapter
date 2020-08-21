@@ -1,16 +1,1 @@
-{
-    "instance_address": "1",
-    "mqtt_server_uri": "tcp://zwave.local:1884",
-    "mqtt_server_username": "futurehome",
-    "mqtt_server_password": "futurehome",
-    "mqtt_client_id_prefix": "easee",
-    "log_file": "",
-    "log_level": "debug",
-    "log_format": "text",
-    "configured_at": "2020-08-11T15:47:43+02:00",
-    "configured_by": "auto",
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2NvdW50SWQiOjEyNjgsIlVzZXJJZCI6MTA2NSwidW5pcXVlX25hbWUiOiIxMjY4Iiwicm9sZSI6IlVzZXIiLCJuYmYiOjE1OTcwNzI0NDgsImV4cCI6MTU5NzE1ODg0OCwiaWF0IjoxNTk3MDcyNDQ4fQ.pO24WQPEJ9dbcqNcUhfiDPB0dSWDUBG8LO3QIAeW2VU",
-    "refreshToken": "DxsqI3MHEfemZOWtJ/CyagHJowY4UHhxuzkcTjV4MtE=",
-    "expiresAt": "2020-08-11T17:14:09.022619+02:00",
-    "poll_time_sec": 10
-}
+{"instance_address":"1","mqtt_server_uri":"tcp://192.168.12.7:1884","mqtt_server_username":"tskaard","mqtt_server_password":"tskaard","mqtt_client_id_prefix":"easee","log_file":"","log_level":"debug","log_format":"text","configured_at":"2020-08-21T15:44:04+02:00","configured_by":"auto","accessToken":"","refreshToken":"","expiresAt":"0001-01-01T00:00:00Z","poll_time_sec":10}
