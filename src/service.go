@@ -68,7 +68,6 @@ func main() {
 		log.Error("<main> Internet connection - ERROR")
 	}
 	//--------------------------------------------------------------------
-
 	// Check if adapter is configured
 	if configs.IsConfigured() {
 		userToken.AccessToken = configs.AccessToken

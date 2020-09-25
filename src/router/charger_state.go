@@ -11,10 +11,11 @@ import (
 // SendChargerState sends the charger state
 func (fc *FromFimpRouter) SendChargerState(chargerID string, oldMsg *fimpgo.Message) error {
 	var fimpChargeState = map[int]string{
-		1: "available",
-		2: "paused",
+		1: "disconnected",
+		2: "requesting",
 		3: "charging",
 		4: "finished",
+		5: "ready_to_charge",
 	}
 	var oldPayload *fimpgo.FimpMessage
 	if oldMsg != nil {
