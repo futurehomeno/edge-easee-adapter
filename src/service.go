@@ -124,7 +124,7 @@ func main() {
 	//------------------ Sample code --------------------------------------
 
 	for {
-		appLifecycle.WaitForState("main", edgeapp.AppStateRunning)
+		appLifecycle.WaitForState("main",edgeapp.SystemEventTypeConfigState,edgeapp.ConfigStateConfigured)
 		log.Info("<main> Starting ticker")
 		ticker := time.NewTicker(time.Duration(configs.PollTimeSec) * time.Second)
 		for ; true; <-ticker.C {
@@ -163,6 +163,6 @@ func main() {
 			}
 		}
 		//TODO: Add logic here
-		appLifecycle.WaitForState("main", edgeapp.AppStateNotConfigured)
+		appLifecycle.WaitForState("main", edgeapp.SystemEventTypeConfigState,edgeapp.ConfigStateNotConfigured)
 	}
 }
