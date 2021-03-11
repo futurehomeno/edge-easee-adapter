@@ -12,6 +12,6 @@
   "configured_by": "",
   "accessToken": "",
   "refreshToken": "",
-  "expiresAt": "",
+  "expiresAt": "0001-01-01T00:00:00Z",
   "poll_time_sec": 10
 }
