@@ -176,49 +176,77 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 
 				if login.Username != "" && login.Password != "" {
 					err := fc.easee.Login(login)
+
+					var authenticated bool
+					var configured bool
+					var connected bool
+
 					if err != nil {
 						log.Debug(err)
+						authenticated = false
+					} else {
+						authenticated = true
 					}
+
 					fc.configs.AccessToken = fc.easee.GetAccessToken()
 					fc.configs.RefreshToken = fc.easee.GetRefreshToken()
 					fc.configs.SetExpiresAt(fc.easee.GetExpiresIn())
 					fc.configs.SaveToFile()
-					fc.appLifecycle.SetAuthState(edgeapp.AuthStateAuthenticated)
+					// fc.appLifecycle.SetAuthState(edgeapp.AuthStateAuthenticated) // not necessarily. fc.easee.Login ^ does not actually return err if username or password is wrong.
 					fc.appLifecycle.SetConfigState(edgeapp.ConfigStateInProgress)
 
 					err = fc.easee.GetProducts()
 					if err != nil {
 						log.Error(err)
+						configured = false
+					} else {
+						configured = true
 					}
 					err = fc.easee.GetConfigForAllProducts()
 					if err != nil {
 						log.Error(err)
+						configured = false
 					}
 					err = fc.easee.GetStateForAllProducts()
 					if err != nil {
 						log.Error(err)
+						connected = false
+					} else {
+						connected = true
 					}
-					fc.easee.SaveProductsToFile()
-					fc.SendInclusionReports()
-					fc.SendStateForAllChargers()
-					fc.SendWattReportForAllProducts()
-					fc.appLifecycle.SetConfigState(edgeapp.ConfigStateConfigured)
-					fc.appLifecycle.SetConnectionState(edgeapp.ConnStateConnected)
-					fc.appLifecycle.SetAppState(edgeapp.AppStateRunning, nil)
-				} else {
-					fc.appLifecycle.SetConfigState(edgeapp.ConfigStateNotConfigured)
-					fc.appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
-					fc.appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
-					fc.appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
+					if authenticated && configured && connected {
+						fc.easee.SaveProductsToFile()
+						fc.SendInclusionReports()
+						fc.SendStateForAllChargers()
+						fc.SendWattReportForAllProducts()
+						fc.appLifecycle.SetConfigState(edgeapp.ConfigStateConfigured)
+						fc.appLifecycle.SetAuthState(edgeapp.AuthStateAuthenticated)
+						fc.appLifecycle.SetConnectionState(edgeapp.ConnStateConnected)
+						fc.appLifecycle.SetAppState(edgeapp.AppStateRunning, nil)
+						msg := fimpgo.NewMessage("evt.auth.status_report", model.ServiceName, fimpgo.VTypeObject, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
+						msg.Source = model.ServiceName
+						if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
+							// if response topic is not set , sending back to default application event topic
+							fc.mqt.Publish(adr, msg)
+						}
+
+					} else {
+						fc.appLifecycle.SetConfigState(edgeapp.ConfigStateNotConfigured)
+						fc.appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
+						fc.appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
+						fc.appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
+
+						loginval := map[string]interface{}{
+							"errors":  "Wrong username or password",
+							"success": false,
+						}
+						newadr, _ := fimpgo.NewAddressFromString("pt:j1/mt:rsp/rt:cloud/rn:remote-client/ad:smarthome-app")
+						msg := fimpgo.NewMessage("evt.pd7.response", "vinculum", fimpgo.VTypeObject, loginval, nil, nil, newMsg.Payload)
+						fc.mqt.Publish(newadr, msg)
+					}
 				}
 				//loginMsg := fimpgo.NewMessage("evt.auth.login_report", model.ServiceName, fimpgo.VTypeString, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
 
-				msg := fimpgo.NewMessage("evt.auth.status_report", model.ServiceName, fimpgo.VTypeObject, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
-				msg.Source = model.ServiceName
-				if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
-					// if response topic is not set , sending back to default application event topic
-					fc.mqt.Publish(adr, msg)
-				}
 			} else if fc.appLifecycle.AuthState() == edgeapp.AuthStateInProgress {
 				log.Info("cmd.auth.login - auth state in progress ")
 			} else if fc.appLifecycle.AuthState() == edgeapp.AuthStateAuthenticated {
@@ -383,21 +411,30 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 			if fc.easee.IsConfigured() {
 				fc.SendExclusionReportForAllChargers()
 				fc.easee.ClearProducts()
-				fc.configs.ClearTokens()
-
-				fc.appLifecycle.SetConfigState(edgeapp.ConfigStateNotConfigured)
-				fc.appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
-				fc.appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
-				fc.appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
-
-				msg := fimpgo.NewMessage("evt.auth.status_report", model.ServiceName, fimpgo.VTypeObject, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
-				msg.Source = model.ServiceName
-				if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
-					// if response topic is not set , sending back to default application event topic
-					fc.mqt.Publish(adr, msg)
-				}
-				log.Info("Logged out successfully")
 			}
+
+			// This was previously in the same if-statement as above. Changed to always excecute, as if "cmd.auth.logout" is sent, the app clearly thinks that the user
+			// is logger in to easee, even though it may not be. Thus the integration needs to be reconfigured to proper states, aka not logged in. Also, evt.auth.status_report
+			// needs to be returned to avoid the app from getting stuck in loading.
+			fc.configs.ClearTokens()
+			fc.appLifecycle.SetConfigState(edgeapp.ConfigStateNotConfigured)
+			fc.appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
+			fc.appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
+			fc.appLifecycle.SetAppState(edgeapp.AppStateNotConfigured, nil)
+
+			msg := fimpgo.NewMessage("evt.auth.status_report", model.ServiceName, fimpgo.VTypeObject, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
+			msg.Source = model.ServiceName
+			if err := fc.mqt.RespondToRequest(newMsg.Payload, msg); err != nil {
+				// if response topic is not set , sending back to default application event topic
+				fc.mqt.Publish(adr, msg)
+			}
+			log.Info("Logged out successfully")
+
+		case "cmd.app.uninstall":
+			// Excldue all products
+			fc.SendExclusionReportForAllChargers()
+			fc.easee.ClearProducts()
+			fc.configs.ClearTokens()
 		}
 
 	}
