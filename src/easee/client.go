@@ -219,6 +219,9 @@ func (c *Client) ControlCharger(chargerID string, control ControlType) error {
 	resp, err := c.do(req, nil)
 	// TODO: Check and handle status code
 	log.Debug("Http status code: ", resp.StatusCode)
+	log.Debug("Http resp body: ", resp.Body)
+	log.Debug("Http resp header: ", resp.Header)
+
 	if err != nil {
 		return err
 	}

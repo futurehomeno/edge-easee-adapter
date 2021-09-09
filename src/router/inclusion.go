@@ -170,6 +170,30 @@ func (fc *FromFimpRouter) createChargePointService(addr string) fimptype.Service
 			ValueType: "string",
 			Version:   "1",
 		},
+		fimptype.Interface{
+			Type:      "cmd.charge.start",
+			MsgType:   "out",
+			ValueType: "null",
+			Version:   "1",
+		},
+		fimptype.Interface{
+			Type:      "cmd.charge.stop",
+			MsgType:   "out",
+			ValueType: "null",
+			Version:   "1",
+		},
+		fimptype.Interface{
+			Type:      "cmd.current_session.get_report",
+			MsgType:   "in",
+			ValueType: "null",
+			Version:   "1",
+		},
+		fimptype.Interface{
+			Type:      "evt.current_session.report",
+			MsgType:   "out",
+			ValueType: "float",
+			Version:   "1",
+		},
 	}
 
 	props := map[string]interface{}{

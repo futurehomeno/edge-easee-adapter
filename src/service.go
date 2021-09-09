@@ -124,7 +124,7 @@ func main() {
 	//------------------ Sample code --------------------------------------
 
 	for {
-		appLifecycle.WaitForState("main",edgeapp.SystemEventTypeConfigState,edgeapp.ConfigStateConfigured)
+		appLifecycle.WaitForState("main", edgeapp.SystemEventTypeConfigState, edgeapp.ConfigStateConfigured)
 		log.Info("<main> Starting ticker")
 		ticker := time.NewTicker(time.Duration(configs.PollTimeSec) * time.Second)
 		for ; true; <-ticker.C {
@@ -156,6 +156,15 @@ func main() {
 				if err != nil {
 					log.Error(err)
 				}
+				err = fimpRouter.SendCableReportIfChanged()
+				if err != nil {
+					log.Error(err)
+				}
+				err = fimpRouter.SendSessionEnergyReportIfValueChanged()
+				if err != nil {
+					log.Error(err)
+				}
+
 				// TODO: improve ticker
 				log.Debug("stop ticker and start new one")
 				ticker.Stop()
@@ -163,6 +172,6 @@ func main() {
 			}
 		}
 		//TODO: Add logic here
-		appLifecycle.WaitForState("main", edgeapp.SystemEventTypeConfigState,edgeapp.ConfigStateNotConfigured)
+		appLifecycle.WaitForState("main", edgeapp.SystemEventTypeConfigState, edgeapp.ConfigStateNotConfigured)
 	}
 }

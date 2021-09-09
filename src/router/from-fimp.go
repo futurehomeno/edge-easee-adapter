@@ -73,6 +73,20 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				break
 			}
 
+		case "cmd.current_session.get_report":
+			log.Debug("cmd.current_session.get_report")
+			chargerID := newMsg.Addr.ServiceAddress
+			for _, product := range fc.easee.Products {
+				if chargerID == product.Charger.ID {
+					log.Debug("found correct charger: ", chargerID)
+					err := fc.SendSessionEnergyReport(chargerID, newMsg)
+					if err != nil {
+						log.Error(err)
+					}
+					break
+				}
+			}
+
 		case "cmd.mode.set":
 			log.Debug("cmd.mode.set")
 			chargerID := newMsg.Addr.ServiceAddress
@@ -107,7 +121,40 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				}
 				fc.SendChangerModeEvent(chargerID, "resume", newMsg)
 			}
+		case "cmd.charge.start":
+			log.Debug("cmd.charge.start")
+			chargerID := newMsg.Addr.ServiceAddress
+			err := fc.easee.StartCharging(chargerID)
+			if err != nil {
+				log.Error("Error starting charging", err)
+			}
+			fc.SendChangerModeEvent(chargerID, "start", newMsg)
+		case "cmd.charge.stop":
+			log.Debug("cmd.charge.stop")
+			chargerID := newMsg.Addr.ServiceAddress
+			err := fc.easee.StopCharing(chargerID)
+			if err != nil {
+				log.Error("Error stopping charging", err)
+			}
+			fc.SendChangerModeEvent(chargerID, "stop", newMsg)
+		case "cmd.charge.pause":
+			log.Debug("cmd.charge.pause")
+			chargerID := newMsg.Addr.ServiceAddress
+			err := fc.easee.PauseCharging(chargerID)
+			if err != nil {
+				log.Error("Error pausing charging", err)
+			}
+			fc.SendChangerModeEvent(chargerID, "pause", newMsg)
+		case "cmd.charge.resume":
+			log.Debug("cmd.charge.resume")
+			chargerID := newMsg.Addr.ServiceAddress
+			err := fc.easee.ResumeCharging(chargerID)
+			if err != nil {
+				log.Error("Error resuming charging", err)
+			}
+			fc.SendChangerModeEvent(chargerID, "resume", newMsg)
 		}
+
 	case "meter_elec":
 		switch newMsg.Payload.Type {
 		case "cmd.meter.get_report":
@@ -303,7 +350,7 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				return
 			}
 			configReport := edgeapp.ConfigReport{}
-			if conf.PollTimeSec >= 5 && conf.PollTimeSec <= 3600 {
+			if conf.PollTimeSec >= 30 && conf.PollTimeSec <= 3600 {
 				fc.configs.PollTimeSec = conf.PollTimeSec
 				fc.configs.SaveToFile()
 				log.Debugf("App reconfigured . New parameters : %v", fc.configs)

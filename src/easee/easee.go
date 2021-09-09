@@ -6,6 +6,8 @@ import (
 	"io/ioutil"
 	"path/filepath"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/thingsplex/easee-ad/utils"
 )
 
@@ -131,6 +133,7 @@ func (e *Easee) GetChargerState(chargerID string) error {
 		product.LastState = product.ChargerState
 		product.ChargerState = state
 		e.Products[chargerID] = product
+		log.Debug("ChargerOpMode: ", product.ChargerState.ChargerOpMode)
 	} else {
 		err := fmt.Errorf("No charger with id: %s", chargerID)
 		return err

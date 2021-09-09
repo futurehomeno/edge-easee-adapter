@@ -10,12 +10,15 @@ import (
 
 // SendChargerState sends the charger state
 func (fc *FromFimpRouter) SendChargerState(chargerID string, oldMsg *fimpgo.Message) error {
+	log.Debug("ChargerOpMode: ", fc.easee.Products[chargerID].ChargerState.ChargerOpMode)
 	var fimpChargeState = map[int]string{
+		0: "unavailable",
 		1: "disconnected",
 		2: "requesting",
 		3: "charging",
 		4: "finished",
-		5: "ready_to_charge",
+		5: "error",
+		6: "ready_to_charge",
 	}
 	var oldPayload *fimpgo.FimpMessage
 	if oldMsg != nil {
@@ -45,6 +48,10 @@ func (fc *FromFimpRouter) SendChangedStateForAllChargers() error {
 	for _, product := range fc.easee.Products {
 		if product.ChargeStateHasChanged() {
 			err := fc.SendChargerState(product.Charger.ID, nil)
+			if err != nil {
+				return err
+			}
+			err = fc.SendSessionEnergyReport(product.Charger.ID, nil) // sends session report on changed state, in case new state != (charging || finished) -> session will be forced to 0.
 			if err != nil {
 				return err
 			}
@@ -105,6 +112,66 @@ func (fc *FromFimpRouter) SendMeterReport(chargerID string, unit string, oldMsg 
 	return fmt.Errorf("Not a valid unit")
 }
 
+// SendSessionEnergyReport sends evt.current_session.report
+func (fc *FromFimpRouter) SendSessionEnergyReport(chargerID string, oldMsg *fimpgo.Message) error {
+	var oldPayload *fimpgo.FimpMessage
+	if oldMsg != nil {
+		oldPayload = oldMsg.Payload
+	}
+	props := fimpgo.Props{
+		"unit": "kWh",
+	}
+	var value float64
+	if fc.easee.Products[chargerID].ChargerState.ChargerOpMode != 3 && fc.easee.Products[chargerID].ChargerState.ChargerOpMode != 4 {
+		log.Debug("!= (charging || finished)")
+		value = 0
+	} else {
+		log.Debug("charging || finished")
+		value = fc.easee.Products[chargerID].ChargerState.SessionEnergy
+	}
+	log.Debug("Getted session energy: ", fc.easee.Products[chargerID].ChargerState.SessionEnergy)
+	msg := fimpgo.NewFloatMessage("evt.current_session.report", "chargepoint", value, props, nil, oldPayload)
+	msg.Source = model.ServiceName
+	addr := fimpgo.Address{
+		MsgType:         fimpgo.MsgTypeEvt,
+		ResourceType:    fimpgo.ResourceTypeDevice,
+		ResourceName:    model.ServiceName,
+		ResourceAddress: fc.configs.InstanceAddress,
+		ServiceName:     "chargepoint",
+		ServiceAddress:  chargerID,
+	}
+	err := fc.mqt.Publish(&addr, msg)
+	if err != nil {
+		log.Debug(err)
+		return err
+	}
+	return nil
+}
+
+// SendCableReport sends evt.cable_lock.report
+func (fc *FromFimpRouter) SendCableReport(chargerID string, oldMsg *fimpgo.Message) error {
+	var oldPayload *fimpgo.FimpMessage
+	if oldMsg != nil {
+		oldPayload = oldMsg.Payload
+	}
+	msg := fimpgo.NewBoolMessage("evt.cable_lock.report", "chargepoint", fc.easee.Products[chargerID].ChargerState.CableLocked, nil, nil, oldPayload)
+	msg.Source = model.ServiceName
+	addr := fimpgo.Address{
+		MsgType:         fimpgo.MsgTypeEvt,
+		ResourceType:    fimpgo.ResourceTypeDevice,
+		ResourceName:    model.ServiceName,
+		ResourceAddress: fc.configs.InstanceAddress,
+		ServiceName:     "chargepoint",
+		ServiceAddress:  chargerID,
+	}
+	err := fc.mqt.Publish(&addr, msg)
+	if err != nil {
+		log.Debug(err)
+		return err
+	}
+	return nil
+}
+
 // SendWattReportForAllProducts sends evt.meter.report with unit W for all products
 func (fc *FromFimpRouter) SendWattReportForAllProducts() error {
 	for _, product := range fc.easee.Products {
@@ -125,7 +192,32 @@ func (fc *FromFimpRouter) SendWattReportIfValueChanged() error {
 				return err
 			}
 		}
+	}
+	return nil
+}
 
+// SendSessionEnergyReportIfValueChanged sends a FIMP message if the session energy has changed.
+func (fc *FromFimpRouter) SendSessionEnergyReportIfValueChanged() error {
+	for _, product := range fc.easee.Products {
+		if product.SessionEnergyHasChanged() {
+			err := fc.SendSessionEnergyReport(product.Charger.ID, nil)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// SendCableReportIfChanged sends a FIMP message if the cable lock state has changed.
+func (fc *FromFimpRouter) SendCableReportIfChanged() error {
+	for _, product := range fc.easee.Products {
+		if product.CableLockHasChanged() {
+			err := fc.SendCableReport(product.Charger.ID, nil)
+			if err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

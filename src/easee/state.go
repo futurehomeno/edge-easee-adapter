@@ -18,3 +18,19 @@ func (p *Product) WattHasChanged() bool {
 	}
 	return false
 }
+
+// SessionEnergyHasChanged check if the session energy has changed
+func (p *Product) SessionEnergyHasChanged() bool {
+	if p.ChargerState.SessionEnergy != p.LastState.SessionEnergy {
+		return true
+	}
+	return false
+}
+
+// CableLockHasChanged check if the chargers cable lock has changed
+func (p *Product) CableLockHasChanged() bool {
+	if p.ChargerState.CableLocked != p.LastState.CableLocked {
+		return true
+	}
+	return false
+}
