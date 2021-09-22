@@ -96,6 +96,24 @@ func main() {
 			appLifecycle.SetConfigState(edgeapp.ConfigStateConfigured)
 			appLifecycle.SetConnectionState(edgeapp.ConnStateConnected)
 			appLifecycle.SetAppState(edgeapp.AppStateRunning, nil)
+
+			err := fimpRouter.SendStateForAllChargers()
+			if err != nil {
+				log.Error(err)
+			}
+			err = fimpRouter.SendWattReportForAllProducts()
+			if err != nil {
+				log.Error(err)
+			}
+			err = fimpRouter.SendCableReportForAllProducts()
+			if err != nil {
+				log.Error(err)
+			}
+			err = fimpRouter.SendSessionEnergyReportForAllProducts()
+			if err != nil {
+				log.Error(err)
+			}
+
 		} else {
 			// Need to configure Easee and set correct state. What if it doesn't work?
 			err = easee.GetProducts()
@@ -169,6 +187,7 @@ func main() {
 				log.Debug("stop ticker and start new one")
 				ticker.Stop()
 				ticker = time.NewTicker(time.Duration(configs.PollTimeSec) * time.Second)
+				easee.SaveProductsToFile()
 			}
 		}
 		//TODO: Add logic here

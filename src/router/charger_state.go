@@ -196,6 +196,17 @@ func (fc *FromFimpRouter) SendWattReportIfValueChanged() error {
 	return nil
 }
 
+// SendSessionEnergyReportForAllProducts sends evt.current_session.report with unit kWh for all products
+func (fc *FromFimpRouter) SendSessionEnergyReportForAllProducts() error {
+	for _, product := range fc.easee.Products {
+		err := fc.SendSessionEnergyReport(product.Charger.ID, nil)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // SendSessionEnergyReportIfValueChanged sends a FIMP message if the session energy has changed.
 func (fc *FromFimpRouter) SendSessionEnergyReportIfValueChanged() error {
 	for _, product := range fc.easee.Products {
@@ -204,6 +215,17 @@ func (fc *FromFimpRouter) SendSessionEnergyReportIfValueChanged() error {
 			if err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+// SendCableReportForAllProducts sends evt.cable_lock.report for all products
+func (fc *FromFimpRouter) SendCableReportForAllProducts() error {
+	for _, product := range fc.easee.Products {
+		err := fc.SendCableReport(product.Charger.ID, nil)
+		if err != nil {
+			return err
 		}
 	}
 	return nil

@@ -97,7 +97,8 @@ func (e *Easee) GetProducts() error {
 	if e.Products == nil {
 		e.Products = map[string]Product{}
 	}
-	for _, charger := range chargers {
+	for _, c := range chargers {
+		charger := c
 		e.Products[charger.ID] = Product{
 			Charger:       &charger,
 			ChargerConfig: nil,
@@ -125,6 +126,7 @@ func (e *Easee) GetChargerConfig(chargerID string) error {
 
 // GetChargerState gets the state for one charger and adds it to the product
 func (e *Easee) GetChargerState(chargerID string) error {
+	log.Debug("Get charger state for : ", chargerID)
 	state, err := e.client.GetChargerState(chargerID)
 	if err != nil {
 		return err
@@ -133,7 +135,10 @@ func (e *Easee) GetChargerState(chargerID string) error {
 		product.LastState = product.ChargerState
 		product.ChargerState = state
 		e.Products[chargerID] = product
+		log.Debug("ChargerID: ", product.Charger.ID)
 		log.Debug("ChargerOpMode: ", product.ChargerState.ChargerOpMode)
+		log.Debug("SessionEnergy: ", product.ChargerState.SessionEnergy)
+		log.Debug(" ")
 	} else {
 		err := fmt.Errorf("No charger with id: %s", chargerID)
 		return err
