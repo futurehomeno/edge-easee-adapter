@@ -22,7 +22,7 @@
       "header": {
         "en": "Polling"
       },
-      "text": {"en": "Set polling interval, minimum value is 5, maximum value 3600"},
+      "text": {"en": "Set polling interval, minimum value is 30, maximum value 3600"},
       "configs": ["poll_time_sec"],
       "buttons": [],
       "footer": {"en": ""},

@@ -135,10 +135,6 @@ func (e *Easee) GetChargerState(chargerID string) error {
 		product.LastState = product.ChargerState
 		product.ChargerState = state
 		e.Products[chargerID] = product
-		log.Debug("ChargerID: ", product.Charger.ID)
-		log.Debug("ChargerOpMode: ", product.ChargerState.ChargerOpMode)
-		log.Debug("SessionEnergy: ", product.ChargerState.SessionEnergy)
-		log.Debug(" ")
 	} else {
 		err := fmt.Errorf("No charger with id: %s", chargerID)
 		return err
