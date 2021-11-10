@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/futurehomeno/edge-easee-adapter/easee"
+	"github.com/futurehomeno/edge-easee-adapter/model"
+	"github.com/futurehomeno/edge-easee-adapter/router"
+	"github.com/futurehomeno/edge-easee-adapter/utils"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/discovery"
 	"github.com/futurehomeno/fimpgo/edgeapp"
 	log "github.com/sirupsen/logrus"
-	"github.com/thingsplex/easee-ad/easee"
-	"github.com/thingsplex/easee-ad/model"
-	"github.com/thingsplex/easee-ad/router"
-	"github.com/thingsplex/easee-ad/utils"
 )
 
 func main() {

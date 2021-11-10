@@ -8,7 +8,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/thingsplex/easee-ad/utils"
+	"github.com/futurehomeno/edge-easee-adapter/utils"
 )
 
 // Easee structure for products and http client

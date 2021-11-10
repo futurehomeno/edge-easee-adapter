@@ -1,9 +1,9 @@
 package router
 
 import (
+	"github.com/futurehomeno/edge-easee-adapter/model"
 	"github.com/futurehomeno/fimpgo"
 	log "github.com/sirupsen/logrus"
-	"github.com/thingsplex/easee-ad/model"
 )
 
 // SendChangerModeEvent sends fimp event

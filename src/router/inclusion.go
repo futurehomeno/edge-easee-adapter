@@ -1,10 +1,10 @@
 package router
 
 import (
+	"github.com/futurehomeno/edge-easee-adapter/model"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
-	"github.com/thingsplex/easee-ad/model"
 )
 
 // SendInclusionReports sends one inclusion report for each charger

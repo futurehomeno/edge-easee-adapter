@@ -4,14 +4,12 @@ import (
 	"fmt"
 	"path/filepath"
 
-	//"github.com/thingsplex/easee/easee"
-
+	"github.com/futurehomeno/edge-easee-adapter/easee"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/edgeapp"
-	"github.com/thingsplex/easee-ad/easee"
 
+	"github.com/futurehomeno/edge-easee-adapter/model"
 	log "github.com/sirupsen/logrus"
-	"github.com/thingsplex/easee-ad/model"
 )
 
 // FromFimpRouter structure for fimp router
@@ -224,44 +222,47 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				if login.Username != "" && login.Password != "" {
 					err := fc.easee.Login(login)
 
-					var authenticated bool
-					var configured bool
-					var connected bool
+					authenticated := false
+					configured := false
+					connected := false
 
 					if err != nil {
 						log.Debug(err)
 						authenticated = false
 					} else {
 						authenticated = true
+
+						fc.configs.AccessToken = fc.easee.GetAccessToken()
+						fc.configs.RefreshToken = fc.easee.GetRefreshToken()
+						fc.configs.SetExpiresAt(fc.easee.GetExpiresIn())
+						fc.configs.SaveToFile()
+						// fc.appLifecycle.SetAuthState(edgeapp.AuthStateAuthenticated) // not necessarily. fc.easee.Login ^ does not actually return err if username or password is wrong.
+						fc.appLifecycle.SetConfigState(edgeapp.ConfigStateInProgress)
+
+						err = fc.easee.GetProducts()
+						if err != nil {
+							log.Error(err)
+							configured = false
+						} else {
+							configured = true
+							err = fc.easee.GetConfigForAllProducts()
+							if err != nil {
+								log.Error(err)
+								configured = false
+							} else {
+								err = fc.easee.GetStateForAllProducts()
+								if err != nil {
+									log.Error(err)
+									connected = false
+								} else {
+									connected = true
+								}
+							}
+						}
 					}
 
-					fc.configs.AccessToken = fc.easee.GetAccessToken()
-					fc.configs.RefreshToken = fc.easee.GetRefreshToken()
-					fc.configs.SetExpiresAt(fc.easee.GetExpiresIn())
-					fc.configs.SaveToFile()
-					// fc.appLifecycle.SetAuthState(edgeapp.AuthStateAuthenticated) // not necessarily. fc.easee.Login ^ does not actually return err if username or password is wrong.
-					fc.appLifecycle.SetConfigState(edgeapp.ConfigStateInProgress)
-
-					err = fc.easee.GetProducts()
-					if err != nil {
-						log.Error(err)
-						configured = false
-					} else {
-						configured = true
-					}
-					err = fc.easee.GetConfigForAllProducts()
-					if err != nil {
-						log.Error(err)
-						configured = false
-					}
-					err = fc.easee.GetStateForAllProducts()
-					if err != nil {
-						log.Error(err)
-						connected = false
-					} else {
-						connected = true
-					}
 					if authenticated && configured && connected {
+						log.Debug("authenticated && configured && connected")
 						fc.easee.SaveProductsToFile()
 						fc.SendInclusionReports()
 						fc.SendStateForAllChargers()
@@ -276,8 +277,10 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 							// if response topic is not set , sending back to default application event topic
 							fc.mqt.Publish(adr, msg)
 						}
+						log.Debug("sent auth.status_report")
 
 					} else {
+						log.Debug("not authenticated")
 						fc.appLifecycle.SetConfigState(edgeapp.ConfigStateNotConfigured)
 						fc.appLifecycle.SetAuthState(edgeapp.AuthStateNotAuthenticated)
 						fc.appLifecycle.SetConnectionState(edgeapp.ConnStateDisconnected)
@@ -287,9 +290,11 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 							"errors":  "Wrong username or password",
 							"success": false,
 						}
+						log.Debug("loginval; ", loginval)
 						newadr, _ := fimpgo.NewAddressFromString("pt:j1/mt:rsp/rt:cloud/rn:remote-client/ad:smarthome-app")
 						msg := fimpgo.NewMessage("evt.pd7.response", "vinculum", fimpgo.VTypeObject, loginval, nil, nil, newMsg.Payload)
 						fc.mqt.Publish(newadr, msg)
+						log.Debug("loginval; ", loginval)
 					}
 				}
 				//loginMsg := fimpgo.NewMessage("evt.auth.login_report", model.ServiceName, fimpgo.VTypeString, fc.appLifecycle.GetAllStates(), nil, nil, newMsg.Payload)
