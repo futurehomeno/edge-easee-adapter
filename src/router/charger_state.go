@@ -3,9 +3,9 @@ package router
 import (
 	"fmt"
 
+	"github.com/futurehomeno/edge-easee-adapter/model"
 	"github.com/futurehomeno/fimpgo"
 	log "github.com/sirupsen/logrus"
-	"github.com/thingsplex/easee-ad/model"
 )
 
 // SendChargerState sends the charger state

@@ -1,4 +1,4 @@
-module github.com/thingsplex/easee-ad
+module github.com/futurehomeno/edge-easee-adapter
 
 require (
 	github.com/futurehomeno/fimpgo v1.7.0

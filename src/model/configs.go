@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/futurehomeno/edge-easee-adapter/utils"
 	log "github.com/sirupsen/logrus"
-	"github.com/thingsplex/easee-ad/utils"
 )
 
 // ServiceName is the fimp service name
