@@ -105,6 +105,10 @@ func main() {
 			if err != nil {
 				log.Error(err)
 			}
+			err = fimpRouter.SendLifetimeEnergyReportIfValueChanged()
+			if err != nil {
+				log.Error(err)
+			}
 			err = fimpRouter.SendCableReportForAllProducts()
 			if err != nil {
 				log.Error(err)
@@ -162,22 +166,32 @@ func main() {
 						easee.SetUserToken(newUserToken)
 					}
 				}
+
 				err := easee.GetStateForAllProducts()
 				if err != nil {
 					log.Error(err)
 				}
+
 				err = fimpRouter.SendChangedStateForAllChargers()
 				if err != nil {
 					log.Error(err)
 				}
+
 				err = fimpRouter.SendWattReportIfValueChanged()
 				if err != nil {
 					log.Error(err)
 				}
+
+				err = fimpRouter.SendLifetimeEnergyReportIfValueChanged()
+				if err != nil {
+					log.Error(err)
+				}
+
 				err = fimpRouter.SendCableReportIfChanged()
 				if err != nil {
 					log.Error(err)
 				}
+
 				err = fimpRouter.SendSessionEnergyReportIfValueChanged()
 				if err != nil {
 					log.Error(err)

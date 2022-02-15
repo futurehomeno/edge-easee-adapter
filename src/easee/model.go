@@ -99,6 +99,7 @@ type ChargerState struct {
 	CircuitTotalPhaseConductorCurrentL3          float64   `json:"circuitTotalPhaseConductorCurrentL3"`
 	ReasonForNoCurrent                           int       `json:"reasonForNoCurrent"`
 	WiFiAPEnabled                                bool      `json:"wiFiAPEnabled"`
+	LifetimeEnergy                               float64   `json:"lifetimeEnergy"`
 }
 
 // ChargerConfig structure for charger config

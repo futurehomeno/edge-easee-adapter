@@ -19,6 +19,14 @@ func (p *Product) WattHasChanged() bool {
 	return false
 }
 
+// EnergyHasChanged check if the charger totalt power is changed.
+func (p *Product) LifetimeEnergyHasChanged() bool {
+	if p.ChargerState.LifetimeEnergy != p.LastState.LifetimeEnergy {
+		return true
+	}
+	return false
+}
+
 // SessionEnergyHasChanged check if the session energy has changed
 func (p *Product) SessionEnergyHasChanged() bool {
 	if p.ChargerState.SessionEnergy != p.LastState.SessionEnergy {
