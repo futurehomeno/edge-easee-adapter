@@ -1,1 +1,0 @@
-{"instance_address":"1","mqtt_server_uri":"tcp://<ip>:1884","mqtt_server_username":"","mqtt_server_password":"","mqtt_client_id_prefix":"easee2","log_file":"","log_level":"debug","log_format":"text","configured_at":"2021-09-24T10:21:11+02:00","configured_by":"auto","accessToken":"","refreshToken":"","expiresAt":"2021-09-24T10:21:11.296475+02:00","poll_time_sec":10}

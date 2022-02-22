@@ -8,8 +8,8 @@ def set_deb_control(version , arch,file_name):
     template+= "Section: non-free/misc\n"
     template+= "Priority: optional\n"
     template+= "Architecture: "+arch+"\n"
-    template+= "Maintainer: Tor Erik Skardal <skardal@hey.com>\n"
-    template+= "Description: Easee adapter for the futurehome system\n"
+    template+= "Maintainer: Futurehome AS <support@futurehome.no>\n"
+    template+= "Description: Futurehome Easee EV charger adapter.\n"
 
     f = open(file_name,"w")
     f.write(template)

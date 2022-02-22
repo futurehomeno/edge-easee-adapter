@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/futurehomeno/edge-easee-adapter/easee"
-	"github.com/futurehomeno/edge-easee-adapter/model"
-	"github.com/futurehomeno/edge-easee-adapter/router"
-	"github.com/futurehomeno/edge-easee-adapter/utils"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/discovery"
 	"github.com/futurehomeno/fimpgo/edgeapp"
 	log "github.com/sirupsen/logrus"
+
+	easee2 "github.com/futurehomeno/edge-easee-adapter/_old/easee"
+	model2 "github.com/futurehomeno/edge-easee-adapter/_old/model"
+	"github.com/futurehomeno/edge-easee-adapter/_old/router"
+	"github.com/futurehomeno/edge-easee-adapter/_old/utils"
 )
 
-func main() {
+func _main() {
 	var workDir string
 	flag.StringVar(&workDir, "c", "", "Work dir")
 	flag.Parse()
@@ -25,7 +26,7 @@ func main() {
 		fmt.Println("Work dir ", workDir)
 	}
 	appLifecycle := edgeapp.NewAppLifecycle()
-	configs := model.NewConfigs(workDir)
+	configs := model2.NewConfigs(workDir)
 	err := configs.LoadFromFile()
 	if err != nil {
 		fmt.Print(err)
@@ -45,12 +46,12 @@ func main() {
 	defer mqtt.Stop()
 
 	responder := discovery.NewServiceDiscoveryResponder(mqtt)
-	responder.RegisterResource(model.GetDiscoveryResource())
+	responder.RegisterResource(model2.GetDiscoveryResource())
 	responder.Start()
 
-	userToken := easee.UserToken{}
-	client, err := easee.NewClient(&userToken)
-	easee := easee.NewEasee(client, configs.WorkDir)
+	userToken := easee2.UserToken{}
+	client, err := easee2.NewClient(&userToken)
+	easee := easee2.NewEasee(client, configs.WorkDir)
 	err = easee.LoadProductsFromFile()
 	if err != nil {
 		log.Debug("Can't load easee state file.")

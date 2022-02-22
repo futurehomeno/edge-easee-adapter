@@ -1,0 +1,99 @@
+run:
+  skip-dirs:
+    - test
+issues:
+  fix: false
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - lll
+        - funlen
+linters:
+  enable:
+    # Enabled by default
+    - deadcode
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - structcheck
+    - typecheck
+    - unused
+    - varcheck
+    # Enabled specifically
+    - wsl
+    - lll
+    - cyclop
+    - bodyclose
+    - asciicheck
+    - dupl
+    - depguard
+    - errorlint
+    - dogsled
+    - durationcheck
+    - gocritic
+    - gocyclo
+    - gci
+    - gocognit
+    - goconst
+    - godot
+    - godox
+    - gosec
+    - exhaustive
+    - exportloopref
+    - forbidigo
+    - forcetypeassert
+    - funlen
+    - gofmt
+    - gofumpt
+    - goheader
+    - gomoddirectives
+    - gomodguard
+    - goprintffuncname
+    - ifshort
+    - importas
+    - makezero
+    - misspell
+    - nakedret
+    - nestif
+    - nilerr
+    - nlreturn
+    - noctx
+    - nolintlint
+    - paralleltest
+    - predeclared
+    - promlinter
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - stylecheck
+    - testpackage
+    - thelper
+    - tparallel
+    - unconvert
+    - unparam
+    - wastedassign
+    - whitespace
+    - goimports
+  disable:
+    - tagliatelle # Need to maintain compatibility with legacy JSON models.
+    - wrapcheck # Too be enabled if comfortable to work with.
+    - goerr113 # Too restrictive as forbids dynamic declaration of errors.
+    - exhaustivestruct # Too restrictive as partial struct initialization is a common and valid scenario.
+    - gochecknoglobals # Too restrictive and controversial.
+    - gochecknoinits # Too restrictive and controversial.
+    - gomnd # Too restrictive and generating configuration-related false positives.
+    - prealloc # Too restrictive and generating a lot of false positives.
+    - golint # Deprecated.
+    - interfacer # Deprecated.
+    - maligned # Deprecated.
+    - scopelint # Deprecated.
+  fast: false
+linters-settings:
+  lll:
+    line-length: 160
+  gci:
+    local-prefixes: github.com/futurehomeno/edge-easee-adapter
+  goimports:
+    local-prefixes: github.com/futurehomeno/edge-easee-adapter
