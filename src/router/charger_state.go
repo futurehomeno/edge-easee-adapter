@@ -53,10 +53,10 @@ func (fc *FromFimpRouter) SendChangedStateForAllChargers() error {
 			if err != nil {
 				return err
 			}
-			// err = fc.SendSessionEnergyReport(product.Charger.ID, nil) // sends session report on changed state, in case new state != (charging || finished) -> session will be forced to 0.
-			// if err != nil {
-			// 	return err
-			// }
+			err = fc.SendSessionEnergyReport(product.Charger.ID, nil) // sends session report on changed state, in case new state != (charging || finished) -> session will be forced to 0.
+			if err != nil {
+				return err
+			}
 		}
 	}
 	return nil
