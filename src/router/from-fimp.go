@@ -85,72 +85,32 @@ func (fc *FromFimpRouter) routeFimpMessage(newMsg *fimpgo.Message) {
 				}
 			}
 
-		case "cmd.mode.set":
-			log.Debug("cmd.mode.set")
-			chargerID := newMsg.Addr.ServiceAddress
-			val, err := newMsg.Payload.GetStringValue()
-			if err != nil {
-				log.Error("Incorrect value format")
-				return
-			}
-			switch val {
-			case "start":
-				err := fc.easee.StartCharging(chargerID)
-				if err != nil {
-					log.Error("Error starting charging", err)
-				}
-				fc.SendChangerModeEvent(chargerID, "start", newMsg)
-			case "stop":
-				err := fc.easee.StopCharing(chargerID)
-				if err != nil {
-					log.Error("Error stopping charging", err)
-				}
-				fc.SendChangerModeEvent(chargerID, "stop", newMsg)
-			case "pause":
-				err := fc.easee.PauseCharging(chargerID)
-				if err != nil {
-					log.Error("pause charging failed - ", err)
-				}
-				fc.SendChangerModeEvent(chargerID, "pause", newMsg)
-			case "resume":
-				err := fc.easee.ResumeCharging(chargerID)
-				if err != nil {
-					log.Error("resume charging failed - ", err)
-				}
-				fc.SendChangerModeEvent(chargerID, "resume", newMsg)
-			}
 		case "cmd.charge.start":
 			log.Debug("cmd.charge.start")
 			chargerID := newMsg.Addr.ServiceAddress
-			err := fc.easee.StartCharging(chargerID)
+
+			err := fc.easee.ResumeCharging(chargerID)
 			if err != nil {
 				log.Error("Error starting charging", err)
+
+				return
 			}
-			fc.SendChangerModeEvent(chargerID, "start", newMsg)
+
+			fc.SendChangerStateEvent(chargerID, "charging", newMsg)
+
 		case "cmd.charge.stop":
 			log.Debug("cmd.charge.stop")
 			chargerID := newMsg.Addr.ServiceAddress
-			err := fc.easee.StopCharing(chargerID)
-			if err != nil {
-				log.Error("Error stopping charging", err)
-			}
-			fc.SendChangerModeEvent(chargerID, "stop", newMsg)
-		case "cmd.charge.pause":
-			log.Debug("cmd.charge.pause")
-			chargerID := newMsg.Addr.ServiceAddress
+
 			err := fc.easee.PauseCharging(chargerID)
 			if err != nil {
-				log.Error("Error pausing charging", err)
+				log.Error("Error stopping charging", err)
+
+				return
 			}
-			fc.SendChangerModeEvent(chargerID, "pause", newMsg)
-		case "cmd.charge.resume":
-			log.Debug("cmd.charge.resume")
-			chargerID := newMsg.Addr.ServiceAddress
-			err := fc.easee.ResumeCharging(chargerID)
-			if err != nil {
-				log.Error("Error resuming charging", err)
-			}
-			fc.SendChangerModeEvent(chargerID, "resume", newMsg)
+
+			fc.SendChangerStateEvent(chargerID, "ready_to_charge", newMsg)
+
 		}
 
 	case "meter_elec":

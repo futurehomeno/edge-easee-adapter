@@ -7,8 +7,8 @@ import (
 )
 
 // SendChangerModeEvent sends fimp event
-func (fc *FromFimpRouter) SendChangerModeEvent(chargerID string, mode string, oldMsg *fimpgo.Message) error {
-	msg := fimpgo.NewStringMessage("evt.mode.report", "chargepoint", mode, nil, nil, oldMsg.Payload)
+func (fc *FromFimpRouter) SendChangerStateEvent(chargerID string, state string, oldMsg *fimpgo.Message) error {
+	msg := fimpgo.NewStringMessage("evt.state.report", "chargepoint", state, nil, nil, oldMsg.Payload)
 	msg.Source = model.ServiceName
 	addr := fimpgo.Address{
 		MsgType:         fimpgo.MsgTypeEvt,
@@ -18,10 +18,13 @@ func (fc *FromFimpRouter) SendChangerModeEvent(chargerID string, mode string, ol
 		ServiceName:     "chargepoint",
 		ServiceAddress:  chargerID,
 	}
+
 	err := fc.mqt.Publish(&addr, msg)
 	if err != nil {
-		log.Debug(err)
+		log.Debug("Err in SendChargerStateEvent: ", err)
+
 		return err
 	}
+
 	return err
 }

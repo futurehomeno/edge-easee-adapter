@@ -61,6 +61,13 @@ type Client struct {
 	httpResponse *http.Response
 }
 
+// Control for start/stop/pause/resume commands
+type Control struct {
+	Device    string `json:"device"`
+	CommandID int    `json:"commandId"`
+	Ticks     int64  `json:"ticks"`
+}
+
 // NewClient configures new http client with timeout
 func NewClient(userToken *UserToken) (*Client, error) {
 	url, err := url.Parse(DefaultBaseURL)
@@ -216,11 +223,9 @@ func (c *Client) ControlCharger(chargerID string, control ControlType) error {
 		err = fmt.Errorf("no access token")
 		return err
 	}
-	resp, err := c.do(req, nil)
-	// TODO: Check and handle status code
-	log.Debug("Http status code: ", resp.StatusCode)
-	log.Debug("Http resp body: ", resp.Body)
-	log.Debug("Http resp header: ", resp.Header)
+
+	var controlState *Control
+	_, err = c.do(req, &controlState)
 
 	if err != nil {
 		return err
@@ -256,5 +261,6 @@ func (c *Client) do(req *http.Request, v interface{}) (*http.Response, error) {
 	}
 	defer resp.Body.Close()
 	err = json.NewDecoder(resp.Body).Decode(v)
+
 	return resp, err
 }

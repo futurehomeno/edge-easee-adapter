@@ -11,15 +11,17 @@ import (
 // SendChargerState sends the charger state
 func (fc *FromFimpRouter) SendChargerState(chargerID string, oldMsg *fimpgo.Message) error {
 	log.Debug("ChargerOpMode: ", fc.easee.Products[chargerID].ChargerState.ChargerOpMode)
+
 	var fimpChargeState = map[int]string{
 		0: "unavailable",
 		1: "disconnected",
-		2: "requesting",
+		2: "ready_to_charge",
 		3: "charging",
 		4: "finished",
 		5: "error",
-		6: "ready_to_charge",
+		6: "requesting",
 	}
+
 	var oldPayload *fimpgo.FimpMessage
 	if oldMsg != nil {
 		oldPayload = oldMsg.Payload
@@ -86,7 +88,7 @@ func (fc *FromFimpRouter) SendMeterReport(chargerID string, unit string, oldMsg 
 		case "W":
 			value = fc.easee.Products[chargerID].ChargerState.TotalPower * 1000
 		case "kWh":
-			value = fc.easee.Products[chargerID].ChargerState.SessionEnergy
+			value = fc.easee.Products[chargerID].ChargerState.LifetimeEnergy
 		case "V":
 			value = fc.easee.Products[chargerID].ChargerState.Voltage
 		default:
@@ -188,6 +190,19 @@ func (fc *FromFimpRouter) SendWattReportIfValueChanged() error {
 	for _, product := range fc.easee.Products {
 		if product.WattHasChanged() {
 			err := fc.SendMeterReport(product.Charger.ID, "W", nil)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// SendLifetimeEnergyReportIfValueChanged sends evt.meter.report if the lifetime energy value has changed.
+func (fc *FromFimpRouter) SendLifetimeEnergyReportIfValueChanged() error {
+	for _, product := range fc.easee.Products {
+		if product.LifetimeEnergyHasChanged() {
+			err := fc.SendMeterReport(product.Charger.ID, "kWh", nil)
 			if err != nil {
 				return err
 			}
