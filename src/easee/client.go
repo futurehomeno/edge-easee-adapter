@@ -257,7 +257,6 @@ func (c *Client) newRequest(method, path string, body interface{}) (*http.Reques
 func (c *Client) do(req *http.Request, v interface{}) (*http.Response, error) {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-
 		return nil, err
 	}
 	defer resp.Body.Close()
