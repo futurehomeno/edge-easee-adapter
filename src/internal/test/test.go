@@ -8,6 +8,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/manifest"
 )
 
+// LoadManifest loads and parses app manifest from default test files.
 func LoadManifest(t *testing.T) *manifest.Manifest {
 	t.Helper()
 

@@ -25,7 +25,7 @@ func TestClient_Login(t *testing.T) {
 		password         string
 		serverHandler    http.Handler
 		forceServerError bool
-		want             *easee.LoginData
+		want             *easee.Credentials
 		wantErr          bool
 	}{
 		{
@@ -42,7 +42,7 @@ func TestClient_Login(t *testing.T) {
 				responseCode: http.StatusOK,
 				responseBody: `{"accessToken":"access-token","expiresIn":86400,"accessClaims":["User"],"tokenType":"Bearer","refreshToken":"refresh-token"}`,
 			}),
-			want: &easee.LoginData{
+			want: &easee.Credentials{
 				AccessToken: "access-token",
 				ExpiresIn:   86400,
 				AccessClaims: []string{

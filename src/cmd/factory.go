@@ -18,7 +18,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
-	"github.com/futurehomeno/edge-easee-adapter/internal/router"
+	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 	"github.com/futurehomeno/edge-easee-adapter/internal/tasks"
 )
 
@@ -55,6 +55,7 @@ func getConfigService() *config.Service {
 	return services.configService
 }
 
+// getConfigStorage creates or returns an existing config storage.
 func getConfigStorage() storage.Storage {
 	if services.configStorage == nil {
 		workDir := bootstrap.GetWorkingDirectory()
@@ -112,6 +113,7 @@ func getApplication() app.Application {
 func getManifest() *manifest.Manifest {
 	if services.manifest == nil {
 		workDir := bootstrap.GetWorkingDirectory()
+
 		mf, err := manifest.NewLoader(workDir).Load()
 		if err != nil {
 			log.WithError(err).Fatal("failed to load manifest from file")
@@ -161,6 +163,7 @@ func getThingFactory() adapter.ThingFactory {
 	return services.thingFactory
 }
 
+// getEaseeClient creates or returns existing Easee API client.
 func getEaseeClient() easee.Client {
 	if services.easeeClient == nil {
 		services.easeeClient = easee.NewClient(
@@ -173,6 +176,7 @@ func getEaseeClient() easee.Client {
 	return services.easeeClient
 }
 
+// getHTTPClient creates or returns existing HTTP client with predefined timeout.
 func getHTTPClient() *http.Client {
 	if services.httpClient == nil {
 		services.httpClient = &http.Client{Timeout: 5 * time.Second}
@@ -183,7 +187,7 @@ func getHTTPClient() *http.Client {
 
 // newRouting creates new set of routing.
 func newRouting() []*cliffRouter.Routing {
-	return router.New(
+	return routing.New(
 		getConfigService(),
 		getLifecycle(),
 		getApplication(),

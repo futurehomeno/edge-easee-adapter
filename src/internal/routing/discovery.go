@@ -1,4 +1,4 @@
-package router
+package routing
 
 import (
 	"github.com/futurehomeno/cliffhanger/discovery"

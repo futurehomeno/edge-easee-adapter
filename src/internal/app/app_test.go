@@ -216,7 +216,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			mockClient: func(c *easeeMocks.Client) {
 				c.
 					On("Login", "test-user", "test-password").
-					Return(&easee.LoginData{
+					Return(&easee.Credentials{
 						AccessToken:  "access-token",
 						ExpiresIn:    86400,
 						AccessClaims: []string{"User"},
@@ -301,7 +301,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			mockClient: func(c *easeeMocks.Client) {
 				c.
 					On("Login", "test-user", "test-password").
-					Return(&easee.LoginData{
+					Return(&easee.Credentials{
 						AccessToken:  "access-token",
 						ExpiresIn:    86400,
 						AccessClaims: []string{"User"},
@@ -345,7 +345,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			mockClient: func(c *easeeMocks.Client) {
 				c.
 					On("Login", "test-user", "test-password").
-					Return(&easee.LoginData{
+					Return(&easee.Credentials{
 						AccessToken:  "access-token",
 						ExpiresIn:    86400,
 						AccessClaims: []string{"User"},
@@ -396,7 +396,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			mockClient: func(c *easeeMocks.Client) {
 				c.
 					On("Login", "test-user", "test-password").
-					Return(&easee.LoginData{
+					Return(&easee.Credentials{
 						AccessToken:  "access-token",
 						ExpiresIn:    86400,
 						AccessClaims: []string{"User"},

@@ -8,9 +8,10 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
-	"github.com/futurehomeno/edge-easee-adapter/internal/router"
+	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 )
 
+// Execute is an entry point to the edge application.
 func Execute() {
 	cfg := getConfigService().Model().(*config.Config)
 
@@ -18,7 +19,7 @@ func Execute() {
 
 	edgeApp, err := edge.NewBuilder().
 		WithMQTT(getMQTT()).
-		WithServiceDiscovery(router.GetDiscoveryResource()).
+		WithServiceDiscovery(routing.GetDiscoveryResource()).
 		WithLifecycle(getLifecycle()).
 		WithTopicSubscription(
 			cliffRouter.TopicPatternAdapter(easee.ServiceName),

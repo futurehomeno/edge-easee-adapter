@@ -31,13 +31,21 @@ const (
 	jsonContentType = "application/*+json"
 )
 
+// Client represents Easee API client.
 type Client interface {
-	Login(userName string, password string) (*LoginData, error)
+	// Login logs the user in the Easee API and retrieves credentials.
+	Login(userName string, password string) (*Credentials, error)
+	// StartCharging starts charging session for the selected charger.
 	StartCharging(chargerID string) error
+	// StopCharging stops charging session for the selected charger.
 	StopCharging(chargerID string) error
+	// SetCableLock locks/unlocks the cable for the selected charger.
 	SetCableLock(chargerID string, locked bool) error
+	// ChargerState retrieves detailed data about charger state.
 	ChargerState(chargerID string) (*ChargerState, error)
+	// Chargers returns all available chargers.
 	Chargers() ([]Charger, error)
+	// Ping checks if an external service is available.
 	Ping() error
 }
 
@@ -47,6 +55,7 @@ type client struct {
 	baseURL    string
 }
 
+// NewClient returns a new instance of Client.
 func NewClient(httpClient *http.Client, cfgSvc *config.Service, baseURL string) Client {
 	return &client{
 		httpClient: httpClient,
@@ -55,7 +64,7 @@ func NewClient(httpClient *http.Client, cfgSvc *config.Service, baseURL string) 
 	}
 }
 
-func (c *client) Login(userName string, password string) (*LoginData, error) {
+func (c *client) Login(userName string, password string) (*Credentials, error) {
 	body := loginBody{
 		Username: userName,
 		Password: password,
@@ -76,14 +85,14 @@ func (c *client) Login(userName string, password string) (*LoginData, error) {
 
 	defer resp.Body.Close()
 
-	loginData := &LoginData{}
+	credentials := &Credentials{}
 
-	err = c.readResponseBody(resp, loginData)
+	err = c.readResponseBody(resp, credentials)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not read response body")
 	}
 
-	return loginData, nil
+	return credentials, nil
 }
 
 func (c *client) StartCharging(chargerID string) error {
@@ -286,7 +295,7 @@ func (c *client) refreshAccessToken() error {
 
 	defer resp.Body.Close()
 
-	var loginData LoginData
+	var loginData Credentials
 
 	err = c.readResponseBody(resp, &loginData)
 	if err != nil {

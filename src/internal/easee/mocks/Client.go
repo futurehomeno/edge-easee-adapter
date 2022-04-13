@@ -59,15 +59,15 @@ func (_m *Client) Chargers() ([]easee.Charger, error) {
 }
 
 // Login provides a mock function with given fields: userName, password
-func (_m *Client) Login(userName string, password string) (*easee.LoginData, error) {
+func (_m *Client) Login(userName string, password string) (*easee.Credentials, error) {
 	ret := _m.Called(userName, password)
 
-	var r0 *easee.LoginData
-	if rf, ok := ret.Get(0).(func(string, string) *easee.LoginData); ok {
+	var r0 *easee.Credentials
+	if rf, ok := ret.Get(0).(func(string, string) *easee.Credentials); ok {
 		r0 = rf(userName, password)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*easee.LoginData)
+			r0 = ret.Get(0).(*easee.Credentials)
 		}
 	}
 

@@ -8,11 +8,13 @@ import (
 	"github.com/pkg/errors"
 )
 
+// Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
 	meterelec.Reporter
 }
 
+// NewController returns a new instance of Controller.
 func NewController(client Client, chargerID string) Controller {
 	return &controller{client: client, chargerID: chargerID}
 }

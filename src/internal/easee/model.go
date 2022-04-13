@@ -5,16 +5,11 @@ import (
 )
 
 const (
+	// ServiceName represents Easee service name.
 	ServiceName = "easee"
 )
 
-// BackPlate structure
-type BackPlate struct {
-	ID                string `json:"id"`
-	MasterBackPlateID string `json:"masterBackPlateId"`
-}
-
-// Charger structure
+// Charger represents charger data.
 type Charger struct {
 	ID            string    `json:"id"`
 	Name          string    `json:"name"`
@@ -26,7 +21,13 @@ type Charger struct {
 	ProductCode   int       `json:"productCode"`
 }
 
-// ChargerState structure for state of chager
+// BackPlate represents charger's back plate.
+type BackPlate struct {
+	ID                string `json:"id"`
+	MasterBackPlateID string `json:"masterBackPlateId"`
+}
+
+// ChargerState represents detailed state data about the charger.
 type ChargerState struct {
 	SmartCharging                                bool        `json:"smartCharging"`
 	CableLocked                                  bool        `json:"cableLocked"`
@@ -77,8 +78,29 @@ type ChargerState struct {
 	LifetimeEnergy                               float64     `json:"lifetimeEnergy"`
 }
 
+const (
+	// ChargerModeUnavailable represents an "unavailable" state of the charger.
+	ChargerModeUnavailable = "unavailable"
+	// ChargerModeDisconnected represents a "disconnected" state of the charger.
+	ChargerModeDisconnected = "disconnected"
+	// ChargerModeReadyToCharge represents a "ready to charge" state of the charger.
+	ChargerModeReadyToCharge = "ready_to_charge"
+	// ChargerModeCharging represents a "charging" state of the charger.
+	ChargerModeCharging = "charging"
+	// ChargerModeFinished represents a "finished" state of the charger.
+	ChargerModeFinished = "finished"
+	// ChargerModeError represents an "error" state of the charger.
+	ChargerModeError = "error"
+	// ChargerModeRequesting represents a "requesting" state of the charger.
+	ChargerModeRequesting = "requesting"
+	// ChargerModeUnknown represents an "unknown" state of the charger.
+	ChargerModeUnknown = "unknown"
+)
+
+// ChargerMode represents a charger mode.
 type ChargerMode int
 
+// String returns a string representation ChargerMode.
 func (m ChargerMode) String() string {
 	switch m {
 	case 0:
@@ -100,18 +122,8 @@ func (m ChargerMode) String() string {
 	}
 }
 
-const (
-	ChargerModeUnavailable   = "unavailable"
-	ChargerModeDisconnected  = "disconnected"
-	ChargerModeReadyToCharge = "ready_to_charge"
-	ChargerModeCharging      = "charging"
-	ChargerModeFinished      = "finished"
-	ChargerModeError         = "error"
-	ChargerModeRequesting    = "requesting"
-	ChargerModeUnknown       = "unknown"
-)
-
-type LoginData struct {
+// Credentials stands for Easee API credentials.
+type Credentials struct {
 	AccessToken  string   `json:"accessToken"`
 	ExpiresIn    int      `json:"expiresIn"`
 	AccessClaims []string `json:"accessClaims"`
@@ -119,16 +131,19 @@ type LoginData struct {
 	RefreshToken string   `json:"refreshToken"`
 }
 
+// loginBody represents a login request body.
 type loginBody struct {
 	Username string `json:"userName"`
 	Password string `json:"password"`
 }
 
+// refreshBody represents a token refresh request body.
 type refreshBody struct {
 	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken"`
 }
 
+// cableLockBody represents a cable lock request body.
 type cableLockBody struct {
 	State bool `json:"state"`
 }

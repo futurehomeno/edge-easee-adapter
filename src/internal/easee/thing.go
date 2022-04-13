@@ -20,6 +20,7 @@ type thingFactory struct {
 	client Client
 }
 
+// NewThingFactory returns a new instance of adapter.ThingFactory.
 func NewThingFactory(client Client) adapter.ThingFactory {
 	return &thingFactory{
 		client: client,
@@ -49,7 +50,6 @@ func (t *thingFactory) Create(mqtt *fimpgo.MqttTransport, adapter adapter.Extend
 	}), nil
 }
 
-// inclusionReport returns inclusion report.
 func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState, groups []string) *fimptype.ThingInclusionReport {
 	return &fimptype.ThingInclusionReport{
 		Address:        thingState.Address(),
@@ -64,7 +64,6 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 	}
 }
 
-// meterElecSpecification returns specification for an electricity meter service.
 func (t *thingFactory) chargepointSpecification(adapter adapter.ExtendedAdapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
 	return chargepoint.Specification(
 		adapter.Name(),
@@ -75,7 +74,6 @@ func (t *thingFactory) chargepointSpecification(adapter adapter.ExtendedAdapter,
 	)
 }
 
-// meterElecSpecification returns specification for an electricity meter service.
 func (t *thingFactory) meterElecSpecification(adapter adapter.ExtendedAdapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
 	return meterelec.Specification(
 		adapter.Name(),

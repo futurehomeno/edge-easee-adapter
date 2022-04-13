@@ -30,17 +30,19 @@ func Factory() interface{} {
 	return &Config{}
 }
 
-// Credentials represent OSS API credentials.
+// Credentials represent Easee API credentials.
 type Credentials struct {
 	AccessToken  string    `json:"accessToken"`
 	RefreshToken string    `json:"refreshToken"`
 	ExpiresAt    time.Time `json:"expiresAt"`
 }
 
+// Empty checks if credentials are empty.
 func (c Credentials) Empty() bool {
 	return c == Credentials{}
 }
 
+// Expired checks if credentials are expired.
 func (c Credentials) Expired() bool {
 	return clock.Now().UTC().After(c.ExpiresAt)
 }

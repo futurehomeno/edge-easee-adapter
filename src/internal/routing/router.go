@@ -1,4 +1,4 @@
-package router
+package routing
 
 import (
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
@@ -11,6 +11,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 )
 
+// New returns a new routing table.
 func New(
 	cfgSrv *config.Service,
 	appLifecycle *lifecycle.Lifecycle,

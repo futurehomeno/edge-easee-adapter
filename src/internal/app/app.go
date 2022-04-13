@@ -13,6 +13,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 )
 
+// Application is an interface representing a service responsible for preparing an application manifest and configuring app.
 type Application interface {
 	cliffApp.App
 	cliffApp.LogginableApp
@@ -20,6 +21,7 @@ type Application interface {
 	cliffApp.InitializableApp
 }
 
+// New creates new instance of an Application.
 func New(ad adapter.ExtendedAdapter, cfgService *config.Service, lc *lifecycle.Lifecycle, mf *manifest.Manifest, client easee.Client) Application {
 	return &application{
 		ad:         ad,
@@ -131,7 +133,7 @@ func (a *application) login(credentials *cliffApp.LoginCredentials) error {
 		return errors.Wrap(err, "failed to authenticate the user in Easee API")
 	}
 
-	err = a.cfgService.SetCredentials(loginData.AccessToken, loginData.RefreshToken, int(loginData.ExpiresIn))
+	err = a.cfgService.SetCredentials(loginData.AccessToken, loginData.RefreshToken, loginData.ExpiresIn)
 	if err != nil {
 		return errors.Wrap(err, "failed to save credentials in config")
 	}
