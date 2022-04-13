@@ -5,49 +5,49 @@ Accept: application/json
 Content-Type: application/*+json
 
 {
-  "userName": "markus@futurehome.no",
-  "password": "Easee-ad1"
+  "userName": "username",
+  "password": "password"
 }
 
 ###
 # Refresh token
 POST https://api.easee.cloud/api/accounts/refresh_token
 Accept: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2NvdW50SWQiOjc0MDQ1LCJVc2VySWQiOjU4NjA3LCJ1bmlxdWVfbmFtZSI6Ijc0MDQ1Iiwicm9sZSI6IlVzZXIiLCJuYmYiOjE2NDk2NjQwMjEsImV4cCI6MTY0OTc1MDQyMSwiaWF0IjoxNjQ5NjY0MDIxfQ.vx9IW3dXuKp4NVPCM9DkNeMWelIWnkan83-D_H1oqGQ
+Authorization: Bearer access-token
 Content-Type: application/*+json
 
 
 {
-  "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2NvdW50SWQiOjc0MDQ1LCJVc2VySWQiOjU4NjA3LCJ1bmlxdWVfbmFtZSI6Ijc0MDQ1Iiwicm9sZSI6IlVzZXIiLCJuYmYiOjE2NDk2NjQwMjEsImV4cCI6MTY0OTc1MDQyMSwiaWF0IjoxNjQ5NjY0MDIxfQ.vx9IW3dXuKp4NVPCM9DkNeMWelIWnkan83-D_H1oqGQ",
-  "refreshToken": "7h1UIeRrQxTIvTynLZE3qPj5g8HNvzHQC67Hiap0gRQ="
+  "accessToken": "access-token",
+  "refreshToken": "refresh-token"
 }
 
 ###
 # Get all chargers
 GET https://api.easee.cloud/api/chargers
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2NvdW50SWQiOjc0MDQ1LCJVc2VySWQiOjU4NjA3LCJ1bmlxdWVfbmFtZSI6Ijc0MDQ1Iiwicm9sZSI6IlVzZXIiLCJuYmYiOjE2NDk4MzU5ODMsImV4cCI6MTY0OTkyMjM4MywiaWF0IjoxNjQ5ODM1OTgzfQ.3yw59sy6SFjnQScVz9IO16nenO__lrwdLY7S-qX3TrQ
+Authorization: Bearer access-token
 
 ###
 # Check API health
 GET https://api.easee.cloud/health
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2NvdW50SWQiOjc0MDQ1LCJVc2VySWQiOjU4NjA3LCJ1bmlxdWVfbmFtZSI6Ijc0MDQ1Iiwicm9sZSI6IlVzZXIiLCJuYmYiOjE2NDk4MzU5ODMsImV4cCI6MTY0OTkyMjM4MywiaWF0IjoxNjQ5ODM1OTgzfQ.3yw59sy6SFjnQScVz9IO16nenO__lrwdLY7S-qX3TrQ
+Authorization: Bearer access-token
 
 ###
 # Get charger state
-GET https://api.easee.cloud/api/chargers/EHFM4754/state
+GET https://api.easee.cloud/api/chargers/{charger-id}/state
 Accept: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2NvdW50SWQiOjc0MDQ1LCJVc2VySWQiOjU4NjA3LCJ1bmlxdWVfbmFtZSI6Ijc0MDQ1Iiwicm9sZSI6IlVzZXIiLCJuYmYiOjE2NDk4MzU5ODMsImV4cCI6MTY0OTkyMjM4MywiaWF0IjoxNjQ5ODM1OTgzfQ.3yw59sy6SFjnQScVz9IO16nenO__lrwdLY7S-qX3TrQ
+Authorization: Bearer access-token
 
 ###
 # Charger config
-GET https://api.easee.cloud/api/chargers/EHFM4754/config
+GET https://api.easee.cloud/api/chargers/{charger-id}/config
 Accept: application/json
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2NvdW50SWQiOjc0MDQ1LCJVc2VySWQiOjU4NjA3LCJ1bmlxdWVfbmFtZSI6Ijc0MDQ1Iiwicm9sZSI6IlVzZXIiLCJuYmYiOjE2NDk4MzU5ODMsImV4cCI6MTY0OTkyMjM4MywiaWF0IjoxNjQ5ODM1OTgzfQ.3yw59sy6SFjnQScVz9IO16nenO__lrwdLY7S-qX3TrQ
+Authorization: Bearer access-token
 
 ###
 # Set cable lock state
-POST https://api.easee.cloud/api/chargers/EHFM4754/commands/lock_state
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2NvdW50SWQiOjc0MDQ1LCJVc2VySWQiOjU4NjA3LCJ1bmlxdWVfbmFtZSI6Ijc0MDQ1Iiwicm9sZSI6IlVzZXIiLCJuYmYiOjE2NDk4MzU5ODMsImV4cCI6MTY0OTkyMjM4MywiaWF0IjoxNjQ5ODM1OTgzfQ.3yw59sy6SFjnQScVz9IO16nenO__lrwdLY7S-qX3TrQ
+POST https://api.easee.cloud/api/chargers/{charger-id}/commands/lock_state
+Authorization: Bearer access-token
 Content-Type: application/*+json
 
 {
