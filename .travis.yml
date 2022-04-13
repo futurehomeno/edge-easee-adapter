@@ -1,0 +1,8 @@
+language: go
+
+go:
+  - "1.17"
+
+script:
+  - cd ./src/
+  - go test -v ./...
