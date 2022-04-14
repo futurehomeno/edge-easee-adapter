@@ -4,4 +4,4 @@ services:
     image: eclipse-mosquitto:1.6.8
     restart: always
     ports:
-      - "1889:1883"
+      - "1883:1883"

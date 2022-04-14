@@ -122,6 +122,20 @@ func (m ChargerMode) String() string {
 	}
 }
 
+// SupportedChargingStates returns all charging states supported by Easee.
+func SupportedChargingStates() []string {
+	return []string{
+		ChargerModeUnavailable,
+		ChargerModeDisconnected,
+		ChargerModeReadyToCharge,
+		ChargerModeCharging,
+		ChargerModeFinished,
+		ChargerModeError,
+		ChargerModeRequesting,
+		ChargerModeUnknown,
+	}
+}
+
 // Credentials stands for Easee API credentials.
 type Credentials struct {
 	AccessToken  string   `json:"accessToken"`

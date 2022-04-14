@@ -54,7 +54,7 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 	return &fimptype.ThingInclusionReport{
 		Address:        thingState.Address(),
 		Alias:          "easee",
-		ProductHash:    "easee",
+		ProductHash:    "Easee Home - " + info.ChargerID,
 		CommTechnology: "cloud",
 		ProductName:    "Easee Laderobot",
 		ManufacturerId: "easee",
@@ -70,7 +70,7 @@ func (t *thingFactory) chargepointSpecification(adapter adapter.ExtendedAdapter,
 		adapter.Address(),
 		thingState.Address(),
 		groups,
-		[]string{"available", "preparing", "charging", "paused", "finished", "unknown"}, // TODO: move to Cliffhanger
+		SupportedChargingStates(),
 	)
 }
 

@@ -58,7 +58,7 @@ func getConfigService() *config.Service {
 // getConfigStorage creates or returns an existing config storage.
 func getConfigStorage() storage.Storage {
 	if services.configStorage == nil {
-		workDir := bootstrap.GetWorkingDirectory()
+		workDir := bootstrap.GetConfigurationDirectory()
 		cfg := config.New(workDir)
 
 		services.configStorage = cliffCfg.NewStorage(cfg, workDir)
@@ -112,7 +112,7 @@ func getApplication() app.Application {
 // getManifest creates or returns existing application manifest.
 func getManifest() *manifest.Manifest {
 	if services.manifest == nil {
-		workDir := bootstrap.GetWorkingDirectory()
+		workDir := bootstrap.GetConfigurationDirectory()
 
 		mf, err := manifest.NewLoader(workDir).Load()
 		if err != nil {
@@ -145,7 +145,7 @@ func getAdapterState() adapter.State {
 	if services.adapterState == nil {
 		var err error
 
-		services.adapterState, err = adapter.NewState(bootstrap.GetWorkingDirectory())
+		services.adapterState, err = adapter.NewState(bootstrap.GetConfigurationDirectory())
 		if err != nil {
 			log.WithError(err).Fatal("failed to initialize adapter state")
 		}

@@ -16,6 +16,7 @@ func GetDiscoveryResource() *discovery.Resource {
 		Author:                 "support@futurehome.no",
 		IsInstanceConfigurable: false,
 		Version:                "1",
+		InstanceID:             "1",
 		AdapterInfo: discovery.AdapterInfo{
 			Technology:            "easee",
 			FwVersion:             "all",
