@@ -9,6 +9,8 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
 // Info is an object representing charger persisted information.
@@ -17,13 +19,15 @@ type Info struct {
 }
 
 type thingFactory struct {
-	client Client
+	client     Client
+	cfgService *config.Service
 }
 
 // NewThingFactory returns a new instance of adapter.ThingFactory.
-func NewThingFactory(client Client) adapter.ThingFactory {
+func NewThingFactory(client Client, cfgService *config.Service) adapter.ThingFactory {
 	return &thingFactory{
-		client: client,
+		client:     client,
+		cfgService: cfgService,
 	}
 }
 
@@ -34,7 +38,7 @@ func (t *thingFactory) Create(mqtt *fimpgo.MqttTransport, adapter adapter.Extend
 		return nil, fmt.Errorf("factory: failed to retrieve information: %w", err)
 	}
 
-	controller := NewController(t.client, info.ChargerID)
+	controller := NewController(t.client, t.cfgService, info.ChargerID)
 	groups := []string{"ch_0"}
 
 	return thing.NewCarCharger(mqtt, &thing.CarChargerConfig{
@@ -54,9 +58,9 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 	return &fimptype.ThingInclusionReport{
 		Address:        thingState.Address(),
 		Alias:          "easee",
-		ProductHash:    "Easee Home - " + info.ChargerID,
+		ProductHash:    "EaseeHome" + info.ChargerID,
 		CommTechnology: "cloud",
-		ProductName:    "Easee Laderobot",
+		ProductName:    "Easee Home",
 		ManufacturerId: "easee",
 		DeviceId:       info.ChargerID,
 		PowerSource:    "ac",
@@ -71,6 +75,7 @@ func (t *thingFactory) chargepointSpecification(adapter adapter.ExtendedAdapter,
 		thingState.Address(),
 		groups,
 		SupportedChargingStates(),
+		SupportedChargingModes(),
 	)
 }
 
@@ -81,5 +86,6 @@ func (t *thingFactory) meterElecSpecification(adapter adapter.ExtendedAdapter, t
 		thingState.Address(),
 		groups,
 		[]string{meterelec.UnitW, meterelec.UnitKWh, meterelec.UnitV},
+		nil,
 	)
 }

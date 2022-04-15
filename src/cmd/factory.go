@@ -157,7 +157,7 @@ func getAdapterState() adapter.State {
 // getThingFactory creates or returns existing thing factory service.
 func getThingFactory() adapter.ThingFactory {
 	if services.thingFactory == nil {
-		services.thingFactory = easee.NewThingFactory(getEaseeClient())
+		services.thingFactory = easee.NewThingFactory(getEaseeClient(), getConfigService())
 	}
 
 	return services.thingFactory
@@ -170,6 +170,8 @@ func getEaseeClient() easee.Client {
 			getHTTPClient(),
 			getConfigService(),
 			getConfigService().GetEaseeBaseURL(),
+			20*time.Millisecond,
+			3*time.Second,
 		)
 	}
 

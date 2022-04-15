@@ -109,6 +109,20 @@ func (_m *Client) SetCableLock(chargerID string, locked bool) error {
 	return r0
 }
 
+// SetChargingCurrent provides a mock function with given fields: chargerID, current
+func (_m *Client) SetChargingCurrent(chargerID string, current float64) error {
+	ret := _m.Called(chargerID, current)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, float64) error); ok {
+		r0 = rf(chargerID, current)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
 // StartCharging provides a mock function with given fields: chargerID
 func (_m *Client) StartCharging(chargerID string) error {
 	ret := _m.Called(chargerID)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
@@ -14,13 +15,16 @@ import (
 )
 
 const (
-	loginURI                  = "/api/accounts/token"
-	tokenRefreshURI           = "/api/accounts/refresh_token"
-	chargersURI               = "/api/chargers"
-	healthURI                 = "/health"
-	chargerControlURITemplate = "/api/chargers/%s/commands/%s"
-	chargerStateURITemplate   = "/api/chargers/%s/state"
-	cableLockURITemplate      = "/api/chargers/%s/commands/lock_state"
+	loginURI        = "/api/accounts/token"
+	tokenRefreshURI = "/api/accounts/refresh_token"
+	chargersURI     = "/api/chargers"
+	healthURI       = "/health"
+
+	chargerControlURITemplate  = "/api/chargers/%s/commands/%s"
+	chargerStateURITemplate    = "/api/chargers/%s/state"
+	chargerSettingsURITemplate = "/api/chargers/%s/settings"
+	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
+	commandCheckURITemplate    = "/api/commands/%s/%d/%d"
 
 	startChargingCommand = "resume_charging"
 	stopChargingCommand  = "pause_charging"
@@ -34,13 +38,15 @@ const (
 // Client represents Easee API client.
 type Client interface {
 	// Login logs the user in the Easee API and retrieves credentials.
-	Login(userName string, password string) (*Credentials, error)
+	Login(userName, password string) (*Credentials, error)
 	// StartCharging starts charging session for the selected charger.
 	StartCharging(chargerID string) error
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(chargerID string) error
 	// SetCableLock locks/unlocks the cable for the selected charger.
 	SetCableLock(chargerID string, locked bool) error
+	// SetChargingCurrent sets expected charging current expressed as amperes on the selected charger.
+	SetChargingCurrent(chargerID string, current float64) error
 	// ChargerState retrieves detailed data about charger state.
 	ChargerState(chargerID string) (*ChargerState, error)
 	// Chargers returns all available chargers.
@@ -50,21 +56,31 @@ type Client interface {
 }
 
 type client struct {
-	httpClient *http.Client
-	cfgSvc     *config.Service
-	baseURL    string
+	httpClient           *http.Client
+	cfgSvc               *config.Service
+	baseURL              string
+	commandCheckInterval time.Duration
+	commandCheckTimeout  time.Duration
 }
 
 // NewClient returns a new instance of Client.
-func NewClient(httpClient *http.Client, cfgSvc *config.Service, baseURL string) Client {
+func NewClient(
+	httpClient *http.Client,
+	cfgSvc *config.Service,
+	baseURL string,
+	commandCheckInterval,
+	commandCheckTimeout time.Duration,
+) Client {
 	return &client{
-		httpClient: httpClient,
-		cfgSvc:     cfgSvc,
-		baseURL:    baseURL,
+		httpClient:           httpClient,
+		cfgSvc:               cfgSvc,
+		baseURL:              baseURL,
+		commandCheckInterval: commandCheckInterval,
+		commandCheckTimeout:  commandCheckTimeout,
 	}
 }
 
-func (c *client) Login(userName string, password string) (*Credentials, error) {
+func (c *client) Login(userName, password string) (*Credentials, error) {
 	body := loginBody{
 		Username: userName,
 		Password: password,
@@ -110,12 +126,22 @@ func (c *client) StartCharging(chargerID string) error {
 		return errors.Wrap(err, "failed to create start charging request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusOK)
+	resp, err := c.performRequest(req, http.StatusAccepted)
 	if err != nil {
 		return errors.Wrap(err, "start charging request failed")
 	}
 
 	defer resp.Body.Close()
+
+	var body commandResponse
+
+	if err := c.readResponseBody(resp, &body); err != nil {
+		return errors.Wrap(err, "failed to read response body")
+	}
+
+	if err := c.checkCommand(body); err != nil {
+		return errors.Wrap(err, "command checker failed or timed out")
+	}
 
 	return nil
 }
@@ -135,12 +161,22 @@ func (c *client) StopCharging(chargerID string) error {
 		return errors.Wrap(err, "failed to create stop charging request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusOK)
+	resp, err := c.performRequest(req, http.StatusAccepted)
 	if err != nil {
 		return errors.Wrap(err, "stop charging request failed")
 	}
 
 	defer resp.Body.Close()
+
+	var body commandResponse
+
+	if err := c.readResponseBody(resp, &body); err != nil {
+		return errors.Wrap(err, "failed to read response body")
+	}
+
+	if err := c.checkCommand(body); err != nil {
+		return errors.Wrap(err, "command checker failed or timed out")
+	}
 
 	return nil
 }
@@ -168,6 +204,57 @@ func (c *client) SetCableLock(chargerID string, locked bool) error {
 	}
 
 	defer resp.Body.Close()
+
+	var body commandResponse
+
+	if err := c.readResponseBody(resp, &body); err != nil {
+		return errors.Wrap(err, "failed to read response body")
+	}
+
+	if err := c.checkCommand(body); err != nil {
+		return errors.Wrap(err, "command checker failed or timed out")
+	}
+
+	return nil
+}
+
+func (c *client) SetChargingCurrent(chargerID string, current float64) error {
+	if current < 0 {
+		return errors.New("current cannot be lower than zero")
+	}
+
+	token, err := c.accessToken()
+	if err != nil {
+		return errors.Wrap(err, "failed to get access token")
+	}
+
+	uri := fmt.Sprintf(chargerSettingsURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodPost, c.url(uri)).
+		withBody(chargerCurrentBody{DynamicChargerCurrent: current}).
+		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
+		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return errors.Wrap(err, "failed to create charging current request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusAccepted)
+	if err != nil {
+		return errors.Wrap(err, "could not perform charging current api call")
+	}
+
+	defer resp.Body.Close()
+
+	var body commandResponse
+
+	if err := c.readResponseBody(resp, &body); err != nil {
+		return errors.Wrap(err, "failed to read response body")
+	}
+
+	if err := c.checkCommand(body); err != nil {
+		return errors.Wrap(err, "command checker failed or timed out")
+	}
 
 	return nil
 }
@@ -342,6 +429,56 @@ func (c *client) url(uri string) string {
 
 func (c *client) bearerTokenHeader(authToken string) string {
 	return "Bearer " + authToken
+}
+
+func (c *client) checkCommand(r commandResponse) error {
+	ticker := time.NewTicker(c.commandCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if err := c.runCheck(r); err == nil {
+				return nil
+			}
+		case <-time.After(c.commandCheckTimeout):
+			return errors.New("command checker timeout")
+		}
+	}
+}
+
+func (c *client) runCheck(r commandResponse) error {
+	token, err := c.accessToken()
+	if err != nil {
+		return errors.Wrap(err, "failed to get access token")
+	}
+
+	uri := fmt.Sprintf(commandCheckURITemplate, r.Device, r.CommandID, r.Ticks)
+	req, err := newRequestBuilder(http.MethodGet, c.url(uri)).
+		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
+		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return errors.Wrap(err, "failed to build command checker request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusOK)
+	if err != nil {
+		return errors.Wrap(err, "failed to perform command check request")
+	}
+
+	defer resp.Body.Close()
+
+	var body checkerResponse
+	if err := c.readResponseBody(resp, &body); err != nil {
+		return errors.Wrap(err, "failed to read command check response body")
+	}
+
+	if body.ResultCode != resultCodeExecuted {
+		return errors.New("command is not executed")
+	}
+
+	return nil
 }
 
 type requestBuilder struct {

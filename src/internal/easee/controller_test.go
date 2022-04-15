@@ -6,8 +6,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee/mocks"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 )
 
 const (
@@ -49,7 +51,10 @@ func TestController_StartChargepointCharging(t *testing.T) {
 
 			defer clientMock.AssertExpectations(t)
 
-			c := easee.NewController(clientMock, testChargerID)
+			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewController(clientMock, cfgService, testChargerID)
 
 			err := c.StartChargepointCharging()
 
@@ -99,7 +104,10 @@ func TestController_StopChargepointCharging(t *testing.T) {
 
 			defer clientMock.AssertExpectations(t)
 
-			c := easee.NewController(clientMock, testChargerID)
+			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewController(clientMock, cfgService, testChargerID)
 
 			err := c.StopChargepointCharging()
 
@@ -151,7 +159,10 @@ func TestController_ChargepointCableLockReport(t *testing.T) {
 
 			defer clientMock.AssertExpectations(t)
 
-			c := easee.NewController(clientMock, testChargerID)
+			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewController(clientMock, cfgService, testChargerID)
 
 			got, err := c.ChargepointCableLockReport()
 
@@ -253,7 +264,10 @@ func TestController_ChargepointStateReport(t *testing.T) {
 
 			defer clientMock.AssertExpectations(t)
 
-			c := easee.NewController(clientMock, testChargerID)
+			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewController(clientMock, cfgService, testChargerID)
 
 			got, err := c.ChargepointStateReport()
 
@@ -333,7 +347,10 @@ func TestController_ElectricityMeterReport(t *testing.T) {
 
 			defer clientMock.AssertExpectations(t)
 
-			c := easee.NewController(clientMock, testChargerID)
+			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewController(clientMock, cfgService, testChargerID)
 
 			got, err := c.ElectricityMeterReport(tt.unit)
 
@@ -428,7 +445,10 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) {
 
 			defer clientMock.AssertExpectations(t)
 
-			c := easee.NewController(clientMock, testChargerID)
+			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewController(clientMock, cfgService, testChargerID)
 
 			got, err := c.ChargepointCurrentSessionReport()
 
@@ -489,7 +509,10 @@ func TestController_SetChargepointCableLock(t *testing.T) {
 
 			defer clientMock.AssertExpectations(t)
 
-			c := easee.NewController(clientMock, testChargerID)
+			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewController(clientMock, cfgService, testChargerID)
 
 			err := c.SetChargepointCableLock(tt.chargerLocked)
 
@@ -500,6 +523,172 @@ func TestController_SetChargepointCableLock(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestController_SetChargepointChargingMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		mode       string
+		mockClient func(c *mocks.Client)
+		wantErr    bool
+	}{
+		{
+			name: "setting charging point to normal",
+			mode: "normal",
+			mockClient: func(c *mocks.Client) {
+				c.On("SetChargingCurrent", testChargerID, 40.0).Return(nil)
+			},
+		},
+		{
+			name: "setting charging point to slow",
+			mode: "slow",
+			mockClient: func(c *mocks.Client) {
+				c.On("SetChargingCurrent", testChargerID, 10.0).Return(nil)
+			},
+		},
+		{
+			name:    "error on unsupported mode",
+			mode:    "unknown",
+			wantErr: true,
+		},
+		{
+			name: "easee client error",
+			mode: "normal",
+			mockClient: func(c *mocks.Client) {
+				c.On("SetChargingCurrent", testChargerID, 40.0).Return(errors.New("oops!"))
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			clientMock := new(mocks.Client)
+			if tt.mockClient != nil {
+				tt.mockClient(clientMock)
+			}
+
+			defer clientMock.AssertExpectations(t)
+
+			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewController(clientMock, cfgService, testChargerID)
+
+			err := c.SetChargepointChargingMode(tt.mode)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestController_ChargepointChargingModeReport(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		mockClient func(c *mocks.Client)
+		want       string
+		wantErr    bool
+	}{
+		{
+			name: "report for normal mode - canonical amperage",
+			mockClient: func(c *mocks.Client) {
+				c.On("ChargerState", testChargerID).Return(chargerStateWithModeAndCurrent(t, 3, 40), nil)
+			},
+			want: "normal",
+		},
+		{
+			name: "report for normal mode - amperage lower than canonical",
+			mockClient: func(c *mocks.Client) {
+				c.On("ChargerState", testChargerID).Return(chargerStateWithModeAndCurrent(t, 3, 32), nil)
+			},
+			want: "normal",
+		},
+		{
+			name: "report for slow mode - canonical amperage",
+			mockClient: func(c *mocks.Client) {
+				c.On("ChargerState", testChargerID).Return(chargerStateWithModeAndCurrent(t, 3, 10), nil)
+			},
+			want: "slow",
+		},
+		{
+			name: "report for slow mode - amperage lower than canonical",
+			mockClient: func(c *mocks.Client) {
+				c.On("ChargerState", testChargerID).Return(chargerStateWithModeAndCurrent(t, 3, 7), nil)
+			},
+			want: "slow",
+		},
+		{
+			name: "0A reported by client",
+			mockClient: func(c *mocks.Client) {
+				c.On("ChargerState", testChargerID).Return(chargerStateWithModeAndCurrent(t, 3, 0), nil)
+			},
+			want: "slow",
+		},
+		{
+			name: "error on amperage lower than zero",
+			mockClient: func(c *mocks.Client) {
+				c.On("ChargerState", testChargerID).Return(chargerStateWithModeAndCurrent(t, 3, -2), nil)
+			},
+			wantErr: true,
+		},
+		{
+			name: "error on a charger not in charging state",
+			mockClient: func(c *mocks.Client) {
+				c.On("ChargerState", testChargerID).Return(chargerStateWithModeAndCurrent(t, 2, 0), nil)
+			},
+			wantErr: true,
+		},
+		{
+			name: "easee client error",
+			mockClient: func(c *mocks.Client) {
+				c.On("ChargerState", testChargerID).Return(nil, errors.New("oops!"))
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			clientMock := new(mocks.Client)
+			if tt.mockClient != nil {
+				tt.mockClient(clientMock)
+			}
+
+			defer clientMock.AssertExpectations(t)
+
+			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewController(clientMock, cfgService, testChargerID)
+
+			got, err := c.ChargepointChargingModeReport()
+
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -520,6 +709,15 @@ func chargerStateWithMode(t *testing.T, mode int) *easee.ChargerState {
 
 	s := defaultChargerState(t)
 	s.ChargerOpMode = easee.ChargerMode(mode)
+
+	return s
+}
+
+func chargerStateWithModeAndCurrent(t *testing.T, mode int, current float64) *easee.ChargerState {
+	t.Helper()
+
+	s := chargerStateWithMode(t, mode)
+	s.DynamicChargerCurrent = current
 
 	return s
 }

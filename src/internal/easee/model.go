@@ -136,6 +136,21 @@ func SupportedChargingStates() []string {
 	}
 }
 
+const (
+	// ChargingModeNormal represents a "normal" charging mode.
+	ChargingModeNormal = "normal"
+	// ChargingModeSlow represents a "slow" charging mode.
+	ChargingModeSlow = "slow"
+)
+
+// SupportedChargingModes returns all charging modes supported by Easee.
+func SupportedChargingModes() []string {
+	return []string{
+		ChargingModeNormal,
+		ChargingModeSlow,
+	}
+}
+
 // Credentials stands for Easee API credentials.
 type Credentials struct {
 	AccessToken  string   `json:"accessToken"`
@@ -160,4 +175,36 @@ type refreshBody struct {
 // cableLockBody represents a cable lock request body.
 type cableLockBody struct {
 	State bool `json:"state"`
+}
+
+// chargerCurrentBody represents a charger current request body.
+type chargerCurrentBody struct {
+	DynamicChargerCurrent float64 `json:"dynamicChargerCurrent"`
+}
+
+const (
+	// resultCodeSent represents a command result code.
+	// The command was sent, but not yet processed by Easee cloud.
+	resultCodeSent = iota
+	// resultCodeExpired represents a command result code.
+	// The command was sent, but was not processed on time.
+	resultCodeExpired
+	// resultCodeExecuted represents a command result code.
+	// The command was sent and successfully executed by Easee cloud.
+	resultCodeExecuted
+	// resultCodeRejected represents a command result code.
+	// The command was sent, but was rejected by Easee cloud.
+	resultCodeRejected
+)
+
+// commandResponse represents a response returned by all command API calls.
+type commandResponse struct {
+	Device    string `json:"device"`
+	CommandID int    `json:"commandId"`
+	Ticks     int    `json:"ticks"`
+}
+
+// checkerResponse represents a response of command checker API endpoint.
+type checkerResponse struct {
+	ResultCode int `json:"resultCode"`
 }

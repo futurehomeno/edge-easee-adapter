@@ -8,12 +8,17 @@ import (
 	"testing"
 	"time"
 
-	storageMocks "github.com/futurehomeno/cliffhanger/mocks/storage"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
+)
+
+var (
+	testCommandCheckInterval = 5 * time.Millisecond
+	testCommandCheckTimeout  = 100 * time.Millisecond
 )
 
 func TestClient_Login(t *testing.T) {
@@ -108,7 +113,7 @@ func TestClient_Login(t *testing.T) {
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 
-			c := easee.NewClient(httpClient, nil, s.URL)
+			c := easee.NewClient(httpClient, nil, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
 
 			got, err := c.Login(tt.username, tt.password)
 			if tt.wantErr {
@@ -130,13 +135,12 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 	})
 
 	tests := []struct {
-		name              string
-		chargerID         string
-		cfg               *config.Config
-		mockConfigStorage func(s *storageMocks.Storage, cfg *config.Config)
-		serverHandler     http.Handler
-		forceServerError  bool
-		wantErr           bool
+		name             string
+		chargerID        string
+		cfg              *config.Config
+		serverHandler    http.Handler
+		forceServerError bool
+		wantErr          bool
 	}{
 		{
 			name:      "successful call to Easee API",
@@ -148,17 +152,38 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
-			serverHandler: newTestHandler(t, call{
-				requestMethod: http.MethodPost,
-				requestPath:   "/api/chargers/123456/commands/resume_charging",
-				requestHeaders: map[string]string{
-					"Authorization": "Bearer access-token",
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/123456/commands/resume_charging",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+					},
+					responseCode: http.StatusAccepted,
+					responseBody: exampleCommandBody(t),
 				},
-				responseCode: http.StatusOK,
-			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: failedCheckerBody(t),
+				},
+				{
+					// previous check failed, retry...
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: successfulCheckerBody(t),
+				},
+			}...),
 		},
 		{
 			name:      "response code != 200",
@@ -178,9 +203,6 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 				},
 				responseCode: http.StatusInternalServerError,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			wantErr: true,
 		},
 		{
@@ -193,9 +215,6 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -203,10 +222,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			name:      "return error if credentials are empty",
 			chargerID: "123456",
 			cfg:       &config.Config{},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
-			wantErr: true,
+			wantErr:   true,
 		},
 		{
 			name:      "expired access token - refreshing it under the hood",
@@ -235,13 +251,20 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer new-access-token",
 					},
+					responseCode: http.StatusAccepted,
+					responseBody: exampleCommandBody(t),
+				},
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer new-access-token",
+						"Content-Type":  "application/*+json",
+					},
 					responseCode: http.StatusOK,
+					responseBody: successfulCheckerBody(t),
 				},
 			}...),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-				s.On("Save").Return(nil)
-			},
 		},
 		{
 			name:      "refreshing expired access token failed",
@@ -262,22 +285,12 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 				},
 				responseCode: http.StatusInternalServerError,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
-			cfgStorageMock := new(storageMocks.Storage)
-			if tt.mockConfigStorage != nil {
-				tt.mockConfigStorage(cfgStorageMock, tt.cfg)
-			}
-
-			cfgService := config.NewService(cfgStorageMock)
-
 			s := httptest.NewServer(tt.serverHandler)
 			t.Cleanup(func() {
 				s.Close()
@@ -288,8 +301,10 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL)
+			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
 
 			err := c.StartCharging(tt.chargerID)
 			if tt.wantErr {
@@ -310,13 +325,12 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 	})
 
 	tests := []struct {
-		name              string
-		chargerID         string
-		cfg               *config.Config
-		mockConfigStorage func(s *storageMocks.Storage, cfg *config.Config)
-		serverHandler     http.Handler
-		forceServerError  bool
-		wantErr           bool
+		name             string
+		chargerID        string
+		cfg              *config.Config
+		serverHandler    http.Handler
+		forceServerError bool
+		wantErr          bool
 	}{
 		{
 			name:      "successful call to Easee API",
@@ -328,17 +342,38 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
-			serverHandler: newTestHandler(t, call{
-				requestMethod: http.MethodPost,
-				requestPath:   "/api/chargers/123456/commands/pause_charging",
-				requestHeaders: map[string]string{
-					"Authorization": "Bearer access-token",
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/123456/commands/pause_charging",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+					},
+					responseCode: http.StatusAccepted,
+					responseBody: exampleCommandBody(t),
 				},
-				responseCode: http.StatusOK,
-			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: failedCheckerBody(t),
+				},
+				{
+					// previous check failed, retry...
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: successfulCheckerBody(t),
+				},
+			}...),
 		},
 		{
 			name:      "response code != 200",
@@ -358,9 +393,6 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 				},
 				responseCode: http.StatusInternalServerError,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			wantErr: true,
 		},
 		{
@@ -373,9 +405,6 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -383,10 +412,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			name:      "return error if credentials are empty",
 			chargerID: "123456",
 			cfg:       &config.Config{},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
-			wantErr: true,
+			wantErr:   true,
 		},
 		{
 			name:      "expired access token - refreshing it under the hood",
@@ -415,13 +441,20 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer new-access-token",
 					},
+					responseCode: http.StatusAccepted,
+					responseBody: exampleCommandBody(t),
+				},
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer new-access-token",
+						"Content-Type":  "application/*+json",
+					},
 					responseCode: http.StatusOK,
+					responseBody: successfulCheckerBody(t),
 				},
 			}...),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-				s.On("Save").Return(nil)
-			},
 		},
 		{
 			name:      "refreshing expired access token failed",
@@ -442,22 +475,12 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 				},
 				responseCode: http.StatusInternalServerError,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
-			cfgStorageMock := new(storageMocks.Storage)
-			if tt.mockConfigStorage != nil {
-				tt.mockConfigStorage(cfgStorageMock, tt.cfg)
-			}
-
-			cfgService := config.NewService(cfgStorageMock)
-
 			s := httptest.NewServer(tt.serverHandler)
 			t.Cleanup(func() {
 				s.Close()
@@ -468,8 +491,10 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL)
+			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
 
 			err := c.StopCharging(tt.chargerID)
 			if tt.wantErr {
@@ -490,14 +515,13 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 	})
 
 	tests := []struct {
-		name              string
-		chargerID         string
-		cfg               *config.Config
-		mockConfigStorage func(s *storageMocks.Storage, cfg *config.Config)
-		serverHandler     http.Handler
-		forceServerError  bool
-		want              *easee.ChargerState
-		wantErr           bool
+		name             string
+		chargerID        string
+		cfg              *config.Config
+		serverHandler    http.Handler
+		forceServerError bool
+		want             *easee.ChargerState
+		wantErr          bool
 	}{
 		{
 			name:      "successful call to Easee API",
@@ -519,9 +543,6 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 				responseBody: marshal(t, exampleChargerState(t)),
 			}),
 			want: exampleChargerState(t),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 		},
 		{
 			name:      "response code != 200",
@@ -541,9 +562,6 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 				},
 				responseCode: http.StatusInternalServerError,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			wantErr: true,
 		},
 		{
@@ -556,9 +574,6 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -566,10 +581,7 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 			name:      "return error if credentials are empty",
 			chargerID: "123456",
 			cfg:       &config.Config{},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
-			wantErr: true,
+			wantErr:   true,
 		},
 		{
 			name:      "expired access token - refreshing it under the hood",
@@ -602,10 +614,6 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 					responseBody: marshal(t, exampleChargerState(t)),
 				},
 			}...),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-				s.On("Save").Return(nil)
-			},
 			want: exampleChargerState(t),
 		},
 		{
@@ -627,22 +635,12 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 				},
 				responseCode: http.StatusInternalServerError,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			wantErr: true,
 		},
 	}
 
 	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
-			cfgStorageMock := new(storageMocks.Storage)
-			if tt.mockConfigStorage != nil {
-				tt.mockConfigStorage(cfgStorageMock, tt.cfg)
-			}
-
-			cfgService := config.NewService(cfgStorageMock)
-
 			s := httptest.NewServer(tt.serverHandler)
 			t.Cleanup(func() {
 				s.Close()
@@ -653,8 +651,10 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL)
+			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
 
 			got, err := c.ChargerState(tt.chargerID)
 			if tt.wantErr {
@@ -670,15 +670,17 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 }
 
 func TestClient_Ping(t *testing.T) {
-	t.Parallel()
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+	t.Cleanup(func() {
+		clock.Restore()
+	})
 
 	tests := []struct {
-		name              string
-		cfg               *config.Config
-		mockConfigStorage func(s *storageMocks.Storage, cfg *config.Config)
-		serverHandler     http.Handler
-		forceServerError  bool
-		wantErr           bool
+		name             string
+		cfg              *config.Config
+		serverHandler    http.Handler
+		forceServerError bool
+		wantErr          bool
 	}{
 		{
 			name: "successful call to Easee API",
@@ -686,7 +688,7 @@ func TestClient_Ping(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
 			serverHandler: newTestHandler(t, call{
@@ -697,9 +699,6 @@ func TestClient_Ping(t *testing.T) {
 				},
 				responseCode: http.StatusOK,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg, nil)
-			},
 		},
 		{
 			name: "response code != 200",
@@ -707,7 +706,7 @@ func TestClient_Ping(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
 			serverHandler: newTestHandler(t, call{
@@ -718,9 +717,6 @@ func TestClient_Ping(t *testing.T) {
 				},
 				responseCode: http.StatusInternalServerError,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg, nil)
-			},
 			wantErr: true,
 		},
 		{
@@ -729,30 +725,16 @@ func TestClient_Ping(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
 			forceServerError: true,
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg, nil)
-			},
-			wantErr: true,
+			wantErr:          true,
 		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfgStorageMock := new(storageMocks.Storage)
-			if tt.mockConfigStorage != nil {
-				tt.mockConfigStorage(cfgStorageMock, tt.cfg)
-			}
-
-			cfgService := config.NewService(cfgStorageMock)
-			defer cfgStorageMock.AssertExpectations(t)
-
 			s := httptest.NewServer(tt.serverHandler)
 			t.Cleanup(func() {
 				s.Close()
@@ -763,8 +745,10 @@ func TestClient_Ping(t *testing.T) {
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL)
+			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
 
 			err := c.Ping()
 			if tt.wantErr {
@@ -778,17 +762,189 @@ func TestClient_Ping(t *testing.T) {
 	}
 }
 
-func TestClient_Chargers(t *testing.T) {
-	t.Parallel()
+func TestClient_SetChargingCurrent(t *testing.T) {
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+	t.Cleanup(func() {
+		clock.Restore()
+	})
 
 	tests := []struct {
-		name              string
-		cfg               *config.Config
-		mockConfigStorage func(s *storageMocks.Storage, cfg *config.Config)
-		serverHandler     http.Handler
-		forceServerError  bool
-		want              []easee.Charger
-		wantErr           bool
+		name             string
+		current          float64
+		cfg              *config.Config
+		serverHandler    http.Handler
+		forceServerError bool
+		wantErr          bool
+	}{
+		{
+			name:    "successful call to Easee API",
+			current: 40,
+			cfg: &config.Config{
+				Credentials: config.Credentials{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
+				},
+			},
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/123456/settings",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					requestBody:  `{"dynamicChargerCurrent":40}`,
+					responseCode: http.StatusAccepted,
+					responseBody: exampleCommandBody(t),
+				},
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: failedCheckerBody(t),
+				},
+				{
+					// previous check failed, retry...
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: successfulCheckerBody(t),
+				},
+			}...),
+		},
+		{
+			name:    "response code != 204",
+			current: 40,
+			cfg: &config.Config{
+				Credentials: config.Credentials{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
+				},
+			},
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/123456/settings",
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer access-token",
+					"Content-Type":  "application/*+json",
+				},
+				requestBody:  `{"dynamicChargerCurrent":40}`,
+				responseCode: http.StatusInternalServerError,
+			}),
+			wantErr: true,
+		},
+		{
+			name: "http client error",
+			cfg: &config.Config{
+				Credentials: config.Credentials{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
+				},
+			},
+			forceServerError: true,
+			wantErr:          true,
+		},
+		{
+			name:    "setting current equal to 0",
+			current: 0,
+			cfg: &config.Config{
+				Credentials: config.Credentials{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
+				},
+			},
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/123456/settings",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					requestBody:  `{"dynamicChargerCurrent":0}`,
+					responseCode: http.StatusAccepted,
+					responseBody: exampleCommandBody(t),
+				},
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: successfulCheckerBody(t),
+				},
+			}...),
+		},
+		{
+			name:    "setting current lower than 0",
+			current: -2,
+			cfg: &config.Config{
+				Credentials: config.Credentials{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
+				},
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			httpClient := &http.Client{Timeout: 3 * time.Second}
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
+
+			err := c.SetChargingCurrent(testChargerID, tt.current)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestClient_Chargers(t *testing.T) {
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+	t.Cleanup(func() {
+		clock.Restore()
+	})
+
+	tests := []struct {
+		name             string
+		cfg              *config.Config
+		serverHandler    http.Handler
+		forceServerError bool
+		want             []easee.Charger
+		wantErr          bool
 	}{
 		{
 			name: "successful call to Easee API",
@@ -796,7 +952,7 @@ func TestClient_Chargers(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
 			serverHandler: newTestHandler(t, call{
@@ -808,9 +964,6 @@ func TestClient_Chargers(t *testing.T) {
 				responseCode: http.StatusOK,
 				responseBody: `[{"id":"EHFM4754","name":"EHFM4754","color":4,"createdOn":"2021-09-22T12:01:43.299176","updatedOn":"2022-01-13T12:33:03.232669","backPlate":null,"levelOfAccess":1,"productCode":1}]`,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg, nil)
-			},
 			want: []easee.Charger{
 				{
 					ID:            "EHFM4754",
@@ -830,7 +983,7 @@ func TestClient_Chargers(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
 			serverHandler: newTestHandler(t, call{
@@ -841,9 +994,6 @@ func TestClient_Chargers(t *testing.T) {
 				},
 				responseCode: http.StatusInternalServerError,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg, nil)
-			},
 			wantErr: true,
 		},
 		{
@@ -852,30 +1002,16 @@ func TestClient_Chargers(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
 			forceServerError: true,
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg, nil)
-			},
-			wantErr: true,
+			wantErr:          true,
 		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfgStorageMock := new(storageMocks.Storage)
-			if tt.mockConfigStorage != nil {
-				tt.mockConfigStorage(cfgStorageMock, tt.cfg)
-			}
-
-			cfgService := config.NewService(cfgStorageMock)
-			defer cfgStorageMock.AssertExpectations(t)
-
 			s := httptest.NewServer(tt.serverHandler)
 			t.Cleanup(func() {
 				s.Close()
@@ -886,8 +1022,10 @@ func TestClient_Chargers(t *testing.T) {
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL)
+			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
 
 			got, err := c.Chargers()
 			if tt.wantErr {
@@ -903,16 +1041,18 @@ func TestClient_Chargers(t *testing.T) {
 }
 
 func TestClient_SetCableLock(t *testing.T) {
-	t.Parallel()
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+	t.Cleanup(func() {
+		clock.Restore()
+	})
 
 	tests := []struct {
-		name              string
-		locked            bool
-		cfg               *config.Config
-		mockConfigStorage func(s *storageMocks.Storage, cfg *config.Config)
-		serverHandler     http.Handler
-		forceServerError  bool
-		wantErr           bool
+		name             string
+		locked           bool
+		cfg              *config.Config
+		serverHandler    http.Handler
+		forceServerError bool
+		wantErr          bool
 	}{
 		{
 			name:   "successful cable lock",
@@ -921,22 +1061,43 @@ func TestClient_SetCableLock(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
-			serverHandler: newTestHandler(t, call{
-				requestMethod: http.MethodGet,
-				requestPath:   "/api/chargers/123456/commands/lock_state",
-				requestHeaders: map[string]string{
-					"Authorization": "Bearer access-token",
-					"Content-Type":  "application/*+json",
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/chargers/123456/commands/lock_state",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					requestBody:  `{"state":true}`,
+					responseCode: http.StatusAccepted,
+					responseBody: exampleCommandBody(t),
 				},
-				requestBody:  `{"state":true}`,
-				responseCode: http.StatusAccepted,
-			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg, nil)
-			},
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: failedCheckerBody(t),
+				},
+				{
+					// previous check failed, retry...
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: successfulCheckerBody(t),
+				},
+			}...),
 		},
 		{
 			name:   "successful cable unlock",
@@ -945,22 +1106,43 @@ func TestClient_SetCableLock(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
-			serverHandler: newTestHandler(t, call{
-				requestMethod: http.MethodGet,
-				requestPath:   "/api/chargers/123456/commands/lock_state",
-				requestHeaders: map[string]string{
-					"Authorization": "Bearer access-token",
-					"Content-Type":  "application/*+json",
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/chargers/123456/commands/lock_state",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					requestBody:  `{"state":false}`,
+					responseCode: http.StatusAccepted,
+					responseBody: exampleCommandBody(t),
 				},
-				requestBody:  `{"state":false}`,
-				responseCode: http.StatusAccepted,
-			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg, nil)
-			},
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: failedCheckerBody(t),
+				},
+				{
+					// previous check failed, retry...
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/commands/123456/48/637886435126844439",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: successfulCheckerBody(t),
+				},
+			}...),
 		},
 		{
 			name:   "response code != 202",
@@ -969,7 +1151,7 @@ func TestClient_SetCableLock(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
 			serverHandler: newTestHandler(t, call{
@@ -982,9 +1164,6 @@ func TestClient_SetCableLock(t *testing.T) {
 				requestBody:  `{"state":true}`,
 				responseCode: http.StatusInternalServerError,
 			}),
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg, nil)
-			},
 			wantErr: true,
 		},
 		{
@@ -993,30 +1172,16 @@ func TestClient_SetCableLock(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
 				},
 			},
 			forceServerError: true,
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg, nil)
-			},
-			wantErr: true,
+			wantErr:          true,
 		},
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			cfgStorageMock := new(storageMocks.Storage)
-			if tt.mockConfigStorage != nil {
-				tt.mockConfigStorage(cfgStorageMock, tt.cfg)
-			}
-
-			cfgService := config.NewService(cfgStorageMock)
-			defer cfgStorageMock.AssertExpectations(t)
-
 			s := httptest.NewServer(tt.serverHandler)
 			t.Cleanup(func() {
 				s.Close()
@@ -1027,8 +1192,10 @@ func TestClient_SetCableLock(t *testing.T) {
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL)
+			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
 
 			err := c.SetCableLock(testChargerID, tt.locked)
 			if tt.wantErr {
@@ -1122,4 +1289,22 @@ func exampleChargerState(t *testing.T) *easee.ChargerState {
 		SessionEnergy:  234,
 		Voltage:        200,
 	}
+}
+
+func exampleCommandBody(t *testing.T) string {
+	t.Helper()
+
+	return `{"device":"123456","commandId":48,"ticks":637886435126844439}`
+}
+
+func successfulCheckerBody(t *testing.T) string {
+	t.Helper()
+
+	return `{"ticks": 637886435126844439, "id": 48, "timestamp": "2022-05-20T12:00:49.177859Z", "deliveredAt": "2022-05-20T12:00:49.96Z", "wasAccepted": true,"resultCode": 2, "comment": null}`
+}
+
+func failedCheckerBody(t *testing.T) string {
+	t.Helper()
+
+	return `{"ticks": 637886435126844439, "id": 48, "timestamp": "2022-05-20T11:38:32.6844439Z", "deliveredAt": null, "wasAccepted": false,"resultCode": 1, "comment": null}`
 }

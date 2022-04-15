@@ -10,14 +10,14 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 
-	adapterMocks "github.com/futurehomeno/cliffhanger/mocks/adapter"
-	storageMocks "github.com/futurehomeno/cliffhanger/mocks/storage"
+	adapterMocks "github.com/futurehomeno/cliffhanger/test/mocks/adapter"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 	easeeMocks "github.com/futurehomeno/edge-easee-adapter/internal/easee/mocks"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 )
 
 func TestApplication_GetManifest(t *testing.T) {
@@ -49,7 +49,6 @@ func TestApplication_Uninstall(t *testing.T) {
 		cfg                 *config.Config
 		setLifecycle        func(lc *lifecycle.Lifecycle)
 		mockAdapter         func(a *adapterMocks.ExtendedAdapter)
-		mockConfigStorage   func(s *storageMocks.Storage, cfg *config.Config)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 		configAssertions    func(c *config.Config)
@@ -71,11 +70,6 @@ func TestApplication_Uninstall(t *testing.T) {
 			},
 			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
 				a.On("DestroyAllThings").Return(nil)
-			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				*cfg = config.Config{}
-
-				s.On("Reset").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
@@ -107,29 +101,6 @@ func TestApplication_Uninstall(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "config service error on reset",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC),
-				},
-			},
-			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateRunning, nil)
-				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateConnected)
-				lc.SetConfigState(lifecycle.ConfigStateConfigured)
-			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
-				a.On("DestroyAllThings").Return(nil)
-			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Reset").Return(errors.New("test error"))
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -147,17 +118,10 @@ func TestApplication_Uninstall(t *testing.T) {
 				tt.mockAdapter(adapterMock)
 			}
 
-			cfgStorageMock := new(storageMocks.Storage)
-			if tt.mockConfigStorage != nil {
-				tt.mockConfigStorage(cfgStorageMock, tt.cfg)
-			}
+			defer adapterMock.AssertExpectations(t)
 
-			defer func() {
-				adapterMock.AssertExpectations(t)
-				cfgStorageMock.AssertExpectations(t)
-			}()
-
-			cfgService := config.NewService(cfgStorageMock)
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
 
 			application := app.New(adapterMock, cfgService, lc, nil, nil)
 
@@ -176,7 +140,7 @@ func TestApplication_Uninstall(t *testing.T) {
 			}
 
 			if tt.configAssertions != nil {
-				tt.configAssertions(tt.cfg)
+				tt.configAssertions(cfgService.Model().(*config.Config))
 			}
 		})
 	}
@@ -195,7 +159,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 		setLifecycle        func(lc *lifecycle.Lifecycle)
 		mockAdapter         func(a *adapterMocks.ExtendedAdapter)
 		mockClient          func(c *easeeMocks.Client)
-		mockConfigStorage   func(s *storageMocks.Storage, cfg *config.Config)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 		configAssertions    func(c *config.Config)
@@ -233,10 +196,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				a.On("CreateThing", "123", easee.Info{ChargerID: "123"}).Return(nil)
 				a.On("CreateThing", "456", easee.Info{ChargerID: "456"}).Return(nil)
 			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-				s.On("Save").Return(nil)
-			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateAuthenticated, lc.AuthState())
@@ -270,10 +229,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					Return(nil, errors.New("oops"))
 				c.On("Ping").Return(nil)
 			},
-			mockConfigStorage: func(s *storageMocks.Storage, _ *config.Config) {
-				s.AssertNotCalled(t, "Model")
-				s.AssertNotCalled(t, "Save")
-			},
 			wantErr: true,
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
@@ -283,50 +238,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			},
 			configAssertions: func(c *config.Config) {
 				assert.Equal(t, config.Credentials{}, c.Credentials)
-			},
-		},
-		{
-			name: "if config storage returned an error when saving credentials, lifecycle should not be configured",
-			loginData: &cliffApp.LoginCredentials{
-				Username: "test-user",
-				Password: "test-password",
-			},
-			cfg: &config.Config{},
-			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateRunning, nil)
-				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateConnected)
-				lc.SetConfigState(lifecycle.ConfigStateConfigured)
-			},
-			mockClient: func(c *easeeMocks.Client) {
-				c.
-					On("Login", "test-user", "test-password").
-					Return(&easee.Credentials{
-						AccessToken:  "access-token",
-						ExpiresIn:    86400,
-						AccessClaims: []string{"User"},
-						TokenType:    "Bearer",
-						RefreshToken: "refresh-token",
-					}, nil)
-				c.On("Ping").Return(nil)
-			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-				s.On("Save").Return(errors.New("oops"))
-			},
-			wantErr: true,
-			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
-				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
-				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
-			},
-			configAssertions: func(c *config.Config) {
-				assert.Equal(t, config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 11, 8, 00, 12, 00, time.UTC),
-				}, c.Credentials)
 			},
 		},
 		{
@@ -361,10 +272,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
 				a.On("CreateThing", "123", easee.Info{ChargerID: "123"}).Return(nil)
 				a.On("CreateThing", "456", easee.Info{ChargerID: "456"}).Return(nil)
-			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-				s.On("Save").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
@@ -413,10 +320,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				a.On("CreateThing", "123", easee.Info{ChargerID: "123"}).Return(nil)
 				a.On("CreateThing", "456", easee.Info{ChargerID: "456"}).Return(errors.New("oops"))
 			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-				s.On("Save").Return(nil)
-			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
@@ -446,11 +349,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				tt.mockAdapter(adapterMock)
 			}
 
-			cfgStorageMock := new(storageMocks.Storage)
-			if tt.mockConfigStorage != nil {
-				tt.mockConfigStorage(cfgStorageMock, tt.cfg)
-			}
-
 			clientMock := new(easeeMocks.Client)
 			if tt.mockClient != nil {
 				tt.mockClient(clientMock)
@@ -458,11 +356,11 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 
 			defer func() {
 				adapterMock.AssertExpectations(t)
-				cfgStorageMock.AssertExpectations(t)
 				clientMock.AssertExpectations(t)
 			}()
 
-			cfgService := config.NewService(cfgStorageMock)
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
 
 			application := app.New(adapterMock, cfgService, lc, nil, clientMock)
 
@@ -493,7 +391,6 @@ func TestApplication_Logout(t *testing.T) {
 		cfg                 *config.Config
 		setLifecycle        func(lc *lifecycle.Lifecycle)
 		mockAdapter         func(a *adapterMocks.ExtendedAdapter)
-		mockConfigStorage   func(s *storageMocks.Storage, cfg *config.Config)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 		configAssertions    func(c *config.Config)
@@ -515,11 +412,6 @@ func TestApplication_Logout(t *testing.T) {
 			},
 			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
 				a.On("DestroyAllThings").Return(nil)
-			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				*cfg = config.Config{}
-
-				s.On("Reset").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
@@ -551,29 +443,6 @@ func TestApplication_Logout(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		{
-			name: "config service error on reset",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC),
-				},
-			},
-			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateRunning, nil)
-				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateConnected)
-				lc.SetConfigState(lifecycle.ConfigStateConfigured)
-			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
-				a.On("DestroyAllThings").Return(nil)
-			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Reset").Return(errors.New("test error"))
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -591,17 +460,10 @@ func TestApplication_Logout(t *testing.T) {
 				tt.mockAdapter(adapterMock)
 			}
 
-			cfgStorageMock := new(storageMocks.Storage)
-			if tt.mockConfigStorage != nil {
-				tt.mockConfigStorage(cfgStorageMock, tt.cfg)
-			}
+			defer adapterMock.AssertExpectations(t)
 
-			defer func() {
-				adapterMock.AssertExpectations(t)
-				cfgStorageMock.AssertExpectations(t)
-			}()
-
-			cfgService := config.NewService(cfgStorageMock)
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
 
 			application := app.New(adapterMock, cfgService, lc, nil, nil)
 
@@ -619,7 +481,7 @@ func TestApplication_Logout(t *testing.T) {
 			}
 
 			if tt.configAssertions != nil {
-				tt.configAssertions(tt.cfg)
+				tt.configAssertions(cfgService.Model().(*config.Config))
 			}
 		})
 	}
@@ -634,7 +496,6 @@ func TestApplication_Initialize(t *testing.T) {
 		setLifecycle        func(lc *lifecycle.Lifecycle)
 		mockAdapter         func(a *adapterMocks.ExtendedAdapter)
 		mockClient          func(c *easeeMocks.Client)
-		mockConfigStorage   func(s *storageMocks.Storage, cfg *config.Config)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 	}{
@@ -659,9 +520,6 @@ func TestApplication_Initialize(t *testing.T) {
 			mockClient: func(c *easeeMocks.Client) {
 				c.On("Ping").Return(nil)
 			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateAuthenticated, lc.AuthState())
@@ -683,9 +541,6 @@ func TestApplication_Initialize(t *testing.T) {
 			},
 			mockClient: func(c *easeeMocks.Client) {
 				c.On("Ping").Return(nil)
-			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
@@ -738,9 +593,6 @@ func TestApplication_Initialize(t *testing.T) {
 			mockClient: func(c *easeeMocks.Client) {
 				c.On("Ping").Return(errors.New("oops"))
 			},
-			mockConfigStorage: func(s *storageMocks.Storage, cfg *config.Config) {
-				s.On("Model").Return(cfg)
-			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateAuthenticated, lc.AuthState())
@@ -765,11 +617,6 @@ func TestApplication_Initialize(t *testing.T) {
 				tt.mockAdapter(adapterMock)
 			}
 
-			cfgStorageMock := new(storageMocks.Storage)
-			if tt.mockConfigStorage != nil {
-				tt.mockConfigStorage(cfgStorageMock, tt.cfg)
-			}
-
 			clientMock := new(easeeMocks.Client)
 			if tt.mockClient != nil {
 				tt.mockClient(clientMock)
@@ -777,11 +624,11 @@ func TestApplication_Initialize(t *testing.T) {
 
 			defer func() {
 				adapterMock.AssertExpectations(t)
-				cfgStorageMock.AssertExpectations(t)
 				clientMock.AssertExpectations(t)
 			}()
 
-			cfgService := config.NewService(cfgStorageMock)
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
 
 			application := app.New(adapterMock, cfgService, lc, nil, clientMock)
 
