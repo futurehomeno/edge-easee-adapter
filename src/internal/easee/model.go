@@ -201,7 +201,7 @@ const (
 type commandResponse struct {
 	Device    string `json:"device"`
 	CommandID int    `json:"commandId"`
-	Ticks     int    `json:"ticks"`
+	Ticks     uint64 `json:"ticks"`
 }
 
 // checkerResponse represents a response of command checker API endpoint.
