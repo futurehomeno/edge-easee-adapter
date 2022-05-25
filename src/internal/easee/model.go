@@ -78,6 +78,10 @@ type ChargerState struct {
 	LifetimeEnergy                               float64     `json:"lifetimeEnergy"`
 }
 
+type ChargerConfig struct {
+	MaxChargerCurrent float64 `json:"maxChargerCurrent"`
+}
+
 const (
 	// ChargerModeUnavailable represents an "unavailable" state of the charger.
 	ChargerModeUnavailable = "unavailable"

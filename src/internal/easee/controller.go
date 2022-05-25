@@ -3,6 +3,7 @@ package easee
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/cache"
@@ -14,34 +15,39 @@ import (
 )
 
 const (
-	SlowChargingCurrentInAmpers   = 10.0
-	NormalChargingCurrentInAmpers = 40.0
+	SlowChargingCurrentInAmpers = 10.0
 )
 
 // Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
-	chargepoint.AdjustableModeController
 	meterelec.Reporter
 }
 
 // NewController returns a new instance of Controller.
 func NewController(client Client, cfgService *config.Service, chargerID string) Controller {
 	return &controller{
-		client:    client,
-		chargerID: chargerID,
-		refresher: newRefresher(client, chargerID, cfgService.GetPollingInterval()),
+		client:         client,
+		chargerID:      chargerID,
+		stateRefresher: newStateRefresher(client, chargerID, cfgService.GetPollingInterval()),
+		cfgRefresher:   newConfigRefresher(client, chargerID, cfgService.GetPollingInterval()),
 	}
 }
 
 type controller struct {
-	client    Client
-	chargerID string
-	refresher cache.Refresher
+	client         Client
+	chargerID      string
+	stateRefresher cache.Refresher
+	cfgRefresher   cache.Refresher
 }
 
-func (c *controller) StartChargepointCharging() error {
-	if err := c.client.StartCharging(c.chargerID); err != nil {
+func (c *controller) StartChargepointCharging(mode string) error {
+	current, err := c.chargingCurrent(mode)
+	if err != nil {
+		return fmt.Errorf("failed to get charging current: %w", err)
+	}
+
+	if err := c.client.StartCharging(c.chargerID, current); err != nil {
 		return fmt.Errorf("failed to start charging session for charger id %s: %w", c.chargerID, err)
 	}
 
@@ -114,43 +120,28 @@ func (c *controller) ElectricityMeterReport(unit string) (float64, error) {
 	}
 }
 
-func (c *controller) SetChargepointChargingMode(mode string) error {
-	switch mode {
-	case ChargingModeSlow:
-		return c.client.SetChargingCurrent(c.chargerID, SlowChargingCurrentInAmpers)
-	case ChargingModeNormal:
-		return c.client.SetChargingCurrent(c.chargerID, NormalChargingCurrentInAmpers)
-	default:
-		return errors.Errorf("unsupported mode: %s", mode)
-	}
-}
-
-func (c *controller) ChargepointChargingModeReport() (string, error) {
-	state, err := c.client.ChargerState(c.chargerID)
+func (c *controller) chargingCurrent(mode string) (float64, error) {
+	cfg, err := c.cachedChargerConfig()
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch charger state for ID: %s: %w", c.chargerID, err)
+		return 0, err
 	}
 
-	if state.ChargerOpMode.String() != ChargerModeCharging {
-		return "", fmt.Errorf("cannot report charging mode if device is not charging")
+	if cfg.MaxChargerCurrent < SlowChargingCurrentInAmpers {
+		return 0, fmt.Errorf("returned max charger current (%f) is lower than minimum (%f)", cfg.MaxChargerCurrent, SlowChargingCurrentInAmpers)
 	}
 
-	current := state.DynamicChargerCurrent
-	if current < 0 {
-		return "", fmt.Errorf("cannot assign charging mode: reported current is lower than zero")
+	switch strings.ToLower(mode) {
+	case ChargingModeSlow:
+		return SlowChargingCurrentInAmpers, nil
+	default:
+		return cfg.MaxChargerCurrent, nil
 	}
-
-	if current > SlowChargingCurrentInAmpers {
-		return ChargingModeNormal, nil
-	}
-
-	return ChargingModeSlow, nil
 }
 
 func (c *controller) cachedChargerState() (*ChargerState, error) {
-	rawState, err := c.refresher.Refresh()
+	rawState, err := c.stateRefresher.Refresh()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get current charger state from refresher")
+		return nil, errors.Wrap(err, "failed to get current charger state from stateRefresher")
 	}
 
 	state, ok := rawState.(*ChargerState)
@@ -161,8 +152,22 @@ func (c *controller) cachedChargerState() (*ChargerState, error) {
 	return state, nil
 }
 
-// newRefresher creates new instance of a refresher cache.
-func newRefresher(client Client, chargerID string, interval time.Duration) cache.Refresher {
+func (c *controller) cachedChargerConfig() (*ChargerConfig, error) {
+	rawCfg, err := c.cfgRefresher.Refresh()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get current charger cfg from stateRefresher")
+	}
+
+	cfg, ok := rawCfg.(*ChargerConfig)
+	if !ok {
+		return nil, errors.Errorf("expected %s, got %s instead", reflect.TypeOf(&ChargerState{}), reflect.TypeOf(rawCfg))
+	}
+
+	return cfg, nil
+}
+
+// newStateRefresher creates new instance of a stateRefresher cache.
+func newStateRefresher(client Client, chargerID string, interval time.Duration) cache.Refresher {
 	refreshFn := func() (interface{}, error) {
 		state, err := client.ChargerState(chargerID)
 		if err != nil {
@@ -170,6 +175,20 @@ func newRefresher(client Client, chargerID string, interval time.Duration) cache
 		}
 
 		return state, nil
+	}
+
+	return cache.NewRefresher(refreshFn, cache.OffsetInterval(interval))
+}
+
+// newConfigRefresher creates new instance of a stateRefresher cache.
+func newConfigRefresher(client Client, chargerID string, interval time.Duration) cache.Refresher {
+	refreshFn := func() (interface{}, error) {
+		cfg, err := client.ChargerConfig(chargerID)
+		if err != nil {
+			return nil, fmt.Errorf("controller: failed to fetch charger config ID %s: %w", chargerID, err)
+		}
+
+		return cfg, nil
 	}
 
 	return cache.NewRefresher(refreshFn, cache.OffsetInterval(interval))

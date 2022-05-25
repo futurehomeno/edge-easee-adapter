@@ -170,7 +170,7 @@ func getEaseeClient() easee.Client {
 			getHTTPClient(),
 			getConfigService(),
 			getConfigService().GetEaseeBaseURL(),
-			20*time.Millisecond,
+			300*time.Millisecond,
 			3*time.Second,
 		)
 	}

@@ -137,6 +137,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 	tests := []struct {
 		name             string
 		chargerID        string
+		current          float64
 		cfg              *config.Config
 		serverHandler    http.Handler
 		forceServerError bool
@@ -145,6 +146,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "successful call to Easee API",
 			chargerID: "123456",
+			current:   40,
 			cfg: &config.Config{
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
@@ -155,10 +157,12 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/123456/commands/resume_charging",
+					requestPath:   "/api/chargers/123456/settings",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
 					},
+					requestBody:  `{"dynamicChargerCurrent":40}`,
 					responseCode: http.StatusAccepted,
 					responseBody: exampleCommandBody(t),
 				},
@@ -188,6 +192,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "response code != 200",
 			chargerID: "123456",
+			current:   40,
 			cfg: &config.Config{
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
@@ -197,10 +202,12 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			},
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
-				requestPath:   "/api/chargers/123456/commands/resume_charging",
+				requestPath:   "/api/chargers/123456/settings",
 				requestHeaders: map[string]string{
 					"Authorization": "Bearer access-token",
+					"Content-Type":  "application/*+json",
 				},
+				requestBody:  `{"dynamicChargerCurrent":40}`,
 				responseCode: http.StatusInternalServerError,
 			}),
 			wantErr: true,
@@ -208,6 +215,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "http client error",
 			chargerID: "123456",
+			current:   40,
 			cfg: &config.Config{
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
@@ -227,6 +235,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "expired access token - refreshing it under the hood",
 			chargerID: "123456",
+			current:   40,
 			cfg: &config.Config{
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
@@ -247,10 +256,12 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 				},
 				{
 					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/123456/commands/resume_charging",
+					requestPath:   "/api/chargers/123456/settings",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer new-access-token",
+						"Content-Type":  "application/*+json",
 					},
+					requestBody:  `{"dynamicChargerCurrent":40}`,
 					responseCode: http.StatusAccepted,
 					responseBody: exampleCommandBody(t),
 				},
@@ -269,6 +280,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "refreshing expired access token failed",
 			chargerID: "123456",
+			current:   40,
 			cfg: &config.Config{
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
@@ -306,7 +318,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 
 			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
 
-			err := c.StartCharging(tt.chargerID)
+			err := c.StartCharging(tt.chargerID, tt.current)
 			if tt.wantErr {
 				assert.Error(t, err)
 
@@ -345,10 +357,12 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/123456/commands/pause_charging",
+					requestPath:   "/api/chargers/123456/settings",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
 					},
+					requestBody:  `{"dynamicChargerCurrent":0}`,
 					responseCode: http.StatusAccepted,
 					responseBody: exampleCommandBody(t),
 				},
@@ -387,10 +401,12 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			},
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
-				requestPath:   "/api/chargers/123456/commands/pause_charging",
+				requestPath:   "/api/chargers/123456/settings",
 				requestHeaders: map[string]string{
 					"Authorization": "Bearer access-token",
+					"Content-Type":  "application/*+json",
 				},
+				requestBody:  `{"dynamicChargerCurrent":0}`,
 				responseCode: http.StatusInternalServerError,
 			}),
 			wantErr: true,
@@ -437,10 +453,12 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 				},
 				{
 					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/123456/commands/pause_charging",
+					requestPath:   "/api/chargers/123456/settings",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer new-access-token",
+						"Content-Type":  "application/*+json",
 					},
+					requestBody:  `{"dynamicChargerCurrent":0}`,
 					responseCode: http.StatusAccepted,
 					responseBody: exampleCommandBody(t),
 				},
@@ -669,6 +687,167 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 	}
 }
 
+func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+	t.Cleanup(func() {
+		clock.Restore()
+	})
+
+	tests := []struct {
+		name             string
+		chargerID        string
+		cfg              *config.Config
+		serverHandler    http.Handler
+		forceServerError bool
+		want             *easee.ChargerConfig
+		wantErr          bool
+	}{
+		{
+			name:      "successful call to Easee API",
+			chargerID: "123456",
+			cfg: &config.Config{
+				Credentials: config.Credentials{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
+				},
+			},
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodGet,
+				requestPath:   "/api/chargers/123456/config",
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer access-token",
+				},
+				responseCode: http.StatusOK,
+				responseBody: marshal(t, exampleChargerConfig(t)),
+			}),
+			want: exampleChargerConfig(t),
+		},
+		{
+			name:      "response code != 200",
+			chargerID: "123456",
+			cfg: &config.Config{
+				Credentials: config.Credentials{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
+				},
+			},
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodGet,
+				requestPath:   "/api/chargers/123456/config",
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer access-token",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			wantErr: true,
+		},
+		{
+			name:      "http client error",
+			chargerID: "123456",
+			cfg: &config.Config{
+				Credentials: config.Credentials{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
+				},
+			},
+			forceServerError: true,
+			wantErr:          true,
+		},
+		{
+			name:      "return error if credentials are empty",
+			chargerID: "123456",
+			cfg:       &config.Config{},
+			wantErr:   true,
+		},
+		{
+			name:      "expired access token - refreshing it under the hood",
+			chargerID: "123456",
+			cfg: &config.Config{
+				Credentials: config.Credentials{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+				},
+			},
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/accounts/refresh_token",
+					requestBody:   `{"accessToken":"access-token","refreshToken":"refresh-token"}`,
+					requestHeaders: map[string]string{
+						"Content-Type": "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: `{"accessToken":"new-access-token","expiresIn":86400,"accessClaims":["User"],"tokenType":"Bearer","refreshToken":"refresh-token"}`,
+				},
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/chargers/123456/config",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer new-access-token",
+					},
+					responseCode: http.StatusOK,
+					responseBody: marshal(t, exampleChargerConfig(t)),
+				},
+			}...),
+			want: exampleChargerConfig(t),
+		},
+		{
+			name:      "refreshing expired access token failed",
+			chargerID: "123456",
+			cfg: &config.Config{
+				Credentials: config.Credentials{
+					AccessToken:  "access-token",
+					RefreshToken: "refresh-token",
+					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
+				},
+			},
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/accounts/refresh_token",
+				requestBody:   `{"accessToken":"access-token","refreshToken":"refresh-token"}`,
+				requestHeaders: map[string]string{
+					"Content-Type": "application/*+json",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests { //nolint:paralleltest
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			httpClient := &http.Client{Timeout: 3 * time.Second}
+			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			cfgService := config.NewService(storage)
+
+			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
+
+			got, err := c.ChargerConfig(tt.chargerID)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestClient_Ping(t *testing.T) {
 	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
 	t.Cleanup(func() {
@@ -751,176 +930,6 @@ func TestClient_Ping(t *testing.T) {
 			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
 
 			err := c.Ping()
-			if tt.wantErr {
-				assert.Error(t, err)
-
-				return
-			}
-
-			assert.NoError(t, err)
-		})
-	}
-}
-
-func TestClient_SetChargingCurrent(t *testing.T) {
-	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
-	t.Cleanup(func() {
-		clock.Restore()
-	})
-
-	tests := []struct {
-		name             string
-		current          float64
-		cfg              *config.Config
-		serverHandler    http.Handler
-		forceServerError bool
-		wantErr          bool
-	}{
-		{
-			name:    "successful call to Easee API",
-			current: 40,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
-			serverHandler: newTestHandler(t, []call{
-				{
-					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/123456/settings",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					requestBody:  `{"dynamicChargerCurrent":40}`,
-					responseCode: http.StatusAccepted,
-					responseBody: exampleCommandBody(t),
-				},
-				{
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: failedCheckerBody(t),
-				},
-				{
-					// previous check failed, retry...
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: successfulCheckerBody(t),
-				},
-			}...),
-		},
-		{
-			name:    "response code != 204",
-			current: 40,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
-			serverHandler: newTestHandler(t, call{
-				requestMethod: http.MethodPost,
-				requestPath:   "/api/chargers/123456/settings",
-				requestHeaders: map[string]string{
-					"Authorization": "Bearer access-token",
-					"Content-Type":  "application/*+json",
-				},
-				requestBody:  `{"dynamicChargerCurrent":40}`,
-				responseCode: http.StatusInternalServerError,
-			}),
-			wantErr: true,
-		},
-		{
-			name: "http client error",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
-			forceServerError: true,
-			wantErr:          true,
-		},
-		{
-			name:    "setting current equal to 0",
-			current: 0,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
-			serverHandler: newTestHandler(t, []call{
-				{
-					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/123456/settings",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					requestBody:  `{"dynamicChargerCurrent":0}`,
-					responseCode: http.StatusAccepted,
-					responseBody: exampleCommandBody(t),
-				},
-				{
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: successfulCheckerBody(t),
-				},
-			}...),
-		},
-		{
-			name:    "setting current lower than 0",
-			current: -2,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			s := httptest.NewServer(tt.serverHandler)
-			t.Cleanup(func() {
-				s.Close()
-			})
-
-			if tt.forceServerError {
-				s.Close()
-			}
-
-			httpClient := &http.Client{Timeout: 3 * time.Second}
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
-
-			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
-
-			err := c.SetChargingCurrent(testChargerID, tt.current)
 			if tt.wantErr {
 				assert.Error(t, err)
 
@@ -1288,6 +1297,14 @@ func exampleChargerState(t *testing.T) *easee.ChargerState {
 		LifetimeEnergy: 1234,
 		SessionEnergy:  234,
 		Voltage:        200,
+	}
+}
+
+func exampleChargerConfig(t *testing.T) *easee.ChargerConfig {
+	t.Helper()
+
+	return &easee.ChargerConfig{
+		MaxChargerCurrent: 32,
 	}
 }
 
