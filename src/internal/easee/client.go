@@ -55,11 +55,9 @@ type Client interface {
 }
 
 type client struct {
-	httpClient           *http.Client
-	cfgSvc               *config.Service
-	baseURL              string
-	commandCheckInterval time.Duration
-	commandCheckTimeout  time.Duration
+	httpClient *http.Client
+	cfgSvc     *config.Service
+	baseURL    string
 }
 
 // NewClient returns a new instance of Client.
@@ -67,15 +65,11 @@ func NewClient(
 	httpClient *http.Client,
 	cfgSvc *config.Service,
 	baseURL string,
-	commandCheckInterval,
-	commandCheckTimeout time.Duration,
 ) Client {
 	return &client{
-		httpClient:           httpClient,
-		cfgSvc:               cfgSvc,
-		baseURL:              baseURL,
-		commandCheckInterval: commandCheckInterval,
-		commandCheckTimeout:  commandCheckTimeout,
+		httpClient: httpClient,
+		cfgSvc:     cfgSvc,
+		baseURL:    baseURL,
 	}
 }
 
@@ -426,16 +420,18 @@ func (c *client) bearerTokenHeader(authToken string) string {
 }
 
 func (c *client) checkCommand(r commandResponse) error {
-	ticker := time.NewTicker(c.commandCheckInterval)
+	ticker := time.NewTicker(c.cfgSvc.GetCommandCheckInterval())
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			if err := c.runCheck(r); err == nil {
+				time.Sleep(c.cfgSvc.GetCommandCheckSleep()) // to ensure successful processing by Easee cloud.
+
 				return nil
 			}
-		case <-time.After(c.commandCheckTimeout):
+		case <-time.After(c.cfgSvc.GetCommandCheckTimeout()):
 			return errors.New("command checker timeout")
 		}
 	}
@@ -447,7 +443,12 @@ func (c *client) runCheck(r commandResponse) error {
 		return errors.Wrap(err, "failed to get access token")
 	}
 
-	uri := fmt.Sprintf(commandCheckURITemplate, r.Device, r.CommandID, r.Ticks)
+	info, ok := r.Info()
+	if !ok {
+		return errors.New("command did not return any info")
+	}
+
+	uri := fmt.Sprintf(commandCheckURITemplate, info.Device, info.CommandID, info.Ticks)
 	req, err := newRequestBuilder(http.MethodGet, c.url(uri)).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		addHeader(contentTypeHeader, jsonContentType).

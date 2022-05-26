@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/futurehomeno/cliffhanger/manifest"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 )
 
 // LoadManifest loads and parses app manifest from default test files.
@@ -25,4 +27,13 @@ func LoadManifest(t *testing.T) *manifest.Manifest {
 	}
 
 	return mf
+}
+
+// ExampleChargerConfig returns an example charger config for testing purposes.
+func ExampleChargerConfig(t *testing.T) *easee.ChargerConfig {
+	t.Helper()
+
+	return &easee.ChargerConfig{
+		MaxChargerCurrent: 32,
+	}
 }

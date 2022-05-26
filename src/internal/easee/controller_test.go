@@ -13,7 +13,8 @@ import (
 )
 
 const (
-	testChargerID = "123456"
+	testChargerID  = "123456"
+	testMaxCurrent = 32.0
 )
 
 func TestController_StartChargepointCharging(t *testing.T) {
@@ -29,7 +30,6 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			name: "easee client should start charging session for a particular charger with default charging mode",
 			mode: "",
 			mockClient: func(c *mocks.Client) {
-				c.On("ChargerConfig", testChargerID).Return(exampleChargerConfig(t), nil)
 				c.On("StartCharging", testChargerID, 32.0).Return(nil)
 			},
 		},
@@ -37,7 +37,6 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			name: "start charging session with normal mode",
 			mode: "normal",
 			mockClient: func(c *mocks.Client) {
-				c.On("ChargerConfig", testChargerID).Return(exampleChargerConfig(t), nil)
 				c.On("StartCharging", testChargerID, 32.0).Return(nil)
 			},
 		},
@@ -45,7 +44,6 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			name: "start charging session with slow mode",
 			mode: "Slow",
 			mockClient: func(c *mocks.Client) {
-				c.On("ChargerConfig", testChargerID).Return(exampleChargerConfig(t), nil)
 				c.On("StartCharging", testChargerID, 10.0).Return(nil)
 			},
 		},
@@ -53,7 +51,6 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			name: "ignore unknown charging mode when starting charging session",
 			mode: "dummy",
 			mockClient: func(c *mocks.Client) {
-				c.On("ChargerConfig", testChargerID).Return(exampleChargerConfig(t), nil)
 				c.On("StartCharging", testChargerID, 32.0).Return(nil)
 			},
 		},
@@ -61,24 +58,7 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			name: "error when easee client returns an error on starting charging",
 			mode: "",
 			mockClient: func(c *mocks.Client) {
-				c.On("ChargerConfig", testChargerID).Return(exampleChargerConfig(t), nil)
 				c.On("StartCharging", testChargerID, 32.0).Return(errors.New("test error"))
-			},
-			wantErr: true,
-		},
-		{
-			name: "error when easee client returns an error on fetching charger config",
-			mode: "",
-			mockClient: func(c *mocks.Client) {
-				c.On("ChargerConfig", testChargerID).Return(nil, errors.New("test error"))
-			},
-			wantErr: true,
-		},
-		{
-			name: "error when max charger current is lower that the minimal supported current for some reason",
-			mode: "",
-			mockClient: func(c *mocks.Client) {
-				c.On("ChargerConfig", testChargerID).Return(&easee.ChargerConfig{MaxChargerCurrent: 9}, nil)
 			},
 			wantErr: true,
 		},
@@ -94,10 +74,14 @@ func TestController_StartChargepointCharging(t *testing.T) {
 				tt.mockClient(clientMock)
 			}
 
-			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfg := &config.Config{
+				PollingInterval:              "30s",
+				SlowChargingCurrentInAmperes: 10,
+			}
+			storage := fakes.NewConfigStorage(cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
-			c := easee.NewController(clientMock, cfgService, testChargerID)
+			c := easee.NewController(clientMock, cfgService, testChargerID, testMaxCurrent)
 
 			err := c.StartChargepointCharging(tt.mode)
 
@@ -148,7 +132,7 @@ func TestController_StopChargepointCharging(t *testing.T) {
 			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
 			cfgService := config.NewService(storage)
 
-			c := easee.NewController(clientMock, cfgService, testChargerID)
+			c := easee.NewController(clientMock, cfgService, testChargerID, testMaxCurrent)
 
 			err := c.StopChargepointCharging()
 
@@ -201,7 +185,7 @@ func TestController_ChargepointCableLockReport(t *testing.T) {
 			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
 			cfgService := config.NewService(storage)
 
-			c := easee.NewController(clientMock, cfgService, testChargerID)
+			c := easee.NewController(clientMock, cfgService, testChargerID, testMaxCurrent)
 
 			got, err := c.ChargepointCableLockReport()
 
@@ -304,7 +288,7 @@ func TestController_ChargepointStateReport(t *testing.T) {
 			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
 			cfgService := config.NewService(storage)
 
-			c := easee.NewController(clientMock, cfgService, testChargerID)
+			c := easee.NewController(clientMock, cfgService, testChargerID, testMaxCurrent)
 
 			got, err := c.ChargepointStateReport()
 
@@ -385,7 +369,7 @@ func TestController_ElectricityMeterReport(t *testing.T) {
 			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
 			cfgService := config.NewService(storage)
 
-			c := easee.NewController(clientMock, cfgService, testChargerID)
+			c := easee.NewController(clientMock, cfgService, testChargerID, testMaxCurrent)
 
 			got, err := c.ElectricityMeterReport(tt.unit)
 
@@ -481,7 +465,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) {
 			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
 			cfgService := config.NewService(storage)
 
-			c := easee.NewController(clientMock, cfgService, testChargerID)
+			c := easee.NewController(clientMock, cfgService, testChargerID, testMaxCurrent)
 
 			got, err := c.ChargepointCurrentSessionReport()
 
@@ -543,7 +527,7 @@ func TestController_SetChargepointCableLock(t *testing.T) {
 			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
 			cfgService := config.NewService(storage)
 
-			c := easee.NewController(clientMock, cfgService, testChargerID)
+			c := easee.NewController(clientMock, cfgService, testChargerID, testMaxCurrent)
 
 			err := c.SetChargepointCableLock(tt.chargerLocked)
 

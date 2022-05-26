@@ -78,6 +78,7 @@ type ChargerState struct {
 	LifetimeEnergy                               float64     `json:"lifetimeEnergy"`
 }
 
+// ChargerConfig represents charger config.
 type ChargerConfig struct {
 	MaxChargerCurrent float64 `json:"maxChargerCurrent"`
 }
@@ -202,7 +203,18 @@ const (
 )
 
 // commandResponse represents a response returned by all command API calls.
-type commandResponse struct {
+type commandResponse []commandInfo
+
+// Info is a method responsible for extracting command info from the response.
+func (c commandResponse) Info() (commandInfo, bool) {
+	if len(c) == 0 {
+		return commandInfo{}, false
+	}
+
+	return c[0], true
+}
+
+type commandInfo struct {
 	Device    string `json:"device"`
 	CommandID int    `json:"commandId"`
 	Ticks     uint64 `json:"ticks"`

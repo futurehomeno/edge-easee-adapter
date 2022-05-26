@@ -13,12 +13,8 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
-)
-
-var (
-	testCommandCheckInterval = 5 * time.Millisecond
-	testCommandCheckTimeout  = 100 * time.Millisecond
 )
 
 func TestClient_Login(t *testing.T) {
@@ -111,9 +107,10 @@ func TestClient_Login(t *testing.T) {
 				s.Close()
 			}
 
+			cfgService := makeConfigService(t, exampleConfig(t))
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 
-			c := easee.NewClient(httpClient, nil, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
+			c := easee.NewClient(httpClient, cfgService, s.URL)
 
 			got, err := c.Login(tt.username, tt.password)
 			if tt.wantErr {
@@ -147,13 +144,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			name:      "successful call to Easee API",
 			chargerID: "123456",
 			current:   40,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfig(t),
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
@@ -193,13 +184,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			name:      "response code != 200",
 			chargerID: "123456",
 			current:   40,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
 				requestPath:   "/api/chargers/123456/settings",
@@ -213,16 +198,10 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			wantErr: true,
 		},
 		{
-			name:      "http client error",
-			chargerID: "123456",
-			current:   40,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			name:             "http client error",
+			chargerID:        "123456",
+			current:          40,
+			cfg:              exampleConfig(t),
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -236,13 +215,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			name:      "expired access token - refreshing it under the hood",
 			chargerID: "123456",
 			current:   40,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfigWithExpiredCredentials(t),
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
@@ -281,13 +254,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			name:      "refreshing expired access token failed",
 			chargerID: "123456",
 			current:   40,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfigWithExpiredCredentials(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
 				requestPath:   "/api/accounts/refresh_token",
@@ -313,10 +280,9 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
+			cfgService := makeConfigService(t, tt.cfg)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
+			c := easee.NewClient(httpClient, cfgService, s.URL)
 
 			err := c.StartCharging(tt.chargerID, tt.current)
 			if tt.wantErr {
@@ -347,13 +313,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "successful call to Easee API",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfig(t),
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
@@ -392,13 +352,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "response code != 200",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
 				requestPath:   "/api/chargers/123456/settings",
@@ -412,15 +366,9 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			wantErr: true,
 		},
 		{
-			name:      "http client error",
-			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			name:             "http client error",
+			chargerID:        "123456",
+			cfg:              exampleConfig(t),
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -433,13 +381,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "expired access token - refreshing it under the hood",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfigWithExpiredCredentials(t),
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
@@ -477,13 +419,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "refreshing expired access token failed",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfigWithExpiredCredentials(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
 				requestPath:   "/api/accounts/refresh_token",
@@ -509,10 +445,9 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
+			cfgService := makeConfigService(t, tt.cfg)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
+			c := easee.NewClient(httpClient, cfgService, s.URL)
 
 			err := c.StopCharging(tt.chargerID)
 			if tt.wantErr {
@@ -544,13 +479,7 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "successful call to Easee API",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
 				requestPath:   "/api/chargers/123456/state",
@@ -565,13 +494,7 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "response code != 200",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
 				requestPath:   "/api/chargers/123456/state",
@@ -583,15 +506,9 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 			wantErr: true,
 		},
 		{
-			name:      "http client error",
-			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			name:             "http client error",
+			chargerID:        "123456",
+			cfg:              exampleConfig(t),
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -604,13 +521,7 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "expired access token - refreshing it under the hood",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfigWithExpiredCredentials(t),
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
@@ -637,13 +548,7 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "refreshing expired access token failed",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfigWithExpiredCredentials(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
 				requestPath:   "/api/accounts/refresh_token",
@@ -669,10 +574,9 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
+			cfgService := makeConfigService(t, tt.cfg)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
+			c := easee.NewClient(httpClient, cfgService, s.URL)
 
 			got, err := c.ChargerState(tt.chargerID)
 			if tt.wantErr {
@@ -705,13 +609,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "successful call to Easee API",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
 				requestPath:   "/api/chargers/123456/config",
@@ -719,20 +617,14 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 					"Authorization": "Bearer access-token",
 				},
 				responseCode: http.StatusOK,
-				responseBody: marshal(t, exampleChargerConfig(t)),
+				responseBody: marshal(t, test.ExampleChargerConfig(t)),
 			}),
-			want: exampleChargerConfig(t),
+			want: test.ExampleChargerConfig(t),
 		},
 		{
 			name:      "response code != 200",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
 				requestPath:   "/api/chargers/123456/config",
@@ -744,15 +636,9 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 			wantErr: true,
 		},
 		{
-			name:      "http client error",
-			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			name:             "http client error",
+			chargerID:        "123456",
+			cfg:              exampleConfig(t),
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -765,13 +651,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "expired access token - refreshing it under the hood",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfigWithExpiredCredentials(t),
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
@@ -790,21 +670,15 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 						"Authorization": "Bearer new-access-token",
 					},
 					responseCode: http.StatusOK,
-					responseBody: marshal(t, exampleChargerConfig(t)),
+					responseBody: marshal(t, test.ExampleChargerConfig(t)),
 				},
 			}...),
-			want: exampleChargerConfig(t),
+			want: test.ExampleChargerConfig(t),
 		},
 		{
 			name:      "refreshing expired access token failed",
 			chargerID: "123456",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:       exampleConfigWithExpiredCredentials(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
 				requestPath:   "/api/accounts/refresh_token",
@@ -830,10 +704,9 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
+			cfgService := makeConfigService(t, tt.cfg)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
+			c := easee.NewClient(httpClient, cfgService, s.URL)
 
 			got, err := c.ChargerConfig(tt.chargerID)
 			if tt.wantErr {
@@ -863,13 +736,7 @@ func TestClient_Ping(t *testing.T) {
 	}{
 		{
 			name: "successful call to Easee API",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:  exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
 				requestPath:   "/health",
@@ -881,13 +748,7 @@ func TestClient_Ping(t *testing.T) {
 		},
 		{
 			name: "response code != 200",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:  exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
 				requestPath:   "/health",
@@ -899,14 +760,8 @@ func TestClient_Ping(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "http client error",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			name:             "http client error",
+			cfg:              exampleConfig(t),
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -924,10 +779,9 @@ func TestClient_Ping(t *testing.T) {
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
+			cfgService := makeConfigService(t, tt.cfg)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
+			c := easee.NewClient(httpClient, cfgService, s.URL)
 
 			err := c.Ping()
 			if tt.wantErr {
@@ -957,13 +811,7 @@ func TestClient_Chargers(t *testing.T) {
 	}{
 		{
 			name: "successful call to Easee API",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:  exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
 				requestPath:   "/api/chargers",
@@ -988,13 +836,7 @@ func TestClient_Chargers(t *testing.T) {
 		},
 		{
 			name: "response code != 200",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:  exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
 				requestPath:   "/api/chargers",
@@ -1006,14 +848,8 @@ func TestClient_Chargers(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "http client error",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			name:             "http client error",
+			cfg:              exampleConfig(t),
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -1031,10 +867,9 @@ func TestClient_Chargers(t *testing.T) {
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
+			cfgService := makeConfigService(t, tt.cfg)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
+			c := easee.NewClient(httpClient, cfgService, s.URL)
 
 			got, err := c.Chargers()
 			if tt.wantErr {
@@ -1066,13 +901,7 @@ func TestClient_SetCableLock(t *testing.T) {
 		{
 			name:   "successful cable lock",
 			locked: true,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:    exampleConfig(t),
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodGet,
@@ -1111,13 +940,7 @@ func TestClient_SetCableLock(t *testing.T) {
 		{
 			name:   "successful cable unlock",
 			locked: false,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:    exampleConfig(t),
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodGet,
@@ -1156,13 +979,7 @@ func TestClient_SetCableLock(t *testing.T) {
 		{
 			name:   "response code != 202",
 			locked: true,
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			cfg:    exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
 				requestPath:   "/api/chargers/123456/commands/lock_state",
@@ -1176,14 +993,8 @@ func TestClient_SetCableLock(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "http client error",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
-				},
-			},
+			name:             "http client error",
+			cfg:              exampleConfig(t),
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -1201,10 +1012,9 @@ func TestClient_SetCableLock(t *testing.T) {
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
+			cfgService := makeConfigService(t, tt.cfg)
 
-			c := easee.NewClient(httpClient, cfgService, s.URL, testCommandCheckInterval, testCommandCheckTimeout)
+			c := easee.NewClient(httpClient, cfgService, s.URL)
 
 			err := c.SetCableLock(testChargerID, tt.locked)
 			if tt.wantErr {
@@ -1288,6 +1098,38 @@ func marshal(t *testing.T, v interface{}) string {
 	return string(b)
 }
 
+func exampleConfig(t *testing.T) *config.Config {
+	t.Helper()
+
+	return &config.Config{
+		Credentials: config.Credentials{
+			AccessToken:  "access-token",
+			RefreshToken: "refresh-token",
+			ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
+		},
+		CommandCheckInterval: "5ms",
+		CommandCheckTimeout:  "100ms",
+		CommandCheckSleep:    "0ms",
+	}
+}
+
+func exampleConfigWithExpiredCredentials(t *testing.T) *config.Config {
+	t.Helper()
+
+	cfg := exampleConfig(t)
+	cfg.Credentials.ExpiresAt = time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC)
+
+	return cfg
+}
+
+func makeConfigService(t *testing.T, cfg *config.Config) *config.Service {
+	t.Helper()
+
+	storage := fakes.NewConfigStorage(cfg, config.Factory)
+
+	return config.NewService(storage)
+}
+
 func exampleChargerState(t *testing.T) *easee.ChargerState {
 	t.Helper()
 
@@ -1300,18 +1142,10 @@ func exampleChargerState(t *testing.T) *easee.ChargerState {
 	}
 }
 
-func exampleChargerConfig(t *testing.T) *easee.ChargerConfig {
-	t.Helper()
-
-	return &easee.ChargerConfig{
-		MaxChargerCurrent: 32,
-	}
-}
-
 func exampleCommandBody(t *testing.T) string {
 	t.Helper()
 
-	return `{"device":"123456","commandId":48,"ticks":637886435126844439}`
+	return `[{"device":"123456","commandId":48,"ticks":637886435126844439}]`
 }
 
 func successfulCheckerBody(t *testing.T) string {

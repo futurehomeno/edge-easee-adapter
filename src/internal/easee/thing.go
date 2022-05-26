@@ -15,7 +15,8 @@ import (
 
 // Info is an object representing charger persisted information.
 type Info struct {
-	ChargerID string `json:"charger_id"`
+	ChargerID  string  `json:"chargerID"`
+	MaxCurrent float64 `json:"maxCurrent"`
 }
 
 type thingFactory struct {
@@ -38,7 +39,7 @@ func (t *thingFactory) Create(mqtt *fimpgo.MqttTransport, adapter adapter.Extend
 		return nil, fmt.Errorf("factory: failed to retrieve information: %w", err)
 	}
 
-	controller := NewController(t.client, t.cfgService, info.ChargerID)
+	controller := NewController(t.client, t.cfgService, info.ChargerID, info.MaxCurrent)
 	groups := []string{"ch_0"}
 
 	return thing.NewCarCharger(mqtt, &thing.CarChargerConfig{

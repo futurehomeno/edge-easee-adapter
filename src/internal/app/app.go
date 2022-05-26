@@ -152,7 +152,17 @@ func (a *application) registerChargers() error {
 	}
 
 	for _, charger := range chargers {
-		if err := a.ad.CreateThing(charger.ID, easee.Info{ChargerID: charger.ID}); err != nil {
+		cfg, err := a.client.ChargerConfig(charger.ID)
+		if err != nil {
+			return fmt.Errorf("failed to fetch a charger config ID %s: %w", charger.ID, err)
+		}
+
+		info := easee.Info{
+			ChargerID:  charger.ID,
+			MaxCurrent: cfg.MaxChargerCurrent,
+		}
+
+		if err := a.ad.CreateThing(charger.ID, info); err != nil {
 			return fmt.Errorf("failed to register charger ID %s: %w", charger.ID, err)
 		}
 	}

@@ -13,5 +13,9 @@
   "refreshToken": "",
   "expiresAt": "0001-01-01T00:00:00Z",
   "easeeBaseURL": "https://api.easee.cloud",
-  "pollingInterval": "30s"
+  "pollingInterval": "30s",
+  "commandCheckInterval": "500ms",
+  "commandCheckTimeout": "3s",
+  "commandCheckSleep": "2s",
+  "slowChargingCurrentInAmperes": 10
 }

@@ -14,8 +14,12 @@ type Config struct {
 	config.Default
 	Credentials
 
-	EaseeBaseURL    string `json:"easeeBaseURL"`
-	PollingInterval string `json:"pollingInterval"`
+	EaseeBaseURL                 string  `json:"easeeBaseURL"`
+	PollingInterval              string  `json:"pollingInterval"`
+	CommandCheckInterval         string  `json:"commandCheckInterval"`
+	CommandCheckTimeout          string  `json:"commandCheckTimeout"`
+	CommandCheckSleep            string  `json:"commandCheckSleep"`
+	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmpers"`
 }
 
 // New creates new instance of a configuration object.
@@ -116,4 +120,106 @@ func (cs *Service) GetPollingInterval() time.Duration {
 	}
 
 	return duration
+}
+
+// SetPollingInterval allows to safely set and persist configuration settings.
+func (cs *Service) SetPollingInterval(interval time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().(*Config).PollingInterval = interval.String()
+
+	return cs.Storage.Save()
+}
+
+// GetCommandCheckInterval allows to safely access a configuration setting.
+func (cs *Service) GetCommandCheckInterval() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	duration, err := time.ParseDuration(cs.Storage.Model().(*Config).CommandCheckInterval)
+	if err != nil {
+		return 500 * time.Millisecond
+	}
+
+	return duration
+}
+
+// SetCommandCheckInterval allows to safely set and persist configuration settings.
+func (cs *Service) SetCommandCheckInterval(interval time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().(*Config).CommandCheckInterval = interval.String()
+
+	return cs.Storage.Save()
+}
+
+// GetCommandCheckTimeout allows to safely access a configuration setting.
+func (cs *Service) GetCommandCheckTimeout() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	duration, err := time.ParseDuration(cs.Storage.Model().(*Config).CommandCheckTimeout)
+	if err != nil {
+		return 3 * time.Second
+	}
+
+	return duration
+}
+
+// SetCommandCheckTimeout allows to safely set and persist configuration settings.
+func (cs *Service) SetCommandCheckTimeout(timeout time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().(*Config).CommandCheckTimeout = timeout.String()
+
+	return cs.Storage.Save()
+}
+
+// GetCommandCheckSleep allows to safely access a configuration setting.
+func (cs *Service) GetCommandCheckSleep() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	duration, err := time.ParseDuration(cs.Storage.Model().(*Config).CommandCheckSleep)
+	if err != nil {
+		return 3 * time.Second
+	}
+
+	return duration
+}
+
+// SetCommandCheckSleep allows to safely set and persist configuration settings.
+func (cs *Service) SetCommandCheckSleep(sleep time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().(*Config).CommandCheckSleep = sleep.String()
+
+	return cs.Storage.Save()
+}
+
+// GetSlowChargingCurrentInAmperes allows to safely access a configuration setting.
+func (cs *Service) GetSlowChargingCurrentInAmperes() float64 {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().(*Config).SlowChargingCurrentInAmperes
+}
+
+// SetSlowChargingCurrentInAmperes allows to safely set and persist configuration settings.
+func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().(*Config).SlowChargingCurrentInAmperes = current
+
+	return cs.Storage.Save()
 }

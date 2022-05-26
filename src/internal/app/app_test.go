@@ -191,10 +191,12 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					{ID: "456"},
 				}, nil)
 				c.On("Ping").Return(nil)
+				c.On("ChargerConfig", "123").Return(test.ExampleChargerConfig(t), nil).Once()
+				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
-				a.On("CreateThing", "123", easee.Info{ChargerID: "123"}).Return(nil)
-				a.On("CreateThing", "456", easee.Info{ChargerID: "456"}).Return(nil)
+				a.On("CreateThing", "123", easee.Info{ChargerID: "123", MaxCurrent: 32}).Return(nil)
+				a.On("CreateThing", "456", easee.Info{ChargerID: "456", MaxCurrent: 32}).Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
@@ -268,10 +270,12 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					{ID: "456"},
 				}, nil)
 				c.On("Ping").Return(errors.New("oops"))
+				c.On("ChargerConfig", "123").Return(test.ExampleChargerConfig(t), nil).Once()
+				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
-				a.On("CreateThing", "123", easee.Info{ChargerID: "123"}).Return(nil)
-				a.On("CreateThing", "456", easee.Info{ChargerID: "456"}).Return(nil)
+				a.On("CreateThing", "123", easee.Info{ChargerID: "123", MaxCurrent: 32}).Return(nil)
+				a.On("CreateThing", "456", easee.Info{ChargerID: "456", MaxCurrent: 32}).Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
@@ -315,10 +319,12 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					{ID: "456"},
 				}, nil)
 				c.On("Ping").Return(nil)
+				c.On("ChargerConfig", "123").Return(test.ExampleChargerConfig(t), nil).Once()
+				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
-				a.On("CreateThing", "123", easee.Info{ChargerID: "123"}).Return(nil)
-				a.On("CreateThing", "456", easee.Info{ChargerID: "456"}).Return(errors.New("oops"))
+				a.On("CreateThing", "123", easee.Info{ChargerID: "123", MaxCurrent: 32}).Return(nil)
+				a.On("CreateThing", "456", easee.Info{ChargerID: "456", MaxCurrent: 32}).Return(errors.New("oops"))
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
