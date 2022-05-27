@@ -57,7 +57,7 @@ func getConfigService() *config.Service {
 
 // getConfigStorage creates or returns an existing config storage.
 func getConfigStorage() storage.Storage {
-	if services.configStorage == nil {
+	if services.configStorage == nil { //nolint:typecheck
 		workDir := bootstrap.GetConfigurationDirectory()
 		cfg := config.New(workDir)
 
@@ -96,7 +96,7 @@ func getMQTT() *fimpgo.MqttTransport {
 
 // getApplication creates or returns existing application.
 func getApplication() app.Application {
-	if services.application == nil {
+	if services.application == nil { //nolint:typecheck
 		services.application = app.New(
 			getAdapter(),
 			getConfigService(),
@@ -127,7 +127,7 @@ func getManifest() *manifest.Manifest {
 
 // getAdapter creates or returns existing adapter service.
 func getAdapter() adapter.ExtendedAdapter {
-	if services.adapter == nil {
+	if services.adapter == nil { //nolint:typecheck
 		services.adapter = adapter.NewExtendedAdapter(
 			getMQTT(),
 			getThingFactory(),
@@ -142,7 +142,7 @@ func getAdapter() adapter.ExtendedAdapter {
 
 // getAdapterState creates or returns existing adapter state service.
 func getAdapterState() adapter.State {
-	if services.adapterState == nil {
+	if services.adapterState == nil { //nolint:typecheck
 		var err error
 
 		services.adapterState, err = adapter.NewState(bootstrap.GetConfigurationDirectory())
@@ -156,7 +156,7 @@ func getAdapterState() adapter.State {
 
 // getThingFactory creates or returns existing thing factory service.
 func getThingFactory() adapter.ThingFactory {
-	if services.thingFactory == nil {
+	if services.thingFactory == nil { //nolint:typecheck
 		services.thingFactory = easee.NewThingFactory(getEaseeClient(), getConfigService())
 	}
 
@@ -165,7 +165,7 @@ func getThingFactory() adapter.ThingFactory {
 
 // getEaseeClient creates or returns existing Easee API client.
 func getEaseeClient() easee.Client {
-	if services.easeeClient == nil {
+	if services.easeeClient == nil { //nolint:typecheck
 		services.easeeClient = easee.NewClient(
 			getHTTPClient(),
 			getConfigService(),
