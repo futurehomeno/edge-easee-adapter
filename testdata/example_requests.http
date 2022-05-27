@@ -1,0 +1,55 @@
+###
+# Login to Easee API
+POST https://api.easee.cloud/api/accounts/login
+Accept: application/json
+Content-Type: application/*+json
+
+{
+  "userName": "username",
+  "password": "password"
+}
+
+###
+# Refresh token
+POST https://api.easee.cloud/api/accounts/refresh_token
+Accept: application/json
+Authorization: Bearer access-token
+Content-Type: application/*+json
+
+
+{
+  "accessToken": "access-token",
+  "refreshToken": "refresh-token"
+}
+
+###
+# Get all chargers
+GET https://api.easee.cloud/api/chargers
+Authorization: Bearer access-token
+
+###
+# Check API health
+GET https://api.easee.cloud/health
+Authorization: Bearer access-token
+
+###
+# Get charger state
+GET https://api.easee.cloud/api/chargers/{charger-id}/state
+Accept: application/json
+Authorization: Bearer access-token
+
+###
+# Charger config
+GET https://api.easee.cloud/api/chargers/{charger-id}/config
+Accept: application/json
+Authorization: Bearer access-token
+
+###
+# Set cable lock state
+POST https://api.easee.cloud/api/chargers/{charger-id}/commands/lock_state
+Authorization: Bearer access-token
+Content-Type: application/*+json
+
+{
+  "state": true
+}

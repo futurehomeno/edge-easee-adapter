@@ -11,13 +11,13 @@ init:
 	git config core.hooksPath .githooks
 
 build-go:
-	cd ./src;go build -o ../easee service.go;cd ../
+	cd ./src;go build -o ../easee main.go;cd ../
 
 build-go-arm: init
-	cd ./src;GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w" -o ../easee service.go;cd ../
+	cd ./src;GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w" -o ../easee main.go;cd ../
 
 build-go-amd: init
-	cd ./src;GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../easee service.go;cd ../
+	cd ./src;GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../easee main.go;cd ../
 
 
 configure-arm:
@@ -68,7 +68,7 @@ deb-remote-install : deb-arm remote-install
 
 
 run :
-	cd ./src; go run service.go -c ../testdata;cd ../
+	cd ./src; go run main.go -c ../testdata;cd ../
 
 
 .phony : clean

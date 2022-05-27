@@ -4,5 +4,5 @@ Replaces: easee
 Section: non-free/misc
 Priority: optional
 Architecture: armhf
-Maintainer: Tor Erik Skardal <skardal@hey.com>
-Description: Easee adapter for the futurehome system
+Maintainer: Futurehome AS <support@futurehome.no>
+Description: Futurehome Easee EV charger adapter.

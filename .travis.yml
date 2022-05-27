@@ -1,0 +1,19 @@
+language: go
+
+go:
+  - "1.17"
+
+env:
+  global:
+    - GO111MODULE=on
+    - GOPRIVATE=github.com/futurehomeno
+
+install: true
+
+before_install:
+  - git config --global url.ssh://git@github.com/.insteadOf https://github.com/
+  - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.46.1
+
+script:
+  - cd src && golangci-lint run ./... --timeout 2m && cd ..
+  - cd src && go test -p 1 -v ./...
