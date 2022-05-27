@@ -53,7 +53,7 @@ func (c Credentials) Expired() bool {
 
 // Service is a configuration service responsible for:
 // - providing concurrency safe access to settings
-// - persistence of settings
+// - persistence of settings.
 type Service struct {
 	storage.Storage
 	lock *sync.RWMutex
@@ -72,7 +72,7 @@ func (cs *Service) GetEaseeBaseURL() string {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).EaseeBaseURL
+	return cs.Storage.Model().(*Config).EaseeBaseURL //nolint:forcetypeassert
 }
 
 // SetLogLevel allows to safely set and persist configuration settings.
@@ -80,8 +80,8 @@ func (cs *Service) SetLogLevel(logLevel string) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().(*Config).LogLevel = logLevel
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).LogLevel = logLevel                            //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }
@@ -91,7 +91,7 @@ func (cs *Service) GetCredentials() Credentials {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).Credentials
+	return cs.Storage.Model().(*Config).Credentials //nolint:forcetypeassert
 }
 
 // SetCredentials allows to safely set and persist configuration settings.
@@ -99,8 +99,8 @@ func (cs *Service) SetCredentials(accessToken, refreshToken string, expirationIn
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().(*Config).Credentials = Credentials{
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).Credentials = Credentials{                     //nolint:forcetypeassert
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ExpiresAt:    clock.Now().UTC().Add(time.Duration(expirationInSeconds) * time.Second),
@@ -127,8 +127,8 @@ func (cs *Service) SetPollingInterval(interval time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().(*Config).PollingInterval = interval.String()
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).PollingInterval = interval.String()            //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }
@@ -151,8 +151,8 @@ func (cs *Service) SetCommandCheckInterval(interval time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().(*Config).CommandCheckInterval = interval.String()
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).CommandCheckInterval = interval.String()       //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }
@@ -175,8 +175,8 @@ func (cs *Service) SetCommandCheckTimeout(timeout time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().(*Config).CommandCheckTimeout = timeout.String()
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).CommandCheckTimeout = timeout.String()         //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }
@@ -199,8 +199,8 @@ func (cs *Service) SetCommandCheckSleep(sleep time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().(*Config).CommandCheckSleep = sleep.String()
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).CommandCheckSleep = sleep.String()             //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }
@@ -210,7 +210,7 @@ func (cs *Service) GetSlowChargingCurrentInAmperes() float64 {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).SlowChargingCurrentInAmperes
+	return cs.Storage.Model().(*Config).SlowChargingCurrentInAmperes //nolint:forcetypeassert
 }
 
 // SetSlowChargingCurrentInAmperes allows to safely set and persist configuration settings.
@@ -218,8 +218,8 @@ func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().(*Config).SlowChargingCurrentInAmperes = current
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).SlowChargingCurrentInAmperes = current         //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }

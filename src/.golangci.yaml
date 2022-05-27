@@ -8,6 +8,7 @@ issues:
       linters:
         - lll
         - funlen
+        - dupl
 linters:
   enable:
     # Enabled by default

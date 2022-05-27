@@ -188,18 +188,9 @@ type chargerCurrentBody struct {
 }
 
 const (
-	// resultCodeSent represents a command result code.
-	// The command was sent, but not yet processed by Easee cloud.
-	resultCodeSent = iota
-	// resultCodeExpired represents a command result code.
-	// The command was sent, but was not processed on time.
-	resultCodeExpired
 	// resultCodeExecuted represents a command result code.
 	// The command was sent and successfully executed by Easee cloud.
-	resultCodeExecuted
-	// resultCodeRejected represents a command result code.
-	// The command was sent, but was rejected by Easee cloud.
-	resultCodeRejected
+	resultCodeExecuted = 2
 )
 
 // commandResponse represents a response returned by all command API calls.

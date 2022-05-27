@@ -16,7 +16,7 @@ import (
 
 const (
 	loginURI        = "/api/accounts/token"
-	tokenRefreshURI = "/api/accounts/refresh_token"
+	tokenRefreshURI = "/api/accounts/refresh_token" //nolint:gosec
 	chargersURI     = "/api/chargers"
 	healthURI       = "/health"
 
@@ -104,7 +104,7 @@ func (c *client) Login(userName, password string) (*Credentials, error) {
 	return credentials, nil
 }
 
-func (c *client) StartCharging(chargerID string, current float64) error {
+func (c *client) StartCharging(chargerID string, current float64) error { // nolint:dupl
 	token, err := c.accessToken()
 	if err != nil {
 		return errors.Wrap(err, "failed to get access token")
@@ -141,7 +141,7 @@ func (c *client) StartCharging(chargerID string, current float64) error {
 	return nil
 }
 
-func (c *client) StopCharging(chargerID string) error {
+func (c *client) StopCharging(chargerID string) error { // nolint:dupl
 	token, err := c.accessToken()
 	if err != nil {
 		return errors.Wrap(err, "failed to get access token")
@@ -178,7 +178,7 @@ func (c *client) StopCharging(chargerID string) error {
 	return nil
 }
 
-func (c *client) SetCableLock(chargerID string, locked bool) error {
+func (c *client) SetCableLock(chargerID string, locked bool) error { // nolint:dupl
 	token, err := c.accessToken()
 	if err != nil {
 		return errors.Wrap(err, "failed to get access token")
@@ -377,7 +377,7 @@ func (c *client) refreshAccessToken() error {
 		return errors.Wrap(err, "could not read token refresh response body")
 	}
 
-	err = c.cfgSvc.SetCredentials(loginData.AccessToken, loginData.RefreshToken, int(loginData.ExpiresIn))
+	err = c.cfgSvc.SetCredentials(loginData.AccessToken, loginData.RefreshToken, loginData.ExpiresIn)
 	if err != nil {
 		return errors.Wrap(err, "could not save refreshed credentials in config")
 	}
@@ -449,6 +449,7 @@ func (c *client) runCheck(r commandResponse) error {
 	}
 
 	uri := fmt.Sprintf(commandCheckURITemplate, info.Device, info.CommandID, info.Ticks)
+
 	req, err := newRequestBuilder(http.MethodGet, c.url(uri)).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		addHeader(contentTypeHeader, jsonContentType).

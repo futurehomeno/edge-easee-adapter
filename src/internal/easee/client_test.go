@@ -126,7 +126,7 @@ func TestClient_Login(t *testing.T) {
 }
 
 func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC)) //nolint:gofumpt
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -297,7 +297,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 }
 
 func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC)) //nolint:gofumpt
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -462,7 +462,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 }
 
 func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC)) //nolint:gofumpt
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -592,7 +592,7 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 }
 
 func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC)) //nolint:gofumpt
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -721,8 +721,8 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 	}
 }
 
-func TestClient_Ping(t *testing.T) {
-	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+func TestClient_Ping(t *testing.T) { //nolint:paralleltest
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC)) //nolint:gofumpt
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -767,7 +767,7 @@ func TestClient_Ping(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
 			t.Cleanup(func() {
@@ -795,8 +795,8 @@ func TestClient_Ping(t *testing.T) {
 	}
 }
 
-func TestClient_Chargers(t *testing.T) {
-	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC)) //nolint:gofumpt
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -855,7 +855,7 @@ func TestClient_Chargers(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
 			t.Cleanup(func() {
@@ -884,8 +884,8 @@ func TestClient_Chargers(t *testing.T) {
 	}
 }
 
-func TestClient_SetCableLock(t *testing.T) {
-	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC)) //nolint:gofumpt
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -1000,7 +1000,7 @@ func TestClient_SetCableLock(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
 			t.Cleanup(func() {
@@ -1105,7 +1105,7 @@ func exampleConfig(t *testing.T) *config.Config {
 		Credentials: config.Credentials{
 			AccessToken:  "access-token",
 			RefreshToken: "refresh-token",
-			ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC),
+			ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 		},
 		CommandCheckInterval: "5ms",
 		CommandCheckTimeout:  "100ms",
@@ -1117,7 +1117,7 @@ func exampleConfigWithExpiredCredentials(t *testing.T) *config.Config {
 	t.Helper()
 
 	cfg := exampleConfig(t)
-	cfg.Credentials.ExpiresAt = time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC)
+	cfg.Credentials.ExpiresAt = time.Date(2022, time.April, 24, 8, 00, 12, 00, time.UTC) //nolint:gofumpt
 
 	return cfg
 }

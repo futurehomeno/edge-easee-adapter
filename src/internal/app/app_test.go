@@ -6,7 +6,7 @@ import (
 
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
-	"github.com/michalkurzeja/go-clock"
+	"github.com/michalkurzeja/go-clock" //nolint:gci
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 
@@ -59,7 +59,7 @@ func TestApplication_Uninstall(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -87,7 +87,7 @@ func TestApplication_Uninstall(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -140,14 +140,14 @@ func TestApplication_Uninstall(t *testing.T) {
 			}
 
 			if tt.configAssertions != nil {
-				tt.configAssertions(cfgService.Model().(*config.Config))
+				tt.configAssertions(cfgService.Model().(*config.Config)) //nolint:forcetypeassert
 			}
 		})
 	}
 }
 
 func TestApplication_Login(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC))
+	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC)) //nolint:gofumpt
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -208,7 +208,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				assert.Equal(t, config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 11, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.September, 11, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				}, c.Credentials)
 			},
 		},
@@ -287,7 +287,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				assert.Equal(t, config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 11, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.September, 11, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				}, c.Credentials)
 			},
 		},
@@ -336,7 +336,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				assert.Equal(t, config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 11, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.September, 11, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				}, c.Credentials)
 			},
 			wantErr: true,
@@ -407,7 +407,7 @@ func TestApplication_Logout(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -435,7 +435,7 @@ func TestApplication_Logout(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -487,7 +487,7 @@ func TestApplication_Logout(t *testing.T) {
 			}
 
 			if tt.configAssertions != nil {
-				tt.configAssertions(cfgService.Model().(*config.Config))
+				tt.configAssertions(cfgService.Model().(*config.Config)) //nolint:forcetypeassert
 			}
 		})
 	}
@@ -511,7 +511,7 @@ func TestApplication_Initialize(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -584,7 +584,7 @@ func TestApplication_Initialize(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:  "access-token",
 					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC),
+					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
