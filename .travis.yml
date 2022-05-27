@@ -11,7 +11,6 @@ env:
 install: true
 
 before_install:
-  - git config --global url.ssh://git@github.com/.insteadOf https://github.com/
   - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.46.1
 
 script:
