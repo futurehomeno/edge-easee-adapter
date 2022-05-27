@@ -8,6 +8,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
@@ -22,10 +23,10 @@ type Application interface {
 }
 
 // New creates new instance of an Application.
-func New(ad adapter.ExtendedAdapter, cfgService *config.Service, lc *lifecycle.Lifecycle, mf *manifest.Manifest, client easee.Client) Application {
+func New(ad adapter.ExtendedAdapter, cfgService *config.Service, lc *lifecycle.Lifecycle, mfLoader manifest.Loader, client easee.Client) Application {
 	return &application{
 		ad:         ad,
-		mf:         mf,
+		mfLoader:   mfLoader,
 		lifecycle:  lc,
 		cfgService: cfgService,
 		client:     client,
@@ -36,12 +37,17 @@ type application struct {
 	ad         adapter.ExtendedAdapter
 	cfgService *config.Service
 	lifecycle  *lifecycle.Lifecycle
-	mf         *manifest.Manifest
+	mfLoader   manifest.Loader
 	client     easee.Client
 }
 
 func (a *application) GetManifest() (*manifest.Manifest, error) {
-	return a.mf, nil
+	mf, err := a.mfLoader.Load()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to load manifest")
+	}
+
+	return mf, nil
 }
 
 func (a *application) Configure(_ interface{}) error {
@@ -51,11 +57,15 @@ func (a *application) Configure(_ interface{}) error {
 func (a *application) Uninstall() error {
 	err := a.ad.DestroyAllThings()
 	if err != nil {
+		log.Info("app: failed to destroy all things")
+
 		return errors.New("failed to destroy all things")
 	}
 
 	err = a.cfgService.Reset()
 	if err != nil {
+		log.Info("app: failed to reset config")
+
 		return errors.New("failed to reset configuration")
 	}
 

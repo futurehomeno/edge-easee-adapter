@@ -32,13 +32,13 @@ type serviceContainer struct {
 	lifecycle     *lifecycle.Lifecycle
 	mqtt          *fimpgo.MqttTransport
 
-	application  app.Application
-	manifest     *manifest.Manifest
-	adapter      adapter.ExtendedAdapter
-	thingFactory adapter.ThingFactory
-	adapterState adapter.State
-	easeeClient  easee.Client
-	httpClient   *http.Client
+	application    app.Application
+	manifestLoader manifest.Loader
+	adapter        adapter.ExtendedAdapter
+	thingFactory   adapter.ThingFactory
+	adapterState   adapter.State
+	easeeClient    easee.Client
+	httpClient     *http.Client
 }
 
 // getConfigService initiates a configuration service and loads the config.
@@ -101,7 +101,7 @@ func getApplication() app.Application {
 			getAdapter(),
 			getConfigService(),
 			getLifecycle(),
-			getManifest(),
+			getManifestLoader(),
 			getEaseeClient(),
 		)
 	}
@@ -109,20 +109,14 @@ func getApplication() app.Application {
 	return services.application
 }
 
-// getManifest creates or returns existing application manifest.
-func getManifest() *manifest.Manifest {
-	if services.manifest == nil {
+// getManifestLoader creates or returns existing application manifestLoader.
+func getManifestLoader() manifest.Loader {
+	if services.manifestLoader == nil {
 		workDir := bootstrap.GetConfigurationDirectory()
-
-		mf, err := manifest.NewLoader(workDir).Load()
-		if err != nil {
-			log.WithError(err).Fatal("failed to load manifest from file")
-		}
-
-		services.manifest = mf
+		services.manifestLoader = manifest.NewLoader(workDir)
 	}
 
-	return services.manifest
+	return services.manifestLoader
 }
 
 // getAdapter creates or returns existing adapter service.

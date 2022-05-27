@@ -6,6 +6,8 @@ import (
 
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
+	"github.com/futurehomeno/cliffhanger/manifest"
+	mockedmanifest "github.com/futurehomeno/cliffhanger/test/mocks/manifest"
 	"github.com/michalkurzeja/go-clock" //nolint:gci
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -23,13 +25,52 @@ import (
 func TestApplication_GetManifest(t *testing.T) {
 	t.Parallel()
 
-	mf := test.LoadManifest(t)
-	a := app.New(nil, nil, nil, mf, nil)
+	tests := []struct {
+		name       string
+		mockLoader func(l *mockedmanifest.Loader)
+		want       *manifest.Manifest
+		wantErr    bool
+	}{
+		{
+			name: "manifest is loaded successfully",
+			mockLoader: func(l *mockedmanifest.Loader) {
+				l.On("Load").Return(test.LoadManifest(t), nil)
+			},
+			want: test.LoadManifest(t),
+		},
+		{
+			name: "manifest loading fails",
+			mockLoader: func(l *mockedmanifest.Loader) {
+				l.On("Load").Return(nil, errors.New("failed to load manifest"))
+			},
+			wantErr: true,
+		},
+	}
 
-	got, err := a.GetManifest()
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.NoError(t, err)
-	assert.Equal(t, mf, got)
+			loaderMock := mockedmanifest.NewLoader(t)
+			if tt.mockLoader != nil {
+				tt.mockLoader(loaderMock)
+			}
+
+			a := app.New(nil, nil, nil, loaderMock, nil)
+
+			got, err := a.GetManifest()
+
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestApplication_Configure_NOOP(t *testing.T) {
