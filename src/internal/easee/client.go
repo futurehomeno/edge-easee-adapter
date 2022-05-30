@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
@@ -24,7 +23,6 @@ const (
 	chargerConfigURITemplate   = "/api/chargers/%s/config"
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
-	commandCheckURITemplate    = "/api/commands/%s/%d/%d"
 
 	authorizationHeader = "Authorization"
 	contentTypeHeader   = "Content-Type"
@@ -128,16 +126,6 @@ func (c *client) StartCharging(chargerID string, current float64) error { // nol
 
 	defer resp.Body.Close()
 
-	var body commandResponse
-
-	if err := c.readResponseBody(resp, &body); err != nil {
-		return errors.Wrap(err, "failed to read response body")
-	}
-
-	if err := c.checkCommand(body); err != nil {
-		return errors.Wrap(err, "command checker failed or timed out")
-	}
-
 	return nil
 }
 
@@ -165,16 +153,6 @@ func (c *client) StopCharging(chargerID string) error { // nolint:dupl
 
 	defer resp.Body.Close()
 
-	var body commandResponse
-
-	if err := c.readResponseBody(resp, &body); err != nil {
-		return errors.Wrap(err, "failed to read response body")
-	}
-
-	if err := c.checkCommand(body); err != nil {
-		return errors.Wrap(err, "command checker failed or timed out")
-	}
-
 	return nil
 }
 
@@ -201,16 +179,6 @@ func (c *client) SetCableLock(chargerID string, locked bool) error { // nolint:d
 	}
 
 	defer resp.Body.Close()
-
-	var body commandResponse
-
-	if err := c.readResponseBody(resp, &body); err != nil {
-		return errors.Wrap(err, "failed to read response body")
-	}
-
-	if err := c.checkCommand(body); err != nil {
-		return errors.Wrap(err, "command checker failed or timed out")
-	}
 
 	return nil
 }
@@ -417,64 +385,6 @@ func (c *client) url(uri string) string {
 
 func (c *client) bearerTokenHeader(authToken string) string {
 	return "Bearer " + authToken
-}
-
-func (c *client) checkCommand(r commandResponse) error {
-	ticker := time.NewTicker(c.cfgSvc.GetCommandCheckInterval())
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			if err := c.runCheck(r); err == nil {
-				time.Sleep(c.cfgSvc.GetCommandCheckSleep()) // to ensure successful processing by Easee cloud.
-
-				return nil
-			}
-		case <-time.After(c.cfgSvc.GetCommandCheckTimeout()):
-			return errors.New("command checker timeout")
-		}
-	}
-}
-
-func (c *client) runCheck(r commandResponse) error {
-	token, err := c.accessToken()
-	if err != nil {
-		return errors.Wrap(err, "failed to get access token")
-	}
-
-	info, ok := r.Info()
-	if !ok {
-		return errors.New("command did not return any info")
-	}
-
-	uri := fmt.Sprintf(commandCheckURITemplate, info.Device, info.CommandID, info.Ticks)
-
-	req, err := newRequestBuilder(http.MethodGet, c.url(uri)).
-		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
-		addHeader(contentTypeHeader, jsonContentType).
-		build()
-	if err != nil {
-		return errors.Wrap(err, "failed to build command checker request")
-	}
-
-	resp, err := c.performRequest(req, http.StatusOK)
-	if err != nil {
-		return errors.Wrap(err, "failed to perform command check request")
-	}
-
-	defer resp.Body.Close()
-
-	var body checkerResponse
-	if err := c.readResponseBody(resp, &body); err != nil {
-		return errors.Wrap(err, "failed to read command check response body")
-	}
-
-	if body.ResultCode != resultCodeExecuted {
-		return errors.New("command is not executed")
-	}
-
-	return nil
 }
 
 type requestBuilder struct {

@@ -21,10 +21,9 @@ func New(
 ) []*router.Routing {
 	return router.Combine(
 		[]*router.Routing{
+			cliffConfig.RouteCmdLogSetLevel(easee.ServiceName, cfgSrv.SetLogLevel),
 			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "polling_interval", cfgSrv.SetPollingInterval),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "command_check_interval", cfgSrv.SetCommandCheckInterval),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "command_check_timeout", cfgSrv.SetCommandCheckTimeout),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "command_check_sleep", cfgSrv.SetCommandCheckSleep),
+			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "easee_backoff", cfgSrv.SetEaseeBackoff),
 		},
 		app.RouteApp(easee.ServiceName, appLifecycle, cfgSrv, config.Factory, nil, application),
 		cliffAdapter.RouteAdapter(adapter, nil),

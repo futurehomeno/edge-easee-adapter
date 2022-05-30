@@ -15,10 +15,8 @@ type Config struct {
 	Credentials
 
 	EaseeBaseURL                 string  `json:"easeeBaseURL"`
+	EaseeBackoff                 string  `json:"easeeBackoff"`
 	PollingInterval              string  `json:"pollingInterval"`
-	CommandCheckInterval         string  `json:"commandCheckInterval"`
-	CommandCheckTimeout          string  `json:"commandCheckTimeout"`
-	CommandCheckSleep            string  `json:"commandCheckSleep"`
 	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmpers"`
 }
 
@@ -133,74 +131,26 @@ func (cs *Service) SetPollingInterval(interval time.Duration) error {
 	return cs.Storage.Save()
 }
 
-// GetCommandCheckInterval allows to safely access a configuration setting.
-func (cs *Service) GetCommandCheckInterval() time.Duration {
+// GetEaseeBackoff allows to safely access a configuration setting.
+func (cs *Service) GetEaseeBackoff() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	duration, err := time.ParseDuration(cs.Storage.Model().(*Config).CommandCheckInterval)
+	duration, err := time.ParseDuration(cs.Storage.Model().(*Config).EaseeBackoff)
 	if err != nil {
-		return 500 * time.Millisecond
+		return 4 * time.Second
 	}
 
 	return duration
 }
 
-// SetCommandCheckInterval allows to safely set and persist configuration settings.
-func (cs *Service) SetCommandCheckInterval(interval time.Duration) error {
+// SetEaseeBackoff allows to safely set and persist configuration settings.
+func (cs *Service) SetEaseeBackoff(backoff time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).CommandCheckInterval = interval.String()       //nolint:forcetypeassert
-
-	return cs.Storage.Save()
-}
-
-// GetCommandCheckTimeout allows to safely access a configuration setting.
-func (cs *Service) GetCommandCheckTimeout() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	duration, err := time.ParseDuration(cs.Storage.Model().(*Config).CommandCheckTimeout)
-	if err != nil {
-		return 3 * time.Second
-	}
-
-	return duration
-}
-
-// SetCommandCheckTimeout allows to safely set and persist configuration settings.
-func (cs *Service) SetCommandCheckTimeout(timeout time.Duration) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).CommandCheckTimeout = timeout.String()         //nolint:forcetypeassert
-
-	return cs.Storage.Save()
-}
-
-// GetCommandCheckSleep allows to safely access a configuration setting.
-func (cs *Service) GetCommandCheckSleep() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	duration, err := time.ParseDuration(cs.Storage.Model().(*Config).CommandCheckSleep)
-	if err != nil {
-		return 3 * time.Second
-	}
-
-	return duration
-}
-
-// SetCommandCheckSleep allows to safely set and persist configuration settings.
-func (cs *Service) SetCommandCheckSleep(sleep time.Duration) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).CommandCheckSleep = sleep.String()             //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).EaseeBackoff = backoff.String()                //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }

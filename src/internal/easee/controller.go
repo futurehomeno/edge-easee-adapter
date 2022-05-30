@@ -10,7 +10,6 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/meterelec"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
@@ -54,6 +53,8 @@ func (c *controller) StartChargepointCharging(mode string) error {
 		return fmt.Errorf("failed to start charging session for charger id %s: %w", c.chargerID, err)
 	}
 
+	c.backoff()
+
 	return nil
 }
 
@@ -61,6 +62,8 @@ func (c *controller) StopChargepointCharging() error {
 	if err := c.client.StopCharging(c.chargerID); err != nil {
 		return fmt.Errorf("failed to stop charging session for charger id %s: %w", c.chargerID, err)
 	}
+
+	c.backoff()
 
 	return nil
 }
@@ -70,11 +73,13 @@ func (c *controller) SetChargepointCableLock(locked bool) error {
 		return err
 	}
 
+	c.backoff()
+
 	return nil
 }
 
 func (c *controller) ChargepointCableLockReport() (bool, error) {
-	state, err := c.cachedChargerState("cable lock report")
+	state, err := c.cachedChargerState()
 	if err != nil {
 		return false, errors.Wrap(err, "failed to fetch charger state")
 	}
@@ -83,7 +88,7 @@ func (c *controller) ChargepointCableLockReport() (bool, error) {
 }
 
 func (c *controller) ChargepointCurrentSessionReport() (float64, error) {
-	state, err := c.cachedChargerState("current session report")
+	state, err := c.cachedChargerState()
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to fetch charger state")
 	}
@@ -97,16 +102,16 @@ func (c *controller) ChargepointCurrentSessionReport() (float64, error) {
 }
 
 func (c *controller) ChargepointStateReport() (string, error) {
-	chargerState, err := c.client.ChargerState(c.chargerID)
+	state, err := c.cachedChargerState()
 	if err != nil {
 		return "", errors.Wrap(err, "failed to fetch charger state")
 	}
 
-	return chargerState.ChargerOpMode.String(), nil
+	return state.ChargerOpMode.String(), nil
 }
 
 func (c *controller) ElectricityMeterReport(unit string) (float64, error) {
-	state, err := c.cachedChargerState(fmt.Sprintf("electricity meter report: %s", unit))
+	state, err := c.cachedChargerState()
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to fetch charger state")
 	}
@@ -123,9 +128,7 @@ func (c *controller) ElectricityMeterReport(unit string) (float64, error) {
 	}
 }
 
-func (c *controller) cachedChargerState(caller string) (*ChargerState, error) {
-	log.Infof("state refresher (%s): hitting cache...", caller)
-
+func (c *controller) cachedChargerState() (*ChargerState, error) {
 	rawState, err := c.stateRefresher.Refresh()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get current charger state from state refresher")
@@ -139,11 +142,16 @@ func (c *controller) cachedChargerState(caller string) (*ChargerState, error) {
 	return state, nil
 }
 
+// backoff allows Easee cloud to process the request and invalidates local cache.
+func (c *controller) backoff() {
+	time.Sleep(c.cfgService.GetEaseeBackoff())
+
+	c.stateRefresher.Reset()
+}
+
 // newStateRefresher creates new instance of a stateRefresher cache.
 func newStateRefresher(client Client, chargerID string, interval time.Duration) cache.Refresher {
 	refreshFn := func() (interface{}, error) {
-		log.Info("state refresher: cache miss: refreshing...")
-
 		state, err := client.ChargerState(chargerID)
 		if err != nil {
 			return nil, fmt.Errorf("controller: failed to fetch charger state ID %s: %w", chargerID, err)

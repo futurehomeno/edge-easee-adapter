@@ -186,32 +186,3 @@ type cableLockBody struct {
 type chargerCurrentBody struct {
 	DynamicChargerCurrent float64 `json:"dynamicChargerCurrent"`
 }
-
-const (
-	// resultCodeExecuted represents a command result code.
-	// The command was sent and successfully executed by Easee cloud.
-	resultCodeExecuted = 2
-)
-
-// commandResponse represents a response returned by all command API calls.
-type commandResponse []commandInfo
-
-// Info is a method responsible for extracting command info from the response.
-func (c commandResponse) Info() (commandInfo, bool) {
-	if len(c) == 0 {
-		return commandInfo{}, false
-	}
-
-	return c[0], true
-}
-
-type commandInfo struct {
-	Device    string `json:"device"`
-	CommandID int    `json:"commandId"`
-	Ticks     uint64 `json:"ticks"`
-}
-
-// checkerResponse represents a response of command checker API endpoint.
-type checkerResponse struct {
-	ResultCode int `json:"resultCode"`
-}

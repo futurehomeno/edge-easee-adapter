@@ -77,6 +77,7 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			cfg := &config.Config{
 				PollingInterval:              "30s",
 				SlowChargingCurrentInAmperes: 10,
+				EaseeBackoff:                 "0s",
 			}
 			storage := fakes.NewConfigStorage(cfg, config.Factory)
 			cfgService := config.NewService(storage)
@@ -129,7 +130,11 @@ func TestController_StopChargepointCharging(t *testing.T) {
 				tt.mockClient(clientMock)
 			}
 
-			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfg := &config.Config{
+				PollingInterval: "30s",
+				EaseeBackoff:    "0s",
+			}
+			storage := fakes.NewConfigStorage(cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
 			c := easee.NewController(clientMock, cfgService, testChargerID, testMaxCurrent)
@@ -182,7 +187,11 @@ func TestController_ChargepointCableLockReport(t *testing.T) {
 				tt.mockClient(clientMock)
 			}
 
-			storage := fakes.NewConfigStorage(&config.Config{PollingInterval: "30s"}, config.Factory)
+			cfg := &config.Config{
+				PollingInterval: "30s",
+				EaseeBackoff:    "0s",
+			}
+			storage := fakes.NewConfigStorage(cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
 			c := easee.NewController(clientMock, cfgService, testChargerID, testMaxCurrent)

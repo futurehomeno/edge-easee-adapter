@@ -155,28 +155,6 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 					},
 					requestBody:  `{"dynamicChargerCurrent":40}`,
 					responseCode: http.StatusAccepted,
-					responseBody: exampleCommandBody(t),
-				},
-				{
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: failedCheckerBody(t),
-				},
-				{
-					// previous check failed, retry...
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: successfulCheckerBody(t),
 				},
 			}...),
 		},
@@ -236,17 +214,6 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 					},
 					requestBody:  `{"dynamicChargerCurrent":40}`,
 					responseCode: http.StatusAccepted,
-					responseBody: exampleCommandBody(t),
-				},
-				{
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer new-access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: successfulCheckerBody(t),
 				},
 			}...),
 		},
@@ -324,28 +291,6 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 					},
 					requestBody:  `{"dynamicChargerCurrent":0}`,
 					responseCode: http.StatusAccepted,
-					responseBody: exampleCommandBody(t),
-				},
-				{
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: failedCheckerBody(t),
-				},
-				{
-					// previous check failed, retry...
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: successfulCheckerBody(t),
 				},
 			}...),
 		},
@@ -402,17 +347,6 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 					},
 					requestBody:  `{"dynamicChargerCurrent":0}`,
 					responseCode: http.StatusAccepted,
-					responseBody: exampleCommandBody(t),
-				},
-				{
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer new-access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: successfulCheckerBody(t),
 				},
 			}...),
 		},
@@ -912,28 +846,6 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 					},
 					requestBody:  `{"state":true}`,
 					responseCode: http.StatusAccepted,
-					responseBody: exampleCommandBody(t),
-				},
-				{
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: failedCheckerBody(t),
-				},
-				{
-					// previous check failed, retry...
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: successfulCheckerBody(t),
 				},
 			}...),
 		},
@@ -951,28 +863,6 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 					},
 					requestBody:  `{"state":false}`,
 					responseCode: http.StatusAccepted,
-					responseBody: exampleCommandBody(t),
-				},
-				{
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: failedCheckerBody(t),
-				},
-				{
-					// previous check failed, retry...
-					requestMethod: http.MethodGet,
-					requestPath:   "/api/commands/123456/48/637886435126844439",
-					requestHeaders: map[string]string{
-						"Authorization": "Bearer access-token",
-						"Content-Type":  "application/*+json",
-					},
-					responseCode: http.StatusOK,
-					responseBody: successfulCheckerBody(t),
 				},
 			}...),
 		},
@@ -1107,9 +997,7 @@ func exampleConfig(t *testing.T) *config.Config {
 			RefreshToken: "refresh-token",
 			ExpiresAt:    time.Date(2022, time.October, 24, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 		},
-		CommandCheckInterval: "5ms",
-		CommandCheckTimeout:  "100ms",
-		CommandCheckSleep:    "0ms",
+		EaseeBackoff: "5s",
 	}
 }
 
@@ -1140,22 +1028,4 @@ func exampleChargerState(t *testing.T) *easee.ChargerState {
 		SessionEnergy:  234,
 		Voltage:        200,
 	}
-}
-
-func exampleCommandBody(t *testing.T) string {
-	t.Helper()
-
-	return `[{"device":"123456","commandId":48,"ticks":637886435126844439}]`
-}
-
-func successfulCheckerBody(t *testing.T) string {
-	t.Helper()
-
-	return `{"ticks": 637886435126844439, "id": 48, "timestamp": "2022-05-20T12:00:49.177859Z", "deliveredAt": "2022-05-20T12:00:49.96Z", "wasAccepted": true,"resultCode": 2, "comment": null}`
-}
-
-func failedCheckerBody(t *testing.T) string {
-	t.Helper()
-
-	return `{"ticks": 637886435126844439, "id": 48, "timestamp": "2022-05-20T11:38:32.6844439Z", "deliveredAt": null, "wasAccepted": false,"resultCode": 1, "comment": null}`
 }
