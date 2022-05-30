@@ -102,7 +102,7 @@ func (c *client) Login(userName, password string) (*Credentials, error) {
 	return credentials, nil
 }
 
-func (c *client) StartCharging(chargerID string, current float64) error { // nolint:dupl
+func (c *client) StartCharging(chargerID string, current float64) error {
 	token, err := c.accessToken()
 	if err != nil {
 		return errors.Wrap(err, "failed to get access token")
@@ -129,7 +129,7 @@ func (c *client) StartCharging(chargerID string, current float64) error { // nol
 	return nil
 }
 
-func (c *client) StopCharging(chargerID string) error { // nolint:dupl
+func (c *client) StopCharging(chargerID string) error {
 	token, err := c.accessToken()
 	if err != nil {
 		return errors.Wrap(err, "failed to get access token")
@@ -156,7 +156,7 @@ func (c *client) StopCharging(chargerID string) error { // nolint:dupl
 	return nil
 }
 
-func (c *client) SetCableLock(chargerID string, locked bool) error { // nolint:dupl
+func (c *client) SetCableLock(chargerID string, locked bool) error {
 	token, err := c.accessToken()
 	if err != nil {
 		return errors.Wrap(err, "failed to get access token")

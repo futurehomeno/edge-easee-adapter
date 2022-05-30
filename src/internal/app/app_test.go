@@ -7,8 +7,8 @@ import (
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
-	mockedmanifest "github.com/futurehomeno/cliffhanger/test/mocks/manifest"
-	"github.com/michalkurzeja/go-clock" //nolint:gci
+	mockedmanifest "github.com/futurehomeno/cliffhanger/test/mocks/manifest" // nolint:gci
+	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 
