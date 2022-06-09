@@ -1,9 +1,0 @@
-{
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJBY2NvdW50SWQiOjEyNjgsIlVzZXJJZCI6MTA2NSwidW5pcXVlX25hbWUiOiIxMjY4Iiwicm9sZSI6IlVzZXIiLCJuYmYiOjE1OTI5MjQyMjgsImV4cCI6MTU5MzAxMDYyOCwiaWF0IjoxNTkyOTI0MjI4fQ.XcZ638zTuBpZlhBnHaZX9BkFeuK4c0tbBV7Zzn8JgTo",
-    "expiresIn": 86400.0,
-    "accessClaims": [
-        "User"
-    ],
-    "tokenType": "Bearer",
-    "refreshToken": "V9KKCAYoHD5/oaUWWLbT01Z0Rx5fHNhzoMDaEXu9FZ0="
-}

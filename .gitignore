@@ -9,6 +9,7 @@ VERSION
 control
 *.deb
 package/build
+package/debian/opt/thingsplex/easee/easee
 
 # IDE
 .idea
