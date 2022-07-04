@@ -9,7 +9,9 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/meterelec"
+	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
@@ -111,18 +113,13 @@ func (c *controller) ChargepointStateReport() (string, error) {
 }
 
 func (c *controller) ElectricityMeterReport(unit string) (float64, error) {
-	state, err := c.cachedChargerState()
-	if err != nil {
-		return 0, errors.Wrap(err, "failed to fetch charger state")
-	}
-
 	switch unit {
 	case meterelec.UnitW:
-		return state.TotalPower * 1000, nil
+		return c.power()
 	case meterelec.UnitKWh:
-		return state.LifetimeEnergy, nil
+		return c.energy()
 	case meterelec.UnitV:
-		return state.Voltage, nil
+		return c.voltage()
 	default:
 		return 0, errors.Errorf("unsupported unit: %s", unit)
 	}
@@ -149,6 +146,61 @@ func (c *controller) backoff() {
 	c.stateRefresher.Reset()
 }
 
+func (c *controller) energy() (float64, error) {
+	now := clock.Now().UTC().Truncate(time.Hour)
+	lastMeasurement := c.cfgService.GetLastEnergyReport()
+
+	if lastMeasurement.Timestamp.Equal(now) {
+		return 0, nil
+	}
+
+	if lastMeasurement.Timestamp.IsZero() {
+		return c.reportEnergy(lastMeasurement, now.Add(-2*time.Hour), now, lastEnergyValue)
+	}
+
+	return c.reportEnergy(lastMeasurement, lastMeasurement.Timestamp.Add(time.Second), now, sumEnergyValues)
+}
+
+func (c *controller) reportEnergy(measurement config.EnergyReport, from, to time.Time, strategy func(measurements []Measurement) float64) (float64, error) {
+	measurements, err := c.client.EnergyPerHour(c.chargerID, from, to)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to fetch lifetime energy measurements")
+	}
+
+	if len(measurements) == 0 {
+		log.Warn("controller: energy measurements are not available, skipping...")
+
+		return 0, nil
+	}
+
+	measurement.Timestamp = to
+	measurement.Value = strategy(measurements)
+
+	if err := c.cfgService.SetLastEnergyReport(measurement); err != nil {
+		log.Error("failed to save energy measurement", err)
+	}
+
+	return measurement.Value, nil
+}
+
+func (c *controller) power() (float64, error) {
+	state, err := c.cachedChargerState()
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to fetch charger state")
+	}
+
+	return state.TotalPower * 1000, nil // TotalPower is in kW
+}
+
+func (c *controller) voltage() (float64, error) {
+	state, err := c.cachedChargerState()
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to fetch charger state")
+	}
+
+	return state.Voltage, nil
+}
+
 // newStateRefresher creates new instance of a stateRefresher cache.
 func newStateRefresher(client Client, chargerID string, interval time.Duration) cache.Refresher {
 	refreshFn := func() (interface{}, error) {
@@ -161,4 +213,17 @@ func newStateRefresher(client Client, chargerID string, interval time.Duration) 
 	}
 
 	return cache.NewRefresher(refreshFn, cache.OffsetInterval(interval))
+}
+
+func sumEnergyValues(measurements []Measurement) float64 {
+	var sum float64
+	for _, m := range measurements {
+		sum += m.Value
+	}
+
+	return sum
+}
+
+func lastEnergyValue(measurements []Measurement) float64 {
+	return measurements[len(measurements)-1].Value
 }

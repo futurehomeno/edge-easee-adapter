@@ -9,15 +9,22 @@ import (
 	"github.com/michalkurzeja/go-clock"
 )
 
+// EnergyReport represents the energy report.
+type EnergyReport struct {
+	Value     float64   `json:"value"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 // Config is a model containing all application configuration settings.
 type Config struct {
 	config.Default
 	Credentials
 
-	EaseeBaseURL                 string  `json:"easeeBaseURL"`
-	EaseeBackoff                 string  `json:"easeeBackoff"`
-	PollingInterval              string  `json:"pollingInterval"`
-	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmpers"`
+	EaseeBaseURL                 string       `json:"easeeBaseURL"`
+	EaseeBackoff                 string       `json:"easeeBackoff"`
+	PollingInterval              string       `json:"pollingInterval"`
+	SlowChargingCurrentInAmperes float64      `json:"slowChargingCurrentInAmperes"`
+	LastEnergyReport             EnergyReport `json:"energyReport"`
 }
 
 // New creates new instance of a configuration object.
@@ -170,6 +177,25 @@ func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 
 	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
 	cs.Storage.Model().(*Config).SlowChargingCurrentInAmperes = current         //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetLastEnergyReport allows to safely access a configuration setting.
+func (cs *Service) GetLastEnergyReport() EnergyReport {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().(*Config).LastEnergyReport //nolint:forcetypeassert
+}
+
+// SetLastEnergyReport allows to safely set and persist configuration settings.
+func (cs *Service) SetLastEnergyReport(energyReport EnergyReport) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).LastEnergyReport = energyReport                //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }

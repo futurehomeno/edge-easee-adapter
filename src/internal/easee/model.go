@@ -83,6 +83,12 @@ type ChargerConfig struct {
 	MaxChargerCurrent float64 `json:"maxChargerCurrent"`
 }
 
+// Measurement represents lifetime energy measurement.
+type Measurement struct {
+	Value     float64   `json:"Value"`
+	Timestamp time.Time `json:"Timestamp"`
+}
+
 const (
 	// ChargerModeUnavailable represents an "unavailable" state of the charger.
 	ChargerModeUnavailable = "unavailable"

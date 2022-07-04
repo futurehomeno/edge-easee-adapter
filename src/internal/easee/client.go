@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
@@ -22,7 +25,10 @@ const (
 	chargerStateURITemplate    = "/api/chargers/%s/state"
 	chargerConfigURITemplate   = "/api/chargers/%s/config"
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
+	energyPerHourURITemplate   = "/api/chargers/%s/observations/%s/%s/%s"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
+
+	energyPerHourObservationID = "122"
 
 	authorizationHeader = "Authorization"
 	contentTypeHeader   = "Content-Type"
@@ -48,6 +54,8 @@ type Client interface {
 	ChargerConfig(chargerID string) (*ChargerConfig, error)
 	// Chargers returns all available chargers.
 	Chargers() ([]Charger, error)
+	// EnergyPerHour retrieves energy measurements in an hourly manner for the selected charger.
+	EnergyPerHour(chargerID string, from, to time.Time) ([]Measurement, error)
 	// Ping checks if an external service is available.
 	Ping() error
 }
@@ -77,7 +85,7 @@ func (c *client) Login(userName, password string) (*Credentials, error) {
 		Password: password,
 	}
 
-	req, err := newRequestBuilder(http.MethodPost, c.url(loginURI)).
+	req, err := newRequestBuilder(http.MethodPost, c.buildURL(loginURI)).
 		withBody(body).
 		addHeader(contentTypeHeader, jsonContentType).
 		build()
@@ -108,9 +116,9 @@ func (c *client) StartCharging(chargerID string, current float64) error {
 		return errors.Wrap(err, "failed to get access token")
 	}
 
-	uri := fmt.Sprintf(chargerSettingsURITemplate, chargerID)
+	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodPost, c.url(uri)).
+	req, err := newRequestBuilder(http.MethodPost, u).
 		withBody(chargerCurrentBody{DynamicChargerCurrent: current}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		addHeader(contentTypeHeader, jsonContentType).
@@ -135,9 +143,9 @@ func (c *client) StopCharging(chargerID string) error {
 		return errors.Wrap(err, "failed to get access token")
 	}
 
-	uri := fmt.Sprintf(chargerSettingsURITemplate, chargerID)
+	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodPost, c.url(uri)).
+	req, err := newRequestBuilder(http.MethodPost, u).
 		withBody(chargerCurrentBody{DynamicChargerCurrent: pauseChargingCurrent}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		addHeader(contentTypeHeader, jsonContentType).
@@ -162,9 +170,9 @@ func (c *client) SetCableLock(chargerID string, locked bool) error {
 		return errors.Wrap(err, "failed to get access token")
 	}
 
-	uri := fmt.Sprintf(cableLockURITemplate, chargerID)
+	u := c.buildURL(cableLockURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodGet, c.url(uri)).
+	req, err := newRequestBuilder(http.MethodGet, u).
 		withBody(cableLockBody{State: locked}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		addHeader(contentTypeHeader, jsonContentType).
@@ -189,9 +197,9 @@ func (c *client) ChargerState(chargerID string) (*ChargerState, error) {
 		return nil, errors.Wrap(err, "failed to get access token")
 	}
 
-	uri := fmt.Sprintf(chargerStateURITemplate, chargerID)
+	u := c.buildURL(chargerStateURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodGet, c.url(uri)).
+	req, err := newRequestBuilder(http.MethodGet, u).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		build()
 	if err != nil {
@@ -221,9 +229,9 @@ func (c *client) ChargerConfig(chargerID string) (*ChargerConfig, error) {
 		return nil, errors.Wrap(err, "failed to get access token")
 	}
 
-	uri := fmt.Sprintf(chargerConfigURITemplate, chargerID)
+	u := c.buildURL(chargerConfigURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodGet, c.url(uri)).
+	req, err := newRequestBuilder(http.MethodGet, u).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		build()
 	if err != nil {
@@ -253,7 +261,7 @@ func (c *client) Chargers() ([]Charger, error) {
 		return nil, errors.Wrap(err, "failed to get access token")
 	}
 
-	req, err := newRequestBuilder(http.MethodGet, c.url(chargersURI)).
+	req, err := newRequestBuilder(http.MethodGet, c.buildURL(chargersURI)).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		build()
 	if err != nil {
@@ -276,13 +284,55 @@ func (c *client) Chargers() ([]Charger, error) {
 	return chargers, nil
 }
 
+func (c *client) EnergyPerHour(chargerID string, from, to time.Time) ([]Measurement, error) {
+	if from.After(to) {
+		return nil, errors.New("'from' date must be before 'to' date")
+	}
+
+	token, err := c.accessToken()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get access token")
+	}
+
+	u := c.buildURL(
+		energyPerHourURITemplate,
+		chargerID,
+		energyPerHourObservationID,
+		url.QueryEscape(from.Format(time.RFC3339)),
+		url.QueryEscape(to.Format(time.RFC3339)),
+	)
+
+	req, err := newRequestBuilder(http.MethodGet, u).
+		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
+		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create charger state request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusOK)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not perform charger state api call")
+	}
+
+	defer resp.Body.Close()
+
+	var measurements []Measurement
+	err = c.readResponseBody(resp, &measurements)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not read charger state response body")
+	}
+
+	return measurements, nil
+}
+
 func (c *client) Ping() error {
 	token, err := c.accessToken()
 	if err != nil {
 		return errors.Wrap(err, "failed to get access token")
 	}
 
-	req, err := newRequestBuilder(http.MethodGet, c.url(healthURI)).
+	req, err := newRequestBuilder(http.MethodGet, c.buildURL(healthURI)).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		build()
 	if err != nil {
@@ -323,7 +373,7 @@ func (c *client) refreshAccessToken() error {
 		RefreshToken: creds.RefreshToken,
 	}
 
-	req, err := newRequestBuilder(http.MethodPost, c.url(tokenRefreshURI)).
+	req, err := newRequestBuilder(http.MethodPost, c.buildURL(tokenRefreshURI)).
 		withBody(body).
 		addHeader(contentTypeHeader, jsonContentType).
 		build()
@@ -379,8 +429,13 @@ func (c *client) readResponseBody(r *http.Response, body interface{}) error {
 	return nil
 }
 
-func (c *client) url(uri string) string {
-	return c.baseURL + uri
+func (c *client) buildURL(path string, args ...any) string {
+	var sb strings.Builder
+
+	sb.WriteString(c.baseURL)
+	sb.WriteString(fmt.Sprintf(path, args...))
+
+	return sb.String()
 }
 
 func (c *client) bearerTokenHeader(authToken string) string {
