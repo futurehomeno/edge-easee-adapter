@@ -316,7 +316,7 @@ func TestController_ChargepointStateReport(t *testing.T) {
 	}
 }
 
-func TestController_ElectricityMeterReport_kWh(t *testing.T) {
+func TestController_ElectricityMeterReport_kWh(t *testing.T) { //nolint:paralleltest
 	t.Cleanup(clock.Restore)
 
 	clientMock := mocks.NewClient(t)
@@ -332,6 +332,8 @@ func TestController_ElectricityMeterReport_kWh(t *testing.T) {
 }
 
 func checkReportValueAlreadyReported(t *testing.T, controller easee.Controller, cfgService *config.Service) {
+	t.Helper()
+
 	got, err := controller.ElectricityMeterReport("kWh")
 	assert.NoError(t, err)
 	assert.Equal(t, float64(0), got, "value already sent, should report zero")
@@ -342,6 +344,8 @@ func checkReportValueAlreadyReported(t *testing.T, controller easee.Controller, 
 }
 
 func checkReportAfterHoursOfClientErrors(t *testing.T, clientMock *mocks.Client, controller easee.Controller, cfgService *config.Service) {
+	t.Helper()
+
 	now := parse(t, "2022-09-10T10:15:12Z")
 	clock.Mock(now)
 
@@ -350,7 +354,7 @@ func checkReportAfterHoursOfClientErrors(t *testing.T, clientMock *mocks.Client,
 		Return(nil, errors.New("oops")).
 		Once()
 
-	got, err := controller.ElectricityMeterReport("kWh")
+	_, err := controller.ElectricityMeterReport("kWh")
 	assert.Error(t, err)
 
 	// we assume the controller was not able to send the report since the last call
@@ -379,7 +383,7 @@ func checkReportAfterHoursOfClientErrors(t *testing.T, clientMock *mocks.Client,
 		}, nil).
 		Once()
 
-	got, err = controller.ElectricityMeterReport("kWh")
+	got, err := controller.ElectricityMeterReport("kWh")
 	assert.NoError(t, err)
 	assert.Equal(t, 0.65528804063797, got)
 	assert.Equal(t, config.EnergyReport{
@@ -389,6 +393,8 @@ func checkReportAfterHoursOfClientErrors(t *testing.T, clientMock *mocks.Client,
 }
 
 func checkReportNewestDataAvailable(t *testing.T, clientMock *mocks.Client, controller easee.Controller, cfgService *config.Service) {
+	t.Helper()
+
 	now := parse(t, "2022-09-10T09:11:12Z")
 	clock.Mock(now)
 
@@ -722,6 +728,8 @@ func chargerStateWithMode(t *testing.T, mode int) *easee.ChargerState {
 }
 
 func parse(t *testing.T, tm string) time.Time {
+	t.Helper()
+
 	parsed, err := time.Parse(time.RFC3339, tm)
 	require.NoError(t, err)
 

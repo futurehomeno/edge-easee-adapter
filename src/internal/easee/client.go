@@ -318,6 +318,7 @@ func (c *client) EnergyPerHour(chargerID string, from, to time.Time) ([]Measurem
 	defer resp.Body.Close()
 
 	var measurements []Measurement
+
 	err = c.readResponseBody(resp, &measurements)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not read charger state response body")
@@ -481,7 +482,7 @@ func (r *requestBuilder) build() (*http.Request, error) {
 		body = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequest(r.method, r.url, body) //nolint:noctx
+	req, err := http.NewRequest(r.method, r.url, body)
 	if err != nil {
 		return nil, err
 	}
