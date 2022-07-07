@@ -918,6 +918,154 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 	}
 }
 
+func TestClient_EnergyPerHour(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		from             time.Time
+		to               time.Time
+		cfg              *config.Config
+		serverHandler    http.Handler
+		forceServerError bool
+		want             []easee.Measurement
+		wantErr          bool
+	}{
+		{
+			name: "successful measurements retrieval",
+			from: parse(t, "2020-07-04T12:00:00Z"),
+			to:   parse(t, "2020-07-04T16:12:00Z"),
+			cfg:  exampleConfig(t),
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/chargers/123456/observations/122/2020-07-04T12%3A00%3A00Z/2020-07-04T16%3A12%3A00Z",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: `[
+        {
+            "value": 20.944795277777775,
+            "timestamp": "2022-07-04T12:00:00+00:00"
+        },
+        {
+            "value": 21.32022722222222,
+            "timestamp": "2022-07-04T13:00:00+00:00"
+        },
+        {
+            "value": 21.32022722222222,
+            "timestamp": "2022-07-04T14:00:00+00:00"
+        },
+        {
+            "value": 21.32022722222222,
+            "timestamp": "2022-07-04T15:00:00+00:00"
+        }
+]`,
+				},
+			}...),
+			want: []easee.Measurement{
+				{
+					Value:     20.944795277777775,
+					Timestamp: parse(t, "2022-07-04T12:00:00+00:00"),
+				},
+				{
+					Value:     21.32022722222222,
+					Timestamp: parse(t, "2022-07-04T13:00:00+00:00"),
+				},
+				{
+					Value:     21.32022722222222,
+					Timestamp: parse(t, "2022-07-04T14:00:00+00:00"),
+				},
+				{
+					Value:     21.32022722222222,
+					Timestamp: parse(t, "2022-07-04T15:00:00+00:00"),
+				},
+			},
+		},
+		{
+			name: "no measurements in the API",
+			from: parse(t, "2020-07-04T12:00:00Z"),
+			to:   parse(t, "2020-07-04T16:12:00Z"),
+			cfg:  exampleConfig(t),
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/chargers/123456/observations/122/2020-07-04T12%3A00%3A00Z/2020-07-04T16%3A12%3A00Z",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer access-token",
+						"Content-Type":  "application/*+json",
+					},
+					responseCode: http.StatusOK,
+					responseBody: `[]`,
+				},
+			}...),
+			want: []easee.Measurement{},
+		},
+		{
+			name: "response code != 200",
+			from: parse(t, "2020-01-01T00:00:00Z"),
+			to:   parse(t, "2020-01-02T00:00:00Z"),
+			cfg:  exampleConfig(t),
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodGet,
+				requestPath:   "/api/chargers/123456/observations/122/2020-01-01T00%3A00%3A00Z/2020-01-02T00%3A00%3A00Z",
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer access-token",
+					"Content-Type":  "application/*+json",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			wantErr: true,
+		},
+		{
+			name:    "from > to",
+			from:    parse(t, "2020-01-02T00:00:00Z"),
+			to:      parse(t, "2020-01-01T00:00:00Z"),
+			cfg:     exampleConfig(t),
+			wantErr: true,
+		},
+		{
+			name:             "http client error",
+			from:             parse(t, "2020-01-01T00:00:00Z"),
+			to:               parse(t, "2020-01-02T00:00:00Z"),
+			cfg:              exampleConfig(t),
+			forceServerError: true,
+			wantErr:          true,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := httptest.NewServer(tt.serverHandler)
+			t.Cleanup(s.Close)
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			httpClient := &http.Client{Timeout: 3 * time.Second}
+			cfgService := makeConfigService(t, tt.cfg)
+
+			c := easee.NewClient(httpClient, cfgService, s.URL)
+
+			got, err := c.EnergyPerHour(testChargerID, tt.from, tt.to)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 type call struct {
 	requestMethod  string
 	requestPath    string
@@ -951,7 +1099,7 @@ func (t *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		t.testingT.Fatalf("request method mismatch: want: %s, got: %s", call.requestMethod, r.Method)
 	}
 
-	if r.URL.Path != call.requestPath {
+	if r.URL.String() != call.requestPath {
 		t.testingT.Fatalf("request path mismatch: want: %s, got: %s", call.requestPath, r.URL.Path)
 	}
 
