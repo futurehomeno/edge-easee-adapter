@@ -1042,9 +1042,7 @@ func TestClient_EnergyPerHour(t *testing.T) {
 			t.Parallel()
 
 			s := httptest.NewServer(tt.serverHandler)
-			t.Cleanup(func() {
-				s.Close()
-			})
+			t.Cleanup(s.Close)
 
 			if tt.forceServerError {
 				s.Close()
