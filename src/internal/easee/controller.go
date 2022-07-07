@@ -177,7 +177,7 @@ func (c *controller) reportEnergy(measurement config.EnergyReport, from, to time
 	measurement.Value = strategy(measurements)
 
 	if err := c.cfgService.SetLastEnergyReport(measurement); err != nil {
-		log.Error("failed to save energy measurement", err)
+		return 0, errors.Wrap(err, "failed to save energy report")
 	}
 
 	return measurement.Value, nil

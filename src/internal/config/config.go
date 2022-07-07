@@ -24,7 +24,7 @@ type Config struct {
 	EaseeBackoff                 string       `json:"easeeBackoff"`
 	PollingInterval              string       `json:"pollingInterval"`
 	SlowChargingCurrentInAmperes float64      `json:"slowChargingCurrentInAmperes"`
-	LastEnergyReport             EnergyReport `json:"energyReport"`
+	LastEnergyReport             EnergyReport `json:"lastEnergyReport"`
 }
 
 // New creates new instance of a configuration object.
