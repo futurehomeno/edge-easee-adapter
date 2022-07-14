@@ -1,6 +1,6 @@
 module github.com/futurehomeno/edge-easee-adapter
 
-go 1.17
+go 1.18
 
 require (
 	github.com/futurehomeno/cliffhanger v0.17.0
@@ -10,7 +10,6 @@ require (
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.7.1
 	github.com/thoas/go-funk v0.9.2
-	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
 require (
@@ -25,5 +24,6 @@ require (
 	github.com/stretchr/objx v0.4.0 // indirect
 	golang.org/x/net v0.0.0-20220516155154-20f960328961 // indirect
 	golang.org/x/sys v0.0.0-20220513210249-45d2b4557a2a // indirect
+	gopkg.in/natefinch/lumberjack.v2 v2.0.0 // indirect
 	gopkg.in/yaml.v3 v3.0.0-20220512140231-539c8e751b99 // indirect
 )
