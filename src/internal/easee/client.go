@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
@@ -19,10 +22,10 @@ const (
 	chargersURI     = "/api/chargers"
 	healthURI       = "/health"
 
-	chargerStateURITemplate    = "/api/chargers/%s/state"
 	chargerConfigURITemplate   = "/api/chargers/%s/config"
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
+	observationsURITemplate    = "/api/chargers/%s/observations/%d/%s/%s"
 
 	authorizationHeader = "Authorization"
 	contentTypeHeader   = "Content-Type"
@@ -42,10 +45,10 @@ type Client interface {
 	StopCharging(chargerID string) error
 	// SetCableLock locks/unlocks the cable for the selected charger.
 	SetCableLock(chargerID string, locked bool) error
-	// ChargerState retrieves detailed data about charger state.
-	ChargerState(chargerID string) (*ChargerState, error)
 	// ChargerConfig retrieves charger config.
 	ChargerConfig(chargerID string) (*ChargerConfig, error)
+	// Observations retrieves observations (e.g. energy measurements, charger states) for the selected charger based on observation ID and time.
+	Observations(chargerID string, obID ObservationID, from, to time.Time) ([]Observation, error)
 	// Chargers returns all available chargers.
 	Chargers() ([]Charger, error)
 	// Ping checks if an external service is available.
@@ -77,7 +80,7 @@ func (c *client) Login(userName, password string) (*Credentials, error) {
 		Password: password,
 	}
 
-	req, err := newRequestBuilder(http.MethodPost, c.url(loginURI)).
+	req, err := newRequestBuilder(http.MethodPost, c.buildURL(loginURI)).
 		withBody(body).
 		addHeader(contentTypeHeader, jsonContentType).
 		build()
@@ -108,9 +111,9 @@ func (c *client) StartCharging(chargerID string, current float64) error {
 		return errors.Wrap(err, "failed to get access token")
 	}
 
-	uri := fmt.Sprintf(chargerSettingsURITemplate, chargerID)
+	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodPost, c.url(uri)).
+	req, err := newRequestBuilder(http.MethodPost, u).
 		withBody(chargerCurrentBody{DynamicChargerCurrent: current}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		addHeader(contentTypeHeader, jsonContentType).
@@ -135,9 +138,9 @@ func (c *client) StopCharging(chargerID string) error {
 		return errors.Wrap(err, "failed to get access token")
 	}
 
-	uri := fmt.Sprintf(chargerSettingsURITemplate, chargerID)
+	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodPost, c.url(uri)).
+	req, err := newRequestBuilder(http.MethodPost, u).
 		withBody(chargerCurrentBody{DynamicChargerCurrent: pauseChargingCurrent}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		addHeader(contentTypeHeader, jsonContentType).
@@ -162,9 +165,9 @@ func (c *client) SetCableLock(chargerID string, locked bool) error {
 		return errors.Wrap(err, "failed to get access token")
 	}
 
-	uri := fmt.Sprintf(cableLockURITemplate, chargerID)
+	u := c.buildURL(cableLockURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodGet, c.url(uri)).
+	req, err := newRequestBuilder(http.MethodGet, u).
 		withBody(cableLockBody{State: locked}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		addHeader(contentTypeHeader, jsonContentType).
@@ -183,47 +186,15 @@ func (c *client) SetCableLock(chargerID string, locked bool) error {
 	return nil
 }
 
-func (c *client) ChargerState(chargerID string) (*ChargerState, error) {
-	token, err := c.accessToken()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to get access token")
-	}
-
-	uri := fmt.Sprintf(chargerStateURITemplate, chargerID)
-
-	req, err := newRequestBuilder(http.MethodGet, c.url(uri)).
-		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
-		build()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create charger state request")
-	}
-
-	resp, err := c.performRequest(req, http.StatusOK)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not perform charger state api call")
-	}
-
-	defer resp.Body.Close()
-
-	state := &ChargerState{}
-
-	err = c.readResponseBody(resp, state)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not read charger state response body")
-	}
-
-	return state, nil
-}
-
 func (c *client) ChargerConfig(chargerID string) (*ChargerConfig, error) {
 	token, err := c.accessToken()
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to get access token")
 	}
 
-	uri := fmt.Sprintf(chargerConfigURITemplate, chargerID)
+	u := c.buildURL(chargerConfigURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodGet, c.url(uri)).
+	req, err := newRequestBuilder(http.MethodGet, u).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		build()
 	if err != nil {
@@ -253,7 +224,7 @@ func (c *client) Chargers() ([]Charger, error) {
 		return nil, errors.Wrap(err, "failed to get access token")
 	}
 
-	req, err := newRequestBuilder(http.MethodGet, c.url(chargersURI)).
+	req, err := newRequestBuilder(http.MethodGet, c.buildURL(chargersURI)).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		build()
 	if err != nil {
@@ -282,7 +253,7 @@ func (c *client) Ping() error {
 		return errors.Wrap(err, "failed to get access token")
 	}
 
-	req, err := newRequestBuilder(http.MethodGet, c.url(healthURI)).
+	req, err := newRequestBuilder(http.MethodGet, c.buildURL(healthURI)).
 		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
 		build()
 	if err != nil {
@@ -297,6 +268,58 @@ func (c *client) Ping() error {
 	defer resp.Body.Close()
 
 	return nil
+}
+
+func (c *client) Observations(chargerID string, obID ObservationID, from, to time.Time) ([]Observation, error) {
+	if from.After(to) {
+		return nil, errors.New("'from' date must be before 'to' date")
+	}
+
+	token, err := c.accessToken()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get access token")
+	}
+
+	u := c.buildURL(
+		observationsURITemplate,
+		chargerID,
+		obID,
+		url.QueryEscape(from.Format(time.RFC3339)),
+		url.QueryEscape(to.Format(time.RFC3339)),
+	)
+
+	req, err := newRequestBuilder(http.MethodGet, u).
+		addHeader(authorizationHeader, c.bearerTokenHeader(token)).
+		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create charger state request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusOK)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not perform charger state api call")
+	}
+
+	defer resp.Body.Close()
+
+	var observations []Observation
+
+	err = c.readResponseBody(resp, &observations)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not read charger state response body")
+	}
+
+	return observations, nil
+}
+
+func (c *client) buildURL(path string, args ...interface{}) string {
+	var sb strings.Builder
+
+	sb.WriteString(c.baseURL)
+	sb.WriteString(fmt.Sprintf(path, args...))
+
+	return sb.String()
 }
 
 func (c *client) accessToken() (string, error) {
@@ -323,7 +346,7 @@ func (c *client) refreshAccessToken() error {
 		RefreshToken: creds.RefreshToken,
 	}
 
-	req, err := newRequestBuilder(http.MethodPost, c.url(tokenRefreshURI)).
+	req, err := newRequestBuilder(http.MethodPost, c.buildURL(tokenRefreshURI)).
 		withBody(body).
 		addHeader(contentTypeHeader, jsonContentType).
 		build()
@@ -377,10 +400,6 @@ func (c *client) readResponseBody(r *http.Response, body interface{}) error {
 	}
 
 	return nil
-}
-
-func (c *client) url(uri string) string {
-	return c.baseURL + uri
 }
 
 func (c *client) bearerTokenHeader(authToken string) string {

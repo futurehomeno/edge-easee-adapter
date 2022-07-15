@@ -156,6 +156,28 @@ func SupportedChargingModes() []string {
 	}
 }
 
+// ObservationID represents an observation ID in Easee API.
+type ObservationID int
+
+const (
+	// ChargerOPMode represents a "charger mode" observation.
+	ChargerOPMode ObservationID = 109
+	// SessionEnergy represents a "session energy" observation.
+	SessionEnergy ObservationID = 121
+	// CableLocked represents a "cable locked" observation.
+	CableLocked ObservationID = 103
+	// TotalPower represents a "total power" observation.
+	TotalPower ObservationID = 120
+	// LifetimeEnergy represents a "lifetime energy" observation.
+	LifetimeEnergy ObservationID = 124
+)
+
+// Observation represents a single observation in Easee API.
+type Observation struct {
+	Value     interface{} `json:"value"`
+	Timestamp time.Time   `json:"timestamp"`
+}
+
 // Credentials stands for Easee API credentials.
 type Credentials struct {
 	AccessToken  string   `json:"accessToken"`
