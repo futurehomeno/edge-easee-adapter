@@ -6,13 +6,13 @@ import (
 
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
-	"github.com/futurehomeno/cliffhanger/manifest"
-	mockedmanifest "github.com/futurehomeno/cliffhanger/test/mocks/manifest" // nolint:gci
+	"github.com/futurehomeno/cliffhanger/manifest" // nolint:gci
+	mockedmanifest "github.com/futurehomeno/cliffhanger/test/mocks/manifest"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 
-	adapterMocks "github.com/futurehomeno/cliffhanger/test/mocks/adapter"
+	adapterMocks "github.com/futurehomeno/cliffhanger/test/mocks/adapter" // nolint:gci
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
