@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	modeRefresher           = "mode"
+	stateRefresher          = "state"
 	sessionEnergyRefresher  = "session-energy"
 	cableLockedRefresher    = "cable-locked"
 	totalPowerRefresher     = "total-power"
@@ -39,7 +39,7 @@ func NewController(client Client, cfgService *config.Service, chargerID string, 
 		refresherManager: newRefresherManager(),
 	}
 
-	ctrl.refresherManager.register(modeRefresher, newObservationRefresher(client, chargerID, ChargerOPMode, cfgService.GetPollingInterval()))
+	ctrl.refresherManager.register(stateRefresher, newObservationRefresher(client, chargerID, ChargerOPState, cfgService.GetPollingInterval()))
 	ctrl.refresherManager.register(sessionEnergyRefresher, newObservationRefresher(client, chargerID, SessionEnergy, cfgService.GetPollingInterval()))
 	ctrl.refresherManager.register(cableLockedRefresher, newObservationRefresher(client, chargerID, CableLocked, cfgService.GetPollingInterval()))
 	ctrl.refresherManager.register(totalPowerRefresher, newObservationRefresher(client, chargerID, TotalPower, cfgService.GetPollingInterval()))
@@ -110,12 +110,12 @@ func (c *controller) ChargepointCableLockReport() (bool, error) {
 }
 
 func (c *controller) ChargepointCurrentSessionReport() (float64, error) {
-	mode, err := c.ChargepointStateReport()
+	state, err := c.ChargepointStateReport()
 	if err != nil {
-		return 0, errors.Wrap(err, "failed to get charger mode")
+		return 0, errors.Wrap(err, "failed to get charger state")
 	}
 
-	if !c.sessionReportAvailable(mode) {
+	if !c.sessionReportAvailable(state) {
 		return 0, nil
 	}
 
@@ -133,17 +133,17 @@ func (c *controller) ChargepointCurrentSessionReport() (float64, error) {
 }
 
 func (c *controller) ChargepointStateReport() (string, error) {
-	rawMode, err := c.refresherManager.getValue(modeRefresher)
+	rawState, err := c.refresherManager.getValue(stateRefresher)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to get current charger mode from mode refresher")
+		return "", errors.Wrap(err, "failed to get current charger state from state refresher")
 	}
 
-	mode, ok := rawMode.(float64)
+	state, ok := rawState.(float64)
 	if !ok {
-		return "", errors.Errorf("expected float64, got %s instead", reflect.TypeOf(rawMode))
+		return "", errors.Errorf("expected float64, got %s instead", reflect.TypeOf(rawState))
 	}
 
-	return ChargerMode(mode).String(), nil
+	return ChargerState(state).String(), nil
 }
 
 func (c *controller) ElectricityMeterReport(unit string) (float64, error) {
@@ -192,8 +192,8 @@ func (c *controller) backoff() {
 	c.refresherManager.reset()
 }
 
-func (c *controller) sessionReportAvailable(mode string) bool {
-	return mode == ChargerModeCharging || mode == ChargerModeFinished
+func (c *controller) sessionReportAvailable(state string) bool {
+	return state == ChargerStateCharging || state == ChargerStateFinished
 }
 
 func newObservationRefresher(client Client, chargerID string, obID ObservationID, interval time.Duration) cache.Refresher {
