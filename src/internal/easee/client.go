@@ -314,12 +314,7 @@ func (c *client) Observations(chargerID string, obID ObservationID, from, to tim
 }
 
 func (c *client) buildURL(path string, args ...interface{}) string {
-	var sb strings.Builder
-
-	sb.WriteString(c.baseURL)
-	sb.WriteString(fmt.Sprintf(path, args...))
-
-	return sb.String()
+	return c.baseURL + fmt.Sprintf(path, args...)
 }
 
 func (c *client) accessToken() (string, error) {
