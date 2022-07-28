@@ -435,7 +435,7 @@ func TestClient_Observations(t *testing.T) { //nolint:paralleltest
 			want: exampleObservations(t),
 		},
 		{
-			name:      "to > from",
+			name:      "to < from",
 			chargerID: "123456",
 			from:      now,
 			to:        now.Add(-5 * time.Hour),
