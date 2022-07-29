@@ -27,117 +27,66 @@ type BackPlate struct {
 	MasterBackPlateID string `json:"masterBackPlateId"`
 }
 
-// ChargerState represents detailed state data about the charger.
-type ChargerState struct {
-	SmartCharging                                bool        `json:"smartCharging"`
-	CableLocked                                  bool        `json:"cableLocked"`
-	ChargerOpMode                                ChargerMode `json:"chargerOpMode"`
-	TotalPower                                   float64     `json:"totalPower"`
-	SessionEnergy                                float64     `json:"sessionEnergy"`
-	EnergyPerHour                                float64     `json:"energyPerHour"`
-	WiFiRSSI                                     int         `json:"wiFiRSSI"`
-	CellRSSI                                     int         `json:"cellRSSI"`
-	LocalRSSI                                    int         `json:"localRSSI"`
-	OutputPhase                                  int         `json:"outputPhase"`
-	DynamicCircuitCurrentP1                      float64     `json:"dynamicCircuitCurrentP1"`
-	DynamicCircuitCurrentP2                      float64     `json:"dynamicCircuitCurrentP2"`
-	DynamicCircuitCurrentP3                      float64     `json:"dynamicCircuitCurrentP3"`
-	LatestPulse                                  time.Time   `json:"latestPulse"`
-	ChargerFirmware                              int         `json:"chargerFirmware"`
-	LatestFirmware                               int         `json:"latestFirmware"`
-	Voltage                                      float64     `json:"voltage"`
-	ChargerRAT                                   int         `json:"chargerRAT"`
-	LockCablePermanently                         bool        `json:"lockCablePermanently"`
-	InCurrentT2                                  float64     `json:"inCurrentT2"`
-	InCurrentT3                                  float64     `json:"inCurrentT3"`
-	InCurrentT4                                  float64     `json:"inCurrentT4"`
-	InCurrentT5                                  float64     `json:"inCurrentT5"`
-	OutputCurrent                                float64     `json:"outputCurrent"`
-	IsOnline                                     bool        `json:"isOnline"`
-	InVoltageT1T2                                float64     `json:"inVoltageT1T2"`
-	InVoltageT1T3                                float64     `json:"inVoltageT1T3"`
-	InVoltageT1T4                                float64     `json:"inVoltageT1T4"`
-	InVoltageT1T5                                float64     `json:"inVoltageT1T5"`
-	InVoltageT2T3                                float64     `json:"inVoltageT2T3"`
-	InVoltageT2T4                                float64     `json:"inVoltageT2T4"`
-	InVoltageT2T5                                float64     `json:"inVoltageT2T5"`
-	InVoltageT3T4                                float64     `json:"inVoltageT3T4"`
-	InVoltageT3T5                                float64     `json:"inVoltageT3T5"`
-	InVoltageT4T5                                float64     `json:"inVoltageT4T5"`
-	LedMode                                      int         `json:"ledMode"`
-	CableRating                                  float64     `json:"cableRating"`
-	DynamicChargerCurrent                        float64     `json:"dynamicChargerCurrent"`
-	CircuitTotalAllocatedPhaseConductorCurrentL1 float64     `json:"circuitTotalAllocatedPhaseConductorCurrentL1"`
-	CircuitTotalAllocatedPhaseConductorCurrentL2 float64     `json:"circuitTotalAllocatedPhaseConductorCurrentL2"`
-	CircuitTotalAllocatedPhaseConductorCurrentL3 float64     `json:"circuitTotalAllocatedPhaseConductorCurrentL3"`
-	CircuitTotalPhaseConductorCurrentL1          float64     `json:"circuitTotalPhaseConductorCurrentL1"`
-	CircuitTotalPhaseConductorCurrentL2          float64     `json:"circuitTotalPhaseConductorCurrentL2"`
-	CircuitTotalPhaseConductorCurrentL3          float64     `json:"circuitTotalPhaseConductorCurrentL3"`
-	ReasonForNoCurrent                           int         `json:"reasonForNoCurrent"`
-	WiFiAPEnabled                                bool        `json:"wiFiAPEnabled"`
-	LifetimeEnergy                               float64     `json:"lifetimeEnergy"`
-}
-
 // ChargerConfig represents charger config.
 type ChargerConfig struct {
 	MaxChargerCurrent float64 `json:"maxChargerCurrent"`
 }
 
 const (
-	// ChargerModeUnavailable represents an "unavailable" state of the charger.
-	ChargerModeUnavailable = "unavailable"
-	// ChargerModeDisconnected represents a "disconnected" state of the charger.
-	ChargerModeDisconnected = "disconnected"
-	// ChargerModeReadyToCharge represents a "ready to charge" state of the charger.
-	ChargerModeReadyToCharge = "ready_to_charge"
-	// ChargerModeCharging represents a "charging" state of the charger.
-	ChargerModeCharging = "charging"
-	// ChargerModeFinished represents a "finished" state of the charger.
-	ChargerModeFinished = "finished"
-	// ChargerModeError represents an "error" state of the charger.
-	ChargerModeError = "error"
-	// ChargerModeRequesting represents a "requesting" state of the charger.
-	ChargerModeRequesting = "requesting"
-	// ChargerModeUnknown represents an "unknown" state of the charger.
-	ChargerModeUnknown = "unknown"
+	// ChargerStateUnavailable represents an "unavailable" state of the charger.
+	ChargerStateUnavailable = "unavailable"
+	// ChargerStateDisconnected represents a "disconnected" state of the charger.
+	ChargerStateDisconnected = "disconnected"
+	// ChargerStateReadyToCharge represents a "ready to charge" state of the charger.
+	ChargerStateReadyToCharge = "ready_to_charge"
+	// ChargerStateCharging represents a "charging" state of the charger.
+	ChargerStateCharging = "charging"
+	// ChargerStateFinished represents a "finished" state of the charger.
+	ChargerStateFinished = "finished"
+	// ChargerStateError represents an "error" state of the charger.
+	ChargerStateError = "error"
+	// ChargerStateRequesting represents a "requesting" state of the charger.
+	ChargerStateRequesting = "requesting"
+	// ChargerStateUnknown represents an "unknown" state of the charger.
+	ChargerStateUnknown = "unknown"
 )
 
-// ChargerMode represents a charger mode.
-type ChargerMode int
+// ChargerState represents a charger state.
+type ChargerState int
 
-// String returns a string representation ChargerMode.
-func (m ChargerMode) String() string {
+// String returns a string representation of ChargerState.
+func (m ChargerState) String() string {
 	switch m {
 	case 0:
-		return ChargerModeUnavailable
+		return ChargerStateUnavailable
 	case 1:
-		return ChargerModeDisconnected
+		return ChargerStateDisconnected
 	case 2:
-		return ChargerModeReadyToCharge
+		return ChargerStateReadyToCharge
 	case 3:
-		return ChargerModeCharging
+		return ChargerStateCharging
 	case 4:
-		return ChargerModeFinished
+		return ChargerStateFinished
 	case 5:
-		return ChargerModeError
+		return ChargerStateError
 	case 6:
-		return ChargerModeRequesting
+		return ChargerStateRequesting
 	default:
-		return ChargerModeUnknown
+		return ChargerStateUnknown
 	}
 }
 
 // SupportedChargingStates returns all charging states supported by Easee.
 func SupportedChargingStates() []string {
 	return []string{
-		ChargerModeUnavailable,
-		ChargerModeDisconnected,
-		ChargerModeReadyToCharge,
-		ChargerModeCharging,
-		ChargerModeFinished,
-		ChargerModeError,
-		ChargerModeRequesting,
-		ChargerModeUnknown,
+		ChargerStateUnavailable,
+		ChargerStateDisconnected,
+		ChargerStateReadyToCharge,
+		ChargerStateCharging,
+		ChargerStateFinished,
+		ChargerStateError,
+		ChargerStateRequesting,
+		ChargerStateUnknown,
 	}
 }
 
@@ -154,6 +103,28 @@ func SupportedChargingModes() []string {
 		ChargingModeNormal,
 		ChargingModeSlow,
 	}
+}
+
+// ObservationID represents an observation ID in Easee API.
+type ObservationID int
+
+const (
+	// ChargerOPState represents a "charger state" observation.
+	ChargerOPState ObservationID = 109
+	// SessionEnergy represents a "session energy" observation.
+	SessionEnergy ObservationID = 121
+	// CableLocked represents a "cable locked" observation.
+	CableLocked ObservationID = 103
+	// TotalPower represents a "total power" observation.
+	TotalPower ObservationID = 120
+	// LifetimeEnergy represents a "lifetime energy" observation.
+	LifetimeEnergy ObservationID = 124
+)
+
+// Observation represents a single observation in Easee API.
+type Observation struct {
+	Value     interface{} `json:"value"`
+	Timestamp time.Time   `json:"timestamp"`
 }
 
 // Credentials stands for Easee API credentials.

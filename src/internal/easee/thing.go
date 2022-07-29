@@ -86,7 +86,7 @@ func (t *thingFactory) meterElecSpecification(adapter adapter.ExtendedAdapter, t
 		adapter.Address(),
 		thingState.Address(),
 		groups,
-		[]string{meterelec.UnitW, meterelec.UnitKWh, meterelec.UnitV},
+		[]string{meterelec.UnitW, meterelec.UnitKWh},
 		nil,
 	)
 }

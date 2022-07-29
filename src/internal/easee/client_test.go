@@ -395,8 +395,12 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 	}
 }
 
-func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC)) //nolint:gofumpt
+func TestClient_Observations(t *testing.T) { //nolint:paralleltest
+	const testObservationID easee.ObservationID = 1
+
+	now := time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC) //nolint:gofumpt
+
+	clock.Mock(now)
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -404,36 +408,52 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 	tests := []struct {
 		name             string
 		chargerID        string
+		from             time.Time
+		to               time.Time
 		cfg              *config.Config
 		serverHandler    http.Handler
 		forceServerError bool
-		want             *easee.ChargerState
+		want             []easee.Observation
 		wantErr          bool
 	}{
 		{
 			name:      "successful call to Easee API",
 			chargerID: "123456",
+			from:      now.Add(-5 * time.Hour),
+			to:        now,
 			cfg:       exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
-				requestPath:   "/api/chargers/123456/state",
+				requestPath:   "/api/chargers/123456/observations/1/2022-09-10T03%3A00%3A12Z/2022-09-10T08%3A00%3A12Z",
 				requestHeaders: map[string]string{
 					"Authorization": "Bearer access-token",
+					"Content-Type":  "application/*+json",
 				},
 				responseCode: http.StatusOK,
-				responseBody: marshal(t, exampleChargerState(t)),
+				responseBody: marshal(t, exampleObservations(t)),
 			}),
-			want: exampleChargerState(t),
+			want: exampleObservations(t),
+		},
+		{
+			name:      "to < from",
+			chargerID: "123456",
+			from:      now,
+			to:        now.Add(-5 * time.Hour),
+			cfg:       exampleConfig(t),
+			wantErr:   true,
 		},
 		{
 			name:      "response code != 200",
 			chargerID: "123456",
+			from:      now.Add(-5 * time.Hour),
+			to:        now,
 			cfg:       exampleConfig(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodGet,
-				requestPath:   "/api/chargers/123456/state",
+				requestPath:   "/api/chargers/123456/observations/1/2022-09-10T03%3A00%3A12Z/2022-09-10T08%3A00%3A12Z",
 				requestHeaders: map[string]string{
 					"Authorization": "Bearer access-token",
+					"Content-Type":  "application/*+json",
 				},
 				responseCode: http.StatusInternalServerError,
 			}),
@@ -442,6 +462,8 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 		{
 			name:             "http client error",
 			chargerID:        "123456",
+			from:             now.Add(-5 * time.Hour),
+			to:               now,
 			cfg:              exampleConfig(t),
 			forceServerError: true,
 			wantErr:          true,
@@ -449,12 +471,16 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 		{
 			name:      "return error if credentials are empty",
 			chargerID: "123456",
+			from:      now.Add(-5 * time.Hour),
+			to:        now,
 			cfg:       &config.Config{},
 			wantErr:   true,
 		},
 		{
 			name:      "expired access token - refreshing it under the hood",
 			chargerID: "123456",
+			from:      now.Add(-5 * time.Hour),
+			to:        now,
 			cfg:       exampleConfigWithExpiredCredentials(t),
 			serverHandler: newTestHandler(t, []call{
 				{
@@ -469,19 +495,22 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 				},
 				{
 					requestMethod: http.MethodGet,
-					requestPath:   "/api/chargers/123456/state",
+					requestPath:   "/api/chargers/123456/observations/1/2022-09-10T03%3A00%3A12Z/2022-09-10T08%3A00%3A12Z",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer new-access-token",
+						"Content-Type":  "application/*+json",
 					},
 					responseCode: http.StatusOK,
-					responseBody: marshal(t, exampleChargerState(t)),
+					responseBody: marshal(t, exampleObservations(t)),
 				},
 			}...),
-			want: exampleChargerState(t),
+			want: exampleObservations(t),
 		},
 		{
 			name:      "refreshing expired access token failed",
 			chargerID: "123456",
+			from:      now.Add(-5 * time.Hour),
+			to:        now,
 			cfg:       exampleConfigWithExpiredCredentials(t),
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
@@ -512,7 +541,7 @@ func TestClient_ChargerState(t *testing.T) { //nolint:paralleltest
 
 			c := easee.NewClient(httpClient, cfgService, s.URL)
 
-			got, err := c.ChargerState(tt.chargerID)
+			got, err := c.Observations(tt.chargerID, testObservationID, tt.from, tt.to)
 			if tt.wantErr {
 				assert.Error(t, err)
 
@@ -951,7 +980,7 @@ func (t *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		t.testingT.Fatalf("request method mismatch: want: %s, got: %s", call.requestMethod, r.Method)
 	}
 
-	if r.URL.Path != call.requestPath {
+	if r.URL.EscapedPath() != call.requestPath {
 		t.testingT.Fatalf("request path mismatch: want: %s, got: %s", call.requestPath, r.URL.Path)
 	}
 
@@ -1018,14 +1047,21 @@ func makeConfigService(t *testing.T, cfg *config.Config) *config.Service {
 	return config.NewService(storage)
 }
 
-func exampleChargerState(t *testing.T) *easee.ChargerState {
+func exampleObservations(t *testing.T) []easee.Observation {
 	t.Helper()
 
-	return &easee.ChargerState{
-		ChargerOpMode:  easee.ChargerMode(3),
-		TotalPower:     2,
-		LifetimeEnergy: 1234,
-		SessionEnergy:  234,
-		Voltage:        200,
+	return []easee.Observation{
+		{
+			Value:     "1",
+			Timestamp: time.Date(2022, time.September, 10, 3, 00, 00, 00, time.UTC), //nolint:gofumpt
+		},
+		{
+			Value:     "2",
+			Timestamp: time.Date(2022, time.September, 10, 4, 00, 00, 00, time.UTC), //nolint:gofumpt
+		},
+		{
+			Value:     "3",
+			Timestamp: time.Date(2022, time.September, 10, 5, 00, 00, 00, time.UTC), //nolint:gofumpt
+		},
 	}
 }
