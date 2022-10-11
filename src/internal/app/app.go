@@ -107,7 +107,7 @@ func (a *application) Check() error {
 	if err := a.client.Ping(); err != nil {
 		a.lifecycle.SetConnectionState(lifecycle.ConnStateDisconnected)
 
-		return nil
+		return nil //nolint:nilerr
 	}
 
 	a.lifecycle.SetConnectionState(lifecycle.ConnStateConnected)
