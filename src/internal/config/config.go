@@ -18,6 +18,7 @@ type Config struct {
 	EaseeBackoff                 string  `json:"easeeBackoff"`
 	PollingInterval              string  `json:"pollingInterval"`
 	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
+	HTTPTimeout                  string  `json:"httpTimeout"`
 }
 
 // New creates new instance of a configuration object.
@@ -71,6 +72,17 @@ func (cs *Service) GetEaseeBaseURL() string {
 	defer cs.lock.RUnlock()
 
 	return cs.Storage.Model().(*Config).EaseeBaseURL //nolint:forcetypeassert
+}
+
+// SetEaseeBaseURL allows to safely set and persist configuration settings.
+func (cs *Service) SetEaseeBaseURL(url string) error {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).EaseeBaseURL = url                             //nolint:forcetypeassert
+
+	return cs.Storage.Save()
 }
 
 // SetLogLevel allows to safely set and persist configuration settings.
@@ -170,6 +182,30 @@ func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 
 	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
 	cs.Storage.Model().(*Config).SlowChargingCurrentInAmperes = current         //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetHTTPTimeout allows to safely access a configuration setting.
+func (cs *Service) GetHTTPTimeout() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	timeout, err := time.ParseDuration(cs.Storage.Model().(*Config).HTTPTimeout)
+	if err != nil {
+		return 30 * time.Second
+	}
+
+	return timeout
+}
+
+// SetHTTPTimeout allows to safely set and persist configuration settings.
+func (cs *Service) SetHTTPTimeout(timeout time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).HTTPTimeout = timeout.String()                 //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }

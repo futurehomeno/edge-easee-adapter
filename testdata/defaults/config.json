@@ -15,5 +15,6 @@
   "easeeBaseURL": "https://api.easee.cloud",
   "easeeBackoff": "4s",
   "pollingInterval": "30s",
-  "slowChargingCurrentInAmperes": 10
+  "slowChargingCurrentInAmperes": 10,
+  "httpTimeout": "30s"
 }

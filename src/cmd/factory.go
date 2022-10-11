@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
@@ -173,7 +172,9 @@ func getEaseeClient() easee.Client {
 // getHTTPClient creates or returns existing HTTP client with predefined timeout.
 func getHTTPClient() *http.Client {
 	if services.httpClient == nil {
-		services.httpClient = &http.Client{Timeout: 5 * time.Second}
+		services.httpClient = &http.Client{
+			Timeout: getConfigService().GetHTTPTimeout(),
+		}
 	}
 
 	return services.httpClient
