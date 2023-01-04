@@ -19,6 +19,7 @@ type Config struct {
 	PollingInterval              string  `json:"pollingInterval"`
 	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
 	HTTPTimeout                  string  `json:"httpTimeout"`
+	ObservationsPeriod           string  `json:"observationsPeriod"`
 }
 
 // New creates new instance of a configuration object.
@@ -206,6 +207,30 @@ func (cs *Service) SetHTTPTimeout(timeout time.Duration) error {
 
 	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
 	cs.Storage.Model().(*Config).HTTPTimeout = timeout.String()                 //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetObservationsPeriod allows to safely access a configuration setting.
+func (cs *Service) GetObservationsPeriod() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	period, err := time.ParseDuration(cs.Storage.Model().(*Config).ObservationsPeriod)
+	if err != nil {
+		return 7 * 24 * time.Hour
+	}
+
+	return period
+}
+
+// SetObservationsPeriod allows to safely set and persist configuration settings.
+func (cs *Service) SetObservationsPeriod(period time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).ObservationsPeriod = period.String()           //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }

@@ -1,6 +1,6 @@
 module github.com/futurehomeno/edge-easee-adapter
 
-go 1.18
+go 1.19
 
 require (
 	github.com/futurehomeno/cliffhanger v0.17.0

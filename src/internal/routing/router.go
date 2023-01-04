@@ -27,6 +27,7 @@ func New(
 			cliffConfig.RouteCmdConfigSetString(easee.ServiceName, "easee_base_url", cfgSrv.SetEaseeBaseURL),
 			cliffConfig.RouteCmdConfigSetFloat(easee.ServiceName, "slow_charging_current_in_amperes", cfgSrv.SetSlowChargingCurrentInAmperes),
 			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "http_timeout", cfgSrv.SetHTTPTimeout),
+			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "observations_period", cfgSrv.SetObservationsPeriod),
 		},
 		app.RouteApp(easee.ServiceName, appLifecycle, cfgSrv, config.Factory, nil, application),
 		cliffAdapter.RouteAdapter(adapter, nil),
