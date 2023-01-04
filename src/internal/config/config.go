@@ -86,6 +86,14 @@ func (cs *Service) SetEaseeBaseURL(url string) error {
 	return cs.Storage.Save()
 }
 
+// GetLogLevel allows to safely access a configuration setting.
+func (cs *Service) GetLogLevel() string {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().(*Config).LogLevel //nolint:forcetypeassert
+}
+
 // SetLogLevel allows to safely set and persist configuration settings.
 func (cs *Service) SetLogLevel(logLevel string) error {
 	cs.lock.Lock()
