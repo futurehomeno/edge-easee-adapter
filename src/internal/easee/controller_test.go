@@ -21,7 +21,7 @@ const (
 
 var (
 	now     = time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC) //nolint:gofumpt
-	yearAgo = now.Add(-365 * 24 * time.Hour)
+	weekAgo = now.Add(-7 * 24 * time.Hour)
 )
 
 func TestController_StartChargepointCharging(t *testing.T) {
@@ -172,7 +172,7 @@ func TestController_ChargepointCableLockReport(t *testing.T) { //nolint:parallel
 		{
 			name: "controller should send lock report successfully",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(103), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(103), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     true,
@@ -193,7 +193,7 @@ func TestController_ChargepointCableLockReport(t *testing.T) { //nolint:parallel
 		{
 			name: "easee client error",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(103), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(103), weekAgo, now).
 					Return(nil, errors.New("test error"))
 			},
 			wantErr: true,
@@ -243,7 +243,7 @@ func TestController_ChargepointStateReport(t *testing.T) { //nolint:paralleltest
 		{
 			name: "reported state: unavailable",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -260,7 +260,7 @@ func TestController_ChargepointStateReport(t *testing.T) { //nolint:paralleltest
 		{
 			name: "reported state: disconnected",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(0),
@@ -277,7 +277,7 @@ func TestController_ChargepointStateReport(t *testing.T) { //nolint:paralleltest
 		{
 			name: "reported state: ready_to_charge",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -294,7 +294,7 @@ func TestController_ChargepointStateReport(t *testing.T) { //nolint:paralleltest
 		{
 			name: "reported state: charging",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -311,7 +311,7 @@ func TestController_ChargepointStateReport(t *testing.T) { //nolint:paralleltest
 		{
 			name: "reported state: finished",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -328,7 +328,7 @@ func TestController_ChargepointStateReport(t *testing.T) { //nolint:paralleltest
 		{
 			name: "reported state: error",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -345,7 +345,7 @@ func TestController_ChargepointStateReport(t *testing.T) { //nolint:paralleltest
 		{
 			name: "reported state: requesting",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -362,7 +362,7 @@ func TestController_ChargepointStateReport(t *testing.T) { //nolint:paralleltest
 		{
 			name: "unknown state",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -379,7 +379,7 @@ func TestController_ChargepointStateReport(t *testing.T) { //nolint:paralleltest
 		{
 			name: "easee client error",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return(nil, errors.New("test error"))
 			},
 			wantErr: true,
@@ -427,7 +427,7 @@ func TestController_ElectricityMeterReport(t *testing.T) { //nolint:paralleltest
 			name: "correct report for W",
 			unit: "W",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(120), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(120), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -445,7 +445,7 @@ func TestController_ElectricityMeterReport(t *testing.T) { //nolint:paralleltest
 			name: "correct report for kWh",
 			unit: "kWh",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(124), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(124), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1111),
@@ -468,7 +468,7 @@ func TestController_ElectricityMeterReport(t *testing.T) { //nolint:paralleltest
 			name: "easee client error",
 			unit: "W",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(120), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(120), weekAgo, now).
 					Return(nil, errors.New("test error"))
 			},
 			wantErr: true,
@@ -514,7 +514,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) { //nolint:par
 		{
 			name: "charger should return data if the state == charging",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -525,7 +525,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) { //nolint:par
 							Timestamp: now,
 						},
 					}, nil)
-				c.On("Observations", testChargerID, easee.ObservationID(121), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(121), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(123),
@@ -542,7 +542,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) { //nolint:par
 		{
 			name: "charger should return data if the state == finished",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -553,7 +553,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) { //nolint:par
 							Timestamp: now,
 						},
 					}, nil)
-				c.On("Observations", testChargerID, easee.ObservationID(121), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(121), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(123),
@@ -570,7 +570,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) { //nolint:par
 		{
 			name: "charger should not return data if the state == unavailable",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -587,7 +587,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) { //nolint:par
 		{
 			name: "charger should not return data if the state == disconnected",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(0),
@@ -604,7 +604,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) { //nolint:par
 		{
 			name: "charger should not return data if the state == error",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -621,7 +621,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) { //nolint:par
 		{
 			name: "charger should not return data if the state == requesting",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -638,7 +638,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) { //nolint:par
 		{
 			name: "charger should not return data on unknown state",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return([]easee.Observation{
 						{
 							Value:     float64(1),
@@ -655,7 +655,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) { //nolint:par
 		{
 			name: "easee client error",
 			mockClient: func(c *mocks.Client) {
-				c.On("Observations", testChargerID, easee.ObservationID(109), yearAgo, now).
+				c.On("Observations", testChargerID, easee.ObservationID(109), weekAgo, now).
 					Return(nil, errors.New("test error"))
 			},
 			wantErr: true,

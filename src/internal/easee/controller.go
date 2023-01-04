@@ -39,11 +39,11 @@ func NewController(client Client, cfgService *config.Service, chargerID string, 
 		refresherManager: newRefresherManager(),
 	}
 
-	ctrl.refresherManager.register(stateRefresher, newObservationRefresher(client, chargerID, ChargerOPState, cfgService.GetPollingInterval()))
-	ctrl.refresherManager.register(sessionEnergyRefresher, newObservationRefresher(client, chargerID, SessionEnergy, cfgService.GetPollingInterval()))
-	ctrl.refresherManager.register(cableLockedRefresher, newObservationRefresher(client, chargerID, CableLocked, cfgService.GetPollingInterval()))
-	ctrl.refresherManager.register(totalPowerRefresher, newObservationRefresher(client, chargerID, TotalPower, cfgService.GetPollingInterval()))
-	ctrl.refresherManager.register(lifetimeEnergyRefresher, newObservationRefresher(client, chargerID, LifetimeEnergy, cfgService.GetPollingInterval()))
+	ctrl.refresherManager.register(stateRefresher, newObservationRefresher(client, cfgService, chargerID, ChargerOPState))
+	ctrl.refresherManager.register(sessionEnergyRefresher, newObservationRefresher(client, cfgService, chargerID, SessionEnergy))
+	ctrl.refresherManager.register(cableLockedRefresher, newObservationRefresher(client, cfgService, chargerID, CableLocked))
+	ctrl.refresherManager.register(totalPowerRefresher, newObservationRefresher(client, cfgService, chargerID, TotalPower))
+	ctrl.refresherManager.register(lifetimeEnergyRefresher, newObservationRefresher(client, cfgService, chargerID, LifetimeEnergy))
 
 	return ctrl
 }
@@ -196,19 +196,19 @@ func (c *controller) sessionReportAvailable(state string) bool {
 	return state == ChargerStateCharging || state == ChargerStateFinished
 }
 
-func newObservationRefresher(client Client, chargerID string, obID ObservationID, interval time.Duration) cache.Refresher {
+func newObservationRefresher(client Client, cfgService *config.Service, chargerID string, obID ObservationID) cache.Refresher {
 	return cache.NewRefresher(
-		observationsRefreshFn(client, chargerID, obID),
-		cache.OffsetInterval(interval),
+		observationsRefreshFn(client, cfgService, chargerID, obID),
+		cache.OffsetInterval(cfgService.GetPollingInterval()),
 	)
 }
 
-func observationsRefreshFn(client Client, chargerID string, obID ObservationID) func() (interface{}, error) {
+func observationsRefreshFn(client Client, cfgService *config.Service, chargerID string, obID ObservationID) func() (interface{}, error) {
 	return func() (interface{}, error) {
 		now := clock.Now().UTC()
-		yearAgo := now.Add(-365 * 24 * time.Hour)
+		from := now.Add(-cfgService.GetObservationsPeriod())
 
-		obs, err := client.Observations(chargerID, obID, yearAgo, now)
+		obs, err := client.Observations(chargerID, obID, from, now)
 		if err != nil {
 			return nil, fmt.Errorf("controller: failed to fetch observations for charger ID %s and observation ID %d: %w", chargerID, obID, err)
 		}
