@@ -10,6 +10,7 @@ env:
 
 install:
   - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin latest
+  - GO111MODULE=off go get golang.org/x/tools/cmd/cover
   - GO111MODULE=off go get github.com/mattn/goveralls
 
 script:
