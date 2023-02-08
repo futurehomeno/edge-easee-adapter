@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	loginURI        = "/api/accounts/token"
+	loginURI        = "/api/accounts/login"
 	tokenRefreshURI = "/api/accounts/refresh_token" //nolint:gosec
 	chargersURI     = "/api/chargers"
 	healthURI       = "/health"

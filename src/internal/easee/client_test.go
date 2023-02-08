@@ -35,7 +35,7 @@ func TestClient_Login(t *testing.T) {
 			password: "example",
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
-				requestPath:   "/api/accounts/token",
+				requestPath:   "/api/accounts/login",
 				requestBody:   `{"userName":"test","password":"example"}`,
 				requestHeaders: map[string]string{
 					"Content-Type": "application/*+json",
@@ -59,7 +59,7 @@ func TestClient_Login(t *testing.T) {
 			password: "example",
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
-				requestPath:   "/api/accounts/token",
+				requestPath:   "/api/accounts/login",
 				requestBody:   `{"userName":"test","password":"example"}`,
 				requestHeaders: map[string]string{
 					"Content-Type": "application/*+json",
@@ -74,7 +74,7 @@ func TestClient_Login(t *testing.T) {
 			password: "example",
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
-				requestPath:   "/api/accounts/token",
+				requestPath:   "/api/accounts/login",
 				requestBody:   `{"userName":"test","password":"example"}`,
 				requestHeaders: map[string]string{
 					"Content-Type": "application/*+json",
