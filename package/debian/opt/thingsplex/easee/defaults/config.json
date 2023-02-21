@@ -17,5 +17,10 @@
   "pollingInterval": "30s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
-  "observationsPeriod": "168h"
+  "signalR": {
+    "connCreationTimeout": "5s",
+    "keepAliveInterval": "15s",
+    "timeoutInterval": "30s",
+    "invokeTimeout": "5s"
+  }
 }

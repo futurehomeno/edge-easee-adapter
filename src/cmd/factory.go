@@ -18,6 +18,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
+	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/tasks"
 )
 
@@ -31,13 +32,23 @@ type serviceContainer struct {
 	lifecycle     *lifecycle.Lifecycle
 	mqtt          *fimpgo.MqttTransport
 
-	application    app.Application
-	manifestLoader manifest.Loader
-	adapter        adapter.ExtendedAdapter
-	thingFactory   adapter.ThingFactory
-	adapterState   adapter.State
-	easeeClient    easee.Client
-	httpClient     *http.Client
+	application        app.Application
+	manifestLoader     manifest.Loader
+	adapter            adapter.Adapter
+	thingFactory       adapter.ThingFactory
+	adapterState       adapter.State
+	httpClient         *http.Client
+	easeeHTTPClient    easee.HTTPClient
+	easeeAPIClient     easee.APIClient
+	authenticator      easee.Authenticator
+	signalRConnFactory *easee.SignalRConnectionFactory
+	signalRClient      signalr.Client
+	signalRReceiver    *easee.SignalRReceiver
+	signalRManager     easee.SignalRManager
+}
+
+func resetContainer() {
+	services = &serviceContainer{}
 }
 
 // getConfigService initiates a configuration service and loads the config.
@@ -101,7 +112,8 @@ func getApplication() app.Application {
 			getConfigService(),
 			getLifecycle(),
 			getManifestLoader(),
-			getEaseeClient(),
+			getEaseeAPIClient(),
+			getAuthenticator(),
 		)
 	}
 
@@ -111,18 +123,18 @@ func getApplication() app.Application {
 // getManifestLoader creates or returns existing application manifestLoader.
 func getManifestLoader() manifest.Loader {
 	if services.manifestLoader == nil {
-		workDir := bootstrap.GetConfigurationDirectory()
-		services.manifestLoader = manifest.NewLoader(workDir)
+		services.manifestLoader = manifest.NewLoader(getConfigService().GetWorkDir())
 	}
 
 	return services.manifestLoader
 }
 
 // getAdapter creates or returns existing adapter service.
-func getAdapter() adapter.ExtendedAdapter {
+func getAdapter() adapter.Adapter {
 	if services.adapter == nil {
-		services.adapter = adapter.NewExtendedAdapter(
+		services.adapter = adapter.NewAdapter(
 			getMQTT(),
+			nil,
 			getThingFactory(),
 			getAdapterState(),
 			easee.ServiceName,
@@ -138,7 +150,7 @@ func getAdapterState() adapter.State {
 	if services.adapterState == nil {
 		var err error
 
-		services.adapterState, err = adapter.NewState(bootstrap.GetConfigurationDirectory())
+		services.adapterState, err = adapter.NewState(getConfigService().GetWorkDir())
 		if err != nil {
 			log.WithError(err).Fatal("failed to initialize adapter state")
 		}
@@ -150,23 +162,34 @@ func getAdapterState() adapter.State {
 // getThingFactory creates or returns existing thing factory service.
 func getThingFactory() adapter.ThingFactory {
 	if services.thingFactory == nil {
-		services.thingFactory = easee.NewThingFactory(getEaseeClient(), getConfigService())
+		services.thingFactory = easee.NewThingFactory(getEaseeAPIClient(), getConfigService(), getSignalRManager())
 	}
 
 	return services.thingFactory
 }
 
-// getEaseeClient creates or returns existing Easee API client.
-func getEaseeClient() easee.Client {
-	if services.easeeClient == nil {
-		services.easeeClient = easee.NewClient(
+// getEaseeHTTPClient creates or returns existing Easee HTTP client.
+func getEaseeHTTPClient() easee.HTTPClient {
+	if services.easeeHTTPClient == nil {
+		services.easeeHTTPClient = easee.NewHTTPClient(
 			getHTTPClient(),
-			getConfigService(),
 			getConfigService().GetEaseeBaseURL(),
 		)
 	}
 
-	return services.easeeClient
+	return services.easeeHTTPClient
+}
+
+// getEaseeAPIClient creates or returns existing Easee HTTP client.
+func getEaseeAPIClient() easee.APIClient {
+	if services.easeeAPIClient == nil {
+		services.easeeAPIClient = easee.NewAPIClient(
+			getEaseeHTTPClient(),
+			getAuthenticator(),
+		)
+	}
+
+	return services.easeeAPIClient
 }
 
 // getHTTPClient creates or returns existing HTTP client with predefined timeout.
@@ -178,6 +201,51 @@ func getHTTPClient() *http.Client {
 	}
 
 	return services.httpClient
+}
+
+func getAuthenticator() easee.Authenticator {
+	if services.authenticator == nil {
+		services.authenticator = easee.NewAuthenticator(getEaseeHTTPClient(), getConfigService())
+	}
+
+	return services.authenticator
+}
+
+func getSignalRClient() signalr.Client {
+	if services.signalRClient == nil {
+		c, err := signalr.NewClient(getConfigService(), getSignalRReceiver(), getSignalRConnectionFactory().Create)
+		if err != nil {
+			log.WithError(err).Fatal("failed to initialize signalR client")
+		}
+
+		services.signalRClient = c
+	}
+
+	return services.signalRClient
+}
+
+func getSignalRReceiver() *easee.SignalRReceiver {
+	if services.signalRReceiver == nil {
+		services.signalRReceiver = easee.NewSignalRReceiver()
+	}
+
+	return services.signalRReceiver
+}
+
+func getSignalRManager() easee.SignalRManager {
+	if services.signalRManager == nil {
+		services.signalRManager = easee.NewSignalRManager(getSignalRClient(), getSignalRReceiver())
+	}
+
+	return services.signalRManager
+}
+
+func getSignalRConnectionFactory() *easee.SignalRConnectionFactory {
+	if services.signalRConnFactory == nil {
+		services.signalRConnFactory = easee.NewSignalRConnectionFactory(getAuthenticator(), getConfigService())
+	}
+
+	return services.signalRConnFactory
 }
 
 // newRouting creates new set of routing.

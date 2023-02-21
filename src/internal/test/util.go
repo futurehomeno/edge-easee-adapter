@@ -10,6 +10,13 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 )
 
+var (
+	// ChargerID is the ID of the charger used in tests.
+	ChargerID = "XX12345"
+	// AccessToken is the access token used in tests.
+	AccessToken = "test.access.token"
+)
+
 // LoadManifest loads and parses app manifest from default test files.
 func LoadManifest(t *testing.T) *manifest.Manifest {
 	t.Helper()

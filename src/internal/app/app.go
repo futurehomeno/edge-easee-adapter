@@ -23,22 +23,31 @@ type Application interface {
 }
 
 // New creates new instance of an Application.
-func New(ad adapter.ExtendedAdapter, cfgService *config.Service, lc *lifecycle.Lifecycle, mfLoader manifest.Loader, client easee.Client) Application {
+func New(
+	ad adapter.Adapter,
+	cfgService *config.Service,
+	lc *lifecycle.Lifecycle,
+	mfLoader manifest.Loader,
+	client easee.APIClient,
+	auth easee.Authenticator,
+) Application {
 	return &application{
 		ad:         ad,
 		mfLoader:   mfLoader,
 		lifecycle:  lc,
 		cfgService: cfgService,
 		client:     client,
+		auth:       auth,
 	}
 }
 
 type application struct {
-	ad         adapter.ExtendedAdapter
+	ad         adapter.Adapter
 	cfgService *config.Service
 	lifecycle  *lifecycle.Lifecycle
 	mfLoader   manifest.Loader
-	client     easee.Client
+	client     easee.APIClient
+	auth       easee.Authenticator
 }
 
 func (a *application) GetManifest() (*manifest.Manifest, error) {
@@ -80,7 +89,7 @@ func (a *application) Uninstall() error {
 func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 	defer a.Check() //nolint:errcheck
 
-	if err := a.login(credentials); err != nil {
+	if err := a.auth.Login(credentials.Username, credentials.Password); err != nil {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
@@ -133,20 +142,6 @@ func (a *application) Initialize() error {
 	a.lifecycle.SetAppState(lifecycle.AppStateRunning, nil)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
-
-	return nil
-}
-
-func (a *application) login(credentials *cliffApp.LoginCredentials) error {
-	loginData, err := a.client.Login(credentials.Username, credentials.Password)
-	if err != nil {
-		return errors.Wrap(err, "failed to authenticate the user in Easee API")
-	}
-
-	err = a.cfgService.SetCredentials(loginData.AccessToken, loginData.RefreshToken, loginData.ExpiresIn)
-	if err != nil {
-		return errors.Wrap(err, "failed to save credentials in config")
-	}
 
 	return nil
 }

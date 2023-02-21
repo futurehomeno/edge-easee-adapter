@@ -1,0 +1,105 @@
+{
+  "configs":[],
+  "ui_buttons": [],
+  "ui_blocks": [],
+  "auth": {
+    "type": "password",
+    "code_grant_login_page_url" : "",
+    "redirect_url": "",
+    "client_id": "",
+    "secret": "",
+    "partner_id": "",
+    "auth_endpoint": ""
+  },
+  "init_flow":["auth","connect"],
+  "services": [
+    {
+      "name": "easee",
+      "alias": "Network managment",
+      "address": "/rt:ad/rn:easee/ad:1",
+      "interfaces": [
+        {
+          "intf_t": "in",
+          "msg_t": "cmd.app.get_manifest",
+          "val_t": "null",
+          "ver": "1"
+        },{
+          "intf_t": "out",
+          "msg_t": "evt.app.manifest_report",
+          "val_t": "object",
+          "ver": "1"
+        },{
+          "intf_t": "out",
+          "msg_t": "cmd.app.get_full_state",
+          "val_t": "string",
+          "ver": "1"
+        },{
+          "intf_t": "out",
+          "msg_t": "cmd.app.full_state_report",
+          "val_t": "object",
+          "ver": "1"
+        },{
+          "intf_t": "in",
+          "msg_t": "cmd.auth.set_tokens",
+          "val_t": "str_map",
+          "ver": "1"
+        },
+        {
+          "intf_t": "out",
+          "msg_t": "evt.auth.login_report",
+          "val_t": "string",
+          "ver": "1"
+        },
+        {
+          "intf_t": "in",
+          "msg_t": "cmd.network.get_all_nodes",
+          "val_t": "null",
+          "ver": "1"
+        },
+        {
+          "intf_t": "in",
+          "msg_t": "cmd.thing.get_inclusion_report",
+          "val_t": "string",
+          "ver": "1"
+        },
+        {
+          "intf_t": "in",
+          "msg_t": "cmd.thing.inclusion",
+          "val_t": "string",
+          "ver": "1"
+        },
+        {
+          "intf_t": "in",
+          "msg_t": "cmd.thing.delete",
+          "val_t": "string",
+          "ver": "1"
+        },
+        {
+          "intf_t": "out",
+          "msg_t": "evt.thing.inclusion_report",
+          "val_t": "object",
+          "ver": "1"
+        },
+        {
+          "intf_t": "out",
+          "msg_t": "evt.thing.exclusion_report",
+          "val_t": "object",
+          "ver": "1"
+        },
+        {
+          "intf_t": "out",
+          "msg_t": "evt.network.all_nodes_report",
+          "val_t": "object",
+          "ver": "1"
+        },
+        {
+          "intf_t": "in",
+          "msg_t": "cmd.log.set_level",
+          "val_t": "string",
+          "ver": "1"
+        }
+      ]
+    }
+  ],
+  "app_state": {}
+}
