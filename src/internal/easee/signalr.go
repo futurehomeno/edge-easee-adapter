@@ -240,6 +240,7 @@ type chargerItem struct {
 	callbacks map[ObservationID]func()
 }
 
+// TODO: move it to a signalR client.
 type SignalRReceiver struct {
 	libsignalr.Receiver
 
@@ -253,8 +254,6 @@ func NewSignalRReceiver() *SignalRReceiver {
 }
 
 func (r *SignalRReceiver) ProductUpdate(o Observation) {
-	log.Infof("product update: data: %+v\n", o)
-
 	r.observations <- o
 }
 
@@ -409,6 +408,7 @@ func (c *cache) setConnected(connected bool) {
 	c.connected = connected
 }
 
+// TODO: move it to a signalR client.
 type SignalRConnectionFactory struct {
 	auth   Authenticator
 	cfgSvc *config.Service
