@@ -241,6 +241,8 @@ type chargerItem struct {
 }
 
 // TODO: move it to a signalR client.
+//
+//nolint:godox
 type SignalRReceiver struct {
 	libsignalr.Receiver
 
@@ -409,6 +411,8 @@ func (c *cache) setConnected(connected bool) {
 }
 
 // TODO: move it to a signalR client.
+//
+//nolint:godox
 type SignalRConnectionFactory struct {
 	auth   Authenticator
 	cfgSvc *config.Service
