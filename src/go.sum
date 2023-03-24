@@ -23,6 +23,8 @@ github.com/fsnotify/fsnotify v1.5.1 h1:mZcQUHVQUQWoPXXtuf9yuEXKudkV2sx1E06UadKWp
 github.com/fsnotify/fsnotify v1.5.1/go.mod h1:T3375wBYaZdLLcVNkcVbzGHY7f1l/uK5T5Ai1i3InKU=
 github.com/futurehomeno/cliffhanger v0.29.1-0.20230321144321-e5b5cda63f3e h1:Ee+KxYq1/B5MO6Y1+Cs+YJkcmaK14t6xLoqvgp98E6M=
 github.com/futurehomeno/cliffhanger v0.29.1-0.20230321144321-e5b5cda63f3e/go.mod h1:bcqiBkkMTs9GPuKAiMJLRIUxlAScrpLDl9y354ELkv8=
+github.com/futurehomeno/cliffhanger v0.29.1-0.20230324101714-06ab32f04616 h1:dtI9KkT+UIwbX4m1oIMr4+pyuONpb3ZHyHQv73MFkyg=
+github.com/futurehomeno/cliffhanger v0.29.1-0.20230324101714-06ab32f04616/go.mod h1:bcqiBkkMTs9GPuKAiMJLRIUxlAScrpLDl9y354ELkv8=
 github.com/futurehomeno/fimpgo v1.11.3 h1:Yy5514hlZMn4nLjJvIRAVS6f2j5+Qs/2qUdXSMcvkLk=
 github.com/futurehomeno/fimpgo v1.11.3/go.mod h1:Nwtf0Pu7I8kMH6PUKNJ4KgSl104Sbjn6kJ1m44+q5TA=
 github.com/gin-contrib/sse v0.1.0 h1:Y/yl/+YNO8GZSjAhjMsSuLt29uWRFHdHYUb5lYOV9qE=

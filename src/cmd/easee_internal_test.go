@@ -14,6 +14,7 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
+	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 )
 
@@ -28,67 +29,67 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []easee.Observation{
+						s.MockObservations(0, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Integer,
-								ID:        easee.ChargerOPState,
+								DataType:  signalr.Integer,
+								ID:        signalr.ChargerOPState,
 								Value:     strconv.Itoa(int(easee.ReadyToCharge)),
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Double,
-								ID:        easee.SessionEnergy,
+								DataType:  signalr.Double,
+								ID:        signalr.SessionEnergy,
 								Value:     "0",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Boolean,
-								ID:        easee.CableLocked,
+								DataType:  signalr.Boolean,
+								ID:        signalr.CableLocked,
 								Value:     "false",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Double,
-								ID:        easee.TotalPower,
+								DataType:  signalr.Double,
+								ID:        signalr.TotalPower,
 								Value:     "0",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Double,
-								ID:        easee.LifetimeEnergy,
+								DataType:  signalr.Double,
+								ID:        signalr.LifetimeEnergy,
 								Value:     "12.34",
 							},
 						})
-						s.MockObservations(300*time.Millisecond, []easee.Observation{
+						s.MockObservations(300*time.Millisecond, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Integer,
-								ID:        easee.ChargerOPState,
+								DataType:  signalr.Integer,
+								ID:        signalr.ChargerOPState,
 								Value:     strconv.Itoa(int(easee.Charging)),
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Double,
-								ID:        easee.SessionEnergy,
+								DataType:  signalr.Double,
+								ID:        signalr.SessionEnergy,
 								Value:     "1.23",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Boolean,
-								ID:        easee.CableLocked,
+								DataType:  signalr.Boolean,
+								ID:        signalr.CableLocked,
 								Value:     "true",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Double,
-								ID:        easee.TotalPower,
+								DataType:  signalr.Double,
+								ID:        signalr.TotalPower,
 								Value:     "1",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Double,
-								ID:        easee.LifetimeEnergy,
+								DataType:  signalr.Double,
+								ID:        signalr.LifetimeEnergy,
 								Value:     "13.45",
 							},
 						})
@@ -122,33 +123,33 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []easee.Observation{
+						s.MockObservations(0, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Double,
-								ID:        easee.TotalPower,
+								DataType:  signalr.Double,
+								ID:        signalr.TotalPower,
 								Value:     "0",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Integer,
-								ID:        easee.ChargerOPState,
+								DataType:  signalr.Integer,
+								ID:        signalr.ChargerOPState,
 								Value:     strconv.Itoa(int(easee.ReadyToCharge)),
 							},
 						})
-						s.MockObservations(300*time.Millisecond, []easee.Observation{
+						s.MockObservations(300*time.Millisecond, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Double,
-								ID:        easee.TotalPower,
+								DataType:  signalr.Double,
+								ID:        signalr.TotalPower,
 								Value:     "1.23",
 							},
 						})
-						s.MockObservations(300*time.Millisecond, []easee.Observation{
+						s.MockObservations(300*time.Millisecond, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  easee.Integer,
-								ID:        easee.ChargerOPState,
+								DataType:  signalr.Integer,
+								ID:        signalr.ChargerOPState,
 								Value:     strconv.Itoa(int(easee.ReadyToCharge)),
 							},
 						})
@@ -180,12 +181,56 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					},
 				},
 			},
+			{
+				Name: "Lower lifetime energy reading should be skipped",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.Double,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "12.34",
+							},
+						})
+						s.MockObservations(200*time.Millisecond, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.Double,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "11",
+							},
+						})
+						s.MockObservations(200*time.Millisecond, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.Double,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "13.45",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 11).Never(),
+						},
+					},
+				},
+			},
 		},
 	}
 
 	s.Run(t)
 }
 
+//nolint:unparam
 func serviceSetup(tc *testContainer, configSet string, opts ...func(tc *testContainer)) suite.ServiceSetup {
 	return func(t *testing.T) (service suite.Service, mocks []suite.Mock) {
 		t.Helper()

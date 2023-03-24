@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/philippseith/signalr"
+	libsignalr "github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
+	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 var (
@@ -23,7 +24,7 @@ var (
 type SignalRServer struct {
 	t *testing.T
 
-	signalr signalr.Server
+	signalr libsignalr.Server
 	http    *http.Server
 	router  *http.ServeMux
 	hub     *signalRHub
@@ -39,10 +40,10 @@ func NewSignalRServer(t *testing.T, address string) *SignalRServer {
 	hub := newSignalRHub(t)
 	router := http.NewServeMux()
 
-	srv, err := signalr.NewServer(context.Background(), signalr.UseHub(hub))
+	srv, err := libsignalr.NewServer(context.Background(), libsignalr.UseHub(hub))
 	require.NoError(t, err)
 
-	srv.MapHTTP(signalr.WithHTTPServeMux(router), "/hubs/chargers")
+	srv.MapHTTP(libsignalr.WithHTTPServeMux(router), "/hubs/chargers")
 
 	return &SignalRServer{
 		t:       t,
@@ -79,7 +80,7 @@ func (s *SignalRServer) Close() {
 	s.running = false
 }
 
-func (s *SignalRServer) MockObservations(delay time.Duration, o []easee.Observation) {
+func (s *SignalRServer) MockObservations(delay time.Duration, o []signalr.Observation) {
 	s.mockedObservations = append(s.mockedObservations, observationBatch{
 		delay:        delay,
 		observations: o,
@@ -101,12 +102,13 @@ func (s *SignalRServer) runHTTPServer() {
 }
 
 type signalRHub struct {
-	signalr.Hub
+	libsignalr.Hub
 
 	t *testing.T
 
+	mu             sync.Mutex
 	numConnections int
-	observations   []easee.Observation
+	observations   []signalr.Observation
 }
 
 func newSignalRHub(t *testing.T) *signalRHub {
@@ -118,6 +120,9 @@ func newSignalRHub(t *testing.T) *signalRHub {
 func (h *signalRHub) SubscribeWithCurrentState(chargerID string, sendInitialObservations bool) {
 	log.Infof("signalR test server: SubscribeWithCurrentState called: chargerID %s, sendInitialObservations %t", chargerID, sendInitialObservations)
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	for _, o := range h.observations {
 		h.Clients().Caller().Send("productUpdate", o)
 	}
@@ -127,6 +132,9 @@ func (h *signalRHub) SubscribeWithCurrentState(chargerID string, sendInitialObse
 func (h *signalRHub) OnConnected(connID string) {
 	log.Infof("signalR test server: new client connected: connID %s", connID)
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	h.numConnections++
 }
 
@@ -134,10 +142,16 @@ func (h *signalRHub) OnConnected(connID string) {
 func (h *signalRHub) OnDisconnected(connID string) {
 	log.Infof("signalR test server: client disconnected: connID %s", connID)
 
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	h.numConnections--
 }
 
-func (h *signalRHub) propagate(observations []easee.Observation) {
+func (h *signalRHub) propagate(observations []signalr.Observation) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	h.observations = observations
 
 	if h.numConnections == 0 {
@@ -151,5 +165,5 @@ func (h *signalRHub) propagate(observations []easee.Observation) {
 
 type observationBatch struct {
 	delay        time.Duration
-	observations []easee.Observation
+	observations []signalr.Observation
 }

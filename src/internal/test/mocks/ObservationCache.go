@@ -129,6 +129,20 @@ func (_m *ObservationCache) TotalPower() (float64, error) {
 	return r0, r1
 }
 
+// isConnected provides a mock function with given fields:
+func (_m *ObservationCache) isConnected() bool {
+	ret := _m.Called()
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
 // setCableLocked provides a mock function with given fields: locked
 func (_m *ObservationCache) setCableLocked(locked bool) {
 	_m.Called(locked)
@@ -137,6 +151,11 @@ func (_m *ObservationCache) setCableLocked(locked bool) {
 // setChargerState provides a mock function with given fields: state
 func (_m *ObservationCache) setChargerState(state string) {
 	_m.Called(state)
+}
+
+// setConnected provides a mock function with given fields: connected
+func (_m *ObservationCache) setConnected(connected bool) {
+	_m.Called(connected)
 }
 
 // setLifetimeEnergy provides a mock function with given fields: energy

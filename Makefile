@@ -70,8 +70,7 @@ deb-remote-install : deb-arm remote-install
 run :
 	cd ./src; go run main.go -c ../testdata;cd ../
 
-generate-mocks:
+mocks:
 	cd ./src && mockery --dir ./internal --all --output ./internal/test/mocks --disable-version-string
-
 
 .phony : clean

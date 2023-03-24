@@ -32,19 +32,17 @@ type serviceContainer struct {
 	lifecycle     *lifecycle.Lifecycle
 	mqtt          *fimpgo.MqttTransport
 
-	application        app.Application
-	manifestLoader     manifest.Loader
-	adapter            adapter.Adapter
-	thingFactory       adapter.ThingFactory
-	adapterState       adapter.State
-	httpClient         *http.Client
-	easeeHTTPClient    easee.HTTPClient
-	easeeAPIClient     easee.APIClient
-	authenticator      easee.Authenticator
-	signalRConnFactory *easee.SignalRConnectionFactory
-	signalRClient      signalr.Client
-	signalRReceiver    *easee.SignalRReceiver
-	signalRManager     easee.SignalRManager
+	application     app.Application
+	manifestLoader  manifest.Loader
+	adapter         adapter.Adapter
+	thingFactory    adapter.ThingFactory
+	adapterState    adapter.State
+	httpClient      *http.Client
+	easeeHTTPClient easee.HTTPClient
+	easeeAPIClient  easee.APIClient
+	authenticator   easee.Authenticator
+	signalRClient   signalr.Client
+	signalRManager  easee.SignalRManager
 }
 
 func resetContainer() {
@@ -162,7 +160,7 @@ func getAdapterState() adapter.State {
 // getThingFactory creates or returns existing thing factory service.
 func getThingFactory() adapter.ThingFactory {
 	if services.thingFactory == nil {
-		services.thingFactory = easee.NewThingFactory(getEaseeAPIClient(), getConfigService(), getSignalRManager())
+		services.thingFactory = easee.NewThingFactory(getEaseeAPIClient(), getConfigService(), getSignalRManager(), getSignalRClient())
 	}
 
 	return services.thingFactory
@@ -213,39 +211,18 @@ func getAuthenticator() easee.Authenticator {
 
 func getSignalRClient() signalr.Client {
 	if services.signalRClient == nil {
-		c, err := signalr.NewClient(getConfigService(), getSignalRReceiver(), getSignalRConnectionFactory().Create)
-		if err != nil {
-			log.WithError(err).Fatal("failed to initialize signalR client")
-		}
-
-		services.signalRClient = c
+		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator().AccessToken)
 	}
 
 	return services.signalRClient
 }
 
-func getSignalRReceiver() *easee.SignalRReceiver {
-	if services.signalRReceiver == nil {
-		services.signalRReceiver = easee.NewSignalRReceiver()
-	}
-
-	return services.signalRReceiver
-}
-
 func getSignalRManager() easee.SignalRManager {
 	if services.signalRManager == nil {
-		services.signalRManager = easee.NewSignalRManager(getSignalRClient(), getSignalRReceiver())
+		services.signalRManager = easee.NewSignalRManager(getSignalRClient())
 	}
 
 	return services.signalRManager
-}
-
-func getSignalRConnectionFactory() *easee.SignalRConnectionFactory {
-	if services.signalRConnFactory == nil {
-		services.signalRConnFactory = easee.NewSignalRConnectionFactory(getAuthenticator(), getConfigService())
-	}
-
-	return services.signalRConnFactory
 }
 
 // newRouting creates new set of routing.

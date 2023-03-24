@@ -25,8 +25,6 @@ func New(
 			cliffConfig.RouteCmdLogSetLevel(easee.ServiceName, cfgSrv.SetLogLevel),
 			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "polling_interval", cfgSrv.GetPollingInterval),
 			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "polling_interval", cfgSrv.SetPollingInterval),
-			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "easee_backoff", cfgSrv.GetEaseeBackoff),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "easee_backoff", cfgSrv.SetEaseeBackoff),
 			cliffConfig.RouteCmdConfigGetString(easee.ServiceName, "easee_base_url", cfgSrv.GetEaseeBaseURL),
 			cliffConfig.RouteCmdConfigSetString(easee.ServiceName, "easee_base_url", cfgSrv.SetEaseeBaseURL),
 			cliffConfig.RouteCmdConfigGetFloat(easee.ServiceName, "slow_charging_current_in_amperes", cfgSrv.GetSlowChargingCurrentInAmperes),

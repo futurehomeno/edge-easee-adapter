@@ -2,7 +2,6 @@ package easee
 
 import (
 	"fmt"
-	"reflect"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
@@ -34,27 +33,35 @@ func NewConnector(manager SignalRManager, httpClient APIClient, signalRClient si
 func (c *connector) Connect(t adapter.Thing) {
 	callbacks, err := c.signalRCallbacks(t)
 	if err != nil {
-		log.WithError(err).Error("failed to create signalr callbacks")
+		log.WithError(err).Error("failed to create signalRManager callbacks")
 
 		return
 	}
 
-	c.manager.Register(c.chargerID, c.cache, callbacks)
+	if err := c.manager.Register(c.chargerID, c.cache, callbacks); err != nil {
+		log.WithError(err).Error("failed to register charger within signalR manager")
+
+		return
+	}
 }
 
 func (c *connector) Disconnect(_ adapter.Thing) {
-	c.manager.Unregister(c.chargerID)
+	if err := c.manager.Unregister(c.chargerID); err != nil {
+		log.WithError(err).Error("failed to unregister charger within signalR manager")
+	}
 }
 
 func (c *connector) Connectivity() *adapter.ConnectivityDetails {
 	if c.signalRClient.Connected() {
 		return &adapter.ConnectivityDetails{
 			ConnectionStatus: adapter.ConnectionStatusUp,
+			ConnectionType:   adapter.ConnectionTypeIndirect,
 		}
 	}
 
 	return &adapter.ConnectivityDetails{
 		ConnectionStatus: adapter.ConnectionStatusDown,
+		ConnectionType:   adapter.ConnectionTypeIndirect,
 	}
 }
 
@@ -77,7 +84,7 @@ func (c *connector) Ping() *adapter.PingDetails {
 }
 
 //nolint:cyclop
-func (c *connector) signalRCallbacks(thing adapter.Thing) (map[ObservationID]func(), error) {
+func (c *connector) signalRCallbacks(thing adapter.Thing) (map[signalr.ObservationID]func(), error) {
 	chargepoints, err := c.extractChargepointServices(thing)
 	if err != nil {
 		return nil, err
@@ -88,36 +95,36 @@ func (c *connector) signalRCallbacks(thing adapter.Thing) (map[ObservationID]fun
 		return nil, err
 	}
 
-	return map[ObservationID]func(){
-		ChargerOPState: func() {
+	return map[signalr.ObservationID]func(){
+		signalr.ChargerOPState: func() {
 			for _, cp := range chargepoints {
 				if _, err := cp.SendStateReport(false); err != nil {
 					log.WithError(err).Error()
 				}
 			}
 		},
-		SessionEnergy: func() {
+		signalr.SessionEnergy: func() {
 			for _, cp := range chargepoints {
 				if _, err := cp.SendCurrentSessionReport(false); err != nil {
 					log.WithError(err).Error()
 				}
 			}
 		},
-		CableLocked: func() {
+		signalr.CableLocked: func() {
 			for _, cp := range chargepoints {
 				if _, err := cp.SendCableLockReport(false); err != nil {
 					log.WithError(err).Error()
 				}
 			}
 		},
-		TotalPower: func() {
+		signalr.TotalPower: func() {
 			for _, cp := range meterElecs {
 				if _, err := cp.SendMeterReport(meterelec.UnitW, false); err != nil {
 					log.WithError(err).Error()
 				}
 			}
 		},
-		LifetimeEnergy: func() {
+		signalr.LifetimeEnergy: func() {
 			for _, cp := range meterElecs {
 				if _, err := cp.SendMeterReport(meterelec.UnitKWh, false); err != nil {
 					log.WithError(err).Error()
@@ -134,7 +141,7 @@ func (c *connector) extractChargepointServices(thing adapter.Thing) ([]chargepoi
 	for _, service := range raw {
 		cp, ok := service.(chargepoint.Service)
 		if !ok {
-			return nil, fmt.Errorf("expected a service to be a chargepoint, got %s instead", reflect.TypeOf(service))
+			return nil, fmt.Errorf("expected a service to be a chargepoint, got %T instead", service)
 		}
 
 		chargepoints = append(chargepoints, cp)
@@ -150,7 +157,7 @@ func (c *connector) extractMeterElecServices(thing adapter.Thing) ([]meterelec.S
 	for _, service := range raw {
 		me, ok := service.(meterelec.Service)
 		if !ok {
-			return nil, fmt.Errorf("expected a service to be a meter_elec, got %s instead", reflect.TypeOf(service))
+			return nil, fmt.Errorf("expected a service to be a meter_elec, got %T instead", service)
 		}
 
 		meterElecs = append(meterElecs, me)

@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/fimpgo/fimptype"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 // Info is an object representing charger persisted information.
@@ -19,17 +20,19 @@ type Info struct {
 }
 
 type thingFactory struct {
-	client     APIClient
-	cfgService *config.Service
-	signalr    SignalRManager
+	client         APIClient
+	cfgService     *config.Service
+	signalRManager SignalRManager
+	signalRClient  signalr.Client
 }
 
 // NewThingFactory returns a new instance of adapter.ThingFactory.
-func NewThingFactory(client APIClient, cfgService *config.Service, signalr SignalRManager) adapter.ThingFactory {
+func NewThingFactory(client APIClient, cfgService *config.Service, signalRManager SignalRManager, signalRClient signalr.Client) adapter.ThingFactory {
 	return &thingFactory{
-		client:     client,
-		cfgService: cfgService,
-		signalr:    signalr,
+		client:         client,
+		cfgService:     cfgService,
+		signalRManager: signalRManager,
+		signalRClient:  signalRClient,
 	}
 }
 
@@ -47,7 +50,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, thingState adapter.ThingState)
 
 	return thing.NewCarCharger(ad, thingState, &thing.CarChargerConfig{
 		ThingConfig: &adapter.ThingConfig{
-			Connector:       NewConnector(t.signalr, t.client, nil, info.ChargerID, cache),
+			Connector:       NewConnector(t.signalRManager, t.client, t.signalRClient, info.ChargerID, cache),
 			InclusionReport: t.inclusionReport(info, thingState, groups),
 		},
 		ChargepointConfig: &chargepoint.Config{
@@ -64,13 +67,13 @@ func (t *thingFactory) Create(ad adapter.Adapter, thingState adapter.ThingState)
 func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState, groups []string) *fimptype.ThingInclusionReport {
 	return &fimptype.ThingInclusionReport{
 		Address:        thingState.Address(),
-		Alias:          "easee",
-		ProductHash:    "EaseeHome" + info.ChargerID,
-		CommTechnology: "cloud",
+		ProductHash:    "Easee - Easee - Easee Home",
 		ProductName:    "Easee Home",
-		ManufacturerId: "easee",
 		DeviceId:       info.ChargerID,
+		CommTechnology: "cloud",
+		ManufacturerId: "Easee",
 		PowerSource:    "ac",
+		WakeUpInterval: "-1",
 		Groups:         groups,
 	}
 }

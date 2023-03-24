@@ -1,9 +1,7 @@
 package easee
 
 import (
-	"fmt"
 	"strings"
-	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/meterelec"
@@ -47,33 +45,15 @@ func (c *controller) StartChargepointCharging(mode string) error {
 		current = c.maxCurrent
 	}
 
-	if err := c.client.StartCharging(c.chargerID, current); err != nil {
-		return fmt.Errorf("failed to start charging session for charger id %s: %w", c.chargerID, err)
-	}
-
-	c.backoff()
-
-	return nil
+	return c.client.StartCharging(c.chargerID, current)
 }
 
 func (c *controller) StopChargepointCharging() error {
-	if err := c.client.StopCharging(c.chargerID); err != nil {
-		return fmt.Errorf("failed to stop charging session for charger id %s: %w", c.chargerID, err)
-	}
-
-	c.backoff()
-
-	return nil
+	return c.client.StopCharging(c.chargerID)
 }
 
 func (c *controller) SetChargepointCableLock(locked bool) error {
-	if err := c.client.SetCableLock(c.chargerID, locked); err != nil {
-		return err
-	}
-
-	c.backoff()
-
-	return nil
+	return c.client.SetCableLock(c.chargerID, locked)
 }
 
 func (c *controller) ChargepointCableLockReport() (bool, error) {
@@ -107,9 +87,4 @@ func (c *controller) ElectricityMeterReport(unit string) (float64, error) {
 	default:
 		return 0, errors.Errorf("unsupported unit: %s", unit)
 	}
-}
-
-// backoff allows Easee cloud to process the request and invalidates local cache.
-func (c *controller) backoff() {
-	time.Sleep(c.cfgService.GetEaseeBackoff())
 }

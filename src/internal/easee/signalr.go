@@ -1,22 +1,13 @@
 package easee
 
 import (
-	"context"
-	"fmt"
-	"net/http"
 	"sync"
 
 	"github.com/futurehomeno/cliffhanger/root"
-	libsignalr "github.com/philippseith/signalr"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
-)
-
-const (
-	signalRURI = "/hubs/chargers"
 )
 
 // SignalRManager is the interface for the Easee signalR manager.
@@ -25,48 +16,72 @@ type SignalRManager interface {
 	root.Service
 
 	// Register registers a charger to be managed.
-	Register(chargerID string, cache ObservationCache, callbacks map[ObservationID]func())
+	Register(chargerID string, cache ObservationCache, callbacks map[signalr.ObservationID]func()) error
 	// Unregister unregisters a charger from being managed.
-	Unregister(chargerID string)
+	Unregister(chargerID string) error
 }
 
 type signalRManager struct {
-	mu       sync.RWMutex
+	mu      sync.RWMutex
+	running bool
+	done    chan struct{}
+
 	client   signalr.Client
-	receiver *SignalRReceiver
 	chargers map[string]chargerItem
-	done     chan struct{}
 }
 
-func NewSignalRManager(client signalr.Client, receiver *SignalRReceiver) SignalRManager {
+func NewSignalRManager(client signalr.Client) SignalRManager {
 	return &signalRManager{
 		client:   client,
-		receiver: receiver,
 		chargers: make(map[string]chargerItem),
-		done:     make(chan struct{}),
 	}
 }
 
 func (m *signalRManager) Start() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.running {
+		return nil
+	}
+
+	m.done = make(chan struct{})
+
 	go m.run()
 	go m.handleObservations()
+
+	m.running = true
 
 	return nil
 }
 
 func (m *signalRManager) Stop() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.running {
+		return nil
+	}
+
 	close(m.done)
-	m.client.Close()
+
+	m.running = false
 
 	return nil
 }
 
-func (m *signalRManager) Register(chargerID string, cache ObservationCache, callbacks map[ObservationID]func()) {
+func (m *signalRManager) Register(chargerID string, cache ObservationCache, callbacks map[signalr.ObservationID]func()) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, ok := m.chargers[chargerID]; ok {
-		return
+		return nil
+	}
+
+	if len(m.chargers) == 0 {
+		if err := m.client.Start(); err != nil {
+			return err
+		}
 	}
 
 	m.chargers[chargerID] = chargerItem{
@@ -76,34 +91,40 @@ func (m *signalRManager) Register(chargerID string, cache ObservationCache, call
 
 	if m.client.Connected() {
 		if err := m.client.SubscribeCharger(chargerID); err != nil {
-			log.WithError(err).Error("failed to subscribe charger: ", chargerID)
-
-			return
+			return err
 		}
 
 		cache.setConnected(true)
 	}
+
+	return nil
 }
 
-func (m *signalRManager) Unregister(chargerID string) {
+func (m *signalRManager) Unregister(chargerID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, ok := m.chargers[chargerID]; !ok {
-		return
+		return nil
 	}
 
 	delete(m.chargers, chargerID)
 
 	if err := m.client.UnsubscribeCharger(chargerID); err != nil {
-		log.WithError(err).Error("failed to unsubscribe charger: ", chargerID)
+		return err
 	}
+
+	if len(m.chargers) == 0 {
+		if err := m.client.Close(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (m *signalRManager) run() {
-	ch := m.client.ObserveState()
-
-	m.client.Start()
+	ch := m.client.StateC()
 
 	for {
 		select {
@@ -122,12 +143,15 @@ func (m *signalRManager) run() {
 				continue
 			}
 
+		chargerLoop:
 			for chargerID, charger := range m.chargers {
 				charger.cache.setConnected(true)
 
 				if err := m.client.SubscribeCharger(chargerID); err != nil {
 					log.WithError(err).Error("failed to subscribe charger: ", chargerID)
 					charger.cache.setConnected(false)
+
+					continue chargerLoop
 				}
 			}
 
@@ -137,11 +161,13 @@ func (m *signalRManager) run() {
 }
 
 func (m *signalRManager) handleObservations() {
+	obsCh := m.client.ObservationC()
+
 	for {
 		select {
 		case <-m.done:
 			return
-		case observation := <-m.receiver.observationsCh():
+		case observation := <-obsCh:
 			if err := m.handleObservation(observation); err != nil {
 				log.
 					WithError(err).
@@ -155,10 +181,12 @@ func (m *signalRManager) handleObservations() {
 }
 
 //nolint:funlen
-func (m *signalRManager) handleObservation(observation Observation) error { //nolint:cyclop
+func (m *signalRManager) handleObservation(observation signalr.Observation) error { //nolint:cyclop
 	if !observation.ID.Supported() {
 		return nil
 	}
+
+	log.Debugf("received observation: %+v", observation)
 
 	m.mu.RLock()
 	chargerData, ok := m.chargers[observation.ChargerID]
@@ -171,7 +199,7 @@ func (m *signalRManager) handleObservation(observation Observation) error { //no
 	}
 
 	switch observation.ID {
-	case ChargerOPState:
+	case signalr.ChargerOPState:
 		val, err := observation.IntValue()
 		if err != nil {
 			return err
@@ -181,7 +209,7 @@ func (m *signalRManager) handleObservation(observation Observation) error { //no
 		chargerData.cache.setChargerState(state)
 
 		m.runCallback(chargerData, observation.ID)
-	case SessionEnergy:
+	case signalr.SessionEnergy:
 		val, err := observation.Float64Value()
 		if err != nil {
 			return err
@@ -190,7 +218,7 @@ func (m *signalRManager) handleObservation(observation Observation) error { //no
 		chargerData.cache.setSessionEnergy(val)
 
 		m.runCallback(chargerData, observation.ID)
-	case CableLocked:
+	case signalr.CableLocked:
 		val, err := observation.BoolValue()
 		if err != nil {
 			return err
@@ -199,7 +227,7 @@ func (m *signalRManager) handleObservation(observation Observation) error { //no
 		chargerData.cache.setCableLocked(val)
 
 		m.runCallback(chargerData, observation.ID)
-	case TotalPower:
+	case signalr.TotalPower:
 		val, err := observation.Float64Value()
 		if err != nil {
 			return err
@@ -208,7 +236,7 @@ func (m *signalRManager) handleObservation(observation Observation) error { //no
 		chargerData.cache.setTotalPower(val * 1000)
 
 		m.runCallback(chargerData, observation.ID)
-	case LifetimeEnergy:
+	case signalr.LifetimeEnergy:
 		val, err := observation.Float64Value()
 		if err != nil {
 			return err
@@ -222,7 +250,7 @@ func (m *signalRManager) handleObservation(observation Observation) error { //no
 	return nil
 }
 
-func (m *signalRManager) runCallback(data chargerItem, id ObservationID) {
+func (m *signalRManager) runCallback(data chargerItem, id signalr.ObservationID) {
 	cb, ok := data.callbacks[id]
 	if !ok {
 		return
@@ -237,30 +265,7 @@ func (m *signalRManager) runCallback(data chargerItem, id ObservationID) {
 
 type chargerItem struct {
 	cache     ObservationCache
-	callbacks map[ObservationID]func()
-}
-
-// TODO: move it to a signalR client.
-//
-//nolint:godox
-type SignalRReceiver struct {
-	libsignalr.Receiver
-
-	observations chan Observation
-}
-
-func NewSignalRReceiver() *SignalRReceiver {
-	return &SignalRReceiver{
-		observations: make(chan Observation, 100),
-	}
-}
-
-func (r *SignalRReceiver) ProductUpdate(o Observation) {
-	r.observations <- o
-}
-
-func (r *SignalRReceiver) observationsCh() <-chan Observation {
-	return r.observations
+	callbacks map[signalr.ObservationID]func()
 }
 
 var ( //nolint:gofumpt
@@ -386,6 +391,15 @@ func (c *cache) setLifetimeEnergy(energy float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if energy < c.lifetimeEnergy {
+		log.
+			WithField("old", c.lifetimeEnergy).
+			WithField("new", energy).
+			Warn("lifetime energy decreased!")
+
+		return
+	}
+
 	c.lifetimeEnergy = energy
 }
 
@@ -408,44 +422,4 @@ func (c *cache) setConnected(connected bool) {
 	defer c.mu.Unlock()
 
 	c.connected = connected
-}
-
-// TODO: move it to a signalR client.
-//
-//nolint:godox
-type SignalRConnectionFactory struct {
-	auth   Authenticator
-	cfgSvc *config.Service
-}
-
-func NewSignalRConnectionFactory(auth Authenticator, cfgSvc *config.Service) *SignalRConnectionFactory {
-	return &SignalRConnectionFactory{auth: auth, cfgSvc: cfgSvc}
-}
-
-func (f *SignalRConnectionFactory) Create() (libsignalr.Connection, error) {
-	token, err := f.auth.AccessToken()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get access token: %w", err)
-	}
-
-	headers := func() http.Header {
-		h := make(http.Header)
-		h.Add("Authorization", "Bearer "+token)
-
-		return h
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), f.cfgSvc.GetSignalRConnCreationTimeout())
-	defer cancel()
-
-	conn, err := libsignalr.NewHTTPConnection(
-		ctx,
-		f.cfgSvc.GetEaseeBaseURL()+signalRURI,
-		libsignalr.WithHTTPHeaders(headers),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to instantiate signalR connection: %w", err)
-	}
-
-	return conn, nil
 }

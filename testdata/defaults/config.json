@@ -5,7 +5,7 @@
   "mqtt_server_password":"",
   "work_dir": "../testdata",
   "log_file": "",
-  "log_level": "info",
+  "log_level": "debug",
   "log_format": "text",
   "configured_at": "",
   "configured_by": "",

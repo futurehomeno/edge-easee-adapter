@@ -10,8 +10,8 @@ import (
 
 type logger struct{}
 
-// NewLogger returns SignalR logging adapter for Logrus.
-func NewLogger() signalr.StructuredLogger {
+// newLogger returns SignalR logging adapter for Logrus.
+func newLogger() signalr.StructuredLogger {
 	return logger{}
 }
 

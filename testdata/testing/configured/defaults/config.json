@@ -2,7 +2,7 @@
   "mqtt_server_uri":"tcp://localhost:11883",
   "mqtt_client_id_prefix":"easee",
   "work_dir": "../testdata/testing/configured",
-  "log_level": "info",
+  "log_level": "debug",
   "log_format": "text",
   "configured_at": "9998-12-31T00:00:00+01:00",
   "accessToken": "test.access.token",
