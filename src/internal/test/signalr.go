@@ -104,11 +104,11 @@ func (s *SignalRServer) runHTTPServer() {
 type signalRHub struct {
 	libsignalr.Hub
 
-	t *testing.T
+	t  *testing.T
+	mu sync.Mutex
 
-	mu             sync.Mutex
-	numConnections int
-	observations   []signalr.Observation
+	numSubscriptions int
+	observations     []signalr.Observation
 }
 
 func newSignalRHub(t *testing.T) *signalRHub {
@@ -123,6 +123,8 @@ func (h *signalRHub) SubscribeWithCurrentState(chargerID string, sendInitialObse
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	h.numSubscriptions++
+
 	for _, o := range h.observations {
 		h.Clients().Caller().Send("productUpdate", o)
 	}
@@ -131,21 +133,11 @@ func (h *signalRHub) SubscribeWithCurrentState(chargerID string, sendInitialObse
 // OnConnected is called when the hub is connected
 func (h *signalRHub) OnConnected(connID string) {
 	log.Infof("signalR test server: new client connected: connID %s", connID)
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	h.numConnections++
 }
 
 // OnDisconnected is called when the hub is disconnected
 func (h *signalRHub) OnDisconnected(connID string) {
 	log.Infof("signalR test server: client disconnected: connID %s", connID)
-
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	h.numConnections--
 }
 
 func (h *signalRHub) propagate(observations []signalr.Observation) {
@@ -154,7 +146,7 @@ func (h *signalRHub) propagate(observations []signalr.Observation) {
 
 	h.observations = observations
 
-	if h.numConnections == 0 {
+	if h.numSubscriptions == 0 {
 		return
 	}
 

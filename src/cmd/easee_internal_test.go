@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"io"
 	"os"
 	"path"
 	"strconv"
@@ -267,11 +268,43 @@ func tearDown(configSet string) suite.Callback {
 		t.Helper()
 
 		resetContainer()
+		cleanUpTestData(t, configSet)
+	}
+}
 
-		err := os.RemoveAll(path.Join("../../testdata/testing/", configSet, "/data/"))
-		if err != nil {
-			t.Fatalf("failed to clean up after previous tests: %s", err)
-		}
+func cleanUpTestData(t *testing.T, configSet string) {
+	t.Helper()
+
+	dataPath := path.Join("../../testdata/testing/", configSet, "/data/")
+	defaultsPath := path.Join("../../testdata/testing/", configSet, "/defaults/")
+
+	// clean up 'data' path
+	err := os.RemoveAll(dataPath)
+	if err != nil {
+		t.Fatalf("failed to clean up after previous tests: %s", err)
+	}
+
+	// recreate 'data' path
+	if err = os.Mkdir(dataPath, 0755); err != nil { //nolint:gofumpt
+		t.Fatalf("failed to clean up after previous tests: %s", err)
+	}
+
+	// copy 'adapter.json' from 'defaults' to 'data'
+	fin, err := os.Open(path.Join(defaultsPath, "adapter.json"))
+	if err != nil {
+		t.Fatalf("failed to clean up after previous tests: %s", err)
+	}
+	defer fin.Close()
+
+	fout, err := os.Create(path.Join(dataPath, "adapter.json"))
+	if err != nil {
+		t.Fatalf("failed to clean up after previous tests: %s", err)
+	}
+	defer fout.Close()
+
+	_, err = io.Copy(fout, fin)
+	if err != nil {
+		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
 }
 

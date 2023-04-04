@@ -162,12 +162,15 @@ func (a *application) registerChargers() error {
 			return fmt.Errorf("failed to fetch a charger config ID %s: %w", charger.ID, err)
 		}
 
-		info := easee.Info{
-			ChargerID:  charger.ID,
-			MaxCurrent: cfg.MaxChargerCurrent,
+		seed := &adapter.ThingSeed{
+			ID: charger.ID,
+			Info: easee.Info{
+				ChargerID:  charger.ID,
+				MaxCurrent: cfg.MaxChargerCurrent,
+			},
 		}
 
-		if err := a.ad.CreateThing(charger.ID, info); err != nil {
+		if err := a.ad.CreateThing(seed); err != nil {
 			return fmt.Errorf("failed to register charger ID %s: %w", charger.ID, err)
 		}
 	}

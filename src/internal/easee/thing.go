@@ -36,7 +36,7 @@ func NewThingFactory(client APIClient, cfgService *config.Service, signalRManage
 	}
 }
 
-func (t *thingFactory) Create(ad adapter.Adapter, thingState adapter.ThingState) (adapter.Thing, error) {
+func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, thingState adapter.ThingState) (adapter.Thing, error) {
 	info := &Info{}
 
 	if err := thingState.Info(info); err != nil {
@@ -48,7 +48,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, thingState adapter.ThingState)
 
 	groups := []string{"ch_0"}
 
-	return thing.NewCarCharger(ad, thingState, &thing.CarChargerConfig{
+	return thing.NewCarCharger(publisher, thingState, &thing.CarChargerConfig{
 		ThingConfig: &adapter.ThingConfig{
 			Connector:       NewConnector(t.signalRManager, t.client, t.signalRClient, info.ChargerID, cache),
 			InclusionReport: t.inclusionReport(info, thingState, groups),

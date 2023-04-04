@@ -132,7 +132,6 @@ func getAdapter() adapter.Adapter {
 	if services.adapter == nil {
 		services.adapter = adapter.NewAdapter(
 			getMQTT(),
-			nil,
 			getThingFactory(),
 			getAdapterState(),
 			easee.ServiceName,

@@ -90,11 +90,13 @@ func (m *signalRManager) Register(chargerID string, cache ObservationCache, call
 	}
 
 	if m.client.Connected() {
+		cache.setConnected(true)
+
 		if err := m.client.SubscribeCharger(chargerID); err != nil {
+			cache.setConnected(false)
+
 			return err
 		}
-
-		cache.setConnected(true)
 	}
 
 	return nil
