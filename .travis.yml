@@ -19,5 +19,6 @@ install:
 script:
   - cd ./src && golangci-lint run ./... --timeout 2m && cd ..
   - docker run -d -p 11883:1883 --restart=always eclipse-mosquitto:1.6.8
-  - cd ./src && go test -v -count 1 -coverpkg=./... -covermode=count -coverprofile=profile.cov ./...
+  - cd ./src && go test -v -count 1 -coverpkg=./... -covermode=count -coverprofile=profile_full.cov ./...
+  - cat profile_full.cov | grep -v mock | grep -v test > profile.cov;
   - goveralls -coverprofile=profile.cov -service=travis-pro -repotoken 9tYyQ41UXrd1aSCVntzB3rDgjUJcARs3E
