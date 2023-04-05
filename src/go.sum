@@ -27,6 +27,8 @@ github.com/futurehomeno/cliffhanger v0.29.1-0.20230324101714-06ab32f04616 h1:dtI
 github.com/futurehomeno/cliffhanger v0.29.1-0.20230324101714-06ab32f04616/go.mod h1:bcqiBkkMTs9GPuKAiMJLRIUxlAScrpLDl9y354ELkv8=
 github.com/futurehomeno/cliffhanger v0.30.0 h1:3eUwzGPECM34m7lzdesMRYl32nvS0cFhz1T8wfhLzxo=
 github.com/futurehomeno/cliffhanger v0.30.0/go.mod h1:bcqiBkkMTs9GPuKAiMJLRIUxlAScrpLDl9y354ELkv8=
+github.com/futurehomeno/cliffhanger v0.30.1 h1:czPAM7cx/6fP8z50SEH6/OzhkSqv96+z3sQNioVE8yc=
+github.com/futurehomeno/cliffhanger v0.30.1/go.mod h1:bcqiBkkMTs9GPuKAiMJLRIUxlAScrpLDl9y354ELkv8=
 github.com/futurehomeno/fimpgo v1.11.3 h1:Yy5514hlZMn4nLjJvIRAVS6f2j5+Qs/2qUdXSMcvkLk=
 github.com/futurehomeno/fimpgo v1.11.3/go.mod h1:Nwtf0Pu7I8kMH6PUKNJ4KgSl104Sbjn6kJ1m44+q5TA=
 github.com/gin-contrib/sse v0.1.0 h1:Y/yl/+YNO8GZSjAhjMsSuLt29uWRFHdHYUb5lYOV9qE=
