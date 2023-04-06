@@ -15,10 +15,11 @@ func New(
 	cfgSrv *config.Service,
 	appLifecycle *lifecycle.Lifecycle,
 	application app.App,
-	adapter adapter.Adapter,
+	ad adapter.Adapter,
 ) []*task.Task {
 	return task.Combine(
 		app.TaskApp(application, appLifecycle),
-		thing.TaskCarCharger(adapter, cfgSrv.GetPollingInterval(), task.WhenAppIsConnected(appLifecycle)),
+		adapter.TaskAdapter(ad, cfgSrv.GetPollingInterval()),
+		thing.TaskCarCharger(ad, cfgSrv.GetPollingInterval(), task.WhenAppIsConnected(appLifecycle)),
 	)
 }

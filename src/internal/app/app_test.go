@@ -4,23 +4,26 @@ import (
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/adapter"
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
-	"github.com/futurehomeno/cliffhanger/manifest" //nolint:gci
+	"github.com/futurehomeno/cliffhanger/manifest"
+	mockedadapter "github.com/futurehomeno/cliffhanger/test/mocks/adapter"
 	mockedmanifest "github.com/futurehomeno/cliffhanger/test/mocks/manifest"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 
-	adapterMocks "github.com/futurehomeno/cliffhanger/test/mocks/adapter" //nolint:gci
-
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
-	easeeMocks "github.com/futurehomeno/edge-easee-adapter/internal/easee/mocks"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
 )
+
+//nolint:godox
+// TODO: Move as much test cases as possible to component tests to avoid excessive mocking.
 
 func TestApplication_GetManifest(t *testing.T) {
 	t.Parallel()
@@ -57,7 +60,7 @@ func TestApplication_GetManifest(t *testing.T) {
 				tt.mockLoader(loaderMock)
 			}
 
-			a := app.New(nil, nil, nil, loaderMock, nil)
+			a := app.New(nil, nil, nil, loaderMock, nil, nil)
 
 			got, err := a.GetManifest()
 
@@ -76,7 +79,7 @@ func TestApplication_GetManifest(t *testing.T) {
 func TestApplication_Configure_NOOP(t *testing.T) {
 	t.Parallel()
 
-	a := app.New(nil, nil, nil, nil, nil)
+	a := app.New(nil, nil, nil, nil, nil, nil)
 	err := a.Configure("anything")
 
 	assert.NoError(t, err)
@@ -89,7 +92,7 @@ func TestApplication_Uninstall(t *testing.T) {
 		name                string
 		cfg                 *config.Config
 		setLifecycle        func(lc *lifecycle.Lifecycle)
-		mockAdapter         func(a *adapterMocks.ExtendedAdapter)
+		mockAdapter         func(a *mockedadapter.Adapter)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 		configAssertions    func(c *config.Config)
@@ -109,7 +112,7 @@ func TestApplication_Uninstall(t *testing.T) {
 				lc.SetConnectionState(lifecycle.ConnStateConnected)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
+			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("DestroyAllThings").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -137,7 +140,7 @@ func TestApplication_Uninstall(t *testing.T) {
 				lc.SetConnectionState(lifecycle.ConnStateConnected)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
+			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("DestroyAllThings").Return(errors.New("test error"))
 			},
 			wantErr: true,
@@ -154,7 +157,7 @@ func TestApplication_Uninstall(t *testing.T) {
 				tt.setLifecycle(lc)
 			}
 
-			adapterMock := new(adapterMocks.ExtendedAdapter)
+			adapterMock := new(mockedadapter.Adapter)
 			if tt.mockAdapter != nil {
 				tt.mockAdapter(adapterMock)
 			}
@@ -164,7 +167,7 @@ func TestApplication_Uninstall(t *testing.T) {
 			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
-			application := app.New(adapterMock, cfgService, lc, nil, nil)
+			application := app.New(adapterMock, cfgService, lc, nil, nil, nil)
 
 			err := application.Uninstall()
 
@@ -196,13 +199,12 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 	tests := []struct {
 		name                string
 		loginData           *cliffApp.LoginCredentials
-		cfg                 *config.Config
 		setLifecycle        func(lc *lifecycle.Lifecycle)
-		mockAdapter         func(a *adapterMocks.ExtendedAdapter)
-		mockClient          func(c *easeeMocks.Client)
+		mockAdapter         func(a *mockedadapter.Adapter)
+		mockClient          func(c *mocks.APIClient)
+		mockAuthenticator   func(a *mocks.Authenticator)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
-		configAssertions    func(c *config.Config)
 	}{
 		{
 			name: "if login was successful, credentials and lifecycle should be set up",
@@ -210,23 +212,16 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				Username: "test-user",
 				Password: "test-password",
 			},
-			cfg: &config.Config{},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockClient: func(c *easeeMocks.Client) {
-				c.
-					On("Login", "test-user", "test-password").
-					Return(&easee.Credentials{
-						AccessToken:  "access-token",
-						ExpiresIn:    86400,
-						AccessClaims: []string{"User"},
-						TokenType:    "Bearer",
-						RefreshToken: "refresh-token",
-					}, nil)
+			mockAuthenticator: func(a *mocks.Authenticator) {
+				a.On("Login", "test-user", "test-password").Return(nil)
+			},
+			mockClient: func(c *mocks.APIClient) {
 				c.On("Chargers").Return([]easee.Charger{
 					{ID: "123"},
 					{ID: "456"},
@@ -235,22 +230,32 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("ChargerConfig", "123").Return(test.ExampleChargerConfig(t), nil).Once()
 				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
-				a.On("CreateThing", "123", easee.Info{ChargerID: "123", MaxCurrent: 32}).Return(nil)
-				a.On("CreateThing", "456", easee.Info{ChargerID: "456", MaxCurrent: 32}).Return(nil)
+			mockAdapter: func(a *mockedadapter.Adapter) {
+				a.
+					On("CreateThing", &adapter.ThingSeed{
+						ID: "123",
+						Info: easee.Info{
+							ChargerID:  "123",
+							MaxCurrent: 32,
+						},
+					}).
+					Return(nil)
+
+				a.
+					On("CreateThing", &adapter.ThingSeed{
+						ID: "456",
+						Info: easee.Info{
+							ChargerID:  "456",
+							MaxCurrent: 32,
+						},
+					}).
+					Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateConfigured, lc.ConfigState())
-			},
-			configAssertions: func(c *config.Config) {
-				assert.Equal(t, config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 11, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
-				}, c.Credentials)
 			},
 		},
 		{
@@ -259,17 +264,18 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				Username: "test-user",
 				Password: "test-password",
 			},
-			cfg: &config.Config{},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppState(lifecycle.AppStateRunning, nil)
 				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
 				lc.SetConnectionState(lifecycle.ConnStateConnected)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
 			},
-			mockClient: func(c *easeeMocks.Client) {
-				c.
+			mockAuthenticator: func(a *mocks.Authenticator) {
+				a.
 					On("Login", "test-user", "test-password").
-					Return(nil, errors.New("oops"))
+					Return(errors.New("oops"))
+			},
+			mockClient: func(c *mocks.APIClient) {
 				c.On("Ping").Return(nil)
 			},
 			wantErr: true,
@@ -279,9 +285,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 			},
-			configAssertions: func(c *config.Config) {
-				assert.Equal(t, config.Credentials{}, c.Credentials)
-			},
 		},
 		{
 			name: "successful login, but ping failed for some reason",
@@ -289,23 +292,16 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				Username: "test-user",
 				Password: "test-password",
 			},
-			cfg: &config.Config{},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockClient: func(c *easeeMocks.Client) {
-				c.
-					On("Login", "test-user", "test-password").
-					Return(&easee.Credentials{
-						AccessToken:  "access-token",
-						ExpiresIn:    86400,
-						AccessClaims: []string{"User"},
-						TokenType:    "Bearer",
-						RefreshToken: "refresh-token",
-					}, nil)
+			mockAuthenticator: func(a *mocks.Authenticator) {
+				a.On("Login", "test-user", "test-password").Return(nil)
+			},
+			mockClient: func(c *mocks.APIClient) {
 				c.On("Chargers").Return([]easee.Charger{
 					{ID: "123"},
 					{ID: "456"},
@@ -314,22 +310,32 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("ChargerConfig", "123").Return(test.ExampleChargerConfig(t), nil).Once()
 				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
-				a.On("CreateThing", "123", easee.Info{ChargerID: "123", MaxCurrent: 32}).Return(nil)
-				a.On("CreateThing", "456", easee.Info{ChargerID: "456", MaxCurrent: 32}).Return(nil)
+			mockAdapter: func(a *mockedadapter.Adapter) {
+				a.
+					On("CreateThing", &adapter.ThingSeed{
+						ID: "123",
+						Info: easee.Info{
+							ChargerID:  "123",
+							MaxCurrent: 32,
+						},
+					}).
+					Return(nil)
+
+				a.
+					On("CreateThing", &adapter.ThingSeed{
+						ID: "456",
+						Info: easee.Info{
+							ChargerID:  "456",
+							MaxCurrent: 32,
+						},
+					}).
+					Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateConfigured, lc.ConfigState())
-			},
-			configAssertions: func(c *config.Config) {
-				assert.Equal(t, config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 11, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
-				}, c.Credentials)
 			},
 		},
 		{
@@ -338,23 +344,16 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				Username: "test-user",
 				Password: "test-password",
 			},
-			cfg: &config.Config{},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockClient: func(c *easeeMocks.Client) {
-				c.
-					On("Login", "test-user", "test-password").
-					Return(&easee.Credentials{
-						AccessToken:  "access-token",
-						ExpiresIn:    86400,
-						AccessClaims: []string{"User"},
-						TokenType:    "Bearer",
-						RefreshToken: "refresh-token",
-					}, nil)
+			mockAuthenticator: func(a *mocks.Authenticator) {
+				a.On("Login", "test-user", "test-password").Return(nil)
+			},
+			mockClient: func(c *mocks.APIClient) {
 				c.On("Chargers").Return([]easee.Charger{
 					{ID: "123"},
 					{ID: "456"},
@@ -363,22 +362,32 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("ChargerConfig", "123").Return(test.ExampleChargerConfig(t), nil).Once()
 				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
-				a.On("CreateThing", "123", easee.Info{ChargerID: "123", MaxCurrent: 32}).Return(nil)
-				a.On("CreateThing", "456", easee.Info{ChargerID: "456", MaxCurrent: 32}).Return(errors.New("oops"))
+			mockAdapter: func(a *mockedadapter.Adapter) {
+				a.
+					On("CreateThing", &adapter.ThingSeed{
+						ID: "123",
+						Info: easee.Info{
+							ChargerID:  "123",
+							MaxCurrent: 32,
+						},
+					}).
+					Return(nil)
+
+				a.
+					On("CreateThing", &adapter.ThingSeed{
+						ID: "456",
+						Info: easee.Info{
+							ChargerID:  "456",
+							MaxCurrent: 32,
+						},
+					}).
+					Return(errors.New("oops"))
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
-			},
-			configAssertions: func(c *config.Config) {
-				assert.Equal(t, config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 11, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
-				}, c.Credentials)
 			},
 			wantErr: true,
 		},
@@ -391,25 +400,22 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				tt.setLifecycle(lc)
 			}
 
-			adapterMock := new(adapterMocks.ExtendedAdapter)
+			adapterMock := mockedadapter.NewAdapter(t)
 			if tt.mockAdapter != nil {
 				tt.mockAdapter(adapterMock)
 			}
 
-			clientMock := new(easeeMocks.Client)
+			clientMock := mocks.NewAPIClient(t)
 			if tt.mockClient != nil {
 				tt.mockClient(clientMock)
 			}
 
-			defer func() {
-				adapterMock.AssertExpectations(t)
-				clientMock.AssertExpectations(t)
-			}()
+			authMock := mocks.NewAuthenticator(t)
+			if tt.mockAuthenticator != nil {
+				tt.mockAuthenticator(authMock)
+			}
 
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
-
-			application := app.New(adapterMock, cfgService, lc, nil, clientMock)
+			application := app.New(adapterMock, nil, lc, nil, clientMock, authMock)
 
 			err := application.Login(tt.loginData)
 
@@ -422,10 +428,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			if tt.lifecycleAssertions != nil {
 				tt.lifecycleAssertions(lc)
 			}
-
-			if tt.configAssertions != nil {
-				tt.configAssertions(tt.cfg)
-			}
 		})
 	}
 }
@@ -437,7 +439,7 @@ func TestApplication_Logout(t *testing.T) {
 		name                string
 		cfg                 *config.Config
 		setLifecycle        func(lc *lifecycle.Lifecycle)
-		mockAdapter         func(a *adapterMocks.ExtendedAdapter)
+		mockAdapter         func(a *mockedadapter.Adapter)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 		configAssertions    func(c *config.Config)
@@ -457,7 +459,7 @@ func TestApplication_Logout(t *testing.T) {
 				lc.SetConnectionState(lifecycle.ConnStateConnected)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
+			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("DestroyAllThings").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -485,7 +487,7 @@ func TestApplication_Logout(t *testing.T) {
 				lc.SetConnectionState(lifecycle.ConnStateConnected)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
+			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("DestroyAllThings").Return(errors.New("test error"))
 			},
 			wantErr: true,
@@ -502,7 +504,7 @@ func TestApplication_Logout(t *testing.T) {
 				tt.setLifecycle(lc)
 			}
 
-			adapterMock := new(adapterMocks.ExtendedAdapter)
+			adapterMock := new(mockedadapter.Adapter)
 			if tt.mockAdapter != nil {
 				tt.mockAdapter(adapterMock)
 			}
@@ -512,7 +514,7 @@ func TestApplication_Logout(t *testing.T) {
 			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
-			application := app.New(adapterMock, cfgService, lc, nil, nil)
+			application := app.New(adapterMock, cfgService, lc, nil, nil, nil)
 
 			err := application.Logout()
 
@@ -541,8 +543,8 @@ func TestApplication_Initialize(t *testing.T) {
 		name                string
 		cfg                 *config.Config
 		setLifecycle        func(lc *lifecycle.Lifecycle)
-		mockAdapter         func(a *adapterMocks.ExtendedAdapter)
-		mockClient          func(c *easeeMocks.Client)
+		mockAdapter         func(a *mockedadapter.Adapter)
+		mockClient          func(c *mocks.APIClient)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 	}{
@@ -561,10 +563,10 @@ func TestApplication_Initialize(t *testing.T) {
 				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
+			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(nil)
 			},
-			mockClient: func(c *easeeMocks.Client) {
+			mockClient: func(c *mocks.APIClient) {
 				c.On("Ping").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -583,10 +585,10 @@ func TestApplication_Initialize(t *testing.T) {
 				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
+			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(nil)
 			},
-			mockClient: func(c *easeeMocks.Client) {
+			mockClient: func(c *mocks.APIClient) {
 				c.On("Ping").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -605,10 +607,10 @@ func TestApplication_Initialize(t *testing.T) {
 				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
+			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(errors.New("oops"))
 			},
-			mockClient: func(c *easeeMocks.Client) {
+			mockClient: func(c *mocks.APIClient) {
 				c.On("Ping").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -634,10 +636,10 @@ func TestApplication_Initialize(t *testing.T) {
 				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockAdapter: func(a *adapterMocks.ExtendedAdapter) {
+			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(nil)
 			},
-			mockClient: func(c *easeeMocks.Client) {
+			mockClient: func(c *mocks.APIClient) {
 				c.On("Ping").Return(errors.New("oops"))
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -659,12 +661,12 @@ func TestApplication_Initialize(t *testing.T) {
 				tt.setLifecycle(lc)
 			}
 
-			adapterMock := new(adapterMocks.ExtendedAdapter)
+			adapterMock := mockedadapter.NewAdapter(t)
 			if tt.mockAdapter != nil {
 				tt.mockAdapter(adapterMock)
 			}
 
-			clientMock := new(easeeMocks.Client)
+			clientMock := new(mocks.APIClient)
 			if tt.mockClient != nil {
 				tt.mockClient(clientMock)
 			}
@@ -677,7 +679,7 @@ func TestApplication_Initialize(t *testing.T) {
 			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
-			application := app.New(adapterMock, cfgService, lc, nil, clientMock)
+			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil)
 
 			err := application.Initialize()
 

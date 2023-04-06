@@ -1,0 +1,13 @@
+{
+  "address_index": 1,
+  "things": {
+    "XX12345": {
+      "id": "XX12345",
+      "address": "1",
+      "info": {
+        "chargerID": "XX12345",
+        "maxCurrent": 32
+      }
+    }
+  }
+}

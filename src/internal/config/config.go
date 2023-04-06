@@ -15,11 +15,10 @@ type Config struct {
 	Credentials
 
 	EaseeBaseURL                 string  `json:"easeeBaseURL"`
-	EaseeBackoff                 string  `json:"easeeBackoff"`
 	PollingInterval              string  `json:"pollingInterval"`
 	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
 	HTTPTimeout                  string  `json:"httpTimeout"`
-	ObservationsPeriod           string  `json:"observationsPeriod"`
+	SignalR                      SignalR `json:"signalR"`
 }
 
 // New creates new instance of a configuration object.
@@ -51,6 +50,14 @@ func (c Credentials) Expired() bool {
 	return clock.Now().UTC().After(c.ExpiresAt)
 }
 
+// SignalR represents SignalR configuration settings.
+type SignalR struct {
+	ConnCreationTimeout string `json:"connCreationTimeout"`
+	KeepAliveInterval   string `json:"keepAliveInterval"`
+	TimeoutInterval     string `json:"timeoutInterval"`
+	InvokeTimeout       string `json:"invokeTimeout"`
+}
+
 // Service is a configuration service responsible for:
 // - providing concurrency safe access to settings
 // - persistence of settings.
@@ -65,6 +72,14 @@ func NewService(storage storage.Storage) *Service {
 		Storage: storage,
 		lock:    &sync.RWMutex{},
 	}
+}
+
+// GetWorkDir allows to safely access a configuration setting.
+func (cs *Service) GetWorkDir() string {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().(*Config).WorkDir //nolint:forcetypeassert
 }
 
 // GetEaseeBaseURL allows to safely access a configuration setting.
@@ -152,30 +167,6 @@ func (cs *Service) SetPollingInterval(interval time.Duration) error {
 	return cs.Storage.Save()
 }
 
-// GetEaseeBackoff allows to safely access a configuration setting.
-func (cs *Service) GetEaseeBackoff() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	duration, err := time.ParseDuration(cs.Storage.Model().(*Config).EaseeBackoff)
-	if err != nil {
-		return 4 * time.Second
-	}
-
-	return duration
-}
-
-// SetEaseeBackoff allows to safely set and persist configuration settings.
-func (cs *Service) SetEaseeBackoff(backoff time.Duration) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).EaseeBackoff = backoff.String()                //nolint:forcetypeassert
-
-	return cs.Storage.Save()
-}
-
 // GetSlowChargingCurrentInAmperes allows to safely access a configuration setting.
 func (cs *Service) GetSlowChargingCurrentInAmperes() float64 {
 	cs.lock.RLock()
@@ -219,26 +210,98 @@ func (cs *Service) SetHTTPTimeout(timeout time.Duration) error {
 	return cs.Storage.Save()
 }
 
-// GetObservationsPeriod allows to safely access a configuration setting.
-func (cs *Service) GetObservationsPeriod() time.Duration {
+// GetSignalRConnCreationTimeout allows to safely access a configuration setting.
+func (cs *Service) GetSignalRConnCreationTimeout() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	period, err := time.ParseDuration(cs.Storage.Model().(*Config).ObservationsPeriod)
+	timeout, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.ConnCreationTimeout)
 	if err != nil {
-		return 7 * 24 * time.Hour
+		return 5 * time.Second
 	}
 
-	return period
+	return timeout
 }
 
-// SetObservationsPeriod allows to safely set and persist configuration settings.
-func (cs *Service) SetObservationsPeriod(period time.Duration) error {
+// SetSignalRConnCreationTimeout allows to safely set and persist configuration settings.
+func (cs *Service) SetSignalRConnCreationTimeout(timeout time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).ObservationsPeriod = period.String()           //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).SignalR.ConnCreationTimeout = timeout.String() //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetSignalRKeepAliveInterval allows to safely access a configuration setting.
+func (cs *Service) GetSignalRKeepAliveInterval() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	interval, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.KeepAliveInterval)
+	if err != nil {
+		return 15 * time.Second
+	}
+
+	return interval
+}
+
+// SetSignalRKeepAliveInterval allows to safely set and persist configuration settings.
+func (cs *Service) SetSignalRKeepAliveInterval(interval time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).SignalR.KeepAliveInterval = interval.String()  //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetSignalRTimeoutInterval allows to safely access a configuration setting.
+func (cs *Service) GetSignalRTimeoutInterval() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	interval, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.TimeoutInterval)
+	if err != nil {
+		return 30 * time.Second
+	}
+
+	return interval
+}
+
+// SetSignalRTimeoutInterval allows to safely set and persist configuration settings.
+func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).SignalR.TimeoutInterval = interval.String()    //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetSignalRInvokeTimeout allows to safely access a configuration setting.
+func (cs *Service) GetSignalRInvokeTimeout() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	timeout, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.InvokeTimeout)
+	if err != nil {
+		return 5 * time.Second
+	}
+
+	return timeout
+}
+
+// SetSignalRInvokeTimeout allows to safely set and persist configuration settings.
+func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).SignalR.InvokeTimeout = timeout.String()       //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }

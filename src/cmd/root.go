@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"github.com/futurehomeno/cliffhanger/bootstrap"
-	"github.com/futurehomeno/cliffhanger/edge"
+	"github.com/futurehomeno/cliffhanger/root"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
 	log "github.com/sirupsen/logrus"
 
@@ -17,17 +17,7 @@ func Execute() {
 
 	bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
 
-	edgeApp, err := edge.NewBuilder().
-		WithMQTT(getMQTT()).
-		WithServiceDiscovery(routing.GetDiscoveryResource()).
-		WithLifecycle(getLifecycle()).
-		WithTopicSubscription(
-			cliffRouter.TopicPatternAdapter(easee.ServiceName),
-			cliffRouter.TopicPatternDevices(easee.ServiceName),
-		).
-		WithRouting(newRouting()...).
-		WithTask(newTasks()...).
-		Build()
+	edgeApp, err := buildEdgeApp()
 	if err != nil {
 		log.WithError(err).Fatalf("failed to build the edge application")
 	}
@@ -43,4 +33,19 @@ func Execute() {
 	if err != nil {
 		log.WithError(err).Fatalf("failed to stop the edge application")
 	}
+}
+
+func buildEdgeApp() (root.App, error) {
+	return root.NewEdgeAppBuilder().
+		WithMQTT(getMQTT()).
+		WithServiceDiscovery(routing.GetDiscoveryResource()).
+		WithLifecycle(getLifecycle()).
+		WithTopicSubscription(
+			cliffRouter.TopicPatternAdapter(easee.ServiceName),
+			cliffRouter.TopicPatternDevices(easee.ServiceName),
+		).
+		WithRouting(newRouting()...).
+		WithTask(newTasks()...).
+		WithServices(getSignalRManager()).
+		Build()
 }
