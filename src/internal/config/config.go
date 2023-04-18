@@ -217,7 +217,7 @@ func (cs *Service) GetSignalRConnCreationTimeout() time.Duration {
 
 	timeout, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.ConnCreationTimeout)
 	if err != nil {
-		return 5 * time.Second
+		return 30 * time.Second
 	}
 
 	return timeout
@@ -289,7 +289,7 @@ func (cs *Service) GetSignalRInvokeTimeout() time.Duration {
 
 	timeout, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.InvokeTimeout)
 	if err != nil {
-		return 5 * time.Second
+		return 10 * time.Second
 	}
 
 	return timeout

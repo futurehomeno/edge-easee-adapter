@@ -18,9 +18,9 @@
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
   "signalR": {
-    "connCreationTimeout": "5s",
+    "connCreationTimeout": "30s",
     "keepAliveInterval": "15s",
     "timeoutInterval": "30s",
-    "invokeTimeout": "5s"
+    "invokeTimeout": "10s"
   }
 }

@@ -18,8 +18,8 @@ import (
 type State int
 
 const (
-	Connected State = iota
-	Disconnected
+	Disconnected State = iota
+	Connected
 )
 
 // Client is the interface for the SignalR client.
