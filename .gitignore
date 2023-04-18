@@ -1,18 +1,12 @@
-  
-.DS_Store
-
-*.exe
-/easee
-
-# Debian packaging
-VERSION
-control
-*.deb
-package/build
-package/debian/opt/thingsplex/easee/easee
-
-# IDE
 .idea
-.vscode
-
-src/testdata
+.DS_Store
+*.deb
+package/build/*
+!package/build/.gitkeep
+/package/debian/opt/thingsplex/easee/easee
+/src/easee
+testdata/log/*
+!testdata/log/.gitkeep
+testdata/data/*
+!testdata/data/.gitkeep
+src/scratch

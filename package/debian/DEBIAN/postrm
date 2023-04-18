@@ -1,0 +1,23 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+	remove|purge)
+		echo -n "Removing service logs..."
+		rm /var/log/thingsplex/easee/* || true
+		echo "...OK"
+		echo -n "Removing service configuration and data files..."
+		rm /opt/thingsplex/easee/data/* || true
+		echo "...OK"
+	;;
+
+	upgrade|abort-upgrade|abort-install|failed-upgrade|disappear)
+	;;
+
+	*)
+		echo "postrm called with an unknown argument \`$1'" >&2
+		exit 1
+	;;
+esac
+
+exit 0
