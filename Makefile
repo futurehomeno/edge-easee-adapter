@@ -1,76 +1,71 @@
-version_file=VERSION
+version="2.1.1"
+version_file=package/debian/opt/thingsplex/$(app_name)/VERSION
 working_dir=$(shell pwd)
-arch="armhf"
-version:=`git describe --tags | cut -c 2-`
-remote_host = "fh@cube.local"
+app_name=easee
+remote_host = "fhtunnel@$(prod_host)"
+beta_host = "52.58.200.103"
+prod_host = "34.247.133.26"
+remote_port = "8985"
 
 clean:
-	-rm  -f ./easee
-
-init:
-	git config core.hooksPath .githooks
+	-rm ./src/$(app_name)
+	-rm ./package/debian/opt/thingsplex/$(app_name)/$(app_name)
+	find package/debian -name ".DS_Store" -delete
 
 build-go:
-	cd ./src;go build -o ../easee main.go;cd ../
+	cd ./src; go build -o $(app_name) main.go; cd ../
 
-build-go-arm: init
-	cd ./src;GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w" -o ../easee main.go;cd ../
+build-go-arm:
+	cd ./src; GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w" -o $(app_name) main.go; cd ../
 
-build-go-amd: init
-	cd ./src;GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ../easee main.go;cd ../
-
+build-go-amd:
+	cd ./src; GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o $(app_name) main.go; cd ../
 
 configure-arm:
-	python ./scripts/config_env.py prod $(version) armhf
+	sed -i.bak "1s/.*/$(version)/" $(version_file)
+	rm $(version_file).bak
+	sed -i.bak "s/Version: .*/Version: $(version)/" package/debian/DEBIAN/control
+	sed -i.bak "s/Architecture: .*/Architecture: armhf/" package/debian/DEBIAN/control
+	rm package/debian/DEBIAN/control.bak
 
 configure-amd64:
-	python ./scripts/config_env.py prod $(version) amd64
+	sed -i.bak "1s/.*/$(version)/" $(version_file)
+	rm $(version_file).bak
+	sed -i.bak "s/Version: .*/Version: $(version)/" package/debian/DEBIAN/control
+	sed -i.bak "s/Architecture: .*/Architecture: amd64/" package/debian/DEBIAN/control
+	rm package/debian/DEBIAN/control.bak
 
-package-tar:
-	tar cvzf easee_$(version).tar.gz easee VERSION
+package-deb-lint:
+	docker run -w /root -v $(working_dir)/package/build/:/root/ -it eddelbuettel/lintian lintian $(app_name)_$(version)_armhf.deb --no-tag-display-limit
 
-clean-deb:
-	find package/debian -name ".DS_Store" -delete
-	find package/debian -name "delete_me" -delete
-
-package-deb-doc:clean-deb
-	@echo "Packaging application using Thingsplex debian package layout"
-	chmod a+x package/debian/DEBIAN/*
-	mkdir -p package/debian/var/log/thingsplex/easee package/debian/opt/thingsplex/easee/data package debian/usr/bin
-	mkdir -p package/build
-	cp ./easee package/debian/opt/thingsplex/easee
-	cp $(version_file) package/debian/opt/thingsplex/easee
+package-deb:
+	@echo "Packaging application using Thingsplex debian package layout..."
+	mkdir -p package/debian/var/log/thingsplex/$(app_name)
+	mkdir -p package/debian/opt/thingsplex/$(app_name)/data
+	chmod -R 755 package/debian
+	chmod 644 package/debian/opt/thingsplex/$(app_name)/defaults/*
+	chmod 644 package/debian/opt/thingsplex/$(app_name)/VERSION
+	chmod 644 package/debian/usr/lib/systemd/system/$(app_name).service
+	cp ./src/$(app_name) package/debian/opt/thingsplex/$(app_name)
 	docker run --rm -v ${working_dir}:/build -w /build --name debuild debian dpkg-deb --build package/debian
 	@echo "Done"
 
-package-docker-amd:build-go-amd
-	cp ./easee package/docker/service
-	cd ./package/docker;docker build -t easee .
+deb-arm: clean configure-arm build-go-arm package-deb
+	mv package/debian.deb package/build/$(app_name)_$(version)_armhf.deb
 
-deb-arm : clean configure-arm build-go-arm package-deb-doc
-	@echo "Building Thingsplex ARM package"
-	mv package/debian.deb package/build/easee_$(version)_armhf.deb
+deb-amd: clean configure-amd64 build-go-amd package-deb
+	mv package/debian.deb package/build/$(app_name)_$(version)_amd64.deb
 
-deb-amd : configure-amd64 build-go-amd package-deb-doc
-	@echo "Building Thingsplex AMD package"
-	mv package/debian.deb easee_$(version)_amd64.deb
+upload:
+	scp -O -P ${remote_port} package/build/$(app_name)_$(version)_armhf.deb $(remote_host):~/
 
-upload :
-	@echo "Uploading the package to remote host"
-	scp package/build/easee_$(version)_armhf.deb $(remote_host):~/
+run: build-go
+	cd ./testdata; ../src/$(app_name) -c ./; cd ../
 
-remote-install : upload
-	@echo "Uploading and installing the package on remote host"
-	ssh -t $(remote_host) "sudo dpkg -i easee_$(version)_armhf.deb"
+lint:
+	cd src; golangci-lint run; cd ..
 
-deb-remote-install : deb-arm remote-install
-	@echo "Package was built and installed on remote host"
-
-
-run :
-	cd ./src; go run main.go -c ../testdata;cd ../
-
-mocks:
-	cd ./src && mockery --dir ./internal --all --output ./internal/test/mocks --disable-version-string
+test:
+	cd src; go test; cd ..
 
 .phony : clean

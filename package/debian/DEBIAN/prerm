@@ -1,9 +1,22 @@
 #!/bin/sh
 set -e
 
-if [ -d /run/systemd/system ] && [ "$1" = remove ]; then
-  deb-systemd-invoke stop easee.service >/dev/null
-  systemctl disable easee.service || true
-  rm -r /var/log/thingsplex/easee/* || true
-  rm -r /opt/thingsplex/easee/data/* || true
-fi
+case "$1" in
+	remove)
+		echo -n "Stopping and disabling service if present..."
+		systemctl stop easee.service > /dev/null || true
+		systemctl disable easee.service > /dev/null || true
+
+		echo "...OK"
+	;;
+
+	upgrade|failed-upgrade|deconfigure)
+	;;
+
+	*)
+		echo "prerm called with an unknown argument \`$1'" >&2
+		exit 1
+	;;
+esac
+
+exit 0
