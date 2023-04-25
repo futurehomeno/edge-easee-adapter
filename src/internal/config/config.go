@@ -52,6 +52,7 @@ func (c Credentials) Expired() bool {
 
 // SignalR represents SignalR configuration settings.
 type SignalR struct {
+	BaseURL             string `json:"baseURL"`
 	ConnCreationTimeout string `json:"connCreationTimeout"`
 	KeepAliveInterval   string `json:"keepAliveInterval"`
 	TimeoutInterval     string `json:"timeoutInterval"`
@@ -206,6 +207,25 @@ func (cs *Service) SetHTTPTimeout(timeout time.Duration) error {
 
 	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
 	cs.Storage.Model().(*Config).HTTPTimeout = timeout.String()                 //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetSignalRBaseURL allows to safely access a configuration setting.
+func (cs *Service) GetSignalRBaseURL() string {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().(*Config).SignalR.BaseURL //nolint:forcetypeassert
+}
+
+// SetSignalRBaseURL allows to safely set and persist configuration settings.
+func (cs *Service) SetSignalRBaseURL(url string) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).SignalR.BaseURL = url                          //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }
