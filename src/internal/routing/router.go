@@ -31,6 +31,8 @@ func New(
 			cliffConfig.RouteCmdConfigSetFloat(easee.ServiceName, "slow_charging_current_in_amperes", cfgSrv.SetSlowChargingCurrentInAmperes),
 			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "http_timeout", cfgSrv.GetHTTPTimeout),
 			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "http_timeout", cfgSrv.SetHTTPTimeout),
+			cliffConfig.RouteCmdConfigGetString(easee.ServiceName, "signalr_base_url", cfgSrv.GetSignalRBaseURL),
+			cliffConfig.RouteCmdConfigSetString(easee.ServiceName, "signalr_base_url", cfgSrv.SetSignalRBaseURL),
 			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "signalr_conn_creation_timeout", cfgSrv.GetSignalRConnCreationTimeout),
 			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "signalr_conn_creation_timeout", cfgSrv.SetSignalRConnCreationTimeout),
 			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "signalr_keep_alive_interval", cfgSrv.GetSignalRKeepAliveInterval),

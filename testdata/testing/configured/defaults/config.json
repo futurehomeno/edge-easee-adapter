@@ -1,6 +1,6 @@
 {
-  "mqtt_server_uri":"tcp://localhost:11883",
-  "mqtt_client_id_prefix":"easee",
+  "mqtt_server_uri": "tcp://localhost:11883",
+  "mqtt_client_id_prefix": "easee",
   "work_dir": "../testdata/testing/configured",
   "log_level": "debug",
   "log_format": "text",
@@ -8,12 +8,13 @@
   "accessToken": "test.access.token",
   "refreshToken": "test.refresh.token",
   "expiresAt": "9999-01-01T00:00:00Z",
-  "easeeBaseURL": "http://localhost:9999",
+  "easeeBaseURL": "http://localhost:9998",
   "easeeBackoff": "4s",
   "pollingInterval": "30s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
   "signalR": {
+    "baseURL": "http://localhost:9999",
     "connCreationTimeout": "30s",
     "keepAliveInterval": "15s",
     "timeoutInterval": "30s",

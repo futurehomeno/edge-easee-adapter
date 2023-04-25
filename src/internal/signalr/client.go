@@ -273,5 +273,5 @@ func (f *connectionFactory) Create() (signalr.Connection, error) {
 }
 
 func (f *connectionFactory) url() string {
-	return f.cfg.GetEaseeBaseURL() + signalRURI
+	return f.cfg.GetSignalRBaseURL() + signalRURI
 }
