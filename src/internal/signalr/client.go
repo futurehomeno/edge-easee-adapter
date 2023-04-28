@@ -17,6 +17,14 @@ import (
 // State represents the state of the SignalR client.
 type State int
 
+func (s State) String() string {
+	if s == Disconnected {
+		return "disconnected"
+	}
+
+	return "connected"
+}
+
 const (
 	Disconnected State = iota
 	Connected
@@ -181,6 +189,8 @@ func (c *client) notifyState() {
 			if newState == signalr.ClientConnected {
 				state = Connected
 			}
+
+			log.Info("signalR client state: ", state)
 
 			c.stateC <- state
 		}
