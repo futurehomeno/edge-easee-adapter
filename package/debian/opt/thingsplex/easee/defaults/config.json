@@ -20,8 +20,8 @@
   "signalR": {
     "baseURL": "https://streams.easee.com",
     "connCreationTimeout": "30s",
-    "keepAliveInterval": "15s",
-    "timeoutInterval": "30s",
+    "keepAliveInterval2": "30s",
+    "timeoutInterval2": "1m",
     "invokeTimeout": "10s"
   }
 }

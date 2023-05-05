@@ -33,13 +33,17 @@ create_dirs_and_files() {
 }
 
 set_ownership() {
-	echo -n "Set proper ownership and rights for files..."
-	chown -R easee:thingsplex /opt/thingsplex/easee || true
-	chown -R easee:thingsplex /var/log/thingsplex/easee || true
-	chmod 644 /opt/thingsplex/easee/defaults/* || true
-	chmod 644 /opt/thingsplex/easee/VERSION
-	chmod 644 /var/log/thingsplex/easee/* || true
-	echo "...OK"
+  echo -n "Set proper ownership and rights for files..."
+  chown -R easee:thingsplex /opt/thingsplex/easee || true
+  chown -R easee:thingsplex /var/log/thingsplex/easee || true
+  chmod -R 644 /opt/thingsplex/easee || true
+  chmod 755 /opt/thingsplex/easee || true
+  chmod 755 /opt/thingsplex/easee/defaults || true
+  chmod 755 /opt/thingsplex/easee/data || true
+  chmod 755 /opt/thingsplex/easee/easee || true
+  chmod -R 644 /var/log/thingsplex/easee || true
+  chmod 755 /var/log/thingsplex/easee || true
+  echo "...OK"
 }
 
 configure_service() {
