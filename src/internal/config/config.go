@@ -54,8 +54,8 @@ func (c Credentials) Expired() bool {
 type SignalR struct {
 	BaseURL             string `json:"baseURL"`
 	ConnCreationTimeout string `json:"connCreationTimeout"`
-	KeepAliveInterval   string `json:"keepAliveInterval"`
-	TimeoutInterval     string `json:"timeoutInterval"`
+	KeepAliveInterval   string `json:"keepAliveInterval2"`
+	TimeoutInterval     string `json:"timeoutInterval2"`
 	InvokeTimeout       string `json:"invokeTimeout"`
 }
 
@@ -261,7 +261,7 @@ func (cs *Service) GetSignalRKeepAliveInterval() time.Duration {
 
 	interval, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.KeepAliveInterval)
 	if err != nil {
-		return 15 * time.Second
+		return 30 * time.Second
 	}
 
 	return interval
@@ -285,7 +285,7 @@ func (cs *Service) GetSignalRTimeoutInterval() time.Duration {
 
 	interval, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.TimeoutInterval)
 	if err != nil {
-		return 30 * time.Second
+		return 1 * time.Minute
 	}
 
 	return interval

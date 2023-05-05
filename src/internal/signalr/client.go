@@ -60,6 +60,7 @@ type client struct {
 	connFactory  *connectionFactory
 	receiver     *receiver
 	stateC       chan State
+	connState    State
 }
 
 // NewClient creates a new SignalR client.
@@ -106,7 +107,7 @@ func (c *client) Connected() bool {
 		return false
 	}
 
-	return c.c.State() == signalr.ClientConnected
+	return c.connState == Connected
 }
 
 func (c *client) StateC() <-chan State {
@@ -189,6 +190,18 @@ func (c *client) notifyState() {
 			if newState == signalr.ClientConnected {
 				state = Connected
 			}
+
+			c.mu.Lock()
+
+			if c.connState == state {
+				c.mu.Unlock()
+
+				continue
+			}
+
+			c.connState = state
+
+			c.mu.Unlock()
 
 			log.Info("signalR client state: ", state)
 
