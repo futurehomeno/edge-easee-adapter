@@ -56,7 +56,7 @@ type SignalR struct {
 	ConnCreationTimeout string `json:"connCreationTimeout"`
 	KeepAliveInterval   string `json:"keepAliveInterval2"`
 	TimeoutInterval     string `json:"timeoutInterval2"`
-	InvokeTimeout       string `json:"invokeTimeout"`
+	InvokeTimeout       string `json:"invokeTimeout2"`
 }
 
 // Service is a configuration service responsible for:
@@ -309,7 +309,7 @@ func (cs *Service) GetSignalRInvokeTimeout() time.Duration {
 
 	timeout, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.InvokeTimeout)
 	if err != nil {
-		return 10 * time.Second
+		return 30 * time.Second
 	}
 
 	return timeout
