@@ -1,6 +1,7 @@
 package easee
 
 import (
+	log "github.com/sirupsen/logrus"
 	"strings"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
@@ -36,6 +37,11 @@ type controller struct {
 }
 
 func (c *controller) StartChargepointCharging(mode string) error {
+	log.
+		WithField("chargerID", c.chargerID).
+		WithField("mode", mode).
+		Info("starting charging session...")
+
 	var current float64
 
 	switch strings.ToLower(mode) {
@@ -49,6 +55,10 @@ func (c *controller) StartChargepointCharging(mode string) error {
 }
 
 func (c *controller) StopChargepointCharging() error {
+	log.
+		WithField("chargerID", c.chargerID).
+		Info("stopping charging session...")
+
 	return c.client.StopCharging(c.chargerID)
 }
 
