@@ -57,6 +57,7 @@ type SignalR struct {
 	KeepAliveInterval   string `json:"keepAliveInterval2"`
 	TimeoutInterval     string `json:"timeoutInterval2"`
 	InvokeTimeout       string `json:"invokeTimeout2"`
+	InvokeRetryCount    int    `json:"invokeRetryCount"`
 }
 
 // Service is a configuration service responsible for:
@@ -322,6 +323,25 @@ func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 
 	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
 	cs.Storage.Model().(*Config).SignalR.InvokeTimeout = timeout.String()       //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetSignalRInvokeRetryCount allows to safely access a configuration setting.
+func (cs *Service) GetSignalRInvokeRetryCount() int {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().(*Config).SignalR.InvokeRetryCount //nolint:forcetypeassert
+}
+
+// SetSignalRInvokeRetryCount allows to safely set and persist configuration settings.
+func (cs *Service) SetSignalRInvokeRetryCount(count int) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
+	cs.Storage.Model().(*Config).SignalR.InvokeRetryCount = count               //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }

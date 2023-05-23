@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/cenkalti/backoff/v4"
 	"net/http"
 	"sync"
 	"time"
@@ -83,7 +84,12 @@ func (c *client) SubscribeCharger(id string) error {
 
 	c.mu.Unlock()
 
-	return c.invoke("SubscribeWithCurrentState", id, true) // true stands for sending initial batch of data
+	err := c.invoke("SubscribeWithCurrentState", id, true) // true stands for sending initial batch of data
+	if err == nil {
+		log.WithField("chargerID", id).Info("successfully subscribed charger for receiving signalR events")
+	}
+
+	return err
 }
 
 func (c *client) UnsubscribeCharger(id string) error {
@@ -96,7 +102,12 @@ func (c *client) UnsubscribeCharger(id string) error {
 
 	c.mu.Unlock()
 
-	return c.invoke("Unsubscribe", id)
+	err := c.invoke("Unsubscribe", id)
+	if err == nil {
+		log.WithField("chargerID", id).Info("successfully unsubscribed charger from receiving signalR events")
+	}
+
+	return err
 }
 
 func (c *client) Connected() bool {
@@ -162,17 +173,27 @@ func (c *client) Close() error {
 }
 
 func (c *client) invoke(method string, args ...any) error {
+	bckoff := c.exponentialBackoff()
 	timer := time.NewTimer(c.cfg.GetSignalRInvokeTimeout())
 	defer timer.Stop()
 
-	results := c.c.Invoke(method, args...)
+	for i := 0; i < c.cfg.GetSignalRInvokeRetryCount(); i++ {
+		results := c.c.Invoke(method, args...)
 
-	select {
-	case result := <-results:
-		return result.Error
-	case <-timer.C:
-		return fmt.Errorf("timeout")
+		select {
+		case result := <-results:
+			return result.Error
+		case <-timer.C:
+			interval := bckoff.NextBackOff()
+
+			log.WithField("method", method).Warnf("signalR invoke timeout, retrying in %s...", interval)
+			time.Sleep(interval)
+
+			continue
+		}
 	}
+
+	return fmt.Errorf("timeout after %d retries", c.cfg.GetSignalRInvokeRetryCount())
 }
 
 func (c *client) notifyState() {
@@ -208,6 +229,18 @@ func (c *client) notifyState() {
 			c.stateC <- state
 		}
 	}
+}
+
+func (c *client) exponentialBackoff() *backoff.ExponentialBackOff {
+	b := backoff.NewExponentialBackOff()
+	b.InitialInterval = 20 * time.Second
+	b.RandomizationFactor = 0.2
+	b.Multiplier = 1.5
+	b.MaxInterval = 5 * time.Minute
+	b.MaxElapsedTime = 15 * time.Minute
+	b.Reset()
+
+	return b
 }
 
 func (c *client) clientFactory(connFactory *connectionFactory, rec *receiver) (signalr.Client, context.CancelFunc, error) {
