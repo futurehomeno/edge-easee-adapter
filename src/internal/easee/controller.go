@@ -1,12 +1,12 @@
 package easee
 
 import (
-	log "github.com/sirupsen/logrus"
 	"strings"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/meterelec"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
