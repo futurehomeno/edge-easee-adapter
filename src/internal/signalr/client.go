@@ -173,9 +173,10 @@ func (c *client) Close() error {
 }
 
 func (c *client) invoke(method string, args ...any) error {
-	bckoff := c.exponentialBackoff()
 	timer := time.NewTimer(c.cfg.GetSignalRInvokeTimeout())
 	defer timer.Stop()
+
+	bckoff := c.exponentialBackoff()
 
 	for i := 0; i < c.cfg.GetSignalRInvokeRetryCount(); i++ {
 		results := c.c.Invoke(method, args...)
