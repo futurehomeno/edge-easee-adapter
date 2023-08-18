@@ -12,7 +12,7 @@
   "accessToken": "",
   "refreshToken": "",
   "expiresAt": "0001-01-01T00:00:00Z",
-  "easeeBaseURL": "https://api.easee.cloud",
+  "easeeBaseURL2": "https://api.easee.com",
   "easeeBackoff": "4s",
   "pollingInterval": "30s",
   "slowChargingCurrentInAmperes": 10,

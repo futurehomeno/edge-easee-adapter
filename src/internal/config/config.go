@@ -14,7 +14,7 @@ type Config struct {
 	config.Default
 	Credentials
 
-	EaseeBaseURL                 string  `json:"easeeBaseURL"`
+	EaseeBaseURL                 string  `json:"easeeBaseURL2"`
 	PollingInterval              string  `json:"pollingInterval"`
 	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
 	HTTPTimeout                  string  `json:"httpTimeout"`

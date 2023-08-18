@@ -29,7 +29,6 @@ linters:
     - bodyclose
     - asciicheck
     - dupl
-    - depguard
     - errorlint
     - dogsled
     - durationcheck
@@ -78,8 +77,9 @@ linters:
     - whitespace
     - goimports
   disable:
+    - depguard # Not suitable for our use-case.
     - tagliatelle # Need to maintain compatibility with legacy JSON models.
-    - wrapcheck # Too be enabled if comfortable to work with.
+    - wrapcheck # To be enabled if comfortable to work with.
     - goerr113 # Too restrictive as forbids dynamic declaration of errors.
     - exhaustivestruct # Too restrictive as partial struct initialization is a common and valid scenario.
     - gochecknoglobals # Too restrictive and controversial.
