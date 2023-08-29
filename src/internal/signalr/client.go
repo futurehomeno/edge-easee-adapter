@@ -39,7 +39,7 @@ type Client interface {
 	Close() error
 
 	// SubscribeCharger subscribes to receive observations for a particular charger (based on it's ID).
-	SubscribeCharger(id string) error
+	SubscribeCharger(id string) (<-chan Observation, error) // TODO: przemyśl zwracanie kanału z obserwacjami
 	// UnsubscribeCharger unsubscribes from receiving charger observations.
 	UnsubscribeCharger(id string) error
 	// Connected returns true if the SignalR client is connected.
@@ -54,6 +54,9 @@ type client struct {
 	mu      sync.Mutex
 	running bool
 	done    chan struct{}
+
+	chargerMu         sync.RWMutex
+	connectedChargers map[string]struct{}
 
 	c            signalr.Client
 	cfg          *config.Service
@@ -74,12 +77,12 @@ func NewClient(cfg *config.Service, authTokenProvider func() (string, error)) Cl
 	}
 }
 
-func (c *client) SubscribeCharger(id string) error {
+func (c *client) SubscribeCharger(id string) (<-chan Observation, error) {
 	c.mu.Lock()
 	if !c.running {
 		c.mu.Unlock()
 
-		return fmt.Errorf("client is not running")
+		return nil, fmt.Errorf("client is not running")
 	}
 
 	c.mu.Unlock()
@@ -89,7 +92,7 @@ func (c *client) SubscribeCharger(id string) error {
 		log.WithField("chargerID", id).Info("successfully subscribed charger for receiving signalR events")
 	}
 
-	return err
+	return nil, err // TODO!
 }
 
 func (c *client) UnsubscribeCharger(id string) error {
@@ -172,7 +175,7 @@ func (c *client) Close() error {
 	return nil
 }
 
-func (c *client) invoke(method string, args ...any) error {
+func (c *client) invoke(method string, args ...any) error { // TODO: invoke should try forever
 	timer := time.NewTimer(c.cfg.GetSignalRInvokeTimeout())
 	defer timer.Stop()
 

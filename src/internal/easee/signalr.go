@@ -16,7 +16,7 @@ type SignalRManager interface {
 	root.Service
 
 	// Register registers a charger to be managed.
-	Register(chargerID string, cache ObservationCache, callbacks map[signalr.ObservationID]func()) error
+	Register(chargerID string, handler ObservationHandler) error
 	// Unregister unregisters a charger from being managed.
 	Unregister(chargerID string) error
 }
@@ -27,13 +27,13 @@ type signalRManager struct {
 	done    chan struct{}
 
 	client   signalr.Client
-	chargers map[string]chargerItem
+	chargers map[string]ObservationHandler
 }
 
 func NewSignalRManager(client signalr.Client) SignalRManager {
 	return &signalRManager{
 		client:   client,
-		chargers: make(map[string]chargerItem),
+		chargers: make(map[string]ObservationHandler),
 	}
 }
 
@@ -70,7 +70,7 @@ func (m *signalRManager) Stop() error {
 	return nil
 }
 
-func (m *signalRManager) Register(chargerID string, cache ObservationCache, callbacks map[signalr.ObservationID]func()) error {
+func (m *signalRManager) Register(chargerID string, handler ObservationHandler) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -84,19 +84,15 @@ func (m *signalRManager) Register(chargerID string, cache ObservationCache, call
 		}
 	}
 
-	m.chargers[chargerID] = chargerItem{
-		cache:     cache,
-		callbacks: callbacks,
-	}
+	m.chargers[chargerID] = handler
 
 	if m.client.Connected() {
-		cache.setConnected(true)
-
-		if err := m.client.SubscribeCharger(chargerID); err != nil {
+		if ch, err := m.client.SubscribeCharger(chargerID); err != nil {
 			cache.setConnected(false)
 
 			return err
 		}
+		cache.setConnected(true)
 	}
 
 	return nil
@@ -147,14 +143,13 @@ func (m *signalRManager) run() {
 
 		chargerLoop:
 			for chargerID, charger := range m.chargers {
-				charger.cache.setConnected(true)
-
 				if err := m.client.SubscribeCharger(chargerID); err != nil {
 					log.WithError(err).Error("failed to subscribe charger: ", chargerID)
 					charger.cache.setConnected(false)
 
 					continue chargerLoop
 				}
+				charger.cache.setConnected(true)
 			}
 
 			m.mu.RUnlock()
