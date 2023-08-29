@@ -17,10 +17,10 @@ type connector struct {
 	signalRClient signalr.Client
 
 	chargerID string
-	cache     ObservationCache
+	cache     Cache
 }
 
-func NewConnector(manager SignalRManager, httpClient APIClient, signalRClient signalr.Client, chargerID string, cache ObservationCache) adapter.Connector {
+func NewConnector(manager SignalRManager, httpClient APIClient, signalRClient signalr.Client, chargerID string, cache Cache) adapter.Connector {
 	return &connector{
 		manager:       manager,
 		httpClient:    httpClient,

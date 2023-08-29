@@ -15,7 +15,7 @@ type SignalRManager struct {
 }
 
 // Register provides a mock function with given fields: chargerID, cache, callbacks
-func (_m *SignalRManager) Register(chargerID string, cache easee.ObservationCache, callbacks map[signalr.ObservationID]func()) {
+func (_m *SignalRManager) Register(chargerID string, cache easee.Cache, callbacks map[signalr.ObservationID]func()) {
 	_m.Called(chargerID, cache, callbacks)
 }
 

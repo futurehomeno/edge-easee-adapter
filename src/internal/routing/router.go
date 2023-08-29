@@ -41,8 +41,6 @@ func New(
 			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "signalr_timeout_interval", cfgSrv.SetSignalRTimeoutInterval),
 			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "signalr_invoke_timeout", cfgSrv.GetSignalRInvokeTimeout),
 			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "signalr_invoke_timeout", cfgSrv.SetSignalRInvokeTimeout),
-			cliffConfig.RouteCmdConfigGetInt(easee.ServiceName, "signalr_invoke_retry_count", cfgSrv.GetSignalRInvokeRetryCount),
-			cliffConfig.RouteCmdConfigSetInt(easee.ServiceName, "signalr_invoke_retry_count", cfgSrv.SetSignalRInvokeRetryCount),
 		},
 		app.RouteApp(easee.ServiceName, appLifecycle, cfgSrv, config.Factory, nil, application),
 		cliffAdapter.RouteAdapter(adapter),

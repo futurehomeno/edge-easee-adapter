@@ -18,7 +18,7 @@ type Controller interface {
 }
 
 // NewController returns a new instance of Controller.
-func NewController(client APIClient, cache ObservationCache, cfgService *config.Service, chargerID string, maxCurrent float64) Controller {
+func NewController(client APIClient, cache Cache, cfgService *config.Service, chargerID string, maxCurrent float64) Controller {
 	return &controller{
 		client:     client,
 		cache:      cache,
@@ -30,7 +30,7 @@ func NewController(client APIClient, cache ObservationCache, cfgService *config.
 
 type controller struct {
 	client     APIClient
-	cache      ObservationCache
+	cache      Cache
 	cfgService *config.Service
 	chargerID  string
 	maxCurrent float64

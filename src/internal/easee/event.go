@@ -8,13 +8,13 @@ import (
 
 type ObservationHandler struct {
 	thing      adapter.Thing
-	cache      ObservationCache
+	cache      Cache
 	strategies map[signalr.ObservationID]func()
 
 	chargerID string
 }
 
-func NewObservationHandler(chargerID string, thing adapter.Thing, cache ObservationCache) *ObservationHandler {
+func NewObservationHandler(chargerID string, thing adapter.Thing, cache Cache) *ObservationHandler {
 	h := &ObservationHandler{
 		thing:      thing,
 		cache:      cache,

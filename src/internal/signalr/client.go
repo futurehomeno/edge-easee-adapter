@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/futurehomeno/cliffhanger/event"
+	"github.com/futurehomeno/cliffhanger/root"
 	"github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 
@@ -33,84 +35,92 @@ const (
 
 // Client is the interface for the SignalR client.
 type Client interface {
-	// Start starts the SignalR client.
-	Start() error
-	// Close stops the SignalR client.
-	Close() error
+	root.Service
 
 	// SubscribeCharger subscribes to receive observations for a particular charger (based on it's ID).
-	SubscribeCharger(id string) (<-chan Observation, error) // TODO: przemyśl zwracanie kanału z obserwacjami
+	// TODO: consider maybe exposing Invoke and moving all the subscription logic to the manager.
+	SubscribeCharger(id string) error
 	// UnsubscribeCharger unsubscribes from receiving charger observations.
 	UnsubscribeCharger(id string) error
 	// Connected returns true if the SignalR client is connected.
 	Connected() bool
-	// StateC returns a channel that will receive state updates.
-	StateC() <-chan State
-	// ObservationC returns a channel that will receive charger observations.
-	ObservationC() <-chan Observation
 }
 
 type client struct {
-	mu      sync.Mutex
-	running bool
-	done    chan struct{}
+	mu        sync.Mutex
+	running   bool
+	done      chan struct{}
+	connState State
 
-	chargerMu         sync.RWMutex
-	connectedChargers map[string]struct{}
+	chargersMu sync.RWMutex
+	chargers   map[string]bool // true means charger is subscribed
 
 	c            signalr.Client
 	cfg          *config.Service
+	eventManager event.Manager
 	serverStopFn context.CancelFunc
 	connFactory  *connectionFactory
 	receiver     *receiver
-	stateC       chan State
-	connState    State
 }
 
 // NewClient creates a new SignalR client.
-func NewClient(cfg *config.Service, authTokenProvider func() (string, error)) Client {
+func NewClient(cfg *config.Service, eventManager event.Manager, authTokenProvider func() (string, error)) Client {
 	return &client{
-		cfg:         cfg,
-		receiver:    newReceiver(),
-		connFactory: newConnectionFactory(cfg, authTokenProvider),
-		stateC:      make(chan State, 10),
+		chargers:     make(map[string]bool),
+		cfg:          cfg,
+		eventManager: eventManager,
+		receiver:     newReceiver(),
+		connFactory:  newConnectionFactory(cfg, authTokenProvider),
 	}
 }
 
-func (c *client) SubscribeCharger(id string) (<-chan Observation, error) {
+func (c *client) SubscribeCharger(id string) error {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if !c.running {
-		c.mu.Unlock()
-
-		return nil, fmt.Errorf("client is not running")
+		return fmt.Errorf("client is not running")
 	}
 
-	c.mu.Unlock()
+	c.chargersMu.Lock()
+	defer c.chargersMu.Unlock()
 
-	err := c.invoke("SubscribeWithCurrentState", id, true) // true stands for sending initial batch of data
-	if err == nil {
-		log.WithField("chargerID", id).Info("successfully subscribed charger for receiving signalR events")
+	if _, ok := c.chargers[id]; ok {
+		return nil
 	}
 
-	return nil, err // TODO!
+	c.chargers[id] = false
+
+	go func() {
+		done := c.invoke("SubscribeWithCurrentState", id, true) // true stands for sending initial batch of data
+
+		<-done
+
+		c.chargersMu.Lock()
+		defer c.chargersMu.Unlock()
+
+		c.chargers[id] = true
+	}()
+
+	return nil
 }
 
 func (c *client) UnsubscribeCharger(id string) error {
 	c.mu.Lock()
-	if !c.running {
-		c.mu.Unlock()
+	defer c.mu.Unlock()
 
+	if !c.running {
 		return fmt.Errorf("client is not running")
 	}
 
-	c.mu.Unlock()
+	c.chargersMu.Lock()
+	defer c.chargersMu.Unlock()
 
-	err := c.invoke("Unsubscribe", id)
-	if err == nil {
-		log.WithField("chargerID", id).Info("successfully unsubscribed charger from receiving signalR events")
-	}
+	delete(c.chargers, id)
 
-	return err
+	c.invoke("Unsubscribe", id)
+
+	return nil
 }
 
 func (c *client) Connected() bool {
@@ -122,14 +132,6 @@ func (c *client) Connected() bool {
 	}
 
 	return c.connState == Connected
-}
-
-func (c *client) StateC() <-chan State {
-	return c.stateC
-}
-
-func (c *client) ObservationC() <-chan Observation {
-	return c.receiver.observationC()
 }
 
 func (c *client) Start() error {
@@ -159,7 +161,7 @@ func (c *client) Start() error {
 	return nil
 }
 
-func (c *client) Close() error {
+func (c *client) Stop() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -175,29 +177,48 @@ func (c *client) Close() error {
 	return nil
 }
 
-func (c *client) invoke(method string, args ...any) error { // TODO: invoke should try forever
-	timer := time.NewTimer(c.cfg.GetSignalRInvokeTimeout())
-	defer timer.Stop()
+func (c *client) invoke(method string, args ...any) <-chan struct{} {
+	done := make(chan struct{}, 1)
 
-	bckoff := c.exponentialBackoff()
+	go func() {
+		ticker := time.NewTicker(c.cfg.GetSignalRInvokeTimeout())
+		defer ticker.Stop()
 
-	for i := 0; i < c.cfg.GetSignalRInvokeRetryCount(); i++ {
-		results := c.c.Invoke(method, args...)
+		boff := c.exponentialBackoff()
 
-		select {
-		case result := <-results:
-			return result.Error
-		case <-timer.C:
-			interval := bckoff.NextBackOff()
+		for {
+			results := c.c.Invoke(method, args...)
 
-			log.WithField("method", method).Warnf("signalR invoke timeout, retrying in %s...", interval)
-			time.Sleep(interval)
+			select {
+			case r := <-results:
+				if r.Error == nil {
+					done <- struct{}{}
 
-			continue
+					return
+				}
+
+				interval := boff.NextBackOff()
+
+				log.WithField("method", method).Warnf("signalR invoke error, retrying in %s...", interval)
+				time.Sleep(interval)
+
+				continue
+			case <-ticker.C:
+				interval := boff.NextBackOff()
+
+				log.WithField("method", method).Warnf("signalR invoke timeout, retrying in %s...", interval)
+				time.Sleep(interval)
+
+				continue
+			case <-c.done:
+				done <- struct{}{}
+
+				return
+			}
 		}
-	}
+	}()
 
-	return fmt.Errorf("timeout after %d retries", c.cfg.GetSignalRInvokeRetryCount())
+	return done
 }
 
 func (c *client) notifyState() {
@@ -230,7 +251,7 @@ func (c *client) notifyState() {
 
 			log.Info("signalR client state: ", state)
 
-			c.stateC <- state
+			c.eventManager.Publish(event.New("signalr-client-state", state))
 		}
 	}
 }
@@ -241,7 +262,7 @@ func (c *client) exponentialBackoff() *backoff.ExponentialBackOff {
 	b.RandomizationFactor = 0.2
 	b.Multiplier = 1.5
 	b.MaxInterval = 5 * time.Minute
-	b.MaxElapsedTime = 15 * time.Minute
+	b.MaxElapsedTime = 0
 	b.Reset()
 
 	return b
