@@ -30,6 +30,16 @@ const (
 	pauseChargingCurrent = 0.0
 )
 
+// HttpError provides a way to pass more meaningful information regarding http errors without breaking interfaces.
+type HttpError struct {
+	err    error
+	Status int
+}
+
+func (e HttpError) Error() string {
+	return e.err.Error()
+}
+
 // APIClient is a wrapper around the Easee HTTP Client with authentication capabilities.
 type APIClient interface {
 	// StartCharging starts charging session for the selected charger.
@@ -199,7 +209,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*Credential
 
 	resp, err := c.performRequest(req, http.StatusOK)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to perform token refresh api call")
+		return nil, HttpError{err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode}
 	}
 
 	defer resp.Body.Close()
@@ -360,7 +370,7 @@ func (c *httpClient) performRequest(req *http.Request, wantResponseCode int) (*h
 	}
 
 	if resp.StatusCode != wantResponseCode {
-		return nil, errors.Errorf("expected response code to be %d, but got %d instead", wantResponseCode, resp.StatusCode)
+		return resp, errors.Errorf("expected response code to be %d, but got %d instead", wantResponseCode, resp.StatusCode)
 	}
 
 	return resp, nil

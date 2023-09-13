@@ -14,11 +14,12 @@ type Config struct {
 	config.Default
 	Credentials
 
-	EaseeBaseURL                 string  `json:"easeeBaseURL2"`
-	PollingInterval              string  `json:"pollingInterval"`
-	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
-	HTTPTimeout                  string  `json:"httpTimeout"`
-	SignalR                      SignalR `json:"signalR"`
+	EaseeBaseURL                 string     `json:"easeeBaseURL2"`
+	PollingInterval              string     `json:"pollingInterval"`
+	SlowChargingCurrentInAmperes float64    `json:"slowChargingCurrentInAmperes"`
+	HTTPTimeout                  string     `json:"httpTimeout"`
+	SignalR                      SignalR    `json:"signalR"`
+	Backoff                      BackoffCfg `json:"backoff"`
 }
 
 // New creates new instance of a configuration object.
@@ -67,12 +68,27 @@ type Service struct {
 	lock *sync.RWMutex
 }
 
+// BackoffCfg represents values used to configure
+// reconnecting hook when http errors occur
+type BackoffCfg struct {
+	LengthSeconds int `json:"length_seconds"`
+	Attempts      int `json:"attempts"`
+}
+
 // NewService creates a new configuration service.
 func NewService(storage storage.Storage) *Service {
 	return &Service{
 		Storage: storage,
 		lock:    &sync.RWMutex{},
 	}
+}
+
+// GetBackoffCfg allows to safely access backoff settings
+func (cs *Service) GetBackoffCfg() BackoffCfg {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().(*Config).Backoff
 }
 
 // GetWorkDir allows to safely access a configuration setting.
@@ -140,6 +156,16 @@ func (cs *Service) SetCredentials(accessToken, refreshToken string, expirationIn
 		RefreshToken: refreshToken,
 		ExpiresAt:    clock.Now().UTC().Add(time.Duration(expirationInSeconds) * time.Second),
 	}
+
+	return cs.Storage.Save()
+}
+
+// ClearCredentials resets credentials to empty
+func (cs *Service) ClearCredentials() error {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
+	cs.Storage.Model().(*Config).Credentials = Credentials{}
 
 	return cs.Storage.Save()
 }
