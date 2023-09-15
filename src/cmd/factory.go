@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"github.com/futurehomeno/cliffhanger/notification"
 	"net/http"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
@@ -202,7 +203,11 @@ func getHTTPClient() *http.Client {
 
 func getAuthenticator() easee.Authenticator {
 	if services.authenticator == nil {
-		services.authenticator = easee.NewAuthenticator(getEaseeHTTPClient(), getConfigService())
+		services.authenticator = easee.NewAuthenticator(
+			getEaseeHTTPClient(),
+			getConfigService(),
+			notification.NewNotification(getMQTT()),
+		)
 	}
 
 	return services.authenticator

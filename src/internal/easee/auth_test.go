@@ -2,26 +2,46 @@ package easee
 
 import (
 	"fmt"
+	"github.com/futurehomeno/cliffhanger/notification"
 	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 )
 
+type NotificationMock struct {
+	mock.Mock
+}
+
+// enforce interface
+var _ notification.Notification = &NotificationMock{}
+
+func (m *NotificationMock) Message(arg string) error {
+	args := m.Called(arg)
+	return args.Error(0)
+}
+
+func (m *NotificationMock) Event(event *notification.Event) error {
+	args := m.Called(event)
+	return args.Error(0)
+}
+
 func TestLogin(t *testing.T) {
 	testCases := []struct {
-		name          string
-		username      string
-		password      string
-		loginStatus   int
-		accessToken   string
-		refreshToken  string
-		saveError     error
-		errorContains string
+		name                      string
+		username                  string
+		password                  string
+		loginStatus               int
+		accessToken               string
+		refreshToken              string
+		saveError                 error
+		errorContains             string
+		notificationManagerCalled int
 	}{
 		{
 			name:          "should return error when login has failed",
@@ -39,12 +59,13 @@ func TestLogin(t *testing.T) {
 			errorContains: "failed to save to the storage",
 		},
 		{
-			name:         "should save tokens to the storage",
-			username:     "user",
-			password:     "pwd",
-			loginStatus:  http.StatusOK,
-			accessToken:  "accessToken",
-			refreshToken: "refreshing",
+			name:                      "should save tokens to the storage",
+			username:                  "user",
+			password:                  "pwd",
+			loginStatus:               http.StatusOK,
+			accessToken:               "accessToken",
+			refreshToken:              "refreshing",
+			notificationManagerCalled: 1,
 		},
 	}
 
@@ -66,9 +87,12 @@ func TestLogin(t *testing.T) {
 			storage.On("Model").Return(&cfg)
 			storage.On("Save").Return(v.saveError)
 
+			notificationManager := &NotificationMock{}
+			notificationManager.On("Event", &notification.Event{EventName: notificationEaseeStatusOnline}).Return(nil)
+
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			client := NewHTTPClient(httpClient, server.URL)
-			auth := authenticator{http: client, cfgSvc: config.NewService(&storage)}
+			auth := authenticator{http: client, cfgSvc: config.NewService(&storage), notificationManager: notificationManager}
 
 			err := auth.Login(v.username, v.password)
 			if err != nil {
@@ -77,6 +101,7 @@ func TestLogin(t *testing.T) {
 				assert.Equal(t, v.accessToken, cfg.AccessToken)
 				assert.Equal(t, v.refreshToken, cfg.RefreshToken)
 				assert.Equal(t, statusWorkingProperly, auth.status)
+				notificationManager.AssertNumberOfCalls(t, "Event", v.notificationManagerCalled)
 			}
 		})
 	}
@@ -202,17 +227,19 @@ func TestAccessToken(t *testing.T) {
 
 func TestHandleFailedRefreshToken(t *testing.T) {
 	testCases := []struct {
-		name           string
-		errIn          error
-		auth           authenticator
-		expectedStatus connectivityStatus
-		errorContains  string
+		name                      string
+		errIn                     error
+		auth                      authenticator
+		expectedStatus            connectivityStatus
+		errorContains             string
+		notificationManagerCalled int
 	}{
 		{
-			name:           "should return error when input error is http error with 401 status code",
-			errIn:          HttpError{Status: http.StatusUnauthorized},
-			expectedStatus: statusConnectionFailed,
-			errorContains:  "unauthorized error",
+			name:                      "should return error when input error is http error with 401 status code",
+			errIn:                     HttpError{Status: http.StatusUnauthorized},
+			expectedStatus:            statusConnectionFailed,
+			errorContains:             "unauthorized error",
+			notificationManagerCalled: 1,
 		},
 		{
 			name:  "should set status to failed when reached maximum attempts",
@@ -224,8 +251,9 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 					attempts:    2,
 				},
 			},
-			expectedStatus: statusConnectionFailed,
-			errorContains:  "failed delayed attempt",
+			expectedStatus:            statusConnectionFailed,
+			errorContains:             "failed delayed attempt",
+			notificationManagerCalled: 1,
 		},
 		{
 			name:  "should make another attempt to reconnect when haven't reached maximum",
@@ -278,11 +306,16 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 			storage.On("Model").Return(&cfg)
 			storage.On("Save").Return(nil)
 
+			notificationManager := &NotificationMock{}
+			notificationManager.On("Event", &notification.Event{EventName: notificationEaseeStatusOffline}).Return(nil)
+
+			v.auth.notificationManager = notificationManager
 			v.auth.lengthSeconds = 1
 			v.auth.cfgSvc = config.NewService(&storage)
 			err := v.auth.handleFailedRefreshToken(v.errIn)
 			assert.Equal(t, v.expectedStatus, v.auth.status)
 			assert.Contains(t, err.Error(), v.errorContains)
+			notificationManager.AssertNumberOfCalls(t, "Event", v.notificationManagerCalled)
 		})
 	}
 }
