@@ -30,13 +30,13 @@ const (
 	pauseChargingCurrent = 0.0
 )
 
-// HttpError provides a way to pass more meaningful information regarding http errors without breaking interfaces.
-type HttpError struct {
+// HTTPError provides a way to pass more meaningful information regarding http errors without breaking interfaces.
+type HTTPError struct {
 	err    error
 	Status int
 }
 
-func (e HttpError) Error() string {
+func (e HTTPError) Error() string {
 	return e.err.Error()
 }
 
@@ -209,7 +209,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*Credential
 
 	resp, err := c.performRequest(req, http.StatusOK)
 	if err != nil {
-		return nil, HttpError{err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode}
+		return nil, HTTPError{err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode}
 	}
 
 	defer resp.Body.Close()

@@ -1,37 +1,41 @@
-package easee
+package easee //nolint
 
 import (
 	"fmt"
-	"github.com/futurehomeno/cliffhanger/notification"
-	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
-	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/pkg/errors"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/futurehomeno/cliffhanger/notification"
+	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
+	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
 type NotificationMock struct {
 	mock.Mock
 }
 
-// enforce interface
+// enforce interface.
 var _ notification.Notification = &NotificationMock{}
 
 func (m *NotificationMock) Message(arg string) error {
 	args := m.Called(arg)
-	return args.Error(0)
+	return args.Error(0) //nolint
 }
 
 func (m *NotificationMock) Event(event *notification.Event) error {
 	args := m.Called(event)
-	return args.Error(0)
+	return args.Error(0) //nolint
 }
 
 func TestLogin(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name                      string
 		username                  string
@@ -69,15 +73,18 @@ func TestLogin(t *testing.T) {
 		},
 	}
 
-	for _, v := range testCases {
+	for _, val := range testCases {
+		v := val
 		t.Run(v.name, func(t *testing.T) {
+			t.Parallel()
+
 			handler := func(w http.ResponseWriter, r *http.Request) {
 				data := fmt.Sprintf(`{"accessToken":"%s","refreshToken":"%s"}`,
 					v.accessToken,
 					v.refreshToken,
 				)
 				w.WriteHeader(v.loginStatus)
-				w.Write([]byte(data))
+				_, _ = w.Write([]byte(data))
 			}
 			server := httptest.NewServer(http.HandlerFunc(handler))
 			defer server.Close()
@@ -108,6 +115,8 @@ func TestLogin(t *testing.T) {
 }
 
 func TestAccessToken(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name          string
 		credentials   config.Credentials
@@ -184,15 +193,18 @@ func TestAccessToken(t *testing.T) {
 		},
 	}
 
-	for _, v := range testCases {
+	for _, val := range testCases {
+		v := val
 		t.Run(v.name, func(t *testing.T) {
+			t.Parallel()
+
 			handler := func(w http.ResponseWriter, r *http.Request) {
 				data := fmt.Sprintf(`{"accessToken":"%s","refreshToken":"%s"}`,
 					v.accessToken,
 					v.refreshToken,
 				)
 				w.WriteHeader(v.refreshStatus)
-				w.Write([]byte(data))
+				_, _ = w.Write([]byte(data))
 			}
 			server := httptest.NewServer(http.HandlerFunc(handler))
 			defer server.Close()
@@ -226,6 +238,8 @@ func TestAccessToken(t *testing.T) {
 }
 
 func TestLogout(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name      string
 		saveError error
@@ -239,8 +253,11 @@ func TestLogout(t *testing.T) {
 		},
 	}
 
-	for _, v := range testCases {
+	for _, val := range testCases {
+		v := val
 		t.Run(v.name, func(t *testing.T) {
+			t.Parallel()
+
 			cfg := config.Config{Credentials: config.Credentials{AccessToken: "token"}}
 			storage := mockedstorage.Storage{}
 			storage.On("Model").Return(&cfg)
@@ -256,6 +273,8 @@ func TestLogout(t *testing.T) {
 }
 
 func TestHandleFailedRefreshToken(t *testing.T) {
+	t.Parallel()
+
 	testCases := []struct {
 		name                      string
 		errIn                     error
@@ -266,7 +285,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 	}{
 		{
 			name:                      "should return error when input error is http error with 401 status code",
-			errIn:                     HttpError{Status: http.StatusUnauthorized},
+			errIn:                     HTTPError{Status: http.StatusUnauthorized},
 			expectedStatus:            statusConnectionFailed,
 			errorContains:             "unauthorized error",
 			notificationManagerCalled: 1,
@@ -326,10 +345,11 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 		},
 	}
 
-	for _, val := range testCases {
-		// copy val to avoid capturing
-		v := val
+	for _, val := range testCases { //nolint
+		v := val //nolint
 		t.Run(v.name, func(t *testing.T) {
+			t.Parallel()
+
 			// mock cfgSvc
 			cfg := config.Config{Credentials: config.Credentials{}}
 			storage := mockedstorage.Storage{}
@@ -351,6 +371,8 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 }
 
 func TestHookResetToReconnecting(t *testing.T) {
+	t.Parallel()
+
 	auth := authenticator{backoffCfg: backoffCfg{lengthSeconds: 0}}
 	auth.hookResetToReconnecting()
 	assert.Equal(t, statusReconnecting, auth.status, "connectivity status is incorrect")

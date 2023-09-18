@@ -69,7 +69,7 @@ type Service struct {
 }
 
 // BackoffCfg represents values used to configure
-// reconnecting hook when http errors occur
+// reconnecting hook when http errors occur.
 type BackoffCfg struct {
 	LengthSeconds int `json:"length_seconds"`
 	Attempts      int `json:"attempts"`
@@ -83,12 +83,12 @@ func NewService(storage storage.Storage) *Service {
 	}
 }
 
-// GetBackoffCfg allows to safely access backoff settings
+// GetBackoffCfg allows to safely access backoff settings.
 func (cs *Service) GetBackoffCfg() BackoffCfg {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).Backoff
+	return cs.Storage.Model().(*Config).Backoff //nolint:forcetypeassert
 }
 
 // GetWorkDir allows to safely access a configuration setting.
@@ -160,12 +160,12 @@ func (cs *Service) SetCredentials(accessToken, refreshToken string, expirationIn
 	return cs.Storage.Save()
 }
 
-// ClearCredentials resets credentials to empty
+// ClearCredentials resets credentials to empty.
 func (cs *Service) ClearCredentials() error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
-	cs.Storage.Model().(*Config).Credentials = Credentials{}
+	cs.Storage.Model().(*Config).Credentials = Credentials{} //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }

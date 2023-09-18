@@ -1,8 +1,9 @@
 package cmd
 
 import (
-	"github.com/futurehomeno/cliffhanger/notification"
 	"net/http"
+
+	"github.com/futurehomeno/cliffhanger/notification"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
