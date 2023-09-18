@@ -122,7 +122,7 @@ func TestClient_Login(t *testing.T) {
 }
 
 func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC)) 
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -213,7 +213,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 }
 
 func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC)) 
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -301,7 +301,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 }
 
 func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC)) 
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -386,7 +386,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 }
 
 func TestClient_Ping(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC)) 
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -462,7 +462,7 @@ func TestClient_Ping(t *testing.T) { //nolint:paralleltest
 }
 
 func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC)) 
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -553,7 +553,7 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 }
 
 func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC)) 
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 	t.Cleanup(func() {
 		clock.Restore()
 	})

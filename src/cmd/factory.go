@@ -3,13 +3,12 @@ package cmd
 import (
 	"net/http"
 
-	"github.com/futurehomeno/cliffhanger/notification"
-
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
+	"github.com/futurehomeno/cliffhanger/notification"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/task"
