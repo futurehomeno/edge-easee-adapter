@@ -225,6 +225,36 @@ func TestAccessToken(t *testing.T) {
 	}
 }
 
+func TestLogout(t *testing.T) {
+	testCases := []struct {
+		name      string
+		saveError error
+	}{
+		{
+			name:      "should return error if save fails",
+			saveError: errors.New("error"),
+		},
+		{
+			name: "credentials should be empty",
+		},
+	}
+
+	for _, v := range testCases {
+		t.Run(v.name, func(t *testing.T) {
+			cfg := config.Config{Credentials: config.Credentials{AccessToken: "token"}}
+			storage := mockedstorage.Storage{}
+			storage.On("Model").Return(&cfg)
+			storage.On("Save").Return(v.saveError)
+
+			auth := authenticator{cfgSvc: config.NewService(&storage)}
+			err := auth.Logout()
+
+			assert.Equal(t, v.saveError, err, "should return the same error from the Save()")
+			assert.Equal(t, config.Credentials{}, cfg.Credentials)
+		})
+	}
+}
+
 func TestHandleFailedRefreshToken(t *testing.T) {
 	testCases := []struct {
 		name                      string

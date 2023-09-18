@@ -33,6 +33,8 @@ type Authenticator interface {
 	// It will automatically refresh the token if it's expired.
 	// Returns an error if the application is not logged in.
 	AccessToken() (string, error)
+	// Logout used to remove credentials from the config
+	Logout() error
 }
 
 type authenticator struct {
@@ -112,6 +114,10 @@ func (a *authenticator) AccessToken() (string, error) {
 	}
 
 	return newCredentials.AccessToken, nil
+}
+
+func (a *authenticator) Logout() error {
+	return a.cfgSvc.ClearCredentials()
 }
 
 // handleFailedRefreshToken sets a correct status when refresh operation has failed.

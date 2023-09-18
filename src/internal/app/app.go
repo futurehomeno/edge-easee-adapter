@@ -147,7 +147,18 @@ func (a *application) Initialize() error {
 }
 
 func (a *application) Logout() error {
-	return a.Uninstall()
+	if err := a.auth.Logout(); err != nil {
+		a.lifecycle.SetAppState(lifecycle.AppStateError, nil)
+		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
+		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
+		return err
+	}
+
+	a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
+	a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
+	a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
+
+	return nil
 }
 
 func (a *application) registerChargers() error {
