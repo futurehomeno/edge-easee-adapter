@@ -121,6 +121,61 @@ func TestClient_Login(t *testing.T) {
 	}
 }
 
+func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
+	testCases := []struct {
+		name          string
+		baseURLAdj    string
+		responseData  string
+		statusCode    int
+		errorContains string
+		expectedCreds easee.Credentials
+	}{
+		{
+			name:          "should fail due to invalid url",
+			baseURLAdj:    "invalid",
+			errorContains: "failed to create token refresh request",
+		},
+		{
+			name:          "should fail due to 401 error",
+			statusCode:    http.StatusUnauthorized,
+			errorContains: "but got 401",
+		},
+		{
+			name:          "should fail when invalid body",
+			responseData:  "string",
+			statusCode:    http.StatusOK,
+			errorContains: "could not read token",
+		},
+		{
+			name:          "should form valid credentials",
+			responseData:  `{"accessToken":"access","refreshToken":"refresh"}`,
+			statusCode:    http.StatusOK,
+			expectedCreds: easee.Credentials{RefreshToken: "refresh", AccessToken: "access"},
+		},
+	}
+
+	for _, v := range testCases { //nolint:paralleltest
+		t.Run(v.name, func(t *testing.T) {
+			handler := func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(v.statusCode)
+				_, _ = w.Write([]byte(v.responseData))
+			}
+			server := httptest.NewServer(http.HandlerFunc(handler))
+			defer server.Close()
+
+			client := easee.NewHTTPClient(server.Client(), server.URL+v.baseURLAdj)
+			creds, err := client.RefreshToken("", "")
+
+			if v.errorContains != "" {
+				assert.Contains(t, err.Error(), v.errorContains)
+				assert.Nil(t, creds)
+			} else {
+				assert.Equal(t, v.expectedCreds, *creds)
+			}
+		})
+	}
+}
+
 func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 	t.Cleanup(func() {

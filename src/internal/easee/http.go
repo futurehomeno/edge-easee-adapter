@@ -208,8 +208,10 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*Credential
 	}
 
 	resp, err := c.performRequest(req, http.StatusOK)
-	if err != nil {
+	if err != nil && resp != nil {
 		return nil, HTTPError{err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode}
+	} else if err != nil {
+		return nil, err
 	}
 
 	defer resp.Body.Close()
