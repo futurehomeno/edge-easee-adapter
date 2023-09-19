@@ -29,8 +29,8 @@ RUN apk update && apk add bash
 
 COPY --from=builder /build/app-bin .
 COPY ../testdata/defaults/config-local.json ./defaults/config.json
-COPY  ../testdata/defaults/adapter.json ./defaults/adapter.json
-COPY  ../testdata/defaults/app-manifes.json ./defaults/app-manifes.json
+COPY ../testdata/defaults/adapter.json ./defaults/adapter.json
+COPY ../testdata/defaults/app-manifes.json ./defaults/app-manifes.json
 COPY ../testdata/testing/configured/data/adapter.json ./data/adapter.json
 
 EXPOSE 8005
