@@ -217,6 +217,10 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*Credential
 
 	resp, err := c.performRequest(req, http.StatusOK)
 	if err != nil {
+		if resp == nil {
+			return nil, err
+		}
+
 		return nil, HTTPError{err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode, Body: resp.Body}
 	}
 

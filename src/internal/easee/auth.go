@@ -101,7 +101,7 @@ func (a *authenticator) AccessToken() (string, error) {
 	}
 
 	if a.status == statusWaitingToReconnect || a.status == statusConnectionFailed {
-		return "", errors.New("connection interrupted, waiting for user to re-login")
+		return "", fmt.Errorf("connection interrupted, waiting for user to re-login. state: %d", a.status)
 	}
 
 	newCredentials, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
