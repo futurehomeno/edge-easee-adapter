@@ -261,6 +261,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 	testCases := []struct {
 		name                      string
 		errIn                     error
+		saveError                 error
 		auth                      authenticator
 		expectedStatus            connectivityStatus
 		errorContains             string
@@ -271,6 +272,14 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 			errIn:                     HTTPError{Status: http.StatusUnauthorized},
 			expectedStatus:            statusConnectionFailed,
 			errorContains:             "unauthorized error",
+			notificationManagerCalled: 1,
+		},
+		{
+			name:                      "should return error when failed to clear credentials on 401 http error",
+			errIn:                     HTTPError{Status: http.StatusUnauthorized},
+			saveError:                 errors.New("failed to save"),
+			expectedStatus:            statusConnectionFailed,
+			errorContains:             "failed to clear credentials",
 			notificationManagerCalled: 1,
 		},
 		{
@@ -337,7 +346,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 			cfg := config.Config{Credentials: config.Credentials{}}
 			storage := mockedstorage.Storage{}
 			storage.On("Model").Return(&cfg)
-			storage.On("Save").Return(nil)
+			storage.On("Save").Return(v.saveError)
 
 			notificationManager := &NotificationMock{}
 			notificationManager.On("Event", &notification.Event{EventName: notificationEaseeStatusOffline}).Return(nil)
