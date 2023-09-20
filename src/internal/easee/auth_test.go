@@ -16,23 +16,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
-type NotificationMock struct {
-	mock.Mock
-}
-
-// enforce interface.
-var _ notification.Notification = &NotificationMock{}
-
-func (m *NotificationMock) Message(arg string) error {
-	args := m.Called(arg)
-	return args.Error(0) //nolint
-}
-
-func (m *NotificationMock) Event(event *notification.Event) error {
-	args := m.Called(event)
-	return args.Error(0) //nolint
-}
-
 func TestLogin(t *testing.T) {
 	t.Parallel()
 
@@ -377,4 +360,21 @@ func TestHookResetToReconnecting(t *testing.T) {
 	auth.hookResetToReconnecting()
 	assert.Equal(t, statusReconnecting, auth.status, "connectivity status is incorrect")
 	assert.Equal(t, 1, auth.attempts)
+}
+
+type NotificationMock struct {
+	mock.Mock
+}
+
+// enforce interface.
+var _ notification.Notification = &NotificationMock{}
+
+func (m *NotificationMock) Message(arg string) error {
+	args := m.Called(arg)
+	return args.Error(0) //nolint
+}
+
+func (m *NotificationMock) Event(event *notification.Event) error {
+	args := m.Called(event)
+	return args.Error(0) //nolint
 }

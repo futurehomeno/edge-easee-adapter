@@ -71,7 +71,7 @@ type Service struct {
 // BackoffCfg represents values used to configure
 // reconnecting hook when http errors occur.
 type BackoffCfg struct {
-	LengthSeconds int `json:"length_seconds"`
+	LengthSeconds int `json:"lengthSeconds"`
 	Attempts      int `json:"attempts"`
 }
 

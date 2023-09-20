@@ -34,10 +34,18 @@ const (
 type HTTPError struct {
 	err    error
 	Status int
+	Body   io.ReadCloser
 }
 
 func (e HTTPError) Error() string {
-	return e.err.Error()
+	body := ""
+	if e.Body != nil { //nolint
+		if bts, err := io.ReadAll(e.Body); err != nil {
+			body = string(bts)
+		}
+	}
+
+	return fmt.Sprintf("%s, status code: %d, body: %s", e.err, e.Status, body)
 }
 
 // APIClient is a wrapper around the Easee HTTP Client with authentication capabilities.
@@ -208,10 +216,8 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*Credential
 	}
 
 	resp, err := c.performRequest(req, http.StatusOK)
-	if err != nil && resp != nil {
-		return nil, HTTPError{err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode}
-	} else if err != nil {
-		return nil, err
+	if err != nil {
+		return nil, HTTPError{err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode, Body: resp.Body}
 	}
 
 	defer resp.Body.Close()
