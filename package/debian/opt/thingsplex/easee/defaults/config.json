@@ -25,7 +25,7 @@
     "invokeTimeout": "10s"
   },
   "backoff": {
-    "lengthSeconds": 300,
-    "attempts": 3
+    "length": "5m",
+    "maxAttempts": 3
   }
 }

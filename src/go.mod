@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/futurehomeno/cliffhanger v0.30.1
 	github.com/futurehomeno/fimpgo v1.11.3
+	github.com/futurehomeno/goutil/v2 v2.1.0
 	github.com/michalkurzeja/go-clock v1.0.2
 	github.com/philippseith/signalr v0.6.0
 	github.com/pkg/errors v0.9.1

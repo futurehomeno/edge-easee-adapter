@@ -71,8 +71,8 @@ type Service struct {
 // BackoffCfg represents values used to configure
 // reconnecting hook when http errors occur.
 type BackoffCfg struct {
-	LengthSeconds int `json:"lengthSeconds"`
-	Attempts      int `json:"attempts"`
+	Length      string `json:"length"`
+	MaxAttempts int    `json:"naxAttempts"`
 }
 
 // NewService creates a new configuration service.
@@ -348,6 +348,47 @@ func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 
 	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
 	cs.Storage.Model().(*Config).SignalR.InvokeTimeout = timeout.String()       //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetBackoffLength allows to safely access backoff duration.
+func (cs *Service) GetBackoffLength() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	length, err := time.ParseDuration(cs.Storage.Model().(*Config).Backoff.Length)
+	if err != nil {
+		return 5 * time.Minute
+	}
+
+	return length
+}
+
+// SetBackoffLength allows to safely alter backoff length.
+func (cs *Service) SetBackoffLength(l time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).Backoff.Length = l.String() //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetBackoffMaxAttempts allows to safely access backoff max attempts.
+func (cs *Service) GetBackoffMaxAttempts() int {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().(*Config).Backoff.MaxAttempts //nolint:forcetypeassert
+}
+
+// SetBackoffMaxAttempts allows to safely alter backoff max attempts.
+func (cs *Service) SetBackoffMaxAttempts(n int) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).Backoff.MaxAttempts = n //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }

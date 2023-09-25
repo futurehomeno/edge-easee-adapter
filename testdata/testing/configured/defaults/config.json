@@ -19,5 +19,9 @@
     "keepAliveInterval2": "30s",
     "timeoutInterval2": "1m",
     "invokeTimeout": "10s"
+  },
+  "backoff": {
+    "length": "5m",
+    "maxAttempts": 3
   }
 }

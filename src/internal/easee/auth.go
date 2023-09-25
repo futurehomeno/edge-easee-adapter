@@ -14,18 +14,17 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
-type connectivityStatus int
+type connectionStatus int
 
 const (
-	statusWorkingProperly    connectivityStatus = iota // Auth working properly
-	statusWaitingToReconnect                           // Auth is interrupted, waiting before retry
-	statusReconnecting                                 // Auth reconnecting after an interruption
-	statusConnectionFailed                             // Auth reconnect attempt if failed, indicating a broken connection
+	statusWorkingProperly    connectionStatus = iota // Auth working properly
+	statusWaitingToReconnect                         // Auth is interrupted, waiting before retry
+	statusReconnecting                               // Auth reconnecting after an interruption
+	statusConnectionFailed                           // Auth reconnect attempt if failed, indicating a broken connection
 )
 
 const (
 	notificationEaseeStatusOffline = "easee_status_offline"
-	notificationEaseeStatusOnline  = "easee_status_online"
 )
 
 // Authenticator is the interface for the Easee authenticator.
@@ -49,18 +48,12 @@ type authenticator struct {
 }
 
 type backoffCfg struct {
-	status        connectivityStatus
-	lengthSeconds int
-	attempts      int
-	maxAttempts   int
+	status   connectionStatus
+	attempts int
 }
 
 func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification) Authenticator {
 	return &authenticator{
-		backoffCfg: backoffCfg{
-			lengthSeconds: cfgSvc.GetBackoffCfg().LengthSeconds,
-			maxAttempts:   cfgSvc.GetBackoffCfg().Attempts,
-		},
 		cfgSvc:              cfgSvc,
 		http:                http,
 		notificationManager: notify,
@@ -80,8 +73,6 @@ func (a *authenticator) Login(userName, password string) error {
 		return fmt.Errorf("failed to save credentials in storage: %w", err)
 	}
 
-	err = a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOnline})
-	a.validateNotificationPush(err, notificationEaseeStatusOnline)
 	a.status = statusWorkingProperly
 
 	return nil
@@ -144,7 +135,7 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 
 	switch a.status { //nolint
 	case statusReconnecting:
-		if a.attempts == a.maxAttempts {
+		if a.attempts == a.cfgSvc.GetBackoffMaxAttempts() {
 			notifError := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
 			a.validateNotificationPush(notifError, notificationEaseeStatusOffline)
 			a.status = statusConnectionFailed
@@ -160,7 +151,7 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 		a.status = statusWaitingToReconnect
 		go a.hookResetToReconnecting()
 
-		return fmt.Errorf("failed to refresh token. Suspending for %d seconds. %w", a.lengthSeconds, err)
+		return fmt.Errorf("failed to refresh token. Suspending for %v seconds. %w", a.cfgSvc.GetBackoffLength(), err)
 	default:
 		return fmt.Errorf("invalid auth status when refreshing token: %d. Error: %w", a.status, err)
 	}
@@ -169,7 +160,7 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 // hookResetToReconnecting resets status to statusReconnecting after a delay.
 // must be called in a separate goroutine.
 func (a *authenticator) hookResetToReconnecting() {
-	time.Sleep(time.Second*time.Duration(a.lengthSeconds) + time.Millisecond*time.Duration(rand.Intn(500)+500)) //nolint:gosec
+	time.Sleep(a.cfgSvc.GetBackoffLength() + time.Millisecond*time.Duration(rand.Intn(500)+500)) //nolint:gosec
 	a.mu.Lock()
 
 	defer a.mu.Unlock()
