@@ -6,16 +6,16 @@ RUN apk add --no-cache ca-certificates git
 ENV GO111MODULE=on
 ENV GOPRIVATE=github.com/futurehomeno
 
-COPY ./.netrc /root/.netrc
+COPY .netrc /root/.netrc
 RUN chmod 600 /root/.netrc
 
-COPY go.mod go.sum ./
+COPY src/go.mod src/go.sum ./
 RUN go mod download
 
 # Build container
 FROM golang:1.20-alpine as builder
 WORKDIR /build
-COPY . /build
+COPY src /build
 
 #copy built dependencies
 COPY --from=dependencies /go /go
@@ -28,10 +28,10 @@ WORKDIR /app
 RUN apk update && apk add bash
 
 COPY --from=builder /build/app-bin .
-COPY ../testdata/defaults/config-local.json ./defaults/config.json
-COPY ../testdata/defaults/adapter.json ./defaults/adapter.json
-COPY ../testdata/defaults/app-manifes.json ./defaults/app-manifes.json
-COPY ../testdata/testing/configured/data/adapter.json ./data/adapter.json
+COPY testdata/defaults/config-local.json ./defaults/config.json
+COPY testdata/defaults/adapter.json ./defaults/adapter.json
+COPY testdata/defaults/app-manifest.json ./defaults/app-manifes.json
+COPY testdata/testing/configured/data/adapter.json ./data/adapter.json
 
 EXPOSE 8005
 
