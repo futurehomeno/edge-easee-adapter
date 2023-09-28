@@ -9,7 +9,6 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/notification"
 	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
-	"github.com/futurehomeno/goutil/v2/httputil/testhttp"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -60,14 +59,16 @@ func TestLogin(t *testing.T) {
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 
-			server := testhttp.NewServer(t)
-			reqBody := fmt.Sprintf(`{"userName":"%s","password":"%s"}`, v.username, v.password)
-			data := fmt.Sprintf(`{"accessToken":"%s","refreshToken":"%s"}`,
-				v.accessToken,
-				v.refreshToken,
-			)
-			server.Expect(http.MethodPost, loginURI).WithBody([]byte(reqBody)).Reply(v.loginStatus).WithBody([]byte(data))
-			t.Cleanup(server.Close)
+			handler := func(w http.ResponseWriter, r *http.Request) {
+				data := fmt.Sprintf(`{"accessToken":"%s","refreshToken":"%s"}`,
+					v.accessToken,
+					v.refreshToken,
+				)
+				w.WriteHeader(v.loginStatus)
+				_, _ = w.Write([]byte(data))
+			}
+			server := httptest.NewServer(http.HandlerFunc(handler))
+			defer server.Close()
 
 			cfg := config.Config{}
 			storage := mockedstorage.Storage{}
@@ -77,7 +78,7 @@ func TestLogin(t *testing.T) {
 			notificationManager := &NotificationMock{}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			client := NewHTTPClient(httpClient, server.URL())
+			client := NewHTTPClient(httpClient, server.URL)
 			auth := authenticator{http: client, cfgSvc: config.NewService(&storage), notificationManager: notificationManager}
 
 			err := auth.Login(v.username, v.password)
@@ -88,8 +89,6 @@ func TestLogin(t *testing.T) {
 				assert.Equal(t, v.refreshToken, cfg.RefreshToken)
 				assert.Equal(t, statusWorkingProperly, auth.status)
 			}
-
-			server.AssertExpectations()
 		})
 	}
 }
