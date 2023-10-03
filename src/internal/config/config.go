@@ -14,11 +14,12 @@ type Config struct {
 	config.Default
 	Credentials
 
-	EaseeBaseURL                 string  `json:"easeeBaseURL2"`
-	PollingInterval              string  `json:"pollingInterval"`
-	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
-	HTTPTimeout                  string  `json:"httpTimeout"`
-	SignalR                      SignalR `json:"signalR"`
+	EaseeBaseURL                 string     `json:"easeeBaseURL2"`
+	PollingInterval              string     `json:"pollingInterval"`
+	SlowChargingCurrentInAmperes float64    `json:"slowChargingCurrentInAmperes"`
+	HTTPTimeout                  string     `json:"httpTimeout"`
+	SignalR                      SignalR    `json:"signalR"`
+	Backoff                      BackoffCfg `json:"backoff"`
 }
 
 // New creates new instance of a configuration object.
@@ -67,12 +68,27 @@ type Service struct {
 	lock *sync.RWMutex
 }
 
+// BackoffCfg represents values used to configure
+// reconnecting hook when http errors occur.
+type BackoffCfg struct {
+	Length      string `json:"length"`
+	MaxAttempts int    `json:"naxAttempts"`
+}
+
 // NewService creates a new configuration service.
 func NewService(storage storage.Storage) *Service {
 	return &Service{
 		Storage: storage,
 		lock:    &sync.RWMutex{},
 	}
+}
+
+// GetBackoffCfg allows to safely access backoff settings.
+func (cs *Service) GetBackoffCfg() BackoffCfg {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().(*Config).Backoff //nolint:forcetypeassert
 }
 
 // GetWorkDir allows to safely access a configuration setting.
@@ -140,6 +156,16 @@ func (cs *Service) SetCredentials(accessToken, refreshToken string, expirationIn
 		RefreshToken: refreshToken,
 		ExpiresAt:    clock.Now().UTC().Add(time.Duration(expirationInSeconds) * time.Second),
 	}
+
+	return cs.Storage.Save()
+}
+
+// ClearCredentials resets credentials to empty.
+func (cs *Service) ClearCredentials() error {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
+	cs.Storage.Model().(*Config).Credentials = Credentials{} //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }
@@ -322,6 +348,47 @@ func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 
 	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
 	cs.Storage.Model().(*Config).SignalR.InvokeTimeout = timeout.String()       //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetBackoffLength allows to safely access backoff duration.
+func (cs *Service) GetBackoffLength() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	length, err := time.ParseDuration(cs.Storage.Model().(*Config).Backoff.Length)
+	if err != nil {
+		return 5 * time.Minute
+	}
+
+	return length
+}
+
+// SetBackoffLength allows to safely alter backoff length.
+func (cs *Service) SetBackoffLength(l time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).Backoff.Length = l.String() //nolint:forcetypeassert
+
+	return cs.Storage.Save()
+}
+
+// GetBackoffMaxAttempts allows to safely access backoff max attempts.
+func (cs *Service) GetBackoffMaxAttempts() int {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().(*Config).Backoff.MaxAttempts //nolint:forcetypeassert
+}
+
+// SetBackoffMaxAttempts allows to safely alter backoff max attempts.
+func (cs *Service) SetBackoffMaxAttempts(n int) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().(*Config).Backoff.MaxAttempts = n //nolint:forcetypeassert
 
 	return cs.Storage.Save()
 }

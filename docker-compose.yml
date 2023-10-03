@@ -2,6 +2,14 @@ version: '3'
 services:
   mqtt:
     image: eclipse-mosquitto:1.6.8
+    container_name: mqtt
     restart: always
     ports:
       - "11883:1883"
+
+  edge-easee:
+    build: .
+    image: edge-easee
+    container_name: edge-easee
+    depends_on:
+      - mqtt

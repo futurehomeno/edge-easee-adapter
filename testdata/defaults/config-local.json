@@ -1,10 +1,10 @@
 {
-  "mqtt_server_uri": "tcp://localhost:1883",
+  "mqtt_server_uri": "tcp://mqtt:1883",
   "mqtt_client_id_prefix": "easee",
   "mqtt_server_username": "",
   "mqtt_server_password": "",
-  "work_dir": "/opt/thingsplex/easee",
-  "log_file": "/var/log/thingsplex/easee/easee.log",
+  "work_dir": "",
+  "log_file": "easee.log",
   "log_level": "debug",
   "log_format": "text",
   "configured_at": "",
@@ -25,7 +25,7 @@
     "invokeTimeout": "10s"
   },
   "backoff": {
-    "length": "5m",
-    "maxAttempts": 3
+    "length": "30s",
+    "maxAttempts": 1
   }
 }

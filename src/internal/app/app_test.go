@@ -437,58 +437,36 @@ func TestApplication_Logout(t *testing.T) {
 
 	tests := []struct {
 		name                string
-		cfg                 *config.Config
 		setLifecycle        func(lc *lifecycle.Lifecycle)
-		mockAdapter         func(a *mockedadapter.Adapter)
+		authLogoutError     error
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
-		configAssertions    func(c *config.Config)
 	}{
 		{
 			name: "successful config, lifecycle and adapter reset",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
-				},
-			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppState(lifecycle.AppStateRunning, nil)
 				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateConnected)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
-			},
-			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.On("DestroyAllThings").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
-			},
-			configAssertions: func(c *config.Config) {
-				assert.Equal(t, &config.Config{}, c)
 			},
 		},
 		{
 			name: "adapter error on destroying all things",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
-				},
-			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateRunning, nil)
-				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateConnected)
-				lc.SetConfigState(lifecycle.ConfigStateConfigured)
+				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
+				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
+				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.On("DestroyAllThings").Return(errors.New("test error"))
+			authLogoutError: errors.New("error"),
+			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
+				assert.Equal(t, lifecycle.AppStateError, lc.AppState())
+				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
+				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 			},
 			wantErr: true,
 		},
@@ -500,38 +478,16 @@ func TestApplication_Logout(t *testing.T) {
 			t.Parallel()
 
 			lc := lifecycle.New()
-			if tt.setLifecycle != nil {
-				tt.setLifecycle(lc)
-			}
+			tt.setLifecycle(lc)
 
-			adapterMock := new(mockedadapter.Adapter)
-			if tt.mockAdapter != nil {
-				tt.mockAdapter(adapterMock)
-			}
+			authMock := &mocks.Authenticator{}
+			authMock.On("Logout").Return(tt.authLogoutError)
 
-			defer adapterMock.AssertExpectations(t)
-
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
-
-			application := app.New(adapterMock, cfgService, lc, nil, nil, nil)
-
+			application := app.New(nil, nil, lc, nil, nil, authMock)
 			err := application.Logout()
 
-			if tt.wantErr {
-				assert.Error(t, err)
-
-				return
-			}
-
-			assert.NoError(t, err)
-			if tt.lifecycleAssertions != nil {
-				tt.lifecycleAssertions(lc)
-			}
-
-			if tt.configAssertions != nil {
-				tt.configAssertions(cfgService.Model().(*config.Config)) //nolint:forcetypeassert
-			}
+			assert.Equal(t, tt.wantErr, err != nil, "failed error expectation")
+			tt.lifecycleAssertions(lc)
 		})
 	}
 }

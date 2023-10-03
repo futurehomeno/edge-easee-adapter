@@ -8,6 +8,7 @@ import (
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
+	"github.com/futurehomeno/cliffhanger/notification"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/task"
@@ -202,7 +203,11 @@ func getHTTPClient() *http.Client {
 
 func getAuthenticator() easee.Authenticator {
 	if services.authenticator == nil {
-		services.authenticator = easee.NewAuthenticator(getEaseeHTTPClient(), getConfigService())
+		services.authenticator = easee.NewAuthenticator(
+			getEaseeHTTPClient(),
+			getConfigService(),
+			notification.NewNotification(getMQTT()),
+		)
 	}
 
 	return services.authenticator

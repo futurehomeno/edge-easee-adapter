@@ -2,11 +2,29 @@ package easee
 
 import (
 	"fmt"
+	"math/rand"
+	"net/http"
 	"sync"
+	"time"
 
+	"github.com/futurehomeno/cliffhanger/notification"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+)
+
+type connectionStatus int
+
+const (
+	statusWorkingProperly    connectionStatus = iota // Auth working properly
+	statusWaitingToReconnect                         // Auth is interrupted, waiting before retry
+	statusReconnecting                               // Auth reconnecting after an interruption
+	statusConnectionFailed                           // Auth reconnect attempt if failed, indicating a broken connection
+)
+
+const (
+	notificationEaseeStatusOffline = "easee_status_offline"
 )
 
 // Authenticator is the interface for the Easee authenticator.
@@ -17,18 +35,28 @@ type Authenticator interface {
 	// It will automatically refresh the token if it's expired.
 	// Returns an error if the application is not logged in.
 	AccessToken() (string, error)
+	// Logout used to remove credentials from the config
+	Logout() error
 }
 
 type authenticator struct {
-	mu     sync.Mutex
-	cfgSvc *config.Service
-	http   HTTPClient
+	backoffCfg
+	mu                  sync.Mutex
+	cfgSvc              *config.Service
+	http                HTTPClient
+	notificationManager notification.Notification
 }
 
-func NewAuthenticator(http HTTPClient, cfgSvc *config.Service) Authenticator {
+type backoffCfg struct {
+	status   connectionStatus
+	attempts int
+}
+
+func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification) Authenticator {
 	return &authenticator{
-		cfgSvc: cfgSvc,
-		http:   http,
+		cfgSvc:              cfgSvc,
+		http:                http,
+		notificationManager: notify,
 	}
 }
 
@@ -44,6 +72,8 @@ func (a *authenticator) Login(userName, password string) error {
 	if err = a.cfgSvc.SetCredentials(creds.AccessToken, creds.RefreshToken, creds.ExpiresIn); err != nil {
 		return fmt.Errorf("failed to save credentials in storage: %w", err)
 	}
+
+	a.status = statusWorkingProperly
 
 	return nil
 }
@@ -61,10 +91,18 @@ func (a *authenticator) AccessToken() (string, error) {
 		return credentials.AccessToken, nil
 	}
 
+	if a.status == statusWaitingToReconnect || a.status == statusConnectionFailed {
+		return "", fmt.Errorf("connection interrupted, waiting for user to re-login. state: %d", a.status)
+	}
+
 	newCredentials, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
 	if err != nil {
-		return "", fmt.Errorf("failed to fetch new credentials: %w", err)
+		return "", a.handleFailedRefreshToken(err)
 	}
+
+	// reset backoff stats
+	a.status = statusWorkingProperly
+	a.attempts = 0
 
 	err = a.cfgSvc.SetCredentials(newCredentials.AccessToken, newCredentials.RefreshToken, newCredentials.ExpiresIn)
 	if err != nil {
@@ -72,4 +110,67 @@ func (a *authenticator) AccessToken() (string, error) {
 	}
 
 	return newCredentials.AccessToken, nil
+}
+
+func (a *authenticator) Logout() error {
+	return a.cfgSvc.ClearCredentials()
+}
+
+// handleFailedRefreshToken sets a correct status when refresh operation has failed.
+// relies on mutex protection within a caller.
+func (a *authenticator) handleFailedRefreshToken(err error) error {
+	// we aren't able to refresh anymore. Requires user re-login
+	var httpError HTTPError
+	if ok := errors.As(err, &httpError); ok && httpError.Status == http.StatusUnauthorized {
+		notifError := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
+		a.validateNotificationPush(notifError, notificationEaseeStatusOffline)
+
+		a.status = statusConnectionFailed
+		if saveErr := a.cfgSvc.ClearCredentials(); saveErr != nil {
+			return fmt.Errorf("unauthorized, re-login required; failed to clear credentials. %w , save error: %w", err, saveErr)
+		}
+
+		return fmt.Errorf("received unauthorized error, re-login is required. %w", err)
+	}
+
+	switch a.status { //nolint
+	case statusReconnecting:
+		if a.attempts == a.cfgSvc.GetBackoffMaxAttempts() {
+			notifError := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
+			a.validateNotificationPush(notifError, notificationEaseeStatusOffline)
+			a.status = statusConnectionFailed
+
+			return fmt.Errorf("failed delayed attempt to refresh token. Re-login required. %w", err)
+		}
+
+		go a.hookResetToReconnecting()
+		a.status = statusWaitingToReconnect
+
+		return fmt.Errorf("failed delayed attempt to refresh token. Trying again. %w", err)
+	case statusWorkingProperly:
+		a.status = statusWaitingToReconnect
+		go a.hookResetToReconnecting()
+
+		return fmt.Errorf("failed to refresh token. Suspending for %v seconds. %w", a.cfgSvc.GetBackoffLength(), err)
+	default:
+		return fmt.Errorf("invalid auth status when refreshing token: %d. Error: %w", a.status, err)
+	}
+}
+
+// hookResetToReconnecting resets status to statusReconnecting after a delay.
+// must be called in a separate goroutine.
+func (a *authenticator) hookResetToReconnecting() {
+	time.Sleep(a.cfgSvc.GetBackoffLength() + time.Millisecond*time.Duration(rand.Intn(500)+500)) //nolint:gosec
+	a.mu.Lock()
+
+	defer a.mu.Unlock()
+
+	a.attempts++
+	a.status = statusReconnecting
+}
+
+func (a *authenticator) validateNotificationPush(err error, notificationName string) {
+	if err != nil {
+		log.WithError(err).Errorf("Failed to send push notification: %s", notificationName)
+	}
 }
