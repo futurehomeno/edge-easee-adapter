@@ -238,7 +238,7 @@ func serviceSetup(tc *testContainer, configSet string, opts ...func(tc *testCont
 
 		tearDown(configSet)(t)
 
-		cfgSrv := configSetup(t, configSet)
+		config := configSetup(t, configSet)
 		loggerSetup(t)
 
 		for _, o := range opts {
@@ -247,7 +247,7 @@ func serviceSetup(tc *testContainer, configSet string, opts ...func(tc *testCont
 
 		tc.SetUp()
 
-		app, err := Build(cfgSrv.Model())
+		app, err := Build(config)
 		if err != nil {
 			t.Fatalf("failed to build app: %s", err)
 		}
@@ -308,16 +308,22 @@ func cleanUpTestData(t *testing.T, configSet string) {
 	}
 }
 
-func configSetup(t *testing.T, configSet string) *config.Service {
+func configSetup(t *testing.T, configSet string) *config.Config {
 	t.Helper()
 
 	cfgDir := path.Join("./../../testdata/testing/", configSet)
 	cfg := config.New(cfgDir)
+	storage := cliffConfig.NewStorage(cfg, cfgDir)
 
-	service := config.NewService(cliffConfig.NewStorage(cfg, cfgDir))
+	service := config.NewService(storage)
+
+	if err := service.Load(); err != nil {
+		t.Fatalf("failed to load configuration: %s", err)
+	}
+
 	services.configService = service
 
-	return service
+	return service.Model()
 }
 
 func loggerSetup(t *testing.T) {

@@ -68,4 +68,7 @@ lint:
 test:
 	cd src; go test; cd ..
 
+mocks:
+	cd ./src && mockery --dir ./internal --all --output ./internal/test/mocks --disable-version-string
+
 .phony : clean
