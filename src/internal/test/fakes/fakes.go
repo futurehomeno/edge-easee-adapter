@@ -6,27 +6,27 @@ import (
 	"github.com/futurehomeno/cliffhanger/storage"
 )
 
-type fakeConfigStorage struct {
+type fakeConfigStorage[T any] struct {
 	mu           sync.RWMutex
-	model        interface{}
-	modelFactory func() interface{}
+	model        T
+	modelFactory func() T
 }
 
-// NewConfigStorage returns a fake implementation for storage.Storage.
+// NewFakeStorage returns a fake implementation for storage.Storage.
 // Not suitable for production use.
-func NewConfigStorage(model interface{}, modelFactory func() interface{}) storage.Storage {
-	return &fakeConfigStorage{model: model, modelFactory: modelFactory}
+func NewFakeStorage[T any](model T, modelFactory func() T) storage.Storage[T] {
+	return &fakeConfigStorage[T]{model: model, modelFactory: modelFactory}
 }
 
-func (f *fakeConfigStorage) Load() error {
+func (f *fakeConfigStorage[T]) Load() error {
 	return nil
 }
 
-func (f *fakeConfigStorage) Save() error {
+func (f *fakeConfigStorage[T]) Save() error {
 	return nil
 }
 
-func (f *fakeConfigStorage) Reset() error {
+func (f *fakeConfigStorage[T]) Reset() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -35,7 +35,7 @@ func (f *fakeConfigStorage) Reset() error {
 	return nil
 }
 
-func (f *fakeConfigStorage) Model() interface{} {
+func (f *fakeConfigStorage[T]) Model() T {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 

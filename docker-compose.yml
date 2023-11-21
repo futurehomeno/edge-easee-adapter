@@ -6,10 +6,3 @@ services:
     restart: always
     ports:
       - "11883:1883"
-
-  edge-easee:
-    build: .
-    image: edge-easee
-    container_name: edge-easee
-    depends_on:
-      - mqtt

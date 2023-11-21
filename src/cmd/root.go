@@ -13,11 +13,11 @@ import (
 
 // Execute is an entry point to the edge application.
 func Execute() {
-	cfg := getConfigService().Model().(*config.Config) //nolint:forcetypeassert
+	cfg := getConfigService().Model()
 
 	bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
 
-	edgeApp, err := buildEdgeApp()
+	edgeApp, err := Build(cfg)
 	if err != nil {
 		log.WithError(err).Fatalf("failed to build the edge application")
 	}
@@ -35,17 +35,17 @@ func Execute() {
 	}
 }
 
-func buildEdgeApp() (root.App, error) {
+func Build(cfg *config.Config) (root.App, error) {
 	return root.NewEdgeAppBuilder().
-		WithMQTT(getMQTT()).
+		WithMQTT(getMQTT(cfg)).
 		WithServiceDiscovery(routing.GetDiscoveryResource()).
 		WithLifecycle(getLifecycle()).
 		WithTopicSubscription(
 			cliffRouter.TopicPatternAdapter(easee.ServiceName),
 			cliffRouter.TopicPatternDevices(easee.ServiceName),
 		).
-		WithRouting(newRouting()...).
-		WithTask(newTasks()...).
-		WithServices(getSignalRManager()).
+		WithRouting(newRouting(cfg)...).
+		WithTask(newTasks(cfg)...).
+		WithServices(getSignalRManager(cfg)).
 		Build()
 }

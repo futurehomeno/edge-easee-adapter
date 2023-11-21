@@ -5,7 +5,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
-	"github.com/futurehomeno/cliffhanger/adapter/service/meterelec"
+	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/fimpgo/fimptype"
 
@@ -57,7 +57,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 			Specification: t.chargepointSpecification(ad, thingState, groups),
 			Controller:    controller,
 		},
-		MeterElecConfig: &meterelec.Config{
+		MeterElecConfig: &numericmeter.Config{
 			Specification: t.meterElecSpecification(ad, thingState, groups),
 			Reporter:      controller,
 		},
@@ -79,23 +79,37 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 }
 
 func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
+	var supportedStates []chargepoint.State
+	for _, s := range SupportedChargingStates() {
+		supportedStates = append(supportedStates, s.ToFimpState())
+	}
+
+	var supportedModes []string
+	for _, m := range SupportedChargingModes() {
+		supportedModes = append(supportedModes, m)
+	}
+
 	return chargepoint.Specification(
 		adapter.Name(),
 		adapter.Address(),
 		thingState.Address(),
 		groups,
-		SupportedChargingStates(),
-		SupportedChargingModes(),
+		supportedStates,
+		chargepoint.WithChargingModes(supportedModes...),
+		// TODO
+		// chargepoint.WithPhases(info.Phases),
+		// chargepoint.WithSupportedMaxCurrent(info.MaxCurrent),
+		// chargepoint.WithGridType(info.GridType),
 	)
 }
 
 func (t *thingFactory) meterElecSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
-	return meterelec.Specification(
+	return numericmeter.Specification(
+		numericmeter.MeterElec,
 		adapter.Name(),
 		adapter.Address(),
 		thingState.Address(),
 		groups,
-		[]string{meterelec.UnitW, meterelec.UnitKWh},
-		nil,
+		[]numericmeter.Unit{numericmeter.UnitW, numericmeter.UnitKWh},
 	)
 }

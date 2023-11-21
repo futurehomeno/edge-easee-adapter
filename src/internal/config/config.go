@@ -30,7 +30,7 @@ func New(workDir string) *Config {
 }
 
 // Factory is a factory method returning the configuration object without default settings.
-func Factory() interface{} {
+func Factory() *Config {
 	return &Config{}
 }
 
@@ -64,7 +64,7 @@ type SignalR struct {
 // - providing concurrency safe access to settings
 // - persistence of settings.
 type Service struct {
-	storage.Storage
+	storage.Storage[*Config]
 	lock *sync.RWMutex
 }
 
@@ -76,7 +76,7 @@ type BackoffCfg struct {
 }
 
 // NewService creates a new configuration service.
-func NewService(storage storage.Storage) *Service {
+func NewService(storage storage.Storage[*Config]) *Service {
 	return &Service{
 		Storage: storage,
 		lock:    &sync.RWMutex{},
@@ -88,7 +88,7 @@ func (cs *Service) GetBackoffCfg() BackoffCfg {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).Backoff //nolint:forcetypeassert
+	return cs.Storage.Model().Backoff
 }
 
 // GetWorkDir allows to safely access a configuration setting.
@@ -96,7 +96,7 @@ func (cs *Service) GetWorkDir() string {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).WorkDir //nolint:forcetypeassert
+	return cs.Storage.Model().WorkDir
 }
 
 // GetEaseeBaseURL allows to safely access a configuration setting.
@@ -104,7 +104,7 @@ func (cs *Service) GetEaseeBaseURL() string {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).EaseeBaseURL //nolint:forcetypeassert
+	return cs.Storage.Model().EaseeBaseURL
 }
 
 // SetEaseeBaseURL allows to safely set and persist configuration settings.
@@ -112,8 +112,8 @@ func (cs *Service) SetEaseeBaseURL(url string) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).EaseeBaseURL = url                             //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().EaseeBaseURL = url
 
 	return cs.Storage.Save()
 }
@@ -123,7 +123,7 @@ func (cs *Service) GetLogLevel() string {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).LogLevel //nolint:forcetypeassert
+	return cs.Storage.Model().LogLevel
 }
 
 // SetLogLevel allows to safely set and persist configuration settings.
@@ -131,8 +131,8 @@ func (cs *Service) SetLogLevel(logLevel string) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).LogLevel = logLevel                            //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().LogLevel = logLevel
 
 	return cs.Storage.Save()
 }
@@ -142,7 +142,7 @@ func (cs *Service) GetCredentials() Credentials {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).Credentials //nolint:forcetypeassert
+	return cs.Storage.Model().Credentials
 }
 
 // SetCredentials allows to safely set and persist configuration settings.
@@ -150,8 +150,8 @@ func (cs *Service) SetCredentials(accessToken, refreshToken string, expirationIn
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).Credentials = Credentials{                     //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().Credentials = Credentials{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ExpiresAt:    clock.Now().UTC().Add(time.Duration(expirationInSeconds) * time.Second),
@@ -165,7 +165,7 @@ func (cs *Service) ClearCredentials() error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
-	cs.Storage.Model().(*Config).Credentials = Credentials{} //nolint:forcetypeassert
+	cs.Storage.Model().Credentials = Credentials{}
 
 	return cs.Storage.Save()
 }
@@ -175,7 +175,7 @@ func (cs *Service) GetPollingInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	duration, err := time.ParseDuration(cs.Storage.Model().(*Config).PollingInterval)
+	duration, err := time.ParseDuration(cs.Storage.Model().PollingInterval)
 	if err != nil {
 		return 30 * time.Second
 	}
@@ -188,8 +188,8 @@ func (cs *Service) SetPollingInterval(interval time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).PollingInterval = interval.String()            //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().PollingInterval = interval.String()
 
 	return cs.Storage.Save()
 }
@@ -199,7 +199,7 @@ func (cs *Service) GetSlowChargingCurrentInAmperes() float64 {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).SlowChargingCurrentInAmperes //nolint:forcetypeassert
+	return cs.Storage.Model().SlowChargingCurrentInAmperes
 }
 
 // SetSlowChargingCurrentInAmperes allows to safely set and persist configuration settings.
@@ -207,8 +207,8 @@ func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).SlowChargingCurrentInAmperes = current         //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().SlowChargingCurrentInAmperes = current
 
 	return cs.Storage.Save()
 }
@@ -218,7 +218,7 @@ func (cs *Service) GetHTTPTimeout() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	timeout, err := time.ParseDuration(cs.Storage.Model().(*Config).HTTPTimeout)
+	timeout, err := time.ParseDuration(cs.Storage.Model().HTTPTimeout)
 	if err != nil {
 		return 30 * time.Second
 	}
@@ -231,8 +231,8 @@ func (cs *Service) SetHTTPTimeout(timeout time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).HTTPTimeout = timeout.String()                 //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().HTTPTimeout = timeout.String()
 
 	return cs.Storage.Save()
 }
@@ -242,7 +242,7 @@ func (cs *Service) GetSignalRBaseURL() string {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).SignalR.BaseURL //nolint:forcetypeassert
+	return cs.Storage.Model().SignalR.BaseURL
 }
 
 // SetSignalRBaseURL allows to safely set and persist configuration settings.
@@ -250,8 +250,8 @@ func (cs *Service) SetSignalRBaseURL(url string) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).SignalR.BaseURL = url                          //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().SignalR.BaseURL = url
 
 	return cs.Storage.Save()
 }
@@ -261,7 +261,7 @@ func (cs *Service) GetSignalRConnCreationTimeout() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	timeout, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.ConnCreationTimeout)
+	timeout, err := time.ParseDuration(cs.Storage.Model().SignalR.ConnCreationTimeout)
 	if err != nil {
 		return 30 * time.Second
 	}
@@ -274,8 +274,8 @@ func (cs *Service) SetSignalRConnCreationTimeout(timeout time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).SignalR.ConnCreationTimeout = timeout.String() //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().SignalR.ConnCreationTimeout = timeout.String()
 
 	return cs.Storage.Save()
 }
@@ -285,7 +285,7 @@ func (cs *Service) GetSignalRKeepAliveInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	interval, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.KeepAliveInterval)
+	interval, err := time.ParseDuration(cs.Storage.Model().SignalR.KeepAliveInterval)
 	if err != nil {
 		return 30 * time.Second
 	}
@@ -298,8 +298,8 @@ func (cs *Service) SetSignalRKeepAliveInterval(interval time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).SignalR.KeepAliveInterval = interval.String()  //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().SignalR.KeepAliveInterval = interval.String()
 
 	return cs.Storage.Save()
 }
@@ -309,7 +309,7 @@ func (cs *Service) GetSignalRTimeoutInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	interval, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.TimeoutInterval)
+	interval, err := time.ParseDuration(cs.Storage.Model().SignalR.TimeoutInterval)
 	if err != nil {
 		return 1 * time.Minute
 	}
@@ -322,8 +322,8 @@ func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).SignalR.TimeoutInterval = interval.String()    //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().SignalR.TimeoutInterval = interval.String()
 
 	return cs.Storage.Save()
 }
@@ -333,7 +333,7 @@ func (cs *Service) GetSignalRInvokeTimeout() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	timeout, err := time.ParseDuration(cs.Storage.Model().(*Config).SignalR.InvokeTimeout)
+	timeout, err := time.ParseDuration(cs.Storage.Model().SignalR.InvokeTimeout)
 	if err != nil {
 		return 10 * time.Second
 	}
@@ -346,8 +346,8 @@ func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).ConfiguredAt = time.Now().Format(time.RFC3339) //nolint:forcetypeassert
-	cs.Storage.Model().(*Config).SignalR.InvokeTimeout = timeout.String()       //nolint:forcetypeassert
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().SignalR.InvokeTimeout = timeout.String()
 
 	return cs.Storage.Save()
 }
@@ -357,7 +357,7 @@ func (cs *Service) GetBackoffLength() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	length, err := time.ParseDuration(cs.Storage.Model().(*Config).Backoff.Length)
+	length, err := time.ParseDuration(cs.Storage.Model().Backoff.Length)
 	if err != nil {
 		return 5 * time.Minute
 	}
@@ -370,7 +370,7 @@ func (cs *Service) SetBackoffLength(l time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).Backoff.Length = l.String() //nolint:forcetypeassert
+	cs.Storage.Model().Backoff.Length = l.String()
 
 	return cs.Storage.Save()
 }
@@ -380,7 +380,7 @@ func (cs *Service) GetBackoffMaxAttempts() int {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Storage.Model().(*Config).Backoff.MaxAttempts //nolint:forcetypeassert
+	return cs.Storage.Model().Backoff.MaxAttempts
 }
 
 // SetBackoffMaxAttempts allows to safely alter backoff max attempts.
@@ -388,7 +388,7 @@ func (cs *Service) SetBackoffMaxAttempts(n int) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	cs.Storage.Model().(*Config).Backoff.MaxAttempts = n //nolint:forcetypeassert
+	cs.Storage.Model().Backoff.MaxAttempts = n
 
 	return cs.Storage.Save()
 }

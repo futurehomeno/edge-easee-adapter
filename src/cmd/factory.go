@@ -10,7 +10,6 @@ import (
 	"github.com/futurehomeno/cliffhanger/manifest"
 	"github.com/futurehomeno/cliffhanger/notification"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
-	"github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/task"
 	"github.com/futurehomeno/fimpgo"
 	log "github.com/sirupsen/logrus"
@@ -29,7 +28,6 @@ var services = &serviceContainer{}
 // serviceContainer is a type representing a dependency injection container to be used during bootstrap of the application.
 type serviceContainer struct {
 	configService *config.Service
-	configStorage storage.Storage
 	lifecycle     *lifecycle.Lifecycle
 	mqtt          *fimpgo.MqttTransport
 
@@ -53,7 +51,9 @@ func resetContainer() {
 // getConfigService initiates a configuration service and loads the config.
 func getConfigService() *config.Service {
 	if services.configService == nil {
-		services.configService = config.NewService(getConfigStorage())
+		workDir := bootstrap.GetConfigurationDirectory()
+		cfg := config.New(workDir)
+		services.configService = config.NewService(cliffCfg.NewStorage(cfg, workDir))
 
 		err := services.configService.Load()
 		if err != nil {
@@ -62,18 +62,6 @@ func getConfigService() *config.Service {
 	}
 
 	return services.configService
-}
-
-// getConfigStorage creates or returns an existing config storage.
-func getConfigStorage() storage.Storage {
-	if services.configStorage == nil {
-		workDir := bootstrap.GetConfigurationDirectory()
-		cfg := config.New(workDir)
-
-		services.configStorage = cliffCfg.NewStorage(cfg, workDir)
-	}
-
-	return services.configStorage
 }
 
 // getLifecycle creates or returns existing lifecycle service.
@@ -86,9 +74,8 @@ func getLifecycle() *lifecycle.Lifecycle {
 }
 
 // getMQTT creates or returns existing MQTT broker service.
-func getMQTT() *fimpgo.MqttTransport {
+func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 	if services.mqtt == nil {
-		cfg := getConfigService().Model().(*config.Config) //nolint:forcetypeassert
 		services.mqtt = fimpgo.NewMqttTransport(
 			cfg.MQTTServerURI,
 			cfg.MQTTClientIDPrefix,
@@ -104,15 +91,15 @@ func getMQTT() *fimpgo.MqttTransport {
 }
 
 // getApplication creates or returns existing application.
-func getApplication() app.Application {
+func getApplication(cfg *config.Config) app.Application {
 	if services.application == nil {
 		services.application = app.New(
-			getAdapter(),
+			getAdapter(cfg),
 			getConfigService(),
 			getLifecycle(),
 			getManifestLoader(),
-			getEaseeAPIClient(),
-			getAuthenticator(),
+			getEaseeAPIClient(cfg),
+			getAuthenticator(cfg),
 		)
 	}
 
@@ -129,11 +116,11 @@ func getManifestLoader() manifest.Loader {
 }
 
 // getAdapter creates or returns existing adapter service.
-func getAdapter() adapter.Adapter {
+func getAdapter(cfg *config.Config) adapter.Adapter {
 	if services.adapter == nil {
 		services.adapter = adapter.NewAdapter(
-			getMQTT(),
-			getThingFactory(),
+			getMQTT(cfg),
+			getThingFactory(cfg),
 			getAdapterState(),
 			easee.ServiceName,
 			"1",
@@ -158,9 +145,9 @@ func getAdapterState() adapter.State {
 }
 
 // getThingFactory creates or returns existing thing factory service.
-func getThingFactory() adapter.ThingFactory {
+func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 	if services.thingFactory == nil {
-		services.thingFactory = easee.NewThingFactory(getEaseeAPIClient(), getConfigService(), getSignalRManager(), getSignalRClient())
+		services.thingFactory = easee.NewThingFactory(getEaseeAPIClient(cfg), getConfigService(), getSignalRManager(cfg), getSignalRClient(cfg))
 	}
 
 	return services.thingFactory
@@ -179,11 +166,11 @@ func getEaseeHTTPClient() easee.HTTPClient {
 }
 
 // getEaseeAPIClient creates or returns existing Easee HTTP client.
-func getEaseeAPIClient() easee.APIClient {
+func getEaseeAPIClient(cfg *config.Config) easee.APIClient {
 	if services.easeeAPIClient == nil {
 		services.easeeAPIClient = easee.NewAPIClient(
 			getEaseeHTTPClient(),
-			getAuthenticator(),
+			getAuthenticator(cfg),
 		)
 	}
 
@@ -201,50 +188,50 @@ func getHTTPClient() *http.Client {
 	return services.httpClient
 }
 
-func getAuthenticator() easee.Authenticator {
+func getAuthenticator(cfg *config.Config) easee.Authenticator {
 	if services.authenticator == nil {
 		services.authenticator = easee.NewAuthenticator(
 			getEaseeHTTPClient(),
 			getConfigService(),
-			notification.NewNotification(getMQTT()),
+			notification.NewNotification(getMQTT(cfg)),
 		)
 	}
 
 	return services.authenticator
 }
 
-func getSignalRClient() signalr.Client {
+func getSignalRClient(cfg *config.Config) signalr.Client {
 	if services.signalRClient == nil {
-		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator().AccessToken)
+		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator(cfg).AccessToken)
 	}
 
 	return services.signalRClient
 }
 
-func getSignalRManager() easee.SignalRManager {
+func getSignalRManager(cfg *config.Config) easee.SignalRManager {
 	if services.signalRManager == nil {
-		services.signalRManager = easee.NewSignalRManager(getSignalRClient())
+		services.signalRManager = easee.NewSignalRManager(getSignalRClient(cfg))
 	}
 
 	return services.signalRManager
 }
 
 // newRouting creates new set of routing.
-func newRouting() []*cliffRouter.Routing {
+func newRouting(cfg *config.Config) []*cliffRouter.Routing {
 	return routing.New(
 		getConfigService(),
 		getLifecycle(),
-		getApplication(),
-		getAdapter(),
+		getApplication(cfg),
+		getAdapter(cfg),
 	)
 }
 
 // newTasks creates new set of tasks.
-func newTasks() []*task.Task {
+func newTasks(cfg *config.Config) []*task.Task {
 	return tasks.New(
 		getConfigService(),
 		getLifecycle(),
-		getApplication(),
-		getAdapter(),
+		getApplication(cfg),
+		getAdapter(cfg),
 	)
 }

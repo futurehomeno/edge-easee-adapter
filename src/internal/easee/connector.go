@@ -5,7 +5,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
-	"github.com/futurehomeno/cliffhanger/adapter/service/meterelec"
+	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
@@ -119,14 +119,14 @@ func (c *connector) signalRCallbacks(thing adapter.Thing) (map[signalr.Observati
 		},
 		signalr.TotalPower: func() {
 			for _, cp := range meterElecs {
-				if _, err := cp.SendMeterReport(meterelec.UnitW, false); err != nil {
+				if _, err := cp.SendMeterReport(numericmeter.UnitW, false); err != nil {
 					log.WithError(err).Error()
 				}
 			}
 		},
 		signalr.LifetimeEnergy: func() {
 			for _, cp := range meterElecs {
-				if _, err := cp.SendMeterReport(meterelec.UnitKWh, false); err != nil {
+				if _, err := cp.SendMeterReport(numericmeter.UnitKWh, false); err != nil {
 					log.WithError(err).Error()
 				}
 			}
@@ -150,17 +150,17 @@ func (c *connector) extractChargepointServices(thing adapter.Thing) ([]chargepoi
 	return chargepoints, nil
 }
 
-func (c *connector) extractMeterElecServices(thing adapter.Thing) ([]meterelec.Service, error) {
-	raw := thing.Services(meterelec.MeterElec)
-	meterElecs := make([]meterelec.Service, 0, len(raw))
+func (c *connector) extractMeterElecServices(thing adapter.Thing) ([]numericmeter.Service, error) {
+	raw := thing.Services(numericmeter.MeterElec)
+	meterElecs := make([]numericmeter.Service, 0, len(raw))
 
 	for _, service := range raw {
-		me, ok := service.(meterelec.Service)
+		nm, ok := service.(numericmeter.Service)
 		if !ok {
-			return nil, fmt.Errorf("expected a service to be a meter_elec, got %T instead", service)
+			return nil, fmt.Errorf("expected a service to be a numeric_meter, got %T instead", service)
 		}
 
-		meterElecs = append(meterElecs, me)
+		meterElecs = append(meterElecs, nm)
 	}
 
 	return meterElecs, nil

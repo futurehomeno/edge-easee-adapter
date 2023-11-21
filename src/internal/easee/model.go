@@ -1,5 +1,7 @@
 package easee
 
+import "github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+
 const (
 	// ServiceName represents Easee service name.
 	ServiceName = "easee"
@@ -42,39 +44,41 @@ const (
 	Requesting
 )
 
-// String returns a string representation of ChargerState.
-func (m ChargerState) String() string {
-	switch m { //nolint:exhaustive
-	case 0:
-		return "unavailable"
-	case 1:
-		return "disconnected"
-	case 2:
-		return "ready_to_charge"
-	case 3:
-		return "charging"
-	case 4:
-		return "finished"
-	case 5:
-		return "error"
-	case 6:
-		return "requesting"
+// ToFimpState returns a human-readable name of the state.
+func (s ChargerState) ToFimpState() chargepoint.State {
+	switch s {
+	case Unknown:
+		return chargepoint.StateUnknown
+	case Unavailable:
+		return chargepoint.StateUnavailable
+	case Disconnected:
+		return chargepoint.StateDisconnected
+	case ReadyToCharge:
+		return chargepoint.StateReadyToCharge
+	case Charging:
+		return chargepoint.StateCharging
+	case Finished:
+		return chargepoint.StateFinished
+	case Error:
+		return chargepoint.StateError
+	case Requesting:
+		return chargepoint.StateRequesting
 	default:
-		return "unknown"
+		return chargepoint.StateUnknown
 	}
 }
 
 // SupportedChargingStates returns all charging states supported by Easee.
-func SupportedChargingStates() []string {
-	return []string{
-		Unavailable.String(),
-		Disconnected.String(),
-		ReadyToCharge.String(),
-		Charging.String(),
-		Finished.String(),
-		Error.String(),
-		Requesting.String(),
-		Unknown.String(),
+func SupportedChargingStates() []ChargerState {
+	return []ChargerState{
+		Unavailable,
+		Disconnected,
+		ReadyToCharge,
+		Charging,
+		Finished,
+		Error,
+		Requesting,
+		Unknown,
 	}
 }
 

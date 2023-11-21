@@ -164,7 +164,7 @@ func TestApplication_Uninstall(t *testing.T) {
 
 			defer adapterMock.AssertExpectations(t)
 
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			storage := fakes.NewFakeStorage(tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
 			application := app.New(adapterMock, cfgService, lc, nil, nil, nil)
@@ -184,7 +184,7 @@ func TestApplication_Uninstall(t *testing.T) {
 			}
 
 			if tt.configAssertions != nil {
-				tt.configAssertions(cfgService.Model().(*config.Config)) //nolint:forcetypeassert
+				tt.configAssertions(cfgService.Model())
 			}
 		})
 	}
@@ -632,7 +632,7 @@ func TestApplication_Initialize(t *testing.T) {
 				clientMock.AssertExpectations(t)
 			}()
 
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			storage := fakes.NewFakeStorage(tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
 			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil)

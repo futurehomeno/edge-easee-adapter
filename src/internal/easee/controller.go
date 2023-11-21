@@ -2,9 +2,10 @@ package easee
 
 import (
 	"strings"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
-	"github.com/futurehomeno/cliffhanger/adapter/service/meterelec"
+	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/pkg/errors"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -13,7 +14,7 @@ import (
 // Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
-	meterelec.Reporter
+	numericmeter.Reporter
 }
 
 // NewController returns a new instance of Controller.
@@ -35,10 +36,10 @@ type controller struct {
 	maxCurrent float64
 }
 
-func (c *controller) StartChargepointCharging(mode string) error {
+func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
 	var current float64
 
-	switch strings.ToLower(mode) {
+	switch strings.ToLower(settings.Mode) {
 	case ChargingModeSlow:
 		current = c.cfgService.GetSlowChargingCurrentInAmperes()
 	default:
@@ -56,15 +57,33 @@ func (c *controller) SetChargepointCableLock(locked bool) error {
 	return c.client.SetCableLock(c.chargerID, locked)
 }
 
-func (c *controller) ChargepointCableLockReport() (bool, error) {
-	return c.cache.CableLocked()
+func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, error) {
+	isLocked, err := c.cache.CableLocked()
+	if err != nil {
+		return nil, err
+	}
+	return &chargepoint.CableReport{
+		CableLock:    isLocked,
+		CableCurrent: 0, // TODO
+	}, nil
 }
 
-func (c *controller) ChargepointCurrentSessionReport() (float64, error) {
-	return c.cache.SessionEnergy()
+func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionReport, error) {
+	energy, err := c.cache.SessionEnergy()
+	if err != nil {
+		return nil, err
+	}
+
+	return &chargepoint.SessionReport{
+		SessionEnergy:         energy,
+		PreviousSessionEnergy: 0,           // TODO
+		StartedAt:             time.Time{}, // TODO
+		FinishedAt:            time.Time{}, // TODO
+		OfferedCurrent:        0,           // TODO
+	}, nil
 }
 
-func (c *controller) ChargepointStateReport() (string, error) {
+func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
 	power, err := c.cache.TotalPower()
 	if err != nil {
 		return "", err
@@ -72,17 +91,22 @@ func (c *controller) ChargepointStateReport() (string, error) {
 
 	// If a charger reports power usage, assume a charging state.
 	if power > 0 {
-		return Charging.String(), nil
+		return chargepoint.StateCharging, nil
 	}
 
-	return c.cache.ChargerState()
+	state, err := c.cache.ChargerState()
+	if err != nil {
+		return "", err
+	}
+
+	return state.ToFimpState(), nil
 }
 
-func (c *controller) ElectricityMeterReport(unit string) (float64, error) {
+func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 	switch unit {
-	case meterelec.UnitW:
+	case numericmeter.UnitW:
 		return c.cache.TotalPower()
-	case meterelec.UnitKWh:
+	case numericmeter.UnitKWh:
 		return c.cache.LifetimeEnergy()
 	default:
 		return 0, errors.Errorf("unsupported unit: %s", unit)

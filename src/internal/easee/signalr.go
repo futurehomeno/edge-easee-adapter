@@ -207,8 +207,7 @@ func (m *signalRManager) handleObservation(observation signalr.Observation) erro
 			return err
 		}
 
-		state := ChargerState(val).String()
-		chargerData.cache.setChargerState(state)
+		chargerData.cache.setChargerState(ChargerState(val))
 
 		m.runCallback(chargerData, observation.ID)
 	case signalr.SessionEnergy:
@@ -277,7 +276,7 @@ var ( //nolint:gofumpt
 // ObservationCache is a cache for charger observations.
 type ObservationCache interface {
 	// ChargerState returns the charger state.
-	ChargerState() (string, error)
+	ChargerState() (ChargerState, error)
 	// SessionEnergy returns the session energy.
 	SessionEnergy() (float64, error)
 	// CableLocked returns the cable locked state.
@@ -287,7 +286,7 @@ type ObservationCache interface {
 	// LifetimeEnergy returns the lifetime energy.
 	LifetimeEnergy() (float64, error)
 
-	setChargerState(state string)
+	setChargerState(state ChargerState)
 	setSessionEnergy(energy float64)
 	setCableLocked(locked bool)
 	setTotalPower(power float64)
@@ -302,7 +301,7 @@ type cache struct {
 
 	connected bool
 
-	chargerState   string
+	chargerState   ChargerState
 	cableLocked    bool
 	sessionEnergy  float64
 	totalPower     float64
@@ -313,12 +312,12 @@ func NewObservationCache() ObservationCache {
 	return &cache{}
 }
 
-func (c *cache) ChargerState() (string, error) {
+func (c *cache) ChargerState() (ChargerState, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	if !c.connected {
-		return "", errNotConnected
+		return Error, errNotConnected
 	}
 
 	return c.chargerState, nil
@@ -405,7 +404,7 @@ func (c *cache) setLifetimeEnergy(energy float64) {
 	c.lifetimeEnergy = energy
 }
 
-func (c *cache) setChargerState(state string) {
+func (c *cache) setChargerState(state ChargerState) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
