@@ -72,7 +72,7 @@ type Service struct {
 // reconnecting hook when http errors occur.
 type BackoffCfg struct {
 	Length      string `json:"length"`
-	MaxAttempts int    `json:"naxAttempts"`
+	MaxAttempts int    `json:"maxAttempts"`
 }
 
 // NewService creates a new configuration service.

@@ -231,25 +231,22 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+				a.On("EnsureThings", adapter.ThingSeeds{
+					{
 						ID: "123",
 						Info: easee.Info{
 							ChargerID:  "123",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(nil)
-
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+					},
+					{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID:  "456",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(nil)
+					},
+				}).Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
@@ -311,25 +308,22 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+				a.On("EnsureThings", adapter.ThingSeeds{
+					{
 						ID: "123",
 						Info: easee.Info{
 							ChargerID:  "123",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(nil)
-
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+					},
+					{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID:  "456",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(nil)
+					},
+				}).Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
@@ -363,25 +357,22 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+				a.On("EnsureThings", adapter.ThingSeeds{
+					{
 						ID: "123",
 						Info: easee.Info{
 							ChargerID:  "123",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(nil)
-
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+					},
+					{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID:  "456",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(errors.New("oops"))
+					},
+				}).Return(errors.New("oops"))
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())

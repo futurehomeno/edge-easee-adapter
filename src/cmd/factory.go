@@ -207,6 +207,7 @@ func getAuthenticator() easee.Authenticator {
 			getEaseeHTTPClient(),
 			getConfigService(),
 			notification.NewNotification(getMQTT()),
+			getMQTT(),
 		)
 	}
 
