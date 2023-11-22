@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/notification"
+	"github.com/futurehomeno/fimpgo"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
@@ -25,6 +26,8 @@ const (
 
 const (
 	notificationEaseeStatusOffline = "easee_status_offline"
+
+	logoutAddress = "pt:j1/mt:cmd/rt:ad/rn:easee/ad:1"
 )
 
 // Authenticator is the interface for the Easee authenticator.
@@ -45,6 +48,7 @@ type authenticator struct {
 	cfgSvc              *config.Service
 	http                HTTPClient
 	notificationManager notification.Notification
+	mqtt                *fimpgo.MqttTransport
 }
 
 type backoffCfg struct {
@@ -52,11 +56,12 @@ type backoffCfg struct {
 	attempts int
 }
 
-func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification) Authenticator {
+func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification, mqtt *fimpgo.MqttTransport) Authenticator {
 	return &authenticator{
 		cfgSvc:              cfgSvc,
 		http:                http,
 		notificationManager: notify,
+		mqtt:                mqtt,
 	}
 }
 
@@ -126,8 +131,8 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 		a.validateNotificationPush(notifError, notificationEaseeStatusOffline)
 
 		a.status = statusConnectionFailed
-		if saveErr := a.cfgSvc.ClearCredentials(); saveErr != nil {
-			return fmt.Errorf("unauthorized, re-login required; failed to clear credentials. %w , save error: %w", err, saveErr)
+		if logoutErr := a.triggerAppLogout(); logoutErr != nil {
+			return fmt.Errorf("unauthorized, re-login required; failed to clear credentials. %w , logout error: %w", err, logoutErr)
 		}
 
 		return fmt.Errorf("received unauthorized error, re-login is required. %w", err)
@@ -155,6 +160,28 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 	default:
 		return fmt.Errorf("invalid auth status when refreshing token: %d. Error: %w", a.status, err)
 	}
+}
+
+// triggerAppLogout sends a mqtt message with request to log out a user
+// as we don't have a way of internal communication and invoking of the cliffhanger code
+// sending an external message is the only way to achieve that without duplicating logic across different places.
+func (a *authenticator) triggerAppLogout() error {
+	address, err := fimpgo.NewAddressFromString(logoutAddress)
+	if err != nil {
+		return errors.Wrap(err, fmt.Sprintf("failed to create address from %s", logoutAddress))
+	}
+
+	message := fimpgo.NewNullMessage(
+		"cmd.auth.logout",
+		ServiceName,
+		nil, nil, nil,
+	)
+
+	if err := a.mqtt.Publish(address, message); err != nil {
+		return errors.Wrap(err, fmt.Sprintf("failed to publish a message to mqtt. Address: %s, message: %v", logoutAddress, message))
+	}
+
+	return nil
 }
 
 // hookResetToReconnecting resets status to statusReconnecting after a delay.

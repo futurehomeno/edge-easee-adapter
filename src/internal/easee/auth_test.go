@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"testing"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/notification"
 	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
+	"github.com/futurehomeno/fimpgo"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -271,14 +273,6 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 			notificationManagerCalled: 1,
 		},
 		{
-			name:                      "should return error when failed to clear credentials on 401 http error",
-			errIn:                     HTTPError{Status: http.StatusUnauthorized},
-			saveError:                 errors.New("failed to save"),
-			expectedStatus:            statusConnectionFailed,
-			errorContains:             "failed to clear credentials",
-			notificationManagerCalled: 1,
-		},
-		{
 			name:       "should set status to failed when reached maximum attempts",
 			errIn:      errors.New("error"),
 			backoffCfg: config.BackoffCfg{MaxAttempts: 2, Length: "0"},
@@ -346,6 +340,17 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 
 			notificationManager := &NotificationMock{}
 			notificationManager.On("Event", &notification.Event{EventName: notificationEaseeStatusOffline}).Return(nil)
+
+			cfgDir := path.Join("./../../testdata/testing/", "")
+			mqttCfg := config.New(cfgDir)
+			v.auth.mqtt = fimpgo.NewMqttTransport(
+				mqttCfg.MQTTServerURI,
+				mqttCfg.MQTTClientIDPrefix,
+				mqttCfg.MQTTUsername,
+				mqttCfg.MQTTPassword,
+				true,
+				1,
+				1)
 
 			v.auth.notificationManager = notificationManager
 			v.auth.cfgSvc = config.NewService(&storage)

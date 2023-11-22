@@ -131,6 +131,10 @@ func (a *application) Initialize() error {
 		return errors.Wrap(err, "failed to initialize things")
 	}
 
+	if err := a.cfgService.Save(); err != nil {
+		return errors.Wrap(err, "failed to save configs at application initialization")
+	}
+
 	if a.cfgService.GetCredentials().Empty() {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
@@ -168,23 +172,25 @@ func (a *application) registerChargers() error {
 		return errors.Wrap(err, "failed to fetch available chargers from Easee API")
 	}
 
+	seeds := make([]*adapter.ThingSeed, 0, len(chargers))
+
 	for _, charger := range chargers {
 		cfg, err := a.client.ChargerConfig(charger.ID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch a charger config ID %s: %w", charger.ID, err)
 		}
 
-		seed := &adapter.ThingSeed{
+		seeds = append(seeds, &adapter.ThingSeed{
 			ID: charger.ID,
 			Info: easee.Info{
 				ChargerID:  charger.ID,
 				MaxCurrent: cfg.MaxChargerCurrent,
 			},
-		}
+		})
+	}
 
-		if err := a.ad.CreateThing(seed); err != nil {
-			return fmt.Errorf("failed to register charger ID %s: %w", charger.ID, err)
-		}
+	if err := a.ad.EnsureThings(seeds); err != nil {
+		return errors.Wrap(err, "application: failed to ensure things")
 	}
 
 	return nil

@@ -1,4 +1,4 @@
-version="2.1.6"
+version="2.1.7"
 version_file=package/debian/opt/thingsplex/$(app_name)/VERSION
 working_dir=$(shell pwd)
 app_name=easee
@@ -66,7 +66,7 @@ lint:
 	cd src; golangci-lint run; cd ..
 
 test:
-	cd src; go test; cd ..
+	cd src; go test ./... ; cd ..
 
 mocks:
 	cd ./src && mockery --dir ./internal --all --output ./internal/test/mocks --disable-version-string
