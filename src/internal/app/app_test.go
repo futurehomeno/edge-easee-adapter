@@ -231,70 +231,22 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+				a.On("EnsureThings", adapter.ThingSeeds{
+					{
 						ID: "123",
 						Info: easee.Info{
 							ChargerID:  "123",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(nil)
-
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+					},
+					{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID:  "456",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(nil)
-				a.On("ThingByID", "123").Return(nil)
-				a.On("ThingByID", "456").Return(nil)
-			},
-			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
-				assert.Equal(t, lifecycle.AuthStateAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
-				assert.Equal(t, lifecycle.ConfigStateConfigured, lc.ConfigState())
-			},
-		},
-		{
-			name: "if login was successful, credentials and lifecycle should be set up, existing things skipped",
-			loginData: &cliffApp.LoginCredentials{
-				Username: "test-user",
-				Password: "test-password",
-			},
-			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
-				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
-				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
-			},
-			mockAuthenticator: func(a *mocks.Authenticator) {
-				a.On("Login", "test-user", "test-password").Return(nil)
-			},
-			mockClient: func(c *mocks.APIClient) {
-				c.On("Chargers").Return([]easee.Charger{
-					{ID: "123"},
-					{ID: "456"},
-				}, nil)
-				c.On("Ping").Return(nil)
-				c.On("ChargerConfig", "123").Return(test.ExampleChargerConfig(t), nil).Once()
-			},
-			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.
-					On("CreateThing", &adapter.ThingSeed{
-						ID: "123",
-						Info: easee.Info{
-							ChargerID:  "123",
-							MaxCurrent: 32,
-						},
-					}).
-					Return(nil)
-				a.On("ThingByID", "123").Return(nil)
-				a.On("ThingByID", "456").Return(&mockedadapter.Thing{})
+					},
+				}).Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
@@ -356,27 +308,22 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+				a.On("EnsureThings", adapter.ThingSeeds{
+					{
 						ID: "123",
 						Info: easee.Info{
 							ChargerID:  "123",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(nil)
-
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+					},
+					{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID:  "456",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(nil)
-				a.On("ThingByID", "123").Return(nil)
-				a.On("ThingByID", "456").Return(nil)
+					},
+				}).Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
@@ -410,27 +357,22 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+				a.On("EnsureThings", adapter.ThingSeeds{
+					{
 						ID: "123",
 						Info: easee.Info{
 							ChargerID:  "123",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(nil)
-
-				a.
-					On("CreateThing", &adapter.ThingSeed{
+					},
+					{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID:  "456",
 							MaxCurrent: 32,
 						},
-					}).
-					Return(errors.New("oops"))
-				a.On("ThingByID", "123").Return(nil)
-				a.On("ThingByID", "456").Return(nil)
+					},
+				}).Return(errors.New("oops"))
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
