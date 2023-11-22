@@ -131,6 +131,10 @@ func (a *application) Initialize() error {
 		return errors.Wrap(err, "failed to initialize things")
 	}
 
+	if err := a.cfgService.Save(); err != nil {
+		return errors.Wrap(err, "failed to save configs at application initialization")
+	}
+
 	if a.cfgService.GetCredentials().Empty() {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
@@ -169,6 +173,10 @@ func (a *application) registerChargers() error {
 	}
 
 	for _, charger := range chargers {
+		if a.ad.ThingByID(charger.ID) != nil {
+			continue
+		}
+
 		cfg, err := a.client.ChargerConfig(charger.ID)
 		if err != nil {
 			return fmt.Errorf("failed to fetch a charger config ID %s: %w", charger.ID, err)

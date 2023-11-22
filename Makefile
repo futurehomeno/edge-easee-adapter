@@ -66,6 +66,6 @@ lint:
 	cd src; golangci-lint run; cd ..
 
 test:
-	cd src; go test; cd ..
+	cd src; go test ./... ; cd ..
 
 .phony : clean
