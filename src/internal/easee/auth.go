@@ -162,6 +162,9 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 	}
 }
 
+// triggerAppLogout sends a mqtt message with request to log out a user
+// as we don't have a way of internal communication and invoking of the cliffhanger code
+// sending an external message is the only way to achieve that without duplicating logic across different places.
 func (a *authenticator) triggerAppLogout() error {
 	address, err := fimpgo.NewAddressFromString(logoutAddress)
 	if err != nil {
