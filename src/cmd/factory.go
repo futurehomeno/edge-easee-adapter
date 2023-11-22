@@ -147,7 +147,7 @@ func getAdapterState() adapter.State {
 // getThingFactory creates or returns existing thing factory service.
 func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 	if services.thingFactory == nil {
-		services.thingFactory = easee.NewThingFactory(getEaseeAPIClient(cfg), getConfigService(), getSignalRManager(cfg), getSignalRClient(cfg))
+		services.thingFactory = easee.NewThingFactory(getEaseeAPIClient(cfg), getConfigService(), getSignalRManager(cfg))
 	}
 
 	return services.thingFactory

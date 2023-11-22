@@ -9,30 +9,25 @@ import (
 // ObservationCache is a cache for charger observations.
 type ObservationCache interface {
 	// ChargerState returns the charger state.
-	ChargerState() (ChargerState, error)
+	ChargerState() ChargerState
 	// SessionEnergy returns the session energy.
-	SessionEnergy() (float64, error)
+	SessionEnergy() float64
 	// CableLocked returns the cable locked state.
-	CableLocked() (bool, error)
+	CableLocked() bool
 	// TotalPower returns the total power.
-	TotalPower() (float64, error)
+	TotalPower() float64
 	// LifetimeEnergy returns the lifetime energy.
-	LifetimeEnergy() (float64, error)
+	LifetimeEnergy() float64
 
 	setChargerState(state ChargerState)
 	setSessionEnergy(energy float64)
 	setCableLocked(locked bool)
 	setTotalPower(power float64)
 	setLifetimeEnergy(energy float64)
-
-	isConnected() bool
-	setConnected(connected bool)
 }
 
 type cache struct {
 	mu sync.RWMutex
-
-	connected bool
 
 	chargerState   ChargerState
 	cableLocked    bool
@@ -45,59 +40,39 @@ func NewObservationCache() ObservationCache {
 	return &cache{}
 }
 
-func (c *cache) ChargerState() (ChargerState, error) {
+func (c *cache) ChargerState() ChargerState {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if !c.connected {
-		return Error, errNotConnected
-	}
-
-	return c.chargerState, nil
+	return c.chargerState
 }
 
-func (c *cache) SessionEnergy() (float64, error) {
+func (c *cache) SessionEnergy() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if !c.connected {
-		return 0, errNotConnected
-	}
-
-	return c.sessionEnergy, nil
+	return c.sessionEnergy
 }
 
-func (c *cache) CableLocked() (bool, error) {
+func (c *cache) CableLocked() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if !c.connected {
-		return false, errNotConnected
-	}
-
-	return c.cableLocked, nil
+	return c.cableLocked
 }
 
-func (c *cache) TotalPower() (float64, error) {
+func (c *cache) TotalPower() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if !c.connected {
-		return 0, errNotConnected
-	}
-
-	return c.totalPower, nil
+	return c.totalPower
 }
 
-func (c *cache) LifetimeEnergy() (float64, error) {
+func (c *cache) LifetimeEnergy() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if !c.connected {
-		return 0, errNotConnected
-	}
-
-	return c.lifetimeEnergy, nil
+	return c.lifetimeEnergy
 }
 
 func (c *cache) setSessionEnergy(energy float64) {
@@ -142,18 +117,4 @@ func (c *cache) setChargerState(state ChargerState) {
 	defer c.mu.Unlock()
 
 	c.chargerState = state
-}
-
-func (c *cache) isConnected() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.connected
-}
-
-func (c *cache) setConnected(connected bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.connected = connected
 }

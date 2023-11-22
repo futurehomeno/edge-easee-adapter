@@ -10,7 +10,6 @@ import (
 	"github.com/futurehomeno/fimpgo/fimptype"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 // Info is an object representing charger persisted information.
@@ -23,16 +22,14 @@ type thingFactory struct {
 	client         APIClient
 	cfgService     *config.Service
 	signalRManager SignalRManager
-	signalRClient  signalr.Client
 }
 
 // NewThingFactory returns a new instance of adapter.ThingFactory.
-func NewThingFactory(client APIClient, cfgService *config.Service, signalRManager SignalRManager, signalRClient signalr.Client) adapter.ThingFactory {
+func NewThingFactory(client APIClient, cfgService *config.Service, signalRManager SignalRManager) adapter.ThingFactory {
 	return &thingFactory{
 		client:         client,
 		cfgService:     cfgService,
 		signalRManager: signalRManager,
-		signalRClient:  signalRClient,
 	}
 }
 
@@ -44,13 +41,13 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	cache := NewObservationCache()
-	controller := NewController(t.client, cache, t.cfgService, info.ChargerID, info.MaxCurrent)
+	controller := NewController(t.client, t.signalRManager, cache, t.cfgService, info.ChargerID, info.MaxCurrent)
 
 	groups := []string{"ch_0"}
 
 	return thing.NewCarCharger(publisher, thingState, &thing.CarChargerConfig{
 		ThingConfig: &adapter.ThingConfig{
-			Connector:       NewConnector(t.signalRManager, t.client, t.signalRClient, info.ChargerID, cache),
+			Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, cache),
 			InclusionReport: t.inclusionReport(info, thingState, groups),
 		},
 		ChargepointConfig: &chargepoint.Config{

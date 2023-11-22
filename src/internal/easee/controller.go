@@ -18,9 +18,10 @@ type Controller interface {
 }
 
 // NewController returns a new instance of Controller.
-func NewController(client APIClient, cache ObservationCache, cfgService *config.Service, chargerID string, maxCurrent float64) Controller {
+func NewController(client APIClient, manager SignalRManager, cache ObservationCache, cfgService *config.Service, chargerID string, maxCurrent float64) Controller {
 	return &controller{
 		client:     client,
+		manager:    manager,
 		cache:      cache,
 		cfgService: cfgService,
 		chargerID:  chargerID,
@@ -30,6 +31,7 @@ func NewController(client APIClient, cache ObservationCache, cfgService *config.
 
 type controller struct {
 	client     APIClient
+	manager    SignalRManager
 	cache      ObservationCache
 	cfgService *config.Service
 	chargerID  string
@@ -58,24 +60,23 @@ func (c *controller) SetChargepointCableLock(locked bool) error {
 }
 
 func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, error) {
-	isLocked, err := c.cache.CableLocked()
-	if err != nil {
+	if err := c.checkConnection(); err != nil {
 		return nil, err
 	}
+
 	return &chargepoint.CableReport{
-		CableLock:    isLocked,
+		CableLock:    c.cache.CableLocked(),
 		CableCurrent: 0, // TODO
 	}, nil
 }
 
 func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionReport, error) {
-	energy, err := c.cache.SessionEnergy()
-	if err != nil {
+	if err := c.checkConnection(); err != nil {
 		return nil, err
 	}
 
 	return &chargepoint.SessionReport{
-		SessionEnergy:         energy,
+		SessionEnergy:         c.cache.SessionEnergy(),
 		PreviousSessionEnergy: 0,           // TODO
 		StartedAt:             time.Time{}, // TODO
 		FinishedAt:            time.Time{}, // TODO
@@ -84,31 +85,39 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 }
 
 func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
-	power, err := c.cache.TotalPower()
-	if err != nil {
+	if err := c.checkConnection(); err != nil {
 		return "", err
 	}
 
 	// If a charger reports power usage, assume a charging state.
-	if power > 0 {
+	if power := c.cache.TotalPower(); power > 0 {
 		return chargepoint.StateCharging, nil
 	}
 
-	state, err := c.cache.ChargerState()
-	if err != nil {
-		return "", err
-	}
+	state := c.cache.ChargerState()
 
 	return state.ToFimpState(), nil
 }
 
 func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
+	if err := c.checkConnection(); err != nil {
+		return 0, err
+	}
+
 	switch unit {
 	case numericmeter.UnitW:
-		return c.cache.TotalPower()
+		return c.cache.TotalPower(), nil
 	case numericmeter.UnitKWh:
-		return c.cache.LifetimeEnergy()
+		return c.cache.LifetimeEnergy(), nil
 	default:
 		return 0, errors.Errorf("unsupported unit: %s", unit)
 	}
+}
+
+func (c *controller) checkConnection() error {
+	if !c.manager.Connected() {
+		return errors.New("signalR connection is inactive, cannot determine actual state")
+	}
+
+	return nil
 }

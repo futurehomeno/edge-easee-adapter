@@ -4,7 +4,6 @@ import (
 	"sync"
 
 	"github.com/futurehomeno/cliffhanger/root"
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
@@ -15,11 +14,15 @@ import (
 type SignalRManager interface {
 	root.Service
 
+	// Connected check if SignalR client is connected.
+	Connected() bool
 	// Register registers a charger to be managed.
-	Register(chargerID string, cache ObservationCache, callbacks map[signalr.ObservationID]func()) error
+	Register(chargerID string, handler ObservationHandler) error
 	// Unregister unregisters a charger from being managed.
 	Unregister(chargerID string) error
 }
+
+type ObservationHandler func(signalr.Observation) error
 
 type signalRManager struct {
 	mu      sync.RWMutex
@@ -27,14 +30,18 @@ type signalRManager struct {
 	done    chan struct{}
 
 	client   signalr.Client
-	chargers map[string]chargerItem
+	chargers map[string]ObservationHandler
 }
 
 func NewSignalRManager(client signalr.Client) SignalRManager {
 	return &signalRManager{
 		client:   client,
-		chargers: make(map[string]chargerItem),
+		chargers: make(map[string]ObservationHandler),
 	}
+}
+
+func (m *signalRManager) Connected() bool {
+	return m.client.Connected()
 }
 
 func (m *signalRManager) Start() error {
@@ -70,7 +77,7 @@ func (m *signalRManager) Stop() error {
 	return nil
 }
 
-func (m *signalRManager) Register(chargerID string, cache ObservationCache, callbacks map[signalr.ObservationID]func()) error {
+func (m *signalRManager) Register(chargerID string, handler ObservationHandler) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -84,17 +91,10 @@ func (m *signalRManager) Register(chargerID string, cache ObservationCache, call
 		}
 	}
 
-	m.chargers[chargerID] = chargerItem{
-		cache:     cache,
-		callbacks: callbacks,
-	}
+	m.chargers[chargerID] = handler
 
 	if m.client.Connected() {
-		cache.setConnected(true)
-
 		if err := m.client.SubscribeCharger(chargerID); err != nil {
-			cache.setConnected(false)
-
 			return err
 		}
 	}
@@ -133,27 +133,17 @@ func (m *signalRManager) run() {
 		case <-m.done:
 			return
 		case state := <-ch:
-			m.mu.RLock()
-
 			if state == signalr.Disconnected {
-				for _, item := range m.chargers {
-					item.cache.setConnected(false)
-				}
-
-				m.mu.RUnlock()
-
 				continue
 			}
 
-		chargerLoop:
-			for chargerID, charger := range m.chargers {
-				charger.cache.setConnected(true)
+			m.mu.RLock()
 
+			for chargerID := range m.chargers {
 				if err := m.client.SubscribeCharger(chargerID); err != nil {
 					log.WithError(err).Error("failed to subscribe charger: ", chargerID)
-					charger.cache.setConnected(false)
 
-					continue chargerLoop
+					continue
 				}
 			}
 
@@ -191,7 +181,7 @@ func (m *signalRManager) handleObservation(observation signalr.Observation) erro
 	log.Debugf("received observation: %+v", observation)
 
 	m.mu.RLock()
-	chargerData, ok := m.chargers[observation.ChargerID]
+	chargerHandler, ok := m.chargers[observation.ChargerID]
 	m.mu.RUnlock()
 
 	if !ok {
@@ -200,75 +190,5 @@ func (m *signalRManager) handleObservation(observation signalr.Observation) erro
 		return nil
 	}
 
-	switch observation.ID {
-	case signalr.ChargerOPState:
-		val, err := observation.IntValue()
-		if err != nil {
-			return err
-		}
-
-		chargerData.cache.setChargerState(ChargerState(val))
-
-		m.runCallback(chargerData, observation.ID)
-	case signalr.SessionEnergy:
-		val, err := observation.Float64Value()
-		if err != nil {
-			return err
-		}
-
-		chargerData.cache.setSessionEnergy(val)
-
-		m.runCallback(chargerData, observation.ID)
-	case signalr.CableLocked:
-		val, err := observation.BoolValue()
-		if err != nil {
-			return err
-		}
-
-		chargerData.cache.setCableLocked(val)
-
-		m.runCallback(chargerData, observation.ID)
-	case signalr.TotalPower:
-		val, err := observation.Float64Value()
-		if err != nil {
-			return err
-		}
-
-		chargerData.cache.setTotalPower(val * 1000)
-
-		m.runCallback(chargerData, observation.ID)
-	case signalr.LifetimeEnergy:
-		val, err := observation.Float64Value()
-		if err != nil {
-			return err
-		}
-
-		chargerData.cache.setLifetimeEnergy(val)
-
-		m.runCallback(chargerData, observation.ID)
-	}
-
-	return nil
+	return chargerHandler(observation)
 }
-
-func (m *signalRManager) runCallback(data chargerItem, id signalr.ObservationID) {
-	cb, ok := data.callbacks[id]
-	if !ok {
-		return
-	}
-
-	if cb == nil {
-		return
-	}
-
-	cb()
-}
-
-type chargerItem struct {
-	cache     ObservationCache
-	callbacks map[signalr.ObservationID]func()
-}
-
-var ( //nolint:gofumpt
-	errNotConnected = errors.New("signalR connection is inactive, cannot determine actual state")
-)

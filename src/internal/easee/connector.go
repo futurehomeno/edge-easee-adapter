@@ -1,6 +1,7 @@
 package easee
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
@@ -12,36 +13,32 @@ import (
 )
 
 type connector struct {
-	manager       SignalRManager
-	httpClient    APIClient
-	signalRClient signalr.Client
+	manager    SignalRManager
+	httpClient APIClient
 
 	chargerID string
 	cache     ObservationCache
 }
 
-func NewConnector(manager SignalRManager, httpClient APIClient, signalRClient signalr.Client, chargerID string, cache ObservationCache) adapter.Connector {
+func NewConnector(manager SignalRManager, httpClient APIClient, chargerID string, cache ObservationCache) adapter.Connector {
 	return &connector{
-		manager:       manager,
-		httpClient:    httpClient,
-		signalRClient: signalRClient,
-		chargerID:     chargerID,
-		cache:         cache,
+		manager:    manager,
+		httpClient: httpClient,
+		chargerID:  chargerID,
+		cache:      cache,
 	}
 }
 
-func (c *connector) Connect(t adapter.Thing) {
-	callbacks, err := c.signalRCallbacks(t)
+func (c *connector) Connect(thing adapter.Thing) {
+	handler, err := c.getObservationHandler(thing)
 	if err != nil {
 		log.WithError(err).Error("failed to create signalRManager callbacks")
 
 		return
 	}
 
-	if err := c.manager.Register(c.chargerID, c.cache, callbacks); err != nil {
+	if err := c.manager.Register(c.chargerID, handler); err != nil {
 		log.WithError(err).Error("failed to register charger within signalR manager")
-
-		return
 	}
 }
 
@@ -52,7 +49,7 @@ func (c *connector) Disconnect(_ adapter.Thing) {
 }
 
 func (c *connector) Connectivity() *adapter.ConnectivityDetails {
-	if c.signalRClient.Connected() {
+	if c.manager.Connected() {
 		return &adapter.ConnectivityDetails{
 			ConnectionStatus: adapter.ConnectionStatusUp,
 			ConnectionType:   adapter.ConnectionTypeIndirect,
@@ -72,7 +69,7 @@ func (c *connector) Ping() *adapter.PingDetails {
 		}
 	}
 
-	if !c.signalRClient.Connected() {
+	if !c.manager.Connected() {
 		return &adapter.PingDetails{
 			Status: adapter.PingResultFailed,
 		}
@@ -83,8 +80,22 @@ func (c *connector) Ping() *adapter.PingDetails {
 	}
 }
 
+func (c *connector) getObservationHandler(thing adapter.Thing) (ObservationHandler, error) {
+	callbacks, err := c.signalRCallbacks(thing)
+	if err != nil {
+		return nil, err
+	}
+
+	return func(observation signalr.Observation) error {
+		if callback, ok := callbacks[observation.ID]; ok {
+			return callback(observation)
+		}
+		return nil
+	}, nil
+}
+
 //nolint:cyclop
-func (c *connector) signalRCallbacks(thing adapter.Thing) (map[signalr.ObservationID]func(), error) {
+func (c *connector) signalRCallbacks(thing adapter.Thing) (map[signalr.ObservationID]ObservationHandler, error) {
 	chargepoints, err := c.extractChargepointServices(thing)
 	if err != nil {
 		return nil, err
@@ -95,41 +106,86 @@ func (c *connector) signalRCallbacks(thing adapter.Thing) (map[signalr.Observati
 		return nil, err
 	}
 
-	return map[signalr.ObservationID]func(){
-		signalr.ChargerOPState: func() {
+	return map[signalr.ObservationID]ObservationHandler{
+		signalr.ChargerOPState: func(observation signalr.Observation) error {
+			val, err := observation.IntValue()
+			if err != nil {
+				return err
+			}
+
+			c.cache.setChargerState(ChargerState(val))
+
+			var ret error
 			for _, cp := range chargepoints {
 				if _, err := cp.SendStateReport(false); err != nil {
-					log.WithError(err).Error()
+					ret = errors.Join(ret, err)
 				}
 			}
+			return err
 		},
-		signalr.SessionEnergy: func() {
+		signalr.SessionEnergy: func(observation signalr.Observation) error {
+			val, err := observation.Float64Value()
+			if err != nil {
+				return err
+			}
+
+			c.cache.setSessionEnergy(val)
+
+			var ret error
 			for _, cp := range chargepoints {
 				if _, err := cp.SendCurrentSessionReport(false); err != nil {
-					log.WithError(err).Error()
+					ret = errors.Join(ret, err)
 				}
 			}
+			return err
 		},
-		signalr.CableLocked: func() {
+		signalr.CableLocked: func(observation signalr.Observation) error {
+			val, err := observation.BoolValue()
+			if err != nil {
+				return err
+			}
+
+			c.cache.setCableLocked(val)
+
+			var ret error
 			for _, cp := range chargepoints {
 				if _, err := cp.SendCableLockReport(false); err != nil {
-					log.WithError(err).Error()
+					ret = errors.Join(ret, err)
 				}
 			}
+			return err
 		},
-		signalr.TotalPower: func() {
+		signalr.TotalPower: func(observation signalr.Observation) error {
+			val, err := observation.Float64Value()
+			if err != nil {
+				return err
+			}
+
+			c.cache.setTotalPower(val * 1000)
+
+			var ret error
 			for _, cp := range meterElecs {
 				if _, err := cp.SendMeterReport(numericmeter.UnitW, false); err != nil {
-					log.WithError(err).Error()
+					ret = errors.Join(ret, err)
 				}
 			}
+			return err
 		},
-		signalr.LifetimeEnergy: func() {
+		signalr.LifetimeEnergy: func(observation signalr.Observation) error {
+			val, err := observation.Float64Value()
+			if err != nil {
+				return err
+			}
+
+			c.cache.setLifetimeEnergy(val)
+
+			var ret error
 			for _, cp := range meterElecs {
 				if _, err := cp.SendMeterReport(numericmeter.UnitKWh, false); err != nil {
-					log.WithError(err).Error()
+					ret = errors.Join(ret, err)
 				}
 			}
+			return err
 		},
 	}, nil
 }
