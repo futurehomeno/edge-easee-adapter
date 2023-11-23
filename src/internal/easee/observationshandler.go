@@ -1,8 +1,6 @@
 package easee
 
 import (
-	"math"
-
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
@@ -62,13 +60,12 @@ func (o *observationsHandler) handleCableLocked(observation signalr.Observation)
 }
 
 func (o *observationsHandler) handleCableRating(observation signalr.Observation) error {
-	val, err := observation.Float64Value()
+	val, err := observation.IntValue()
 	if err != nil {
 		return err
 	}
 
-	current := int64(math.Round(val))
-	o.cache.setCableCurrent(current)
+	o.cache.setCableCurrent(int64(val))
 
 	_, err = o.chargepoint.SendCableLockReport(false)
 

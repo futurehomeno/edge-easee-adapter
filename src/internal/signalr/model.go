@@ -73,6 +73,7 @@ func SupportedObservationIDs() []ObservationID {
 		CableLocked,
 		TotalPower,
 		LifetimeEnergy,
+		CableRating,
 	}
 }
 
