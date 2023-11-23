@@ -67,7 +67,7 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 
 	return &chargepoint.CableReport{
 		CableLock:    c.cache.CableLocked(),
-		CableCurrent: 0, // TODO
+		CableCurrent: c.cache.CableCurrent(),
 	}, nil
 }
 

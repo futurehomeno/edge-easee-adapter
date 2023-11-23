@@ -57,10 +57,11 @@ func (o ObservationID) Supported() bool {
 }
 
 const (
-	ChargerOPState ObservationID = 109
-	SessionEnergy  ObservationID = 121
 	CableLocked    ObservationID = 103
+	CableRating    ObservationID = 104
+	ChargerOPState ObservationID = 109
 	TotalPower     ObservationID = 120
+	SessionEnergy  ObservationID = 121
 	LifetimeEnergy ObservationID = 124
 )
 
