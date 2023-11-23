@@ -17,12 +17,10 @@ type SignalRManager interface {
 	// Connected check if SignalR client is connected.
 	Connected() bool
 	// Register registers a charger to be managed.
-	Register(chargerID string, handler ObservationHandler) error
+	Register(chargerID string, handler ObservationsHandler) error
 	// Unregister unregisters a charger from being managed.
 	Unregister(chargerID string) error
 }
-
-type ObservationHandler func(signalr.Observation) error
 
 type signalRManager struct {
 	mu      sync.RWMutex
@@ -30,13 +28,13 @@ type signalRManager struct {
 	done    chan struct{}
 
 	client   signalr.Client
-	chargers map[string]ObservationHandler
+	chargers map[string]ObservationsHandler
 }
 
 func NewSignalRManager(client signalr.Client) SignalRManager {
 	return &signalRManager{
 		client:   client,
-		chargers: make(map[string]ObservationHandler),
+		chargers: make(map[string]ObservationsHandler),
 	}
 }
 
@@ -77,7 +75,7 @@ func (m *signalRManager) Stop() error {
 	return nil
 }
 
-func (m *signalRManager) Register(chargerID string, handler ObservationHandler) error {
+func (m *signalRManager) Register(chargerID string, handler ObservationsHandler) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -190,5 +188,5 @@ func (m *signalRManager) handleObservation(observation signalr.Observation) erro
 		return nil
 	}
 
-	return chargerHandler(observation)
+	return chargerHandler.HandleObservation(observation)
 }
