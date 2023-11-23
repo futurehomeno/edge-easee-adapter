@@ -1,6 +1,8 @@
 package easee
 
 import (
+	"math"
+
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
@@ -27,12 +29,13 @@ func NewObservationsHandler(chargepoint chargepoint.Service, meterElec numericme
 	}
 
 	handler.callbacks = map[signalr.ObservationID]func(signalr.Observation) error{
-		signalr.CableLocked:    handler.handleCableLocked,
-		signalr.CableRating:    handler.handleCableRating,
-		signalr.ChargerOPState: handler.handleChargerState,
-		signalr.TotalPower:     handler.handleTotalPower,
-		signalr.SessionEnergy:  handler.handleSessionEnergy,
-		signalr.LifetimeEnergy: handler.handleLifetimeEnergy,
+		signalr.MaxChargerCurrent: handler.handleMaxChargerCurrent,
+		signalr.CableLocked:       handler.handleCableLocked,
+		signalr.CableRating:       handler.handleCableRating,
+		signalr.ChargerOPState:    handler.handleChargerState,
+		signalr.TotalPower:        handler.handleTotalPower,
+		signalr.SessionEnergy:     handler.handleSessionEnergy,
+		signalr.LifetimeEnergy:    handler.handleLifetimeEnergy,
 	}
 
 	return &handler
@@ -44,6 +47,20 @@ func (o *observationsHandler) HandleObservation(observation signalr.Observation)
 	}
 
 	return nil
+}
+
+func (o *observationsHandler) handleMaxChargerCurrent(observation signalr.Observation) error {
+	val, err := observation.Float64Value()
+	if err != nil {
+		return err
+	}
+
+	current := int64(math.Round(val))
+	o.cache.setMaxCurrent(current)
+
+	_, err = o.chargepoint.SendMaxCurrentReport(false)
+
+	return err
 }
 
 func (o *observationsHandler) handleCableLocked(observation signalr.Observation) error {

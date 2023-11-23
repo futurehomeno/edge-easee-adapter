@@ -10,20 +10,23 @@ import (
 type ObservationCache interface {
 	// ChargerState returns the charger state.
 	ChargerState() ChargerState
-	// SessionEnergy returns the session energy.
-	SessionEnergy() float64
+	// MaxCurrent returns the charger max current.
+	MaxCurrent() int64
 	// CableLocked returns the cable locked state.
 	CableLocked() bool
 	// CableCurrent returns the cable max current.
 	CableCurrent() int64
+	// SessionEnergy returns the session energy.
+	SessionEnergy() float64
 	// TotalPower returns the total power.
 	TotalPower() float64
 	// LifetimeEnergy returns the lifetime energy.
 	LifetimeEnergy() float64
 
+	setChargerState(state ChargerState)
+	setMaxCurrent(current int64)
 	setCableLocked(locked bool)
 	setCableCurrent(current int64)
-	setChargerState(state ChargerState)
 	setSessionEnergy(energy float64)
 
 	setTotalPower(power float64)
@@ -34,6 +37,7 @@ type cache struct {
 	mu sync.RWMutex
 
 	chargerState   ChargerState
+	maxCurrent     int64
 	cableLocked    bool
 	cableCurrent   int64
 	sessionEnergy  float64
@@ -57,6 +61,13 @@ func (c *cache) SessionEnergy() float64 {
 	defer c.mu.RUnlock()
 
 	return c.sessionEnergy
+}
+
+func (c *cache) MaxCurrent() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.maxCurrent
 }
 
 func (c *cache) CableLocked() bool {
@@ -92,6 +103,13 @@ func (c *cache) setSessionEnergy(energy float64) {
 	defer c.mu.Unlock()
 
 	c.sessionEnergy = energy
+}
+
+func (c *cache) setMaxCurrent(current int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.maxCurrent = current
 }
 
 func (c *cache) setCableLocked(locked bool) {

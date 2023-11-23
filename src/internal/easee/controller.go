@@ -39,6 +39,22 @@ type controller struct {
 	maxCurrent float64
 }
 
+func (c *controller) SetChargepointMaxCurrent(int64) error {
+	return nil // TODO
+}
+
+func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
+	if err := c.checkConnection(); err != nil {
+		return 0, err
+	}
+
+	return c.cache.MaxCurrent(), nil
+}
+
+func (c *controller) SetChargepointOfferedCurrent(int64) error {
+	return nil // TODO
+}
+
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
 	var current float64
 
