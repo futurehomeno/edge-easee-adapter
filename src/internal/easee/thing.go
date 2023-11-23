@@ -81,18 +81,13 @@ func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingSt
 		supportedStates = append(supportedStates, s.ToFimpState())
 	}
 
-	var supportedModes []string
-	for _, m := range SupportedChargingModes() {
-		supportedModes = append(supportedModes, m)
-	}
-
 	return chargepoint.Specification(
 		adapter.Name(),
 		adapter.Address(),
 		thingState.Address(),
 		groups,
 		supportedStates,
-		chargepoint.WithChargingModes(supportedModes...),
+		chargepoint.WithChargingModes(SupportedChargingModes()...),
 		// TODO
 		// chargepoint.WithPhases(info.Phases),
 		// chargepoint.WithSupportedMaxCurrent(info.MaxCurrent),

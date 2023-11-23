@@ -18,7 +18,8 @@ type Controller interface {
 }
 
 // NewController returns a new instance of Controller.
-func NewController(client APIClient, manager SignalRManager, cache ObservationCache, cfgService *config.Service, chargerID string, maxCurrent float64) Controller {
+func NewController(client APIClient, manager SignalRManager, cache ObservationCache,
+	cfgService *config.Service, chargerID string, maxCurrent float64) Controller {
 	return &controller{
 		client:     client,
 		manager:    manager,
@@ -104,7 +105,7 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 		return 0, err
 	}
 
-	switch unit {
+	switch unit { //nolint:exhaustive
 	case numericmeter.UnitW:
 		return c.cache.TotalPower(), nil
 	case numericmeter.UnitKWh:

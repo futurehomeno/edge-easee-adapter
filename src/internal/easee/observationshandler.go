@@ -56,11 +56,13 @@ func (o *observationsHandler) handleChargerState(observation signalr.Observation
 	o.cache.setChargerState(ChargerState(val))
 
 	var ret error
+
 	for _, cp := range o.chargepoints {
 		if _, err := cp.SendStateReport(false); err != nil {
 			ret = errors.Join(ret, err)
 		}
 	}
+
 	return err
 }
 
@@ -73,6 +75,7 @@ func (o *observationsHandler) handleSessionEnergy(observation signalr.Observatio
 	o.cache.setSessionEnergy(val)
 
 	var ret error
+
 	for _, cp := range o.chargepoints {
 		if _, err := cp.SendCurrentSessionReport(false); err != nil {
 			ret = errors.Join(ret, err)
@@ -81,6 +84,7 @@ func (o *observationsHandler) handleSessionEnergy(observation signalr.Observatio
 
 	return err
 }
+
 func (o *observationsHandler) handleCableLocked(observation signalr.Observation) error {
 	val, err := observation.BoolValue()
 	if err != nil {
@@ -90,6 +94,7 @@ func (o *observationsHandler) handleCableLocked(observation signalr.Observation)
 	o.cache.setCableLocked(val)
 
 	var ret error
+
 	for _, cp := range o.chargepoints {
 		if _, err := cp.SendCableLockReport(false); err != nil {
 			ret = errors.Join(ret, err)
@@ -108,6 +113,7 @@ func (o *observationsHandler) handleTotalPower(observation signalr.Observation) 
 	o.cache.setTotalPower(val * 1000)
 
 	var ret error
+
 	for _, cp := range o.meterElecs {
 		if _, err := cp.SendMeterReport(numericmeter.UnitW, false); err != nil {
 			ret = errors.Join(ret, err)
@@ -126,6 +132,7 @@ func (o *observationsHandler) handleLifetimeEnergy(observation signalr.Observati
 	o.cache.setLifetimeEnergy(val)
 
 	var ret error
+
 	for _, cp := range o.meterElecs {
 		if _, err := cp.SendMeterReport(numericmeter.UnitKWh, false); err != nil {
 			ret = errors.Join(ret, err)

@@ -327,8 +327,8 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 		},
 	}
 
-	for _, val := range testCases { //nolint
-		v := val //nolint
+	for _, val := range testCases {
+		v := val
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 

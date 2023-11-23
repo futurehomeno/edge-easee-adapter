@@ -170,8 +170,7 @@ func (m *signalRManager) handleObservations() {
 	}
 }
 
-//nolint:funlen
-func (m *signalRManager) handleObservation(observation signalr.Observation) error { //nolint:cyclop
+func (m *signalRManager) handleObservation(observation signalr.Observation) error {
 	if !observation.ID.Supported() {
 		return nil
 	}
