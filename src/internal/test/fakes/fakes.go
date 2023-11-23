@@ -12,9 +12,9 @@ type fakeConfigStorage[T any] struct {
 	modelFactory func() T
 }
 
-// NewFakeStorage returns a fake implementation for storage.Storage.
+// NewConfigStorage returns a fake implementation for storage.Storage.
 // Not suitable for production use.
-func NewFakeStorage[T any](model T, modelFactory func() T) storage.Storage[T] {
+func NewConfigStorage[T any](model T, modelFactory func() T) storage.Storage[T] {
 	return &fakeConfigStorage[T]{model: model, modelFactory: modelFactory}
 }
 

@@ -1,8 +1,6 @@
 package easee
 
 import (
-	"errors"
-
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
@@ -15,17 +13,17 @@ type ObservationsHandler interface {
 }
 
 type observationsHandler struct {
-	chargepoints []chargepoint.Service
-	meterElecs   []numericmeter.Service
-	cache        ObservationCache
-	callbacks    map[signalr.ObservationID]func(signalr.Observation) error
+	chargepoint chargepoint.Service
+	meterElec   numericmeter.Service
+	cache       ObservationCache
+	callbacks   map[signalr.ObservationID]func(signalr.Observation) error
 }
 
-func NewObservationsHandler(chargepoints []chargepoint.Service, meterElecs []numericmeter.Service, cache ObservationCache) ObservationsHandler {
+func NewObservationsHandler(chargepoint chargepoint.Service, meterElec numericmeter.Service, cache ObservationCache) ObservationsHandler {
 	handler := observationsHandler{
-		chargepoints: chargepoints,
-		meterElecs:   meterElecs,
-		cache:        cache,
+		chargepoint: chargepoint,
+		meterElec:   meterElec,
+		cache:       cache,
 	}
 
 	handler.callbacks = map[signalr.ObservationID]func(signalr.Observation) error{
@@ -55,13 +53,7 @@ func (o *observationsHandler) handleChargerState(observation signalr.Observation
 
 	o.cache.setChargerState(ChargerState(val))
 
-	var ret error
-
-	for _, cp := range o.chargepoints {
-		if _, err := cp.SendStateReport(false); err != nil {
-			ret = errors.Join(ret, err)
-		}
-	}
+	_, err = o.chargepoint.SendStateReport(false)
 
 	return err
 }
@@ -74,13 +66,7 @@ func (o *observationsHandler) handleSessionEnergy(observation signalr.Observatio
 
 	o.cache.setSessionEnergy(val)
 
-	var ret error
-
-	for _, cp := range o.chargepoints {
-		if _, err := cp.SendCurrentSessionReport(false); err != nil {
-			ret = errors.Join(ret, err)
-		}
-	}
+	_, err = o.chargepoint.SendCurrentSessionReport(false)
 
 	return err
 }
@@ -93,13 +79,7 @@ func (o *observationsHandler) handleCableLocked(observation signalr.Observation)
 
 	o.cache.setCableLocked(val)
 
-	var ret error
-
-	for _, cp := range o.chargepoints {
-		if _, err := cp.SendCableLockReport(false); err != nil {
-			ret = errors.Join(ret, err)
-		}
-	}
+	_, err = o.chargepoint.SendCableLockReport(false)
 
 	return err
 }
@@ -112,13 +92,7 @@ func (o *observationsHandler) handleTotalPower(observation signalr.Observation) 
 
 	o.cache.setTotalPower(val * 1000)
 
-	var ret error
-
-	for _, cp := range o.meterElecs {
-		if _, err := cp.SendMeterReport(numericmeter.UnitW, false); err != nil {
-			ret = errors.Join(ret, err)
-		}
-	}
+	_, err = o.meterElec.SendMeterReport(numericmeter.UnitW, false)
 
 	return err
 }
@@ -131,13 +105,7 @@ func (o *observationsHandler) handleLifetimeEnergy(observation signalr.Observati
 
 	o.cache.setLifetimeEnergy(val)
 
-	var ret error
-
-	for _, cp := range o.meterElecs {
-		if _, err := cp.SendMeterReport(numericmeter.UnitKWh, false); err != nil {
-			ret = errors.Join(ret, err)
-		}
-	}
+	_, err = o.meterElec.SendMeterReport(numericmeter.UnitKWh, false)
 
 	return err
 }

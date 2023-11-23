@@ -1,7 +1,7 @@
 package easee
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
@@ -78,47 +78,35 @@ func (c *connector) Ping() *adapter.PingDetails {
 }
 
 func (c *connector) getObservationsHandler(thing adapter.Thing) (ObservationsHandler, error) {
-	chargepoints, err := c.extractChargepointServices(thing)
+	chargepoint, err := c.getChargepointService(thing)
 	if err != nil {
 		return nil, err
 	}
 
-	meterElecs, err := c.extractMeterElecServices(thing)
+	meterElec, err := c.getMeterElecService(thing)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewObservationsHandler(chargepoints, meterElecs, c.cache), nil
+	return NewObservationsHandler(chargepoint, meterElec, c.cache), nil
 }
 
-func (c *connector) extractChargepointServices(thing adapter.Thing) ([]chargepoint.Service, error) {
-	raw := thing.Services(chargepoint.Chargepoint)
-	chargepoints := make([]chargepoint.Service, 0, len(raw))
-
-	for _, service := range raw {
-		cp, ok := service.(chargepoint.Service)
-		if !ok {
-			return nil, fmt.Errorf("expected a service to be a chargepoint, got %T instead", service)
+func (c *connector) getChargepointService(thing adapter.Thing) (chargepoint.Service, error) {
+	for _, service := range thing.Services(chargepoint.Chargepoint) {
+		if service, ok := service.(chargepoint.Service); ok {
+			return service, nil
 		}
-
-		chargepoints = append(chargepoints, cp)
 	}
 
-	return chargepoints, nil
+	return nil, errors.New("There are no chargepoint services")
 }
 
-func (c *connector) extractMeterElecServices(thing adapter.Thing) ([]numericmeter.Service, error) {
-	raw := thing.Services(numericmeter.MeterElec)
-	meterElecs := make([]numericmeter.Service, 0, len(raw))
-
-	for _, service := range raw {
-		nm, ok := service.(numericmeter.Service)
-		if !ok {
-			return nil, fmt.Errorf("expected a service to be a numeric_meter, got %T instead", service)
+func (c *connector) getMeterElecService(thing adapter.Thing) (numericmeter.Service, error) {
+	for _, service := range thing.Services(numericmeter.MeterElec) {
+		if service, ok := service.(numericmeter.Service); ok {
+			return service, nil
 		}
-
-		meterElecs = append(meterElecs, nm)
 	}
 
-	return meterElecs, nil
+	return nil, errors.New("There are no meterelec services")
 }
