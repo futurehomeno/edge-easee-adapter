@@ -186,7 +186,6 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 		name             string
 		chargerID        string
 		accessToken      string
-		current          float64
 		serverHandler    http.Handler
 		forceServerError bool
 		wantErr          bool
@@ -195,16 +194,13 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			name:        "successful call to Easee API",
 			chargerID:   test.ChargerID,
 			accessToken: test.AccessToken,
-			current:     40,
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/XX12345/settings",
+					requestPath:   "/api/chargers/XX12345/commands/start_charging",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
-						"Content-Type":  "application/*+json",
 					},
-					requestBody:  `{"dynamicChargerCurrent":40}`,
 					responseCode: http.StatusAccepted,
 				},
 			}...),
@@ -213,15 +209,12 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			name:        "response code != 200",
 			chargerID:   test.ChargerID,
 			accessToken: test.AccessToken,
-			current:     40,
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
-				requestPath:   "/api/chargers/XX12345/settings",
+				requestPath:   "/api/chargers/XX12345/commands/start_charging",
 				requestHeaders: map[string]string{
 					"Authorization": "Bearer test.access.token",
-					"Content-Type":  "application/*+json",
 				},
-				requestBody:  `{"dynamicChargerCurrent":40}`,
 				responseCode: http.StatusInternalServerError,
 			}),
 			wantErr: true,
@@ -230,7 +223,6 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			name:             "http client error",
 			chargerID:        test.ChargerID,
 			accessToken:      test.AccessToken,
-			current:          40,
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -255,7 +247,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := easee.NewHTTPClient(httpClient, s.URL)
 
-			err := c.StartCharging(tt.accessToken, tt.chargerID, tt.current)
+			err := c.StartCharging(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
 				assert.Error(t, err)
 
@@ -288,12 +280,10 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/XX12345/settings",
+					requestPath:   "/api/chargers/XX12345/commands/pause_charging",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
-						"Content-Type":  "application/*+json",
 					},
-					requestBody:  `{"dynamicChargerCurrent":0}`,
 					responseCode: http.StatusAccepted,
 				},
 			}...),
@@ -304,12 +294,10 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			accessToken: test.AccessToken,
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
-				requestPath:   "/api/chargers/XX12345/settings",
+				requestPath:   "/api/chargers/XX12345/commands/pause_charging",
 				requestHeaders: map[string]string{
 					"Authorization": "Bearer test.access.token",
-					"Content-Type":  "application/*+json",
 				},
-				requestBody:  `{"dynamicChargerCurrent":0}`,
 				responseCode: http.StatusInternalServerError,
 			}),
 			wantErr: true,

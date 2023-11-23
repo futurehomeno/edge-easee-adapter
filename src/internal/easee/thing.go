@@ -90,7 +90,7 @@ func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingSt
 		chargepoint.WithChargingModes(SupportedChargingModes()...),
 		// TODO
 		// chargepoint.WithPhases(info.Phases),
-		// chargepoint.WithSupportedMaxCurrent(info.MaxCurrent),
+		chargepoint.WithSupportedMaxCurrent(32), // TODO
 		// chargepoint.WithGridType(info.GridType),
 	)
 }

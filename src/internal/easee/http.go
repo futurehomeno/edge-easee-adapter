@@ -20,6 +20,8 @@ const (
 
 	chargerConfigURITemplate   = "/api/chargers/%s/config"
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
+	chargerStartURITemplate    = "/api/chargers/%s/commands/start_charging"
+	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
 
 	authorizationHeader = "Authorization"
@@ -50,8 +52,12 @@ func (e HTTPError) Error() string {
 
 // APIClient is a wrapper around the Easee HTTP Client with authentication capabilities.
 type APIClient interface {
+	// UpdateMaxCurrent updates max charger current.
+	UpdateMaxCurrent(chargerID string, current float64) error
+	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
+	UpdateDynamicCurrent(chargerID string, current float64) error
 	// StartCharging starts charging session for the selected charger.
-	StartCharging(chargerID string, current float64) error
+	StartCharging(chargerID string) error
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(chargerID string) error
 	// SetCableLock locks/unlocks the cable for the selected charger.
@@ -76,13 +82,31 @@ func NewAPIClient(http HTTPClient, auth Authenticator) APIClient {
 	}
 }
 
-func (a *apiClient) StartCharging(chargerID string, current float64) error {
+func (a *apiClient) UpdateMaxCurrent(chargerID string, current float64) error {
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)
 	}
 
-	return a.httpClient.StartCharging(token, chargerID, current)
+	return a.httpClient.UpdateMaxCurrent(token, chargerID, current)
+}
+
+func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) error {
+	token, err := a.auth.AccessToken()
+	if err != nil {
+		return a.tokenError(err)
+	}
+
+	return a.httpClient.UpdateDynamicCurrent(token, chargerID, current)
+}
+
+func (a *apiClient) StartCharging(chargerID string) error {
+	token, err := a.auth.AccessToken()
+	if err != nil {
+		return a.tokenError(err)
+	}
+
+	return a.httpClient.StartCharging(token, chargerID)
 }
 
 func (a *apiClient) StopCharging(chargerID string) error {
@@ -136,12 +160,16 @@ func (a *apiClient) tokenError(err error) error {
 
 // HTTPClient represents Easee HTTP API Client.
 type HTTPClient interface {
+	// UpdateMaxCurrent updates max charger current.
+	UpdateMaxCurrent(accessToken, chargerID string, current float64) error
+	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
+	UpdateDynamicCurrent(accessToken, chargerID string, current float64) error
 	// Login logs the user in the Easee API and retrieves credentials.
 	Login(userName, password string) (*Credentials, error)
 	// RefreshToken retrieves new credentials based on an access token and a refresh token.
 	RefreshToken(accessToken, refreshToken string) (*Credentials, error)
 	// StartCharging starts charging session for the selected charger.
-	StartCharging(accessToken, chargerID string, current float64) error
+	StartCharging(accessToken, chargerID string) error
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(accessToken, chargerID string) error
 	// SetCableLock locks/unlocks the cable for the selected charger.
@@ -236,13 +264,55 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*Credential
 	return loginData, nil
 }
 
-func (c *httpClient) StartCharging(accessToken, chargerID string, current float64) error {
+func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current float64) error {
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(chargerCurrentBody{DynamicChargerCurrent: current}).
+		withBody(maxCurrentBody{MaxChargerCurrent: current}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return errors.Wrap(err, "failed to create max current request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusAccepted)
+	if err != nil {
+		return errors.Wrap(err, "update max current request failed")
+	}
+
+	defer resp.Body.Close()
+
+	return nil
+}
+
+func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current float64) error {
+	u := c.buildURL(chargerSettingsURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodPost, u).
+		withBody(dynamicCurrentBody{DynamicChargerCurrent: current}).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return errors.Wrap(err, "failed to create dynamic current request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusAccepted)
+	if err != nil {
+		return errors.Wrap(err, "update dynamic current request failed")
+	}
+
+	defer resp.Body.Close()
+
+	return nil
+}
+
+func (c *httpClient) StartCharging(accessToken, chargerID string) error {
+	u := c.buildURL(chargerStartURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodPost, u).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		build()
 	if err != nil {
 		return errors.Wrap(err, "failed to create start charging request")
@@ -259,12 +329,10 @@ func (c *httpClient) StartCharging(accessToken, chargerID string, current float6
 }
 
 func (c *httpClient) StopCharging(accessToken, chargerID string) error {
-	u := c.buildURL(chargerSettingsURITemplate, chargerID)
+	u := c.buildURL(chargerStopURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(chargerCurrentBody{DynamicChargerCurrent: pauseChargingCurrent}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		addHeader(contentTypeHeader, jsonContentType).
 		build()
 	if err != nil {
 		return errors.Wrap(err, "failed to create stop charging request")

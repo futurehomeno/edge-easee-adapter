@@ -92,13 +92,13 @@ func (_m *APIClient) SetCableLock(chargerID string, locked bool) error {
 	return r0
 }
 
-// StartCharging provides a mock function with given fields: chargerID, current
-func (_m *APIClient) StartCharging(chargerID string, current float64) error {
-	ret := _m.Called(chargerID, current)
+// StartCharging provides a mock function with given fields: chargerID
+func (_m *APIClient) StartCharging(chargerID string) error {
+	ret := _m.Called(chargerID)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string, float64) error); ok {
-		r0 = rf(chargerID, current)
+	if rf, ok := ret.Get(0).(func(string) error); ok {
+		r0 = rf(chargerID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -113,6 +113,34 @@ func (_m *APIClient) StopCharging(chargerID string) error {
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string) error); ok {
 		r0 = rf(chargerID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// UpdateDynamicCurrent provides a mock function with given fields: chargerID, current
+func (_m *APIClient) UpdateDynamicCurrent(chargerID string, current float64) error {
+	ret := _m.Called(chargerID, current)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, float64) error); ok {
+		r0 = rf(chargerID, current)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// UpdateMaxCurrent provides a mock function with given fields: chargerID, current
+func (_m *APIClient) UpdateMaxCurrent(chargerID string, current float64) error {
+	ret := _m.Called(chargerID, current)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, float64) error); ok {
+		r0 = rf(chargerID, current)
 	} else {
 		r0 = ret.Error(0)
 	}

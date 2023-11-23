@@ -1,7 +1,6 @@
 package easee
 
 import (
-	"strings"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
@@ -36,11 +35,12 @@ type controller struct {
 	cache      ObservationCache
 	cfgService *config.Service
 	chargerID  string
+	// TODO: needed?
 	maxCurrent float64
 }
 
-func (c *controller) SetChargepointMaxCurrent(int64) error {
-	return nil // TODO
+func (c *controller) SetChargepointMaxCurrent(current int64) error {
+	return c.client.UpdateMaxCurrent(c.chargerID, float64(current))
 }
 
 func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
@@ -51,21 +51,21 @@ func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
 	return c.cache.MaxCurrent(), nil
 }
 
-func (c *controller) SetChargepointOfferedCurrent(int64) error {
-	return nil // TODO
+func (c *controller) SetChargepointOfferedCurrent(current int64) error {
+	return c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
-	var current float64
+	// TODO: Remove Mode?
 
-	switch strings.ToLower(settings.Mode) {
-	case ChargingModeSlow:
-		current = c.cfgService.GetSlowChargingCurrentInAmperes()
-	default:
-		current = c.maxCurrent
-	}
+	// switch strings.ToLower(settings.Mode) {
+	// case ChargingModeSlow:
+	// 	current = c.cfgService.GetSlowChargingCurrentInAmperes()
+	// default:
+	// 	current = c.maxCurrent
+	// }
 
-	return c.client.StartCharging(c.chargerID, current)
+	return c.client.StartCharging(c.chargerID)
 }
 
 func (c *controller) StopChargepointCharging() error {

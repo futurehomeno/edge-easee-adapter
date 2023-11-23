@@ -144,13 +144,13 @@ func (_m *HTTPClient) SetCableLock(accessToken string, chargerID string, locked 
 	return r0
 }
 
-// StartCharging provides a mock function with given fields: accessToken, chargerID, current
-func (_m *HTTPClient) StartCharging(accessToken string, chargerID string, current float64) error {
-	ret := _m.Called(accessToken, chargerID, current)
+// StartCharging provides a mock function with given fields: accessToken, chargerID
+func (_m *HTTPClient) StartCharging(accessToken string, chargerID string) error {
+	ret := _m.Called(accessToken, chargerID)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, float64) error); ok {
-		r0 = rf(accessToken, chargerID, current)
+	if rf, ok := ret.Get(0).(func(string, string) error); ok {
+		r0 = rf(accessToken, chargerID)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -165,6 +165,34 @@ func (_m *HTTPClient) StopCharging(accessToken string, chargerID string) error {
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string) error); ok {
 		r0 = rf(accessToken, chargerID)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// UpdateDynamicCurrent provides a mock function with given fields: accessToken, chargerID, current
+func (_m *HTTPClient) UpdateDynamicCurrent(accessToken string, chargerID string, current float64) error {
+	ret := _m.Called(accessToken, chargerID, current)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string, float64) error); ok {
+		r0 = rf(accessToken, chargerID, current)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// UpdateMaxCurrent provides a mock function with given fields: accessToken, chargerID, current
+func (_m *HTTPClient) UpdateMaxCurrent(accessToken string, chargerID string, current float64) error {
+	ret := _m.Called(accessToken, chargerID, current)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string, float64) error); ok {
+		r0 = rf(accessToken, chargerID, current)
 	} else {
 		r0 = ret.Error(0)
 	}

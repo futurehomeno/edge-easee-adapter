@@ -12,128 +12,22 @@ type ObservationCache struct {
 	mock.Mock
 }
 
+// CableCurrent provides a mock function with given fields:
+func (_m *ObservationCache) CableCurrent() int64 {
+	ret := _m.Called()
+
+	var r0 int64
+	if rf, ok := ret.Get(0).(func() int64); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	return r0
+}
+
 // CableLocked provides a mock function with given fields:
-func (_m *ObservationCache) CableLocked() (bool, error) {
-	ret := _m.Called()
-
-	var r0 bool
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (bool, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() bool); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// ChargerState provides a mock function with given fields:
-func (_m *ObservationCache) ChargerState() (easee.ChargerState, error) {
-	ret := _m.Called()
-
-	var r0 easee.ChargerState
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (easee.ChargerState, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() easee.ChargerState); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(easee.ChargerState)
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// LifetimeEnergy provides a mock function with given fields:
-func (_m *ObservationCache) LifetimeEnergy() (float64, error) {
-	ret := _m.Called()
-
-	var r0 float64
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (float64, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() float64); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(float64)
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// SessionEnergy provides a mock function with given fields:
-func (_m *ObservationCache) SessionEnergy() (float64, error) {
-	ret := _m.Called()
-
-	var r0 float64
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (float64, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() float64); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(float64)
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// TotalPower provides a mock function with given fields:
-func (_m *ObservationCache) TotalPower() (float64, error) {
-	ret := _m.Called()
-
-	var r0 float64
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (float64, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() float64); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(float64)
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// isConnected provides a mock function with given fields:
-func (_m *ObservationCache) isConnected() bool {
+func (_m *ObservationCache) CableLocked() bool {
 	ret := _m.Called()
 
 	var r0 bool
@@ -146,6 +40,81 @@ func (_m *ObservationCache) isConnected() bool {
 	return r0
 }
 
+// ChargerState provides a mock function with given fields:
+func (_m *ObservationCache) ChargerState() easee.ChargerState {
+	ret := _m.Called()
+
+	var r0 easee.ChargerState
+	if rf, ok := ret.Get(0).(func() easee.ChargerState); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(easee.ChargerState)
+	}
+
+	return r0
+}
+
+// LifetimeEnergy provides a mock function with given fields:
+func (_m *ObservationCache) LifetimeEnergy() float64 {
+	ret := _m.Called()
+
+	var r0 float64
+	if rf, ok := ret.Get(0).(func() float64); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(float64)
+	}
+
+	return r0
+}
+
+// MaxCurrent provides a mock function with given fields:
+func (_m *ObservationCache) MaxCurrent() int64 {
+	ret := _m.Called()
+
+	var r0 int64
+	if rf, ok := ret.Get(0).(func() int64); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	return r0
+}
+
+// SessionEnergy provides a mock function with given fields:
+func (_m *ObservationCache) SessionEnergy() float64 {
+	ret := _m.Called()
+
+	var r0 float64
+	if rf, ok := ret.Get(0).(func() float64); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(float64)
+	}
+
+	return r0
+}
+
+// TotalPower provides a mock function with given fields:
+func (_m *ObservationCache) TotalPower() float64 {
+	ret := _m.Called()
+
+	var r0 float64
+	if rf, ok := ret.Get(0).(func() float64); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(float64)
+	}
+
+	return r0
+}
+
+// setCableCurrent provides a mock function with given fields: current
+func (_m *ObservationCache) setCableCurrent(current int64) {
+	_m.Called(current)
+}
+
 // setCableLocked provides a mock function with given fields: locked
 func (_m *ObservationCache) setCableLocked(locked bool) {
 	_m.Called(locked)
@@ -156,14 +125,14 @@ func (_m *ObservationCache) setChargerState(state easee.ChargerState) {
 	_m.Called(state)
 }
 
-// setConnected provides a mock function with given fields: connected
-func (_m *ObservationCache) setConnected(connected bool) {
-	_m.Called(connected)
-}
-
 // setLifetimeEnergy provides a mock function with given fields: energy
 func (_m *ObservationCache) setLifetimeEnergy(energy float64) {
 	_m.Called(energy)
+}
+
+// setMaxCurrent provides a mock function with given fields: current
+func (_m *ObservationCache) setMaxCurrent(current int64) {
+	_m.Called(current)
 }
 
 // setSessionEnergy provides a mock function with given fields: energy
