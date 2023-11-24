@@ -35,13 +35,15 @@ type ChargerState int
 
 const (
 	Unknown ChargerState = iota - 1
-	Unavailable
+	Offline
 	Disconnected
-	ReadyToCharge
+	AwaitingStart
 	Charging
-	Finished
+	Completed
 	Error
-	Requesting
+	ReadyToCharge
+	AwaitingAuthentication
+	DeAuthenticating
 )
 
 // ToFimpState returns a human-readable name of the state.
@@ -49,20 +51,24 @@ func (s ChargerState) ToFimpState() chargepoint.State {
 	switch s {
 	case Unknown:
 		return chargepoint.StateUnknown
-	case Unavailable:
+	case Offline:
 		return chargepoint.StateUnavailable
 	case Disconnected:
 		return chargepoint.StateDisconnected
-	case ReadyToCharge:
+	case AwaitingStart:
 		return chargepoint.StateReadyToCharge
 	case Charging:
 		return chargepoint.StateCharging
-	case Finished:
+	case Completed:
 		return chargepoint.StateFinished
 	case Error:
 		return chargepoint.StateError
-	case Requesting:
+	case ReadyToCharge:
 		return chargepoint.StateRequesting
+	case AwaitingAuthentication:
+		return "authenticating"
+	case DeAuthenticating:
+		return "deauthenticating"
 	default:
 		return chargepoint.StateUnknown
 	}
@@ -71,14 +77,15 @@ func (s ChargerState) ToFimpState() chargepoint.State {
 // SupportedChargingStates returns all charging states supported by Easee.
 func SupportedChargingStates() []ChargerState {
 	return []ChargerState{
-		Unavailable,
+		Offline,
 		Disconnected,
-		ReadyToCharge,
+		AwaitingStart,
 		Charging,
-		Finished,
+		Completed,
 		Error,
-		Requesting,
-		Unknown,
+		ReadyToCharge,
+		AwaitingAuthentication,
+		DeAuthenticating,
 	}
 }
 
