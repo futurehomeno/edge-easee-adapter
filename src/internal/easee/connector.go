@@ -1,23 +1,23 @@
 package easee
 
 import (
-	"errors"
-
 	"github.com/futurehomeno/cliffhanger/adapter"
-	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
-	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 type connector struct {
-	manager    SignalRManager
-	httpClient APIClient
+	manager    signalr.Manager
+	httpClient api.APIClient
 
 	chargerID string
-	cache     ObservationCache
+	cache     config.Cache
 }
 
-func NewConnector(manager SignalRManager, httpClient APIClient, chargerID string, cache ObservationCache) adapter.Connector {
+func NewConnector(manager signalr.Manager, httpClient api.APIClient, chargerID string, cache config.Cache) adapter.Connector {
 	return &connector{
 		manager:    manager,
 		httpClient: httpClient,
@@ -27,7 +27,7 @@ func NewConnector(manager SignalRManager, httpClient APIClient, chargerID string
 }
 
 func (c *connector) Connect(thing adapter.Thing) {
-	handler, err := c.getObservationsHandler(thing)
+	handler, err := signalr.NewObservationsHandler(thing, c.cache)
 	if err != nil {
 		log.WithError(err).Error("failed to create signalRManager callbacks")
 
@@ -75,38 +75,4 @@ func (c *connector) Ping() *adapter.PingDetails {
 	return &adapter.PingDetails{
 		Status: adapter.PingResultSuccess,
 	}
-}
-
-func (c *connector) getObservationsHandler(thing adapter.Thing) (ObservationsHandler, error) {
-	chargepoint, err := c.getChargepointService(thing)
-	if err != nil {
-		return nil, err
-	}
-
-	meterElec, err := c.getMeterElecService(thing)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewObservationsHandler(chargepoint, meterElec, c.cache), nil
-}
-
-func (c *connector) getChargepointService(thing adapter.Thing) (chargepoint.Service, error) {
-	for _, service := range thing.Services(chargepoint.Chargepoint) {
-		if service, ok := service.(chargepoint.Service); ok {
-			return service, nil
-		}
-	}
-
-	return nil, errors.New("There are no chargepoint services")
-}
-
-func (c *connector) getMeterElecService(thing adapter.Thing) (numericmeter.Service, error) {
-	for _, service := range thing.Services(numericmeter.MeterElec) {
-		if service, ok := service.(numericmeter.Service); ok {
-			return service, nil
-		}
-	}
-
-	return nil, errors.New("There are no meterelec services")
 }

@@ -9,7 +9,9 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/fimpgo/fimptype"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 // Info is an object representing charger persisted information.
@@ -21,13 +23,13 @@ type Info struct {
 }
 
 type thingFactory struct {
-	client         APIClient
+	client         api.APIClient
 	cfgService     *config.Service
-	signalRManager SignalRManager
+	signalRManager signalr.Manager
 }
 
 // NewThingFactory returns a new instance of adapter.ThingFactory.
-func NewThingFactory(client APIClient, cfgService *config.Service, signalRManager SignalRManager) adapter.ThingFactory {
+func NewThingFactory(client api.APIClient, cfgService *config.Service, signalRManager signalr.Manager) adapter.ThingFactory {
 	return &thingFactory{
 		client:         client,
 		cfgService:     cfgService,
@@ -42,7 +44,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		return nil, fmt.Errorf("factory: failed to retrieve information: %w", err)
 	}
 
-	cache := NewObservationCache()
+	cache := config.NewCache()
 	controller := NewController(t.client, t.signalRManager, cache, t.cfgService, info.ChargerID, info.MaxCurrent)
 
 	groups := []string{"ch_0"}
@@ -79,7 +81,7 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 
 func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string, info *Info) *fimptype.Service {
 	var supportedStates []chargepoint.State
-	for _, s := range SupportedChargingStates() {
+	for _, s := range signalr.SupportedChargingStates() {
 		supportedStates = append(supportedStates, s.ToFimpState())
 	}
 

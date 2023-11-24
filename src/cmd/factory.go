@@ -14,6 +14,7 @@ import (
 	"github.com/futurehomeno/fimpgo"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
@@ -37,11 +38,11 @@ type serviceContainer struct {
 	thingFactory    adapter.ThingFactory
 	adapterState    adapter.State
 	httpClient      *http.Client
-	easeeHTTPClient easee.HTTPClient
-	easeeAPIClient  easee.APIClient
-	authenticator   easee.Authenticator
+	easeeHTTPClient api.HTTPClient
+	easeeAPIClient  api.APIClient
+	authenticator   api.Authenticator
 	signalRClient   signalr.Client
-	signalRManager  easee.SignalRManager
+	signalRManager  signalr.Manager
 }
 
 func resetContainer() {
@@ -122,7 +123,7 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 			getMQTT(cfg),
 			getThingFactory(cfg),
 			getAdapterState(),
-			easee.ServiceName,
+			routing.ServiceName,
 			"1",
 		)
 	}
@@ -154,9 +155,9 @@ func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 }
 
 // getEaseeHTTPClient creates or returns existing Easee HTTP client.
-func getEaseeHTTPClient() easee.HTTPClient {
+func getEaseeHTTPClient() api.HTTPClient {
 	if services.easeeHTTPClient == nil {
-		services.easeeHTTPClient = easee.NewHTTPClient(
+		services.easeeHTTPClient = api.NewHTTPClient(
 			getHTTPClient(),
 			getConfigService().GetEaseeBaseURL(),
 		)
@@ -166,9 +167,9 @@ func getEaseeHTTPClient() easee.HTTPClient {
 }
 
 // getEaseeAPIClient creates or returns existing Easee HTTP client.
-func getEaseeAPIClient(cfg *config.Config) easee.APIClient {
+func getEaseeAPIClient(cfg *config.Config) api.APIClient {
 	if services.easeeAPIClient == nil {
-		services.easeeAPIClient = easee.NewAPIClient(
+		services.easeeAPIClient = api.NewAPIClient(
 			getEaseeHTTPClient(),
 			getAuthenticator(cfg),
 		)
@@ -188,13 +189,14 @@ func getHTTPClient() *http.Client {
 	return services.httpClient
 }
 
-func getAuthenticator(cfg *config.Config) easee.Authenticator {
+func getAuthenticator(cfg *config.Config) api.Authenticator {
 	if services.authenticator == nil {
-		services.authenticator = easee.NewAuthenticator(
+		services.authenticator = api.NewAuthenticator(
 			getEaseeHTTPClient(),
 			getConfigService(),
 			notification.NewNotification(getMQTT(cfg)),
 			getMQTT(cfg),
+			routing.ServiceName,
 		)
 	}
 
@@ -209,9 +211,9 @@ func getSignalRClient(cfg *config.Config) signalr.Client {
 	return services.signalRClient
 }
 
-func getSignalRManager(cfg *config.Config) easee.SignalRManager {
+func getSignalRManager(cfg *config.Config) signalr.Manager {
 	if services.signalRManager == nil {
-		services.signalRManager = easee.NewSignalRManager(getSignalRClient(cfg))
+		services.signalRManager = signalr.NewManager(getSignalRClient(cfg))
 	}
 
 	return services.signalRManager

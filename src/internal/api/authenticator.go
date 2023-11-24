@@ -1,4 +1,4 @@
-package easee
+package api
 
 import (
 	"fmt"
@@ -49,6 +49,7 @@ type authenticator struct {
 	http                HTTPClient
 	notificationManager notification.Notification
 	mqtt                *fimpgo.MqttTransport
+	serviceName         string
 }
 
 type backoffCfg struct {
@@ -56,12 +57,13 @@ type backoffCfg struct {
 	attempts int
 }
 
-func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification, mqtt *fimpgo.MqttTransport) Authenticator {
+func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification, mqtt *fimpgo.MqttTransport, serviceName string) Authenticator {
 	return &authenticator{
 		cfgSvc:              cfgSvc,
 		http:                http,
 		notificationManager: notify,
 		mqtt:                mqtt,
+		serviceName:         serviceName,
 	}
 }
 
@@ -173,7 +175,7 @@ func (a *authenticator) triggerAppLogout() error {
 
 	message := fimpgo.NewNullMessage(
 		"cmd.auth.logout",
-		ServiceName,
+		a.serviceName,
 		nil, nil, nil,
 	)
 

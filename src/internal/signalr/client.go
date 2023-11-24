@@ -2,9 +2,7 @@ package signalr
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"sync"
 	"time"
 
@@ -12,22 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-)
-
-// State represents the state of the SignalR client.
-type State int
-
-func (s State) String() string {
-	if s == Disconnected {
-		return "disconnected"
-	}
-
-	return "connected"
-}
-
-const (
-	Disconnected State = iota
-	Connected
 )
 
 // Client is the interface for the SignalR client.
@@ -44,7 +26,7 @@ type Client interface {
 	// Connected returns true if the SignalR client is connected.
 	Connected() bool
 	// StateC returns a channel that will receive state updates.
-	StateC() <-chan State
+	StateC() <-chan ClientState
 	// ObservationC returns a channel that will receive charger observations.
 	ObservationC() <-chan Observation
 }
@@ -59,8 +41,8 @@ type client struct {
 	serverStopFn context.CancelFunc
 	connFactory  *connectionFactory
 	receiver     *receiver
-	stateC       chan State
-	connState    State
+	stateC       chan ClientState
+	connState    ClientState
 }
 
 // NewClient creates a new SignalR client.
@@ -69,7 +51,7 @@ func NewClient(cfg *config.Service, authTokenProvider func() (string, error)) Cl
 		cfg:         cfg,
 		receiver:    newReceiver(),
 		connFactory: newConnectionFactory(cfg, authTokenProvider),
-		stateC:      make(chan State, 10),
+		stateC:      make(chan ClientState, 10),
 	}
 }
 
@@ -107,10 +89,10 @@ func (c *client) Connected() bool {
 		return false
 	}
 
-	return c.connState == Connected
+	return c.connState == ClientStateConnected
 }
 
-func (c *client) StateC() <-chan State {
+func (c *client) StateC() <-chan ClientState {
 	return c.stateC
 }
 
@@ -186,9 +168,9 @@ func (c *client) notifyState() {
 
 			return
 		case newState := <-ch:
-			var state State
+			var state ClientState
 			if newState == signalr.ClientConnected {
-				state = Connected
+				state = ClientStateConnected
 			}
 
 			c.mu.Lock()
@@ -228,73 +210,4 @@ func (c *client) clientFactory(connFactory *connectionFactory, rec *receiver) (s
 	}
 
 	return client, cancel, nil
-}
-
-type receiver struct {
-	signalr.Receiver
-
-	observations chan Observation
-}
-
-func newReceiver() *receiver {
-	return &receiver{
-		observations: make(chan Observation, 100),
-	}
-}
-
-func (r *receiver) ProductUpdate(o Observation) {
-	r.observations <- o
-}
-
-func (r *receiver) CommandResponse(resp any) {
-	res, _ := json.MarshalIndent(resp, "", "\t")
-	log.Info("command response: ", string(res))
-}
-
-func (r *receiver) observationC() <-chan Observation {
-	return r.observations
-}
-
-const (
-	signalRURI = "/hubs/chargers"
-)
-
-type connectionFactory struct {
-	cfg           *config.Service
-	tokenProvider func() (string, error)
-}
-
-func newConnectionFactory(cfg *config.Service, tokenProvider func() (string, error)) *connectionFactory {
-	return &connectionFactory{
-		cfg:           cfg,
-		tokenProvider: tokenProvider,
-	}
-}
-
-func (f *connectionFactory) Create() (signalr.Connection, error) {
-	token, err := f.tokenProvider()
-	if err != nil {
-		return nil, fmt.Errorf("unable to get access token: %w", err)
-	}
-
-	headers := func() http.Header {
-		h := make(http.Header)
-		h.Add("Authorization", "Bearer "+token)
-
-		return h
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), f.cfg.GetSignalRConnCreationTimeout())
-	defer cancel()
-
-	conn, err := signalr.NewHTTPConnection(ctx, f.url(), signalr.WithHTTPHeaders(headers))
-	if err != nil {
-		return nil, fmt.Errorf("unable to instantiate signalR connection: %w", err)
-	}
-
-	return conn, nil
-}
-
-func (f *connectionFactory) url() string {
-	return f.cfg.GetSignalRBaseURL() + signalRURI
 }

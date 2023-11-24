@@ -3,7 +3,7 @@
 package mocks
 
 import (
-	easee "github.com/futurehomeno/edge-easee-adapter/internal/easee"
+	api "github.com/futurehomeno/edge-easee-adapter/internal/api"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -13,19 +13,19 @@ type APIClient struct {
 }
 
 // ChargerConfig provides a mock function with given fields: chargerID
-func (_m *APIClient) ChargerConfig(chargerID string) (*easee.ChargerConfig, error) {
+func (_m *APIClient) ChargerConfig(chargerID string) (*api.ChargerConfig, error) {
 	ret := _m.Called(chargerID)
 
-	var r0 *easee.ChargerConfig
+	var r0 *api.ChargerConfig
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (*easee.ChargerConfig, error)); ok {
+	if rf, ok := ret.Get(0).(func(string) (*api.ChargerConfig, error)); ok {
 		return rf(chargerID)
 	}
-	if rf, ok := ret.Get(0).(func(string) *easee.ChargerConfig); ok {
+	if rf, ok := ret.Get(0).(func(string) *api.ChargerConfig); ok {
 		r0 = rf(chargerID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*easee.ChargerConfig)
+			r0 = ret.Get(0).(*api.ChargerConfig)
 		}
 	}
 
@@ -39,19 +39,19 @@ func (_m *APIClient) ChargerConfig(chargerID string) (*easee.ChargerConfig, erro
 }
 
 // Chargers provides a mock function with given fields:
-func (_m *APIClient) Chargers() ([]easee.Charger, error) {
+func (_m *APIClient) Chargers() ([]api.Charger, error) {
 	ret := _m.Called()
 
-	var r0 []easee.Charger
+	var r0 []api.Charger
 	var r1 error
-	if rf, ok := ret.Get(0).(func() ([]easee.Charger, error)); ok {
+	if rf, ok := ret.Get(0).(func() ([]api.Charger, error)); ok {
 		return rf()
 	}
-	if rf, ok := ret.Get(0).(func() []easee.Charger); ok {
+	if rf, ok := ret.Get(0).(func() []api.Charger); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]easee.Charger)
+			r0 = ret.Get(0).([]api.Charger)
 		}
 	}
 

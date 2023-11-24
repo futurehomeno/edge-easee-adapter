@@ -3,7 +3,7 @@
 package mocks
 
 import (
-	easee "github.com/futurehomeno/edge-easee-adapter/internal/easee"
+	api "github.com/futurehomeno/edge-easee-adapter/internal/api"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -13,19 +13,19 @@ type HTTPClient struct {
 }
 
 // ChargerConfig provides a mock function with given fields: accessToken, chargerID
-func (_m *HTTPClient) ChargerConfig(accessToken string, chargerID string) (*easee.ChargerConfig, error) {
+func (_m *HTTPClient) ChargerConfig(accessToken string, chargerID string) (*api.ChargerConfig, error) {
 	ret := _m.Called(accessToken, chargerID)
 
-	var r0 *easee.ChargerConfig
+	var r0 *api.ChargerConfig
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (*easee.ChargerConfig, error)); ok {
+	if rf, ok := ret.Get(0).(func(string, string) (*api.ChargerConfig, error)); ok {
 		return rf(accessToken, chargerID)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) *easee.ChargerConfig); ok {
+	if rf, ok := ret.Get(0).(func(string, string) *api.ChargerConfig); ok {
 		r0 = rf(accessToken, chargerID)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*easee.ChargerConfig)
+			r0 = ret.Get(0).(*api.ChargerConfig)
 		}
 	}
 
@@ -39,19 +39,19 @@ func (_m *HTTPClient) ChargerConfig(accessToken string, chargerID string) (*ease
 }
 
 // Chargers provides a mock function with given fields: accessToken
-func (_m *HTTPClient) Chargers(accessToken string) ([]easee.Charger, error) {
+func (_m *HTTPClient) Chargers(accessToken string) ([]api.Charger, error) {
 	ret := _m.Called(accessToken)
 
-	var r0 []easee.Charger
+	var r0 []api.Charger
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string) ([]easee.Charger, error)); ok {
+	if rf, ok := ret.Get(0).(func(string) ([]api.Charger, error)); ok {
 		return rf(accessToken)
 	}
-	if rf, ok := ret.Get(0).(func(string) []easee.Charger); ok {
+	if rf, ok := ret.Get(0).(func(string) []api.Charger); ok {
 		r0 = rf(accessToken)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]easee.Charger)
+			r0 = ret.Get(0).([]api.Charger)
 		}
 	}
 
@@ -65,19 +65,19 @@ func (_m *HTTPClient) Chargers(accessToken string) ([]easee.Charger, error) {
 }
 
 // Login provides a mock function with given fields: userName, password
-func (_m *HTTPClient) Login(userName string, password string) (*easee.Credentials, error) {
+func (_m *HTTPClient) Login(userName string, password string) (*api.Credentials, error) {
 	ret := _m.Called(userName, password)
 
-	var r0 *easee.Credentials
+	var r0 *api.Credentials
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (*easee.Credentials, error)); ok {
+	if rf, ok := ret.Get(0).(func(string, string) (*api.Credentials, error)); ok {
 		return rf(userName, password)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) *easee.Credentials); ok {
+	if rf, ok := ret.Get(0).(func(string, string) *api.Credentials); ok {
 		r0 = rf(userName, password)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*easee.Credentials)
+			r0 = ret.Get(0).(*api.Credentials)
 		}
 	}
 
@@ -105,19 +105,19 @@ func (_m *HTTPClient) Ping(accessToken string) error {
 }
 
 // RefreshToken provides a mock function with given fields: accessToken, refreshToken
-func (_m *HTTPClient) RefreshToken(accessToken string, refreshToken string) (*easee.Credentials, error) {
+func (_m *HTTPClient) RefreshToken(accessToken string, refreshToken string) (*api.Credentials, error) {
 	ret := _m.Called(accessToken, refreshToken)
 
-	var r0 *easee.Credentials
+	var r0 *api.Credentials
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (*easee.Credentials, error)); ok {
+	if rf, ok := ret.Get(0).(func(string, string) (*api.Credentials, error)); ok {
 		return rf(accessToken, refreshToken)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) *easee.Credentials); ok {
+	if rf, ok := ret.Get(0).(func(string, string) *api.Credentials); ok {
 		r0 = rf(accessToken, refreshToken)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*easee.Credentials)
+			r0 = ret.Get(0).(*api.Credentials)
 		}
 	}
 

@@ -1,4 +1,4 @@
-package easee //nolint
+package api
 
 import (
 	"fmt"

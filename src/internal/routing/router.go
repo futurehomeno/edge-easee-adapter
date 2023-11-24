@@ -9,7 +9,11 @@ import (
 	"github.com/futurehomeno/cliffhanger/router"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
+)
+
+const (
+	// ServiceName represents Easee service name.
+	ServiceName = "easee"
 )
 
 // New returns a new routing table.
@@ -21,32 +25,32 @@ func New(
 ) []*router.Routing {
 	return router.Combine(
 		[]*router.Routing{
-			cliffConfig.RouteCmdLogGetLevel(easee.ServiceName, cfgSrv.GetLogLevel),
-			cliffConfig.RouteCmdLogSetLevel(easee.ServiceName, cfgSrv.SetLogLevel),
-			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "polling_interval", cfgSrv.GetPollingInterval),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "polling_interval", cfgSrv.SetPollingInterval),
-			cliffConfig.RouteCmdConfigGetString(easee.ServiceName, "easee_base_url", cfgSrv.GetEaseeBaseURL),
-			cliffConfig.RouteCmdConfigSetString(easee.ServiceName, "easee_base_url", cfgSrv.SetEaseeBaseURL),
-			cliffConfig.RouteCmdConfigGetFloat(easee.ServiceName, "slow_charging_current_in_amperes", cfgSrv.GetSlowChargingCurrentInAmperes),
-			cliffConfig.RouteCmdConfigSetFloat(easee.ServiceName, "slow_charging_current_in_amperes", cfgSrv.SetSlowChargingCurrentInAmperes),
-			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "http_timeout", cfgSrv.GetHTTPTimeout),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "http_timeout", cfgSrv.SetHTTPTimeout),
-			cliffConfig.RouteCmdConfigGetString(easee.ServiceName, "signalr_base_url", cfgSrv.GetSignalRBaseURL),
-			cliffConfig.RouteCmdConfigSetString(easee.ServiceName, "signalr_base_url", cfgSrv.SetSignalRBaseURL),
-			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "signalr_conn_creation_timeout", cfgSrv.GetSignalRConnCreationTimeout),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "signalr_conn_creation_timeout", cfgSrv.SetSignalRConnCreationTimeout),
-			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "signalr_keep_alive_interval", cfgSrv.GetSignalRKeepAliveInterval),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "signalr_keep_alive_interval", cfgSrv.SetSignalRKeepAliveInterval),
-			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "signalr_timeout_interval", cfgSrv.GetSignalRTimeoutInterval),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "signalr_timeout_interval", cfgSrv.SetSignalRTimeoutInterval),
-			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "signalr_invoke_timeout", cfgSrv.GetSignalRInvokeTimeout),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "signalr_invoke_timeout", cfgSrv.SetSignalRInvokeTimeout),
-			cliffConfig.RouteCmdConfigGetDuration(easee.ServiceName, "backoff_length", cfgSrv.GetBackoffLength),
-			cliffConfig.RouteCmdConfigSetDuration(easee.ServiceName, "backoff_length", cfgSrv.SetBackoffLength),
-			cliffConfig.RouteCmdConfigGetInt(easee.ServiceName, "backoff_max_attempts", cfgSrv.GetBackoffMaxAttempts),
-			cliffConfig.RouteCmdConfigSetInt(easee.ServiceName, "backoff_max_attempts", cfgSrv.SetBackoffMaxAttempts),
+			cliffConfig.RouteCmdLogGetLevel(ServiceName, cfgSrv.GetLogLevel),
+			cliffConfig.RouteCmdLogSetLevel(ServiceName, cfgSrv.SetLogLevel),
+			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "polling_interval", cfgSrv.GetPollingInterval),
+			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "polling_interval", cfgSrv.SetPollingInterval),
+			cliffConfig.RouteCmdConfigGetString(ServiceName, "easee_base_url", cfgSrv.GetEaseeBaseURL),
+			cliffConfig.RouteCmdConfigSetString(ServiceName, "easee_base_url", cfgSrv.SetEaseeBaseURL),
+			cliffConfig.RouteCmdConfigGetFloat(ServiceName, "slow_charging_current_in_amperes", cfgSrv.GetSlowChargingCurrentInAmperes),
+			cliffConfig.RouteCmdConfigSetFloat(ServiceName, "slow_charging_current_in_amperes", cfgSrv.SetSlowChargingCurrentInAmperes),
+			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "http_timeout", cfgSrv.GetHTTPTimeout),
+			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "http_timeout", cfgSrv.SetHTTPTimeout),
+			cliffConfig.RouteCmdConfigGetString(ServiceName, "signalr_base_url", cfgSrv.GetSignalRBaseURL),
+			cliffConfig.RouteCmdConfigSetString(ServiceName, "signalr_base_url", cfgSrv.SetSignalRBaseURL),
+			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "signalr_conn_creation_timeout", cfgSrv.GetSignalRConnCreationTimeout),
+			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "signalr_conn_creation_timeout", cfgSrv.SetSignalRConnCreationTimeout),
+			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "signalr_keep_alive_interval", cfgSrv.GetSignalRKeepAliveInterval),
+			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "signalr_keep_alive_interval", cfgSrv.SetSignalRKeepAliveInterval),
+			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "signalr_timeout_interval", cfgSrv.GetSignalRTimeoutInterval),
+			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "signalr_timeout_interval", cfgSrv.SetSignalRTimeoutInterval),
+			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "signalr_invoke_timeout", cfgSrv.GetSignalRInvokeTimeout),
+			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "signalr_invoke_timeout", cfgSrv.SetSignalRInvokeTimeout),
+			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "backoff_length", cfgSrv.GetBackoffLength),
+			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "backoff_length", cfgSrv.SetBackoffLength),
+			cliffConfig.RouteCmdConfigGetInt(ServiceName, "backoff_max_attempts", cfgSrv.GetBackoffMaxAttempts),
+			cliffConfig.RouteCmdConfigSetInt(ServiceName, "backoff_max_attempts", cfgSrv.SetBackoffMaxAttempts),
 		},
-		app.RouteApp(easee.ServiceName, appLifecycle, cfgSrv, config.Factory, nil, application),
+		app.RouteApp(ServiceName, appLifecycle, cfgSrv, config.Factory, nil, application),
 		cliffAdapter.RouteAdapter(adapter),
 		thing.RouteCarCharger(adapter),
 	)

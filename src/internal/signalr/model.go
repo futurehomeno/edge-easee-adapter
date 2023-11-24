@@ -1,49 +1,19 @@
 package signalr
 
-import (
-	"errors"
-	"strconv"
-	"time"
-)
-
-// Observation represents a SignalR observation data.
-type Observation struct {
-	ChargerID string              `json:"mid"`
-	DataType  ObservationDataType `json:"dataType"`
-	ID        ObservationID       `json:"id"`
-	Timestamp time.Time           `json:"timestamp"`
-	Value     string              `json:"value"`
-}
-
-// IntValue returns an integer representation of the Observation value.
-func (o Observation) IntValue() (int, error) {
-	if o.DataType != Integer {
-		return 0, errors.New("observation data type is not int")
-	}
-
-	return strconv.Atoi(o.Value)
-}
-
-// Float64Value returns a float64 representation of the Observation value.
-func (o Observation) Float64Value() (float64, error) {
-	if o.DataType != Double {
-		return 0, errors.New("observation data type is not float64")
-	}
-
-	return strconv.ParseFloat(o.Value, 64)
-}
-
-// BoolValue returns a bool representation of the Observation value.
-func (o Observation) BoolValue() (bool, error) {
-	if o.DataType != Boolean {
-		return false, errors.New("observation data type is not bool")
-	}
-
-	return strconv.ParseBool(o.Value)
-}
+import "github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 
 // ObservationID represents an Observation ID in Easee API.
 type ObservationID int
+
+const (
+	MaxChargerCurrent ObservationID = 47
+	CableLocked       ObservationID = 103
+	CableRating       ObservationID = 104
+	ChargerOPState    ObservationID = 109
+	TotalPower        ObservationID = 120
+	SessionEnergy     ObservationID = 121
+	LifetimeEnergy    ObservationID = 124
+)
 
 // Supported returns true if the ObservationID is supported by our system.
 func (o ObservationID) Supported() bool {
@@ -55,16 +25,6 @@ func (o ObservationID) Supported() bool {
 
 	return false
 }
-
-const (
-	MaxChargerCurrent ObservationID = 47
-	CableLocked       ObservationID = 103
-	CableRating       ObservationID = 104
-	ChargerOPState    ObservationID = 109
-	TotalPower        ObservationID = 120
-	SessionEnergy     ObservationID = 121
-	LifetimeEnergy    ObservationID = 124
-)
 
 // SupportedObservationIDs returns all observation IDs supported by our system.
 func SupportedObservationIDs() []ObservationID {
@@ -83,11 +43,86 @@ func SupportedObservationIDs() []ObservationID {
 type ObservationDataType int
 
 const (
-	Binary ObservationDataType = iota + 1
-	Boolean
-	Double
-	Integer
-	Position
-	String
-	Statistics
+	ObservationDataTypeBinary     ObservationDataType = 1
+	ObservationDataTypeBoolean    ObservationDataType = 2
+	ObservationDataTypeDouble     ObservationDataType = 3
+	ObservationDataTypeInteger    ObservationDataType = 4
+	ObservationDataTypePosition   ObservationDataType = 5
+	ObservationDataTypeString     ObservationDataType = 6
+	ObservationDataTypeStatistics ObservationDataType = 7
+)
+
+// ChargerState represents an observation charger state.
+type ChargerState int
+
+const (
+	ChargerStateUnknown                ChargerState = -1
+	ChargerStateOffline                ChargerState = 0
+	ChargerStateDisconnected           ChargerState = 1
+	ChargerStateAwaitingStart          ChargerState = 2
+	ChargerStateCharging               ChargerState = 3
+	ChargerStateCompleted              ChargerState = 4
+	ChargerStateError                  ChargerState = 5
+	ChargerStateReadyToCharge          ChargerState = 6
+	ChargerStateAwaitingAuthentication ChargerState = 7
+	ChargerStateDeAuthenticating       ChargerState = 8
+)
+
+// SupportedChargingStates returns all charging states supported by Easee.
+func SupportedChargingStates() []ChargerState {
+	return []ChargerState{
+		ChargerStateOffline,
+		ChargerStateDisconnected,
+		ChargerStateAwaitingStart,
+		ChargerStateCharging,
+		ChargerStateCompleted,
+		ChargerStateError,
+		ChargerStateReadyToCharge,
+		ChargerStateAwaitingAuthentication,
+		ChargerStateDeAuthenticating,
+	}
+}
+
+// ToFimpState returns a human-readable name of the state.
+func (s ChargerState) ToFimpState() chargepoint.State {
+	switch s {
+	case ChargerStateUnknown:
+		return chargepoint.StateUnknown
+	case ChargerStateOffline:
+		return chargepoint.StateUnavailable
+	case ChargerStateDisconnected:
+		return chargepoint.StateDisconnected
+	case ChargerStateAwaitingStart:
+		return chargepoint.StateReadyToCharge
+	case ChargerStateCharging:
+		return chargepoint.StateCharging
+	case ChargerStateCompleted:
+		return chargepoint.StateFinished
+	case ChargerStateError:
+		return chargepoint.StateError
+	case ChargerStateReadyToCharge:
+		return chargepoint.StateRequesting
+	case ChargerStateAwaitingAuthentication:
+		return "authenticating"
+	case ChargerStateDeAuthenticating:
+		return "de-authenticating"
+	default:
+		return chargepoint.StateUnknown
+	}
+}
+
+// ClientState represents the state of the SignalR client.
+type ClientState int
+
+func (s ClientState) String() string {
+	if s == ClientStateDisconnected {
+		return "disconnected"
+	}
+
+	return "connected"
+}
+
+const (
+	ClientStateDisconnected ClientState = iota
+	ClientStateConnected
 )

@@ -1,10 +1,8 @@
-package easee
+package api
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -29,134 +27,8 @@ const (
 
 	jsonContentType = "application/*+json"
 
-	pauseChargingCurrent = 0.0
+	pauseChargingCurrent = 0.
 )
-
-// HTTPError provides a way to pass more meaningful information regarding http errors without breaking interfaces.
-type HTTPError struct {
-	err    error
-	Status int
-	Body   io.ReadCloser
-}
-
-func (e HTTPError) Error() string {
-	body := ""
-	if e.Body != nil { //nolint
-		if bts, err := io.ReadAll(e.Body); err != nil {
-			body = string(bts)
-		}
-	}
-
-	return fmt.Sprintf("%s, status code: %d, body: %s", e.err, e.Status, body)
-}
-
-// APIClient is a wrapper around the Easee HTTP Client with authentication capabilities.
-type APIClient interface {
-	// UpdateMaxCurrent updates max charger current.
-	UpdateMaxCurrent(chargerID string, current float64) error
-	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
-	UpdateDynamicCurrent(chargerID string, current float64) error
-	// StartCharging starts charging session for the selected charger.
-	StartCharging(chargerID string) error
-	// StopCharging stops charging session for the selected charger.
-	StopCharging(chargerID string) error
-	// SetCableLock locks/unlocks the cable for the selected charger.
-	SetCableLock(chargerID string, locked bool) error
-	// ChargerConfig retrieves charger config.
-	ChargerConfig(chargerID string) (*ChargerConfig, error)
-	// Chargers returns all available chargers.
-	Chargers() ([]Charger, error)
-	// Ping checks if an external service is available.
-	Ping() error
-}
-
-type apiClient struct {
-	httpClient HTTPClient
-	auth       Authenticator
-}
-
-func NewAPIClient(http HTTPClient, auth Authenticator) APIClient {
-	return &apiClient{
-		httpClient: http,
-		auth:       auth,
-	}
-}
-
-func (a *apiClient) UpdateMaxCurrent(chargerID string, current float64) error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.UpdateMaxCurrent(token, chargerID, current)
-}
-
-func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.UpdateDynamicCurrent(token, chargerID, current)
-}
-
-func (a *apiClient) StartCharging(chargerID string) error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.StartCharging(token, chargerID)
-}
-
-func (a *apiClient) StopCharging(chargerID string) error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.StopCharging(token, chargerID)
-}
-
-func (a *apiClient) SetCableLock(chargerID string, locked bool) error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.SetCableLock(token, chargerID, locked)
-}
-
-func (a *apiClient) ChargerConfig(chargerID string) (*ChargerConfig, error) {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return nil, a.tokenError(err)
-	}
-
-	return a.httpClient.ChargerConfig(token, chargerID)
-}
-
-func (a *apiClient) Chargers() ([]Charger, error) {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return nil, a.tokenError(err)
-	}
-
-	return a.httpClient.Chargers(token)
-}
-
-func (a *apiClient) Ping() error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.Ping(token)
-}
-
-func (a *apiClient) tokenError(err error) error {
-	return fmt.Errorf("unable to get access token: %w", err)
-}
 
 // HTTPClient represents Easee HTTP API Client.
 type HTTPClient interface {
@@ -188,10 +60,7 @@ type httpClient struct {
 }
 
 // NewHTTPClient returns a new instance of Easee HTTPClient.
-func NewHTTPClient(
-	http *http.Client,
-	baseURL string,
-) HTTPClient {
+func NewHTTPClient(http *http.Client, baseURL string) HTTPClient {
 	return &httpClient{
 		httpClient: http,
 		baseURL:    baseURL,
@@ -471,55 +340,4 @@ func (c *httpClient) readResponseBody(r *http.Response, body interface{}) error 
 
 func (c *httpClient) bearerTokenHeader(authToken string) string {
 	return "Bearer " + authToken
-}
-
-type requestBuilder struct {
-	method  string
-	url     string
-	body    interface{}
-	headers map[string]string
-}
-
-func newRequestBuilder(method, url string) *requestBuilder {
-	return &requestBuilder{
-		method:  method,
-		url:     url,
-		headers: make(map[string]string),
-	}
-}
-
-func (r *requestBuilder) withBody(body interface{}) *requestBuilder {
-	r.body = body
-
-	return r
-}
-
-func (r *requestBuilder) addHeader(key, value string) *requestBuilder {
-	r.headers[key] = value
-
-	return r
-}
-
-func (r *requestBuilder) build() (*http.Request, error) {
-	var body io.Reader
-
-	if r.body != nil {
-		b, err := json.Marshal(r.body)
-		if err != nil {
-			return nil, err
-		}
-
-		body = bytes.NewReader(b)
-	}
-
-	req, err := http.NewRequest(r.method, r.url, body) //nolint:noctx
-	if err != nil {
-		return nil, err
-	}
-
-	for key, value := range r.headers {
-		req.Header.Add(key, value)
-	}
-
-	return req, nil
 }

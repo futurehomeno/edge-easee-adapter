@@ -2,14 +2,12 @@ package routing
 
 import (
 	"github.com/futurehomeno/cliffhanger/discovery"
-
-	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 )
 
 // GetDiscoveryResource returns a service discovery configuration.
 func GetDiscoveryResource() *discovery.Resource {
 	return &discovery.Resource{
-		ResourceName:           easee.ServiceName,
+		ResourceName:           ServiceName,
 		ResourceType:           discovery.ResourceTypeAd,
 		ResourceFullName:       "Easee",
 		Description:            "EV chargers from Easee",

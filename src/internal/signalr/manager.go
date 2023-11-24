@@ -1,17 +1,15 @@
-package easee
+package signalr
 
 import (
 	"sync"
 
 	"github.com/futurehomeno/cliffhanger/root"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
-// SignalRManager is the interface for the Easee signalR manager.
+// Manager is the interface for the Easee signalR manager.
 // It manages the signalR connection and the chargers that are connected to it.
-type SignalRManager interface {
+type Manager interface {
 	root.Service
 
 	// Connected check if SignalR client is connected.
@@ -22,27 +20,27 @@ type SignalRManager interface {
 	Unregister(chargerID string) error
 }
 
-type signalRManager struct {
+type manager struct {
 	mu      sync.RWMutex
 	running bool
 	done    chan struct{}
 
-	client   signalr.Client
+	client   Client
 	chargers map[string]ObservationsHandler
 }
 
-func NewSignalRManager(client signalr.Client) SignalRManager {
-	return &signalRManager{
+func NewManager(client Client) Manager {
+	return &manager{
 		client:   client,
 		chargers: make(map[string]ObservationsHandler),
 	}
 }
 
-func (m *signalRManager) Connected() bool {
+func (m *manager) Connected() bool {
 	return m.client.Connected()
 }
 
-func (m *signalRManager) Start() error {
+func (m *manager) Start() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -60,7 +58,7 @@ func (m *signalRManager) Start() error {
 	return nil
 }
 
-func (m *signalRManager) Stop() error {
+func (m *manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -75,7 +73,7 @@ func (m *signalRManager) Stop() error {
 	return nil
 }
 
-func (m *signalRManager) Register(chargerID string, handler ObservationsHandler) error {
+func (m *manager) Register(chargerID string, handler ObservationsHandler) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -100,7 +98,7 @@ func (m *signalRManager) Register(chargerID string, handler ObservationsHandler)
 	return nil
 }
 
-func (m *signalRManager) Unregister(chargerID string) error {
+func (m *manager) Unregister(chargerID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -123,7 +121,7 @@ func (m *signalRManager) Unregister(chargerID string) error {
 	return nil
 }
 
-func (m *signalRManager) run() {
+func (m *manager) run() {
 	ch := m.client.StateC()
 
 	for {
@@ -131,7 +129,7 @@ func (m *signalRManager) run() {
 		case <-m.done:
 			return
 		case state := <-ch:
-			if state == signalr.Disconnected {
+			if state == ClientStateDisconnected {
 				continue
 			}
 
@@ -150,7 +148,7 @@ func (m *signalRManager) run() {
 	}
 }
 
-func (m *signalRManager) handleObservations() {
+func (m *manager) handleObservations() {
 	obsCh := m.client.ObservationC()
 
 	for {
@@ -170,7 +168,7 @@ func (m *signalRManager) handleObservations() {
 	}
 }
 
-func (m *signalRManager) handleObservation(observation signalr.Observation) error {
+func (m *manager) handleObservation(observation Observation) error {
 	if !observation.ID.Supported() {
 		return nil
 	}

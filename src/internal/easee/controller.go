@@ -7,7 +7,9 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/pkg/errors"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 // Controller represents a charger controller.
@@ -17,7 +19,7 @@ type Controller interface {
 }
 
 // NewController returns a new instance of Controller.
-func NewController(client APIClient, manager SignalRManager, cache ObservationCache,
+func NewController(client api.APIClient, manager signalr.Manager, cache config.Cache,
 	cfgService *config.Service, chargerID string, maxCurrent float64) Controller {
 	return &controller{
 		client:     client,
@@ -30,9 +32,9 @@ func NewController(client APIClient, manager SignalRManager, cache ObservationCa
 }
 
 type controller struct {
-	client     APIClient
-	manager    SignalRManager
-	cache      ObservationCache
+	client     api.APIClient
+	manager    signalr.Manager
+	cache      config.Cache
 	cfgService *config.Service
 	chargerID  string
 	// TODO: needed?
@@ -111,9 +113,7 @@ func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
 		return chargepoint.StateCharging, nil
 	}
 
-	state := c.cache.ChargerState()
-
-	return state.ToFimpState(), nil
+	return c.cache.ChargerState(), nil
 }
 
 func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {

@@ -7,7 +7,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 )
 
@@ -41,8 +40,8 @@ func Build(cfg *config.Config) (root.App, error) {
 		WithServiceDiscovery(routing.GetDiscoveryResource()).
 		WithLifecycle(getLifecycle()).
 		WithTopicSubscription(
-			cliffRouter.TopicPatternAdapter(easee.ServiceName),
-			cliffRouter.TopicPatternDevices(easee.ServiceName),
+			cliffRouter.TopicPatternAdapter(routing.ServiceName),
+			cliffRouter.TopicPatternDevices(routing.ServiceName),
 		).
 		WithRouting(newRouting(cfg)...).
 		WithTask(newTasks(cfg)...).

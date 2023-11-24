@@ -71,15 +71,15 @@ func (_m *Client) Start() error {
 }
 
 // StateC provides a mock function with given fields:
-func (_m *Client) StateC() <-chan signalr.State {
+func (_m *Client) StateC() <-chan signalr.ClientState {
 	ret := _m.Called()
 
-	var r0 <-chan signalr.State
-	if rf, ok := ret.Get(0).(func() <-chan signalr.State); ok {
+	var r0 <-chan signalr.ClientState
+	if rf, ok := ret.Get(0).(func() <-chan signalr.ClientState); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(<-chan signalr.State)
+			r0 = ret.Get(0).(<-chan signalr.ClientState)
 		}
 	}
 

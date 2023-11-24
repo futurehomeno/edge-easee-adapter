@@ -14,7 +14,6 @@ import (
 	"github.com/futurehomeno/cliffhanger/test/suite"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 )
@@ -33,31 +32,31 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						s.MockObservations(0, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Integer,
+								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
-								Value:     strconv.Itoa(int(easee.ReadyToCharge)),
+								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.SessionEnergy,
 								Value:     "0",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Boolean,
+								DataType:  signalr.ObservationDataTypeBoolean,
 								ID:        signalr.CableLocked,
 								Value:     "false",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.TotalPower,
 								Value:     "0",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
 								Value:     "12.34",
 							},
@@ -65,31 +64,31 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						s.MockObservations(300*time.Millisecond, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Integer,
+								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
-								Value:     strconv.Itoa(int(easee.Charging)),
+								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.SessionEnergy,
 								Value:     "1.23",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Boolean,
+								DataType:  signalr.ObservationDataTypeBoolean,
 								ID:        signalr.CableLocked,
 								Value:     "true",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.TotalPower,
 								Value:     "1",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
 								Value:     "13.45",
 							},
@@ -127,21 +126,21 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						s.MockObservations(0, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.TotalPower,
 								Value:     "0",
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Integer,
+								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
-								Value:     strconv.Itoa(int(easee.ReadyToCharge)),
+								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
 							},
 						})
 						s.MockObservations(300*time.Millisecond, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.TotalPower,
 								Value:     "1.23",
 							},
@@ -149,9 +148,9 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						s.MockObservations(300*time.Millisecond, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Integer,
+								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
-								Value:     strconv.Itoa(int(easee.ReadyToCharge)),
+								Value:     strconv.Itoa(int(signalr.ChargerStateReadyToCharge)),
 							},
 						})
 					})),
@@ -191,7 +190,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						s.MockObservations(0, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
 								Value:     "12.34",
 							},
@@ -199,7 +198,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						s.MockObservations(200*time.Millisecond, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
 								Value:     "11",
 							},
@@ -207,7 +206,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						s.MockObservations(200*time.Millisecond, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.Double,
+								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
 								Value:     "13.45",
 							},
