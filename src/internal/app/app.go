@@ -180,11 +180,15 @@ func (a *application) registerChargers() error {
 			return fmt.Errorf("failed to fetch a charger config ID %s: %w", charger.ID, err)
 		}
 
+		gridType, phases := cfg.DetectedPowerGridType.ToFimpGridType()
+
 		seeds = append(seeds, &adapter.ThingSeed{
 			ID: charger.ID,
 			Info: easee.Info{
 				ChargerID:  charger.ID,
 				MaxCurrent: cfg.MaxChargerCurrent,
+				GridType:   gridType,
+				Phases:     phases,
 			},
 		})
 	}

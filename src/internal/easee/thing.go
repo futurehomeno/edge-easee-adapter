@@ -14,8 +14,10 @@ import (
 
 // Info is an object representing charger persisted information.
 type Info struct {
-	ChargerID  string  `json:"chargerID"`
-	MaxCurrent float64 `json:"maxCurrent"`
+	ChargerID  string               `json:"chargerID"`
+	MaxCurrent float64              `json:"maxCurrent"`
+	GridType   chargepoint.GridType `json:"gridType"`
+	Phases     int                  `json:"phases"`
 }
 
 type thingFactory struct {
@@ -51,7 +53,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 			InclusionReport: t.inclusionReport(info, thingState, groups),
 		},
 		ChargepointConfig: &chargepoint.Config{
-			Specification: t.chargepointSpecification(ad, thingState, groups),
+			Specification: t.chargepointSpecification(ad, thingState, groups, info),
 			Controller:    controller,
 		},
 		MeterElecConfig: &numericmeter.Config{
@@ -75,7 +77,7 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 	}
 }
 
-func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
+func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string, info *Info) *fimptype.Service {
 	var supportedStates []chargepoint.State
 	for _, s := range SupportedChargingStates() {
 		supportedStates = append(supportedStates, s.ToFimpState())
@@ -88,10 +90,9 @@ func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingSt
 		groups,
 		supportedStates,
 		chargepoint.WithChargingModes(SupportedChargingModes()...),
-		// TODO
-		// chargepoint.WithPhases(info.Phases),
+		chargepoint.WithPhases(info.Phases),
 		chargepoint.WithSupportedMaxCurrent(32), // TODO
-		// chargepoint.WithGridType(info.GridType),
+		chargepoint.WithGridType(info.GridType),
 	)
 }
 
