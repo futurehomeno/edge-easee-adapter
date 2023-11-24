@@ -20,7 +20,7 @@ const (
 
 	chargerConfigURITemplate   = "/api/chargers/%s/config"
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
-	chargerStartURITemplate    = "/api/chargers/%s/commands/start_charging"
+	chargerStartURITemplate    = "/api/chargers/%s/commands/resume_charging"
 	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
 
