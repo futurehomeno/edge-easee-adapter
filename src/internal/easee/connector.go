@@ -34,9 +34,7 @@ func (c *connector) Connect(thing adapter.Thing) {
 		return
 	}
 
-	if err := c.manager.Register(c.chargerID, handler); err != nil {
-		log.WithError(err).Error("failed to register charger within signalR manager")
-	}
+	c.manager.Register(c.chargerID, handler)
 }
 
 func (c *connector) Disconnect(_ adapter.Thing) {
@@ -46,17 +44,16 @@ func (c *connector) Disconnect(_ adapter.Thing) {
 }
 
 func (c *connector) Connectivity() *adapter.ConnectivityDetails {
-	if c.manager.Connected() {
-		return &adapter.ConnectivityDetails{
-			ConnectionStatus: adapter.ConnectionStatusUp,
-			ConnectionType:   adapter.ConnectionTypeIndirect,
-		}
-	}
-
-	return &adapter.ConnectivityDetails{
+	ret := adapter.ConnectivityDetails{
 		ConnectionStatus: adapter.ConnectionStatusDown,
 		ConnectionType:   adapter.ConnectionTypeIndirect,
 	}
+
+	if c.manager.Connected(c.chargerID) {
+		ret.ConnectionStatus = adapter.ConnectionStatusUp
+	}
+
+	return &ret
 }
 
 func (c *connector) Ping() *adapter.PingDetails {
@@ -66,7 +63,7 @@ func (c *connector) Ping() *adapter.PingDetails {
 		}
 	}
 
-	if !c.manager.Connected() {
+	if !c.manager.Connected(c.chargerID) {
 		return &adapter.PingDetails{
 			Status: adapter.PingResultFailed,
 		}

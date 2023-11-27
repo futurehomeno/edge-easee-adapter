@@ -34,24 +34,30 @@ type Client interface {
 type client struct {
 	mu      sync.Mutex
 	running bool
-	done    chan struct{}
+	cancel  context.CancelFunc
 
-	c            signalr.Client
+	connection   signalr.Client
 	cfg          *config.Service
 	serverStopFn context.CancelFunc
 	connFactory  *connectionFactory
 	receiver     *receiver
-	stateC       chan ClientState
-	connState    ClientState
+
+	states       chan ClientState
+	observations chan Observation
+
+	connState ClientState
 }
 
 // NewClient creates a new SignalR client.
 func NewClient(cfg *config.Service, authTokenProvider func() (string, error)) Client {
+	observations := make(chan Observation, 100)
+
 	return &client{
-		cfg:         cfg,
-		receiver:    newReceiver(),
-		connFactory: newConnectionFactory(cfg, authTokenProvider),
-		stateC:      make(chan ClientState, 10),
+		cfg:          cfg,
+		receiver:     newReceiver(observations),
+		connFactory:  newConnectionFactory(cfg, authTokenProvider),
+		states:       make(chan ClientState, 10),
+		observations: observations,
 	}
 }
 
@@ -93,11 +99,11 @@ func (c *client) Connected() bool {
 }
 
 func (c *client) StateC() <-chan ClientState {
-	return c.stateC
+	return c.states
 }
 
 func (c *client) ObservationC() <-chan Observation {
-	return c.receiver.observationC()
+	return c.observations
 }
 
 func (c *client) Start() error {
@@ -113,14 +119,18 @@ func (c *client) Start() error {
 		return err
 	}
 
-	c.c = client
+	c.connection = client
 	c.serverStopFn = stopFn
 
-	c.done = make(chan struct{})
+	if c.cancel != nil {
+		c.cancel()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.cancel = cancel
 
-	c.c.Start()
+	c.connection.Start()
 
-	go c.notifyState()
+	go c.notifyState(ctx)
 
 	c.running = true
 
@@ -136,7 +146,11 @@ func (c *client) Close() error {
 	}
 
 	c.serverStopFn()
-	close(c.done)
+
+	if c.cancel != nil {
+		c.cancel()
+		c.cancel = nil
+	}
 
 	c.running = false
 
@@ -147,7 +161,7 @@ func (c *client) invoke(method string, args ...any) error {
 	timer := time.NewTimer(c.cfg.GetSignalRInvokeTimeout())
 	defer timer.Stop()
 
-	results := c.c.Invoke(method, args...)
+	results := c.connection.Invoke(method, args...)
 
 	select {
 	case result := <-results:
@@ -157,18 +171,18 @@ func (c *client) invoke(method string, args ...any) error {
 	}
 }
 
-func (c *client) notifyState() {
+func (c *client) notifyState(ctx context.Context) {
 	ch := make(chan signalr.ClientState, 1)
-	cancel := c.c.ObserveStateChanged(ch)
+	cancel := c.connection.ObserveStateChanged(ch)
 
 	for {
 		select {
-		case <-c.done:
+		case <-ctx.Done():
 			cancel()
 
 			return
 		case newState := <-ch:
-			var state ClientState
+			state := ClientStateDisconnected
 			if newState == signalr.ClientConnected {
 				state = ClientStateConnected
 			}
@@ -187,7 +201,7 @@ func (c *client) notifyState() {
 
 			log.Info("signalR client state: ", state)
 
-			c.stateC <- state
+			c.states <- state
 		}
 	}
 }

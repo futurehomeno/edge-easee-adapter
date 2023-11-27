@@ -12,13 +12,13 @@ type Manager struct {
 	mock.Mock
 }
 
-// Connected provides a mock function with given fields:
-func (_m *Manager) Connected() bool {
-	ret := _m.Called()
+// Connected provides a mock function with given fields: chargerID
+func (_m *Manager) Connected(chargerID string) bool {
+	ret := _m.Called(chargerID)
 
 	var r0 bool
-	if rf, ok := ret.Get(0).(func() bool); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(string) bool); ok {
+		r0 = rf(chargerID)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
@@ -27,17 +27,8 @@ func (_m *Manager) Connected() bool {
 }
 
 // Register provides a mock function with given fields: chargerID, handler
-func (_m *Manager) Register(chargerID string, handler signalr.ObservationsHandler) error {
-	ret := _m.Called(chargerID, handler)
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, signalr.ObservationsHandler) error); ok {
-		r0 = rf(chargerID, handler)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
+func (_m *Manager) Register(chargerID string, handler signalr.ObservationsHandler) {
+	_m.Called(chargerID, handler)
 }
 
 // Start provides a mock function with given fields:

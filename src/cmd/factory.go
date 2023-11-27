@@ -213,7 +213,7 @@ func getSignalRClient(cfg *config.Config) signalr.Client {
 
 func getSignalRManager(cfg *config.Config) signalr.Manager {
 	if services.signalRManager == nil {
-		services.signalRManager = signalr.NewManager(getSignalRClient(cfg))
+		services.signalRManager = signalr.NewManager(getConfigService(), getSignalRClient(cfg))
 	}
 
 	return services.signalRManager

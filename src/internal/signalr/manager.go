@@ -1,9 +1,12 @@
 package signalr
 
 import (
+	"context"
 	"sync"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/root"
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -13,9 +16,9 @@ type Manager interface {
 	root.Service
 
 	// Connected check if SignalR client is connected.
-	Connected() bool
+	Connected(chargerID string) bool
 	// Register registers a charger to be managed.
-	Register(chargerID string, handler ObservationsHandler) error
+	Register(chargerID string, handler ObservationsHandler)
 	// Unregister unregisters a charger from being managed.
 	Unregister(chargerID string) error
 }
@@ -23,21 +26,33 @@ type Manager interface {
 type manager struct {
 	mu      sync.RWMutex
 	running bool
-	done    chan struct{}
+	close   context.CancelFunc
+	cfg     *config.Service
+
+	subscribtions chan string
 
 	client   Client
-	chargers map[string]ObservationsHandler
+	chargers map[string]*charger
 }
 
-func NewManager(client Client) Manager {
+func NewManager(cfg *config.Service, client Client) Manager {
 	return &manager{
+		cfg:      cfg,
 		client:   client,
-		chargers: make(map[string]ObservationsHandler),
+		chargers: make(map[string]*charger),
 	}
 }
 
-func (m *manager) Connected() bool {
-	return m.client.Connected()
+func (m *manager) Connected(chargerID string) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if charger, ok := m.chargers[chargerID]; ok {
+		return charger.isSubscribed
+	}
+
+	return false
+
 }
 
 func (m *manager) Start() error {
@@ -48,10 +63,13 @@ func (m *manager) Start() error {
 		return nil
 	}
 
-	m.done = make(chan struct{})
+	if m.close != nil {
+		m.close()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	m.close = cancel
 
-	go m.run()
-	go m.handleObservations()
+	go m.run(ctx)
 
 	m.running = true
 
@@ -66,36 +84,35 @@ func (m *manager) Stop() error {
 		return nil
 	}
 
-	close(m.done)
+	if m.close != nil {
+		m.close()
+		m.close = nil
+	}
 
 	m.running = false
 
 	return nil
 }
 
-func (m *manager) Register(chargerID string, handler ObservationsHandler) error {
+func (m *manager) Register(chargerID string, handler ObservationsHandler) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if _, ok := m.chargers[chargerID]; ok {
-		return nil
+		log.Warnf("Charger '%s' is already registered", chargerID)
+		return
 	}
 
-	if len(m.chargers) == 0 {
-		if err := m.client.Start(); err != nil {
-			return err
-		}
+	m.chargers[chargerID] = &charger{
+		handler:      handler,
+		isSubscribed: false,
 	}
 
-	m.chargers[chargerID] = handler
+	m.ensureClientStarted()
 
-	if m.client.Connected() {
-		if err := m.client.SubscribeCharger(chargerID); err != nil {
-			return err
-		}
+	if m.subscribtions != nil {
+		m.subscribtions <- chargerID
 	}
-
-	return nil
 }
 
 func (m *manager) Unregister(chargerID string) error {
@@ -121,56 +138,94 @@ func (m *manager) Unregister(chargerID string) error {
 	return nil
 }
 
-func (m *manager) run() {
-	ch := m.client.StateC()
+func (m *manager) run(ctx context.Context) {
+	states := m.client.StateC()
+	observations := m.client.ObservationC()
 
 	for {
 		select {
-		case <-m.done:
+		case <-ctx.Done():
 			return
-		case state := <-ch:
-			if state == ClientStateDisconnected {
+
+		case chargerID, ok := <-m.subscribtions:
+			if !ok {
 				continue
 			}
+			m.handleSubscribtion(chargerID)
 
-			m.mu.RLock()
+		case state := <-states:
+			m.handleClientState(state)
 
-			for chargerID := range m.chargers {
-				if err := m.client.SubscribeCharger(chargerID); err != nil {
-					log.WithError(err).Error("failed to subscribe charger: ", chargerID)
-
-					continue
-				}
-			}
-
-			m.mu.RUnlock()
+		case observation := <-observations:
+			m.handleObservation(observation)
 		}
 	}
 }
 
-func (m *manager) handleObservations() {
-	obsCh := m.client.ObservationC()
+func (m *manager) handleSubscribtion(chargerID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	for {
-		select {
-		case <-m.done:
+	charger, ok := m.chargers[chargerID]
+	if !ok {
+		return
+	}
+
+	m.ensureClientStarted()
+
+	if err := m.client.SubscribeCharger(chargerID); err != nil {
+		log.Warnf("Failed to subscribe charger '%s'", chargerID)
+		if m.subscribtions == nil {
 			return
-		case observation := <-obsCh:
-			if err := m.handleObservation(observation); err != nil {
-				log.
-					WithError(err).
-					WithField("chargerID", observation.ChargerID).
-					WithField("observationID", observation.ID).
-					WithField("value", observation.Value).
-					Error("failed to handle observation")
-			}
 		}
+
+		currentChannel := m.subscribtions
+		go func() {
+			time.Sleep(m.cfg.GetSignalRSubscribeInterval())
+
+			m.mu.Lock()
+			defer m.mu.Unlock()
+			if m.subscribtions == currentChannel {
+				m.subscribtions <- chargerID
+			}
+		}()
+
+		return
+	}
+
+	charger.isSubscribed = true
+}
+
+func (m *manager) handleClientState(state ClientState) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	switch state {
+	case ClientStateConnected:
+		m.subscribtions = make(chan string, 1+len(m.chargers))
+
+		for chargerID := range m.chargers {
+			m.subscribtions <- chargerID
+		}
+
+	case ClientStateDisconnected:
+		for _, charger := range m.chargers {
+			charger.isSubscribed = false
+		}
+
+		if m.subscribtions != nil {
+			close(m.subscribtions)
+		}
+		m.subscribtions = nil
+
+	default:
+		log.Warnf("Unknown client state %v", state)
 	}
 }
 
-func (m *manager) handleObservation(observation Observation) error {
+func (m *manager) handleObservation(observation Observation) {
 	if !observation.ID.Supported() {
-		return nil
+		return
 	}
 
 	log.Debugf("received observation: %+v", observation)
@@ -182,8 +237,30 @@ func (m *manager) handleObservation(observation Observation) error {
 	if !ok {
 		log.Warn("received observation for an unknown charger: ", observation.ChargerID)
 
-		return nil
+		return
 	}
 
-	return chargerHandler.HandleObservation(observation)
+	if err := chargerHandler.handler.HandleObservation(observation); err != nil {
+		log.
+			WithError(err).
+			WithField("chargerID", observation.ChargerID).
+			WithField("observationID", observation.ID).
+			WithField("value", observation.Value).
+			Error("failed to handle observation")
+	}
+}
+
+func (m *manager) ensureClientStarted() {
+	if m.client.Connected() {
+		return
+	}
+
+	if err := m.client.Start(); err != nil {
+		log.WithError(err).Error("Unable to start client")
+	}
+}
+
+type charger struct {
+	handler      ObservationsHandler
+	isSubscribed bool
 }

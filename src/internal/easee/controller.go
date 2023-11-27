@@ -132,7 +132,7 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 }
 
 func (c *controller) checkConnection() error {
-	if !c.manager.Connected() {
+	if !c.manager.Connected(c.chargerID) {
 		return errors.New("signalR connection is inactive, cannot determine actual state")
 	}
 

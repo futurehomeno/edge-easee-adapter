@@ -43,6 +43,8 @@ func New(
 			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "signalr_keep_alive_interval", cfgSrv.SetSignalRKeepAliveInterval),
 			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "signalr_timeout_interval", cfgSrv.GetSignalRTimeoutInterval),
 			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "signalr_timeout_interval", cfgSrv.SetSignalRTimeoutInterval),
+			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "signalr_subscribe_interval", cfgSrv.GetSignalRSubscribeInterval),
+			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "signalr_subscribe_interval", cfgSrv.SetSignalRSubscribeInterval),
 			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "signalr_invoke_timeout", cfgSrv.GetSignalRInvokeTimeout),
 			cliffConfig.RouteCmdConfigSetDuration(ServiceName, "signalr_invoke_timeout", cfgSrv.SetSignalRInvokeTimeout),
 			cliffConfig.RouteCmdConfigGetDuration(ServiceName, "backoff_length", cfgSrv.GetBackoffLength),

@@ -57,6 +57,7 @@ type SignalR struct {
 	ConnCreationTimeout string `json:"connCreationTimeout"`
 	KeepAliveInterval   string `json:"keepAliveInterval2"`
 	TimeoutInterval     string `json:"timeoutInterval2"`
+	SubscribeInterval   string `json:"subscribeInterval"`
 	InvokeTimeout       string `json:"invokeTimeout"`
 }
 
@@ -324,6 +325,30 @@ func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
 
 	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
 	cs.Storage.Model().SignalR.TimeoutInterval = interval.String()
+
+	return cs.Storage.Save()
+}
+
+// GetSignalRSubscribeInterval allows to safely access a configuration setting.
+func (cs *Service) GetSignalRSubscribeInterval() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	interval, err := time.ParseDuration(cs.Storage.Model().SignalR.SubscribeInterval)
+	if err != nil {
+		return 30 * time.Second
+	}
+
+	return interval
+}
+
+// SetSignalRSubscribeInterval allows to safely set and persist configuration settings.
+func (cs *Service) SetSignalRSubscribeInterval(interval time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().SignalR.SubscribeInterval = interval.String()
 
 	return cs.Storage.Save()
 }

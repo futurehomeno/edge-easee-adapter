@@ -10,12 +10,12 @@ import (
 type receiver struct {
 	signalr.Receiver
 
-	observations chan Observation
+	observations chan<- Observation
 }
 
-func newReceiver() *receiver {
+func newReceiver(observations chan<- Observation) *receiver {
 	return &receiver{
-		observations: make(chan Observation, 100),
+		observations: observations,
 	}
 }
 
@@ -26,8 +26,4 @@ func (r *receiver) ProductUpdate(o Observation) {
 func (r *receiver) CommandResponse(resp any) {
 	res, _ := json.MarshalIndent(resp, "", "\t")
 	log.Info("command response: ", string(res))
-}
-
-func (r *receiver) observationC() <-chan Observation {
-	return r.observations
 }

@@ -22,6 +22,7 @@
     "connCreationTimeout": "30s",
     "keepAliveInterval2": "30s",
     "timeoutInterval2": "1m",
+    "subscribeInterval": "30s",
     "invokeTimeout": "10s"
   }
 }
