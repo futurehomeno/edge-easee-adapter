@@ -25,12 +25,15 @@ type Manager interface {
 }
 
 type manager struct {
-	mu      sync.RWMutex
+	mu              sync.RWMutex
+	clientStartLock sync.Mutex
+
 	running bool
 	close   context.CancelFunc
 	cfg     *config.Service
 
-	subscribtions chan string
+	subscribtions  chan string
+	clientStarting bool
 
 	client   Client
 	chargers map[string]*charger
@@ -172,8 +175,6 @@ func (m *manager) handleSubscribtion(chargerID string) {
 		return
 	}
 
-	m.ensureClientStarted()
-
 	if err := m.client.SubscribeCharger(chargerID); err != nil {
 		log.Warnf("Failed to subscribe charger '%s'", chargerID)
 		if m.subscribtions == nil {
@@ -256,9 +257,33 @@ func (m *manager) ensureClientStarted() {
 		return
 	}
 
-	if err := m.client.Start(); err != nil {
-		log.WithError(err).Error("Unable to start client")
+	m.clientStartLock.Lock()
+	if m.clientStarting {
+		m.clientStartLock.Unlock()
+		return
 	}
+
+	m.clientStarting = true
+	m.clientStartLock.Unlock()
+
+	m.startClient()
+}
+
+func (m *manager) startClient() {
+	if len(m.chargers) != 0 {
+		if err := m.client.Start(); err != nil {
+			go func() {
+				time.Sleep(m.cfg.GetSignalRConnCreationTimeout())
+				m.startClient()
+			}()
+			log.WithError(err).Error("Unable to start client")
+			return
+		}
+	}
+
+	m.clientStartLock.Lock()
+	defer m.clientStartLock.Unlock()
+	m.clientStarting = false
 }
 
 type charger struct {
