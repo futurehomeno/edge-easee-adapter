@@ -1,7 +1,6 @@
 package signalr
 
 import (
-	"context"
 	"sync"
 	"time"
 
@@ -29,7 +28,7 @@ type manager struct {
 	clientStartLock sync.Mutex
 
 	running bool
-	close   context.CancelFunc
+	done    chan struct{}
 	cfg     *config.Service
 
 	subscribtions  chan string
@@ -67,13 +66,12 @@ func (m *manager) Start() error {
 		return nil
 	}
 
-	if m.close != nil {
-		m.close()
+	if m.done != nil {
+		close(m.done)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	m.close = cancel
+	m.done = make(chan struct{})
 
-	go m.run(ctx)
+	go m.run()
 
 	m.running = true
 
@@ -88,9 +86,8 @@ func (m *manager) Stop() error {
 		return nil
 	}
 
-	if m.close != nil {
-		m.close()
-		m.close = nil
+	if m.done != nil {
+		close(m.done)
 	}
 
 	m.running = false
@@ -142,13 +139,13 @@ func (m *manager) Unregister(chargerID string) error {
 	return nil
 }
 
-func (m *manager) run(ctx context.Context) {
+func (m *manager) run() {
 	states := m.client.StateC()
 	observations := m.client.ObservationC()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-m.done:
 			return
 
 		case chargerID, ok := <-m.subscribtions:
@@ -181,14 +178,16 @@ func (m *manager) handleSubscribtion(chargerID string) {
 			return
 		}
 
-		currentChannel := m.subscribtions
 		go func() {
-			time.Sleep(m.cfg.GetSignalRSubscribeInterval())
-
-			m.mu.Lock()
-			defer m.mu.Unlock()
-			if m.subscribtions == currentChannel {
-				m.subscribtions <- chargerID
+			select {
+			case <-m.done:
+				return
+			case <-time.After(m.cfg.GetSignalRSubscribeInterval()):
+				m.mu.Lock()
+				defer m.mu.Unlock()
+				if m.subscribtions != nil {
+					m.subscribtions <- chargerID
+				}
 			}
 		}()
 
@@ -272,11 +271,15 @@ func (m *manager) ensureClientStarted() {
 func (m *manager) startClient() {
 	if len(m.chargers) != 0 {
 		if err := m.client.Start(); err != nil {
-			go func() {
-				time.Sleep(m.cfg.GetSignalRConnCreationTimeout())
-				m.startClient()
-			}()
 			log.WithError(err).Error("Unable to start client")
+			go func() {
+				select {
+				case <-m.done:
+					return
+				case <-time.After(m.cfg.GetSignalRConnCreationTimeout()):
+					m.startClient()
+				}
+			}()
 			return
 		}
 	}
