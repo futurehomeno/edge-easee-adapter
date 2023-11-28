@@ -220,7 +220,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 func (c *httpClient) SetCableLock(accessToken, chargerID string, locked bool) error {
 	u := c.buildURL(cableLockURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodGet, u).
+	req, err := newRequestBuilder(http.MethodPost, u).
 		withBody(cableLockBody{State: locked}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		addHeader(contentTypeHeader, jsonContentType).
