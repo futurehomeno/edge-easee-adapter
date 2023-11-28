@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/root"
-	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
 // Manager is the interface for the Easee signalR manager.

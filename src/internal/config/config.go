@@ -48,7 +48,7 @@ func (c Credentials) Empty() bool {
 
 // Expired checks if credentials are expired.
 func (c Credentials) Expired() bool {
-	return clock.Now().UTC().After(c.ExpiresAt)
+	return clock.Now().After(c.ExpiresAt)
 }
 
 // SignalR represents SignalR configuration settings.
@@ -155,7 +155,7 @@ func (cs *Service) SetCredentials(accessToken, refreshToken string, expirationIn
 	cs.Storage.Model().Credentials = Credentials{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
-		ExpiresAt:    clock.Now().UTC().Add(time.Duration(expirationInSeconds) * time.Second),
+		ExpiresAt:    clock.Now().Add(time.Duration(expirationInSeconds) * time.Second),
 	}
 
 	return cs.Storage.Save()
