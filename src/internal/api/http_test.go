@@ -174,6 +174,182 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 	}
 }
 
+func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+	t.Cleanup(func() {
+		clock.Restore()
+	})
+
+	tests := []struct {
+		name             string
+		chargerID        string
+		accessToken      string
+		serverHandler    http.Handler
+		forceServerError bool
+		current          float64
+		wantErr          bool
+	}{
+		{
+			name:        "successful call to Easee API",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/XX12345/settings",
+					requestBody:   `{"maxChargerCurrent":10}`,
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusAccepted,
+				},
+			}...),
+			current: 10,
+		},
+		{
+			name:        "response code != 200",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/settings",
+				requestBody:   `{"maxChargerCurrent":10}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			current: 10,
+			wantErr: true,
+		},
+		{
+			name:             "http client error",
+			chargerID:        test.ChargerID,
+			accessToken:      test.AccessToken,
+			forceServerError: true,
+			wantErr:          true,
+		},
+		{
+			name:      "return error if access token is empty",
+			chargerID: test.ChargerID,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests { //nolint:paralleltest
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			httpClient := &http.Client{Timeout: 3 * time.Second}
+			c := NewHTTPClient(httpClient, s.URL)
+
+			err := c.UpdateMaxCurrent(tt.accessToken, tt.chargerID, tt.current)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+	t.Cleanup(func() {
+		clock.Restore()
+	})
+
+	tests := []struct {
+		name             string
+		chargerID        string
+		accessToken      string
+		serverHandler    http.Handler
+		forceServerError bool
+		current          float64
+		wantErr          bool
+	}{
+		{
+			name:        "successful call to Easee API",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/XX12345/settings",
+					requestBody:   `{"dynamicChargerCurrent":10}`,
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusAccepted,
+				},
+			}...),
+			current: 10,
+		},
+		{
+			name:        "response code != 200",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/settings",
+				requestBody:   `{"dynamicChargerCurrent":10}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			current: 10,
+			wantErr: true,
+		},
+		{
+			name:             "http client error",
+			chargerID:        test.ChargerID,
+			accessToken:      test.AccessToken,
+			forceServerError: true,
+			wantErr:          true,
+		},
+		{
+			name:      "return error if access token is empty",
+			chargerID: test.ChargerID,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests { //nolint:paralleltest
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			httpClient := &http.Client{Timeout: 3 * time.Second}
+			c := NewHTTPClient(httpClient, s.URL)
+
+			err := c.UpdateDynamicCurrent(tt.accessToken, tt.chargerID, tt.current)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
 func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 	t.Cleanup(func() {
@@ -618,7 +794,7 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 			accessToken: test.AccessToken,
 			serverHandler: newTestHandler(t, []call{
 				{
-					requestMethod: http.MethodGet,
+					requestMethod: http.MethodPost,
 					requestPath:   "/api/chargers/XX12345/commands/lock_state",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
@@ -636,7 +812,7 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 			accessToken: test.AccessToken,
 			serverHandler: newTestHandler(t, []call{
 				{
-					requestMethod: http.MethodGet,
+					requestMethod: http.MethodPost,
 					requestPath:   "/api/chargers/XX12345/commands/lock_state",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
@@ -653,7 +829,7 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 			locked:      true,
 			accessToken: test.AccessToken,
 			serverHandler: newTestHandler(t, call{
-				requestMethod: http.MethodGet,
+				requestMethod: http.MethodPost,
 				requestPath:   "/api/chargers/XX12345/commands/lock_state",
 				requestHeaders: map[string]string{
 					"Authorization": "Bearer test.access.token",
