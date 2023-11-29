@@ -23,6 +23,7 @@
     "keepAliveInterval2": "30s",
     "timeoutInterval2": "1m",
     "subscribeInterval": "30s",
+    "reconnectInterval": "15s",
     "invokeTimeout": "10s"
   },
   "backoff": {

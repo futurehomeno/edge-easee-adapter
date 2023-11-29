@@ -2,7 +2,9 @@ package signalr
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -12,10 +14,14 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
+const (
+	signalRURI = "/hubs/chargers"
+)
+
 // Client is the interface for the SignalR client.
 type Client interface {
 	// Start starts the SignalR client.
-	Start() error
+	Start()
 	// Close stops the SignalR client.
 	Close() error
 
@@ -36,11 +42,10 @@ type client struct {
 	running bool
 	cancel  context.CancelFunc
 
-	connection   signalr.Client
-	cfg          *config.Service
-	serverStopFn context.CancelFunc
-	connFactory  *connectionFactory
-	receiver     *receiver
+	connection    signalr.Client
+	cfg           *config.Service
+	tokenProvider func() (string, error)
+	receiver      *receiver
 
 	states       chan ClientState
 	observations chan Observation
@@ -49,41 +54,23 @@ type client struct {
 }
 
 // NewClient creates a new SignalR client.
-func NewClient(cfg *config.Service, authTokenProvider func() (string, error)) Client {
+func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
 	observations := make(chan Observation, 100)
 
 	return &client{
-		cfg:          cfg,
-		receiver:     newReceiver(observations),
-		connFactory:  newConnectionFactory(cfg, authTokenProvider),
-		states:       make(chan ClientState, 10),
-		observations: observations,
+		cfg:           cfg,
+		tokenProvider: tokenProvider,
+		receiver:      newReceiver(observations),
+		states:        make(chan ClientState, 10),
+		observations:  observations,
 	}
 }
 
 func (c *client) SubscribeCharger(id string) error {
-	c.mu.Lock()
-	if !c.running {
-		c.mu.Unlock()
-
-		return fmt.Errorf("client is not running")
-	}
-
-	c.mu.Unlock()
-
 	return c.invoke("SubscribeWithCurrentState", id, true) // true stands for sending initial batch of data
 }
 
 func (c *client) UnsubscribeCharger(id string) error {
-	c.mu.Lock()
-	if !c.running {
-		c.mu.Unlock()
-
-		return fmt.Errorf("client is not running")
-	}
-
-	c.mu.Unlock()
-
 	return c.invoke("Unsubscribe", id)
 }
 
@@ -106,35 +93,20 @@ func (c *client) ObservationC() <-chan Observation {
 	return c.observations
 }
 
-func (c *client) Start() error {
+func (c *client) Start() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.running {
-		return nil
+		return
 	}
 
-	client, stopFn, err := c.clientFactory(c.connFactory, c.receiver)
-	if err != nil {
-		return err
-	}
-
-	c.connection = client
-	c.serverStopFn = stopFn
-
-	if c.cancel != nil {
-		c.cancel()
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 
-	c.connection.Start()
-
-	go c.notifyState(ctx)
+	go c.handleConnection(ctx)
 
 	c.running = true
-
-	return nil
 }
 
 func (c *client) Close() error {
@@ -144,8 +116,6 @@ func (c *client) Close() error {
 	if !c.running {
 		return nil
 	}
-
-	c.serverStopFn()
 
 	if c.cancel != nil {
 		c.cancel()
@@ -158,6 +128,15 @@ func (c *client) Close() error {
 }
 
 func (c *client) invoke(method string, args ...any) error {
+	c.mu.Lock()
+	if !c.running || c.connection == nil {
+		c.mu.Unlock()
+
+		return errors.New("client is not running")
+	}
+
+	c.mu.Unlock()
+
 	timer := time.NewTimer(c.cfg.GetSignalRInvokeTimeout())
 	defer timer.Stop()
 
@@ -171,57 +150,105 @@ func (c *client) invoke(method string, args ...any) error {
 	}
 }
 
-func (c *client) notifyState(ctx context.Context) {
-	ch := make(chan signalr.ClientState, 1)
-	cancel := c.connection.ObserveStateChanged(ch)
-
+func (c *client) handleConnection(ctx context.Context) {
 	for {
+		if client, err := c.getClient(ctx); err != nil {
+			log.WithError(err).Warn("Unable to start signalr client")
+		} else {
+			c.connection = client
+			c.connection.Start()
+
+			c.notifyState(ctx)
+		}
+
+		c.connection = nil
+
 		select {
 		case <-ctx.Done():
-			cancel()
-
 			return
-		case newState := <-ch:
-			state := ClientStateDisconnected
-			if newState == signalr.ClientConnected {
-				state = ClientStateConnected
-			}
-
-			c.mu.Lock()
-
-			if c.connState == state {
-				c.mu.Unlock()
-
-				continue
-			}
-
-			c.connState = state
-
-			c.mu.Unlock()
-
-			log.Info("signalR client state: ", state)
-
-			c.states <- state
+		case <-time.After(c.cfg.GetSignalRReconnectInterval()):
 		}
 	}
 }
 
-func (c *client) clientFactory(connFactory *connectionFactory, rec *receiver) (signalr.Client, context.CancelFunc, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (c *client) notifyState(ctx context.Context) {
+	ch := make(chan signalr.ClientState, 1)
+	cancel := c.connection.ObserveStateChanged(ch)
+	defer cancel()
 
-	client, err := signalr.NewClient(
+	for {
+		select {
+		case <-ctx.Done():
+			c.updateState(ClientStateDisconnected)
+			return
+
+		case clientState := <-ch:
+			state := ClientStateDisconnected
+			if clientState == signalr.ClientConnected {
+				state = ClientStateConnected
+			}
+
+			if c.updateState(state) {
+				c.states <- state
+			}
+
+			if clientState == signalr.ClientClosed {
+				return
+			}
+		}
+	}
+}
+
+func (c *client) updateState(state ClientState) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.connState != state {
+		c.connState = state
+		log.Info("signalR client state: ", state)
+		return true
+	}
+
+	return false
+}
+
+func (c *client) getClient(ctx context.Context) (signalr.Client, error) {
+	connection, err := c.getConnection()
+	if err != nil {
+		return nil, err
+	}
+
+	return signalr.NewClient(
 		ctx,
 		signalr.KeepAliveInterval(c.cfg.GetSignalRKeepAliveInterval()),
 		signalr.TimeoutInterval(c.cfg.GetSignalRTimeoutInterval()),
-		signalr.WithConnector(connFactory.Create),
-		signalr.WithReceiver(rec),
+		signalr.WithConnection(connection),
+		signalr.WithReceiver(c.receiver),
 		signalr.Logger(newLogger(), false),
 	)
-	if err != nil {
-		cancel()
+}
 
-		return nil, nil, err
+func (c *client) getConnection() (signalr.Connection, error) {
+	token, err := c.tokenProvider()
+	if err != nil {
+		return nil, fmt.Errorf("unable to get access token: %w", err)
 	}
 
-	return client, cancel, nil
+	headers := func() http.Header {
+		h := make(http.Header)
+		h.Add("Authorization", "Bearer "+token)
+
+		return h
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.GetSignalRConnCreationTimeout())
+	defer cancel()
+
+	url := c.cfg.GetSignalRBaseURL() + signalRURI
+	conn, err := signalr.NewHTTPConnection(ctx, url, signalr.WithHTTPHeaders(headers))
+	if err != nil {
+		return nil, fmt.Errorf("unable to instantiate signalR connection: %w", err)
+	}
+
+	return conn, nil
 }

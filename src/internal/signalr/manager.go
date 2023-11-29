@@ -179,10 +179,12 @@ func (m *manager) handleSubscribtion(chargerID string) {
 		}
 
 		go func() {
+			timer := time.NewTimer(m.cfg.GetSignalRSubscribeInterval())
+			defer timer.Stop()
+
 			select {
 			case <-m.done:
-				return
-			case <-time.After(m.cfg.GetSignalRSubscribeInterval()):
+			case <-timer.C:
 				m.mu.Lock()
 				defer m.mu.Unlock()
 				if m.subscribtions != nil {
@@ -206,7 +208,10 @@ func (m *manager) handleClientState(state ClientState) {
 		m.subscribtions = make(chan string, 1+len(m.chargers))
 
 		for chargerID := range m.chargers {
-			m.subscribtions <- chargerID
+			select {
+			case <-m.done:
+			case m.subscribtions <- chargerID:
+			}
 		}
 
 	case ClientStateDisconnected:
@@ -265,23 +270,9 @@ func (m *manager) ensureClientStarted() {
 	m.clientStarting = true
 	m.clientStartLock.Unlock()
 
-	m.startClient()
-}
-
-func (m *manager) startClient() {
 	if len(m.chargers) != 0 {
-		if err := m.client.Start(); err != nil {
-			log.WithError(err).Error("Unable to start client")
-			go func() {
-				select {
-				case <-m.done:
-					return
-				case <-time.After(m.cfg.GetSignalRConnCreationTimeout()):
-					m.startClient()
-				}
-			}()
-			return
-		}
+		m.client.Start()
+		return
 	}
 
 	m.clientStartLock.Lock()
