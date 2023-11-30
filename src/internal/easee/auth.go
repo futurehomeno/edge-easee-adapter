@@ -127,12 +127,8 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 	// we aren't able to refresh anymore. Requires user re-login
 	var httpError HTTPError
 	if ok := errors.As(err, &httpError); ok && httpError.Status == http.StatusUnauthorized {
-		notifError := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
-		a.validateNotificationPush(notifError, notificationEaseeStatusOffline)
-
-		a.status = statusConnectionFailed
-		if logoutErr := a.triggerAppLogout(); logoutErr != nil {
-			return fmt.Errorf("unauthorized, re-login required; failed to clear credentials. %w , logout error: %w", err, logoutErr)
+		if err := a.handleConnectionFailed(err); err != nil {
+			return errors.Wrap(err, "failed to handle failed connection on unauthorized")
 		}
 
 		return fmt.Errorf("received unauthorized error, re-login is required. %w", err)
@@ -141,9 +137,9 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 	switch a.status { //nolint
 	case statusReconnecting:
 		if a.attempts == a.cfgSvc.GetBackoffMaxAttempts() {
-			notifError := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
-			a.validateNotificationPush(notifError, notificationEaseeStatusOffline)
-			a.status = statusConnectionFailed
+			if err := a.handleConnectionFailed(err); err != nil {
+				return errors.Wrap(err, "failed to handle failed connection when reconnecting")
+			}
 
 			return fmt.Errorf("failed delayed attempt to refresh token. Re-login required. %w", err)
 		}
@@ -160,6 +156,18 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 	default:
 		return fmt.Errorf("invalid auth status when refreshing token: %d. Error: %w", a.status, err)
 	}
+}
+
+func (a *authenticator) handleConnectionFailed(err error) error {
+	notifError := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
+	a.validateNotificationPush(notifError, notificationEaseeStatusOffline)
+
+	a.status = statusConnectionFailed
+	if logoutErr := a.triggerAppLogout(); logoutErr != nil {
+		return fmt.Errorf("unauthorized, re-login required; failed to clear credentials. %w , logout error: %w", err, logoutErr)
+	}
+
+	return nil
 }
 
 // triggerAppLogout sends a mqtt message with request to log out a user
