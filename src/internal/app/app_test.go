@@ -228,25 +228,19 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					{ID: "456"},
 				}, nil)
 				c.On("Ping").Return(nil)
-				c.On("ChargerConfig", "123").Return(exampleChargerConfig(t), nil).Once()
-				c.On("ChargerConfig", "456").Return(exampleChargerConfig(t), nil).Once()
-				c.On("ChargerSiteInfo", "123").Return(exampleChargerSiteInfo(t), nil).Once()
-				c.On("ChargerSiteInfo", "456").Return(exampleChargerSiteInfo(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
 					{
 						ID: "123",
 						Info: easee.Info{
-							ChargerID:  "123",
-							MaxCurrent: 32,
+							ChargerID: "123",
 						},
 					},
 					{
 						ID: "456",
 						Info: easee.Info{
-							ChargerID:  "456",
-							MaxCurrent: 32,
+							ChargerID: "456",
 						},
 					},
 				}).Return(nil)
@@ -307,25 +301,19 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					{ID: "456"},
 				}, nil)
 				c.On("Ping").Return(errors.New("oops"))
-				c.On("ChargerConfig", "123").Return(exampleChargerConfig(t), nil).Once()
-				c.On("ChargerConfig", "456").Return(exampleChargerConfig(t), nil).Once()
-				c.On("ChargerSiteInfo", "123").Return(exampleChargerSiteInfo(t), nil).Once()
-				c.On("ChargerSiteInfo", "456").Return(exampleChargerSiteInfo(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
 					{
 						ID: "123",
 						Info: easee.Info{
-							ChargerID:  "123",
-							MaxCurrent: 32,
+							ChargerID: "123",
 						},
 					},
 					{
 						ID: "456",
 						Info: easee.Info{
-							ChargerID:  "456",
-							MaxCurrent: 32,
+							ChargerID: "456",
 						},
 					},
 				}).Return(nil)
@@ -358,25 +346,19 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					{ID: "456"},
 				}, nil)
 				c.On("Ping").Return(nil)
-				c.On("ChargerConfig", "123").Return(exampleChargerConfig(t), nil).Once()
-				c.On("ChargerConfig", "456").Return(exampleChargerConfig(t), nil).Once()
-				c.On("ChargerSiteInfo", "123").Return(exampleChargerSiteInfo(t), nil).Once()
-				c.On("ChargerSiteInfo", "456").Return(exampleChargerSiteInfo(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
 					{
 						ID: "123",
 						Info: easee.Info{
-							ChargerID:  "123",
-							MaxCurrent: 32,
+							ChargerID: "123",
 						},
 					},
 					{
 						ID: "456",
 						Info: easee.Info{
-							ChargerID:  "456",
-							MaxCurrent: 32,
+							ChargerID: "456",
 						},
 					},
 				}).Return(errors.New("oops"))
@@ -655,7 +637,8 @@ func exampleChargerConfig(t *testing.T) *api.ChargerConfig {
 	t.Helper()
 
 	return &api.ChargerConfig{
-		MaxChargerCurrent: 32,
+		MaxChargerCurrent:     0,
+		DetectedPowerGridType: 0,
 	}
 }
 
