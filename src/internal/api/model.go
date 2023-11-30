@@ -38,6 +38,11 @@ type ChargerConfig struct {
 	DetectedPowerGridType GridType `json:"detectedPowerGridType"`
 }
 
+// ChargerSiteInfo represents charger rate current.
+type ChargerSiteInfo struct {
+	RatedCurrent float64 `json:"ratedCurrent"`
+}
+
 // GridType represents a grdi type.
 type GridType int
 

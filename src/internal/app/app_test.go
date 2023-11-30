@@ -230,6 +230,8 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("Ping").Return(nil)
 				c.On("ChargerConfig", "123").Return(exampleChargerConfig(t), nil).Once()
 				c.On("ChargerConfig", "456").Return(exampleChargerConfig(t), nil).Once()
+				c.On("ChargerSiteInfo", "123").Return(exampleChargerSiteInfo(t), nil).Once()
+				c.On("ChargerSiteInfo", "456").Return(exampleChargerSiteInfo(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
@@ -307,6 +309,8 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("Ping").Return(errors.New("oops"))
 				c.On("ChargerConfig", "123").Return(exampleChargerConfig(t), nil).Once()
 				c.On("ChargerConfig", "456").Return(exampleChargerConfig(t), nil).Once()
+				c.On("ChargerSiteInfo", "123").Return(exampleChargerSiteInfo(t), nil).Once()
+				c.On("ChargerSiteInfo", "456").Return(exampleChargerSiteInfo(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
@@ -356,6 +360,8 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("Ping").Return(nil)
 				c.On("ChargerConfig", "123").Return(exampleChargerConfig(t), nil).Once()
 				c.On("ChargerConfig", "456").Return(exampleChargerConfig(t), nil).Once()
+				c.On("ChargerSiteInfo", "123").Return(exampleChargerSiteInfo(t), nil).Once()
+				c.On("ChargerSiteInfo", "456").Return(exampleChargerSiteInfo(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
@@ -650,5 +656,14 @@ func exampleChargerConfig(t *testing.T) *api.ChargerConfig {
 
 	return &api.ChargerConfig{
 		MaxChargerCurrent: 32,
+	}
+}
+
+// exampleChargerSiteInfo returns an example charger site info for testing purposes.
+func exampleChargerSiteInfo(t *testing.T) *api.ChargerSiteInfo {
+	t.Helper()
+
+	return &api.ChargerSiteInfo{
+		RatedCurrent: 0,
 	}
 }

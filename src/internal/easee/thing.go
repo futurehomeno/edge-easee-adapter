@@ -16,10 +16,11 @@ import (
 
 // Info is an object representing charger persisted information.
 type Info struct {
-	ChargerID  string               `json:"chargerID"`
-	MaxCurrent float64              `json:"maxCurrent"`
-	GridType   chargepoint.GridType `json:"gridType"`
-	Phases     int                  `json:"phases"`
+	ChargerID           string               `json:"chargerID"`
+	MaxCurrent          float64              `json:"maxCurrent"`
+	GridType            chargepoint.GridType `json:"gridType"`
+	Phases              int                  `json:"phases"`
+	SupportedMaxCurrent int64                `json:"supportedMaxCurrent"`
 }
 
 type thingFactory struct {
@@ -93,7 +94,7 @@ func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingSt
 		supportedStates,
 		chargepoint.WithChargingModes(SupportedChargingModes()...),
 		chargepoint.WithPhases(info.Phases),
-		chargepoint.WithSupportedMaxCurrent(32), // TODO
+		chargepoint.WithSupportedMaxCurrent(info.SupportedMaxCurrent),
 		chargepoint.WithGridType(info.GridType),
 	)
 }

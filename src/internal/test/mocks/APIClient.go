@@ -38,6 +38,32 @@ func (_m *APIClient) ChargerConfig(chargerID string) (*api.ChargerConfig, error)
 	return r0, r1
 }
 
+// ChargerSiteInfo provides a mock function with given fields: chargerID
+func (_m *APIClient) ChargerSiteInfo(chargerID string) (*api.ChargerSiteInfo, error) {
+	ret := _m.Called(chargerID)
+
+	var r0 *api.ChargerSiteInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) (*api.ChargerSiteInfo, error)); ok {
+		return rf(chargerID)
+	}
+	if rf, ok := ret.Get(0).(func(string) *api.ChargerSiteInfo); ok {
+		r0 = rf(chargerID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*api.ChargerSiteInfo)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(chargerID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // Chargers provides a mock function with given fields:
 func (_m *APIClient) Chargers() ([]api.Charger, error) {
 	ret := _m.Called()

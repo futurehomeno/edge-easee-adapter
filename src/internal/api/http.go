@@ -17,6 +17,7 @@ const (
 	healthURI       = "/health"
 
 	chargerConfigURITemplate   = "/api/chargers/%s/config"
+	chargerSiteURITemplate     = "/api/chargers/%s/site"
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
 	chargerStartURITemplate    = "/api/chargers/%s/commands/resume_charging"
 	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
@@ -48,6 +49,8 @@ type HTTPClient interface {
 	SetCableLock(accessToken, chargerID string, locked bool) error
 	// ChargerConfig retrieves charger config.
 	ChargerConfig(accessToken, chargerID string) (*ChargerConfig, error)
+	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
+	ChargerSiteInfo(accessToken, chargerID string) (*ChargerSiteInfo, error)
 	// Chargers returns all available chargers.
 	Chargers(accessToken string) ([]Charger, error)
 	// Ping checks if an external service is available.
@@ -257,6 +260,33 @@ func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*ChargerConfi
 	defer resp.Body.Close()
 
 	state := &ChargerConfig{}
+
+	err = c.readResponseBody(resp, state)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not read charger state response body")
+	}
+
+	return state, nil
+}
+
+func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*ChargerSiteInfo, error) {
+	u := c.buildURL(chargerSiteURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodGet, u).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		build()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create charger state request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusOK)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not perform charger state api call")
+	}
+
+	defer resp.Body.Close()
+
+	state := &ChargerSiteInfo{}
 
 	err = c.readResponseBody(resp, state)
 	if err != nil {

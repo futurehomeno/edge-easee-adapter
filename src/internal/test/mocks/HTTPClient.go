@@ -38,6 +38,32 @@ func (_m *HTTPClient) ChargerConfig(accessToken string, chargerID string) (*api.
 	return r0, r1
 }
 
+// ChargerSiteInfo provides a mock function with given fields: accessToken, chargerID
+func (_m *HTTPClient) ChargerSiteInfo(accessToken string, chargerID string) (*api.ChargerSiteInfo, error) {
+	ret := _m.Called(accessToken, chargerID)
+
+	var r0 *api.ChargerSiteInfo
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (*api.ChargerSiteInfo, error)); ok {
+		return rf(accessToken, chargerID)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) *api.ChargerSiteInfo); ok {
+		r0 = rf(accessToken, chargerID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*api.ChargerSiteInfo)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(accessToken, chargerID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // Chargers provides a mock function with given fields: accessToken
 func (_m *HTTPClient) Chargers(accessToken string) ([]api.Charger, error) {
 	ret := _m.Called(accessToken)

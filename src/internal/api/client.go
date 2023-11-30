@@ -16,6 +16,8 @@ type APIClient interface {
 	SetCableLock(chargerID string, locked bool) error
 	// ChargerConfig retrieves charger config.
 	ChargerConfig(chargerID string) (*ChargerConfig, error)
+	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
+	ChargerSiteInfo(chargerID string) (*ChargerSiteInfo, error)
 	// Chargers returns all available chargers.
 	Chargers() ([]Charger, error)
 	// Ping checks if an external service is available.
@@ -77,6 +79,15 @@ func (a *apiClient) SetCableLock(chargerID string, locked bool) error {
 	}
 
 	return a.httpClient.SetCableLock(token, chargerID, locked)
+}
+
+func (a *apiClient) ChargerSiteInfo(chargerID string) (*ChargerSiteInfo, error) {
+	token, err := a.auth.AccessToken()
+	if err != nil {
+		return nil, a.tokenError(err)
+	}
+
+	return a.httpClient.ChargerSiteInfo(token, chargerID)
 }
 
 func (a *apiClient) ChargerConfig(chargerID string) (*ChargerConfig, error) {
