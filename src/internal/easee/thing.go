@@ -48,6 +48,10 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	cache := config.NewCache()
 	controller := NewController(t.client, t.signalRManager, cache, t.cfgService, info.ChargerID, info.MaxCurrent)
 
+	if err := controller.UpdateInfo(info); err != nil {
+		return nil, err
+	}
+
 	groups := []string{"ch_0"}
 
 	return thing.NewCarCharger(publisher, thingState, &thing.CarChargerConfig{

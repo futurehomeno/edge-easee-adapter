@@ -1,11 +1,13 @@
 package easee
 
 import (
+	"errors"
+	"fmt"
+	"math"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
-	"github.com/pkg/errors"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -16,6 +18,7 @@ import (
 type Controller interface {
 	chargepoint.Controller
 	numericmeter.Reporter
+	UpdateInfo(*Info) error
 }
 
 // NewController returns a new instance of Controller.
@@ -127,8 +130,49 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 	case numericmeter.UnitKWh:
 		return c.cache.LifetimeEnergy(), nil
 	default:
-		return 0, errors.Errorf("unsupported unit: %s", unit)
+		return 0, fmt.Errorf("unsupported unit: %s", unit)
 	}
+}
+
+func (a *controller) UpdateInfo(info *Info) error {
+	configErr := a.updateChargerConfigInfo(info)
+	siteErr := a.updateChargerSiteInfo(info)
+
+	return errors.Join(configErr, siteErr)
+}
+
+func (a *controller) updateChargerConfigInfo(info *Info) error {
+	cfg, err := a.client.ChargerConfig(info.ChargerID)
+	if err != nil {
+		if info.GridType == "" {
+			return fmt.Errorf("failed to fetch a charger config ID %s: %w", info.ChargerID, err)
+		}
+
+		return nil
+	}
+
+	gridType, phases := cfg.DetectedPowerGridType.ToFimpGridType()
+
+	info.MaxCurrent = cfg.MaxChargerCurrent
+	info.GridType = gridType
+	info.Phases = phases
+
+	return nil
+}
+
+func (a *controller) updateChargerSiteInfo(info *Info) error {
+	siteInfo, err := a.client.ChargerSiteInfo(info.ChargerID)
+	if err != nil {
+		if info.SupportedMaxCurrent == 0 {
+			return fmt.Errorf("failed to fetch a charger site info ID %s: %w", info.ChargerID, err)
+		}
+
+		return nil
+	}
+
+	info.SupportedMaxCurrent = int64(math.Round(siteInfo.RatedCurrent))
+
+	return nil
 }
 
 func (c *controller) checkConnection() error {

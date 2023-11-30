@@ -51,10 +51,10 @@ package-deb:
 	@echo "Done"
 
 deb-arm: clean configure-arm build-go-arm package-deb
-	mv package/debian.deb package/build/$(app_name)_$(version)_armhf.deb
+	mv -f package/debian.deb package/build/$(app_name)_$(version)_armhf.deb
 
 deb-amd: clean configure-amd64 build-go-amd package-deb
-	mv package/debian.deb package/build/$(app_name)_$(version)_amd64.deb
+	mv -f package/debian.deb package/build/$(app_name)_$(version)_amd64.deb
 
 upload:
 	scp -O -P ${remote_port} package/build/$(app_name)_$(version)_armhf.deb $(remote_host):~/

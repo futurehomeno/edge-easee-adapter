@@ -1,9 +1,6 @@
 package app
 
 import (
-	"fmt"
-	"math"
-
 	"github.com/futurehomeno/cliffhanger/adapter"
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
@@ -177,28 +174,10 @@ func (a *application) registerChargers() error {
 	seeds := make([]*adapter.ThingSeed, 0, len(chargers))
 
 	for _, charger := range chargers {
-		siteInfo, err := a.client.ChargerSiteInfo(charger.ID)
-		if err != nil {
-			return fmt.Errorf("failed to fetch a charger site info ID %s: %w", charger.ID, err)
-		}
-
-		cfg, err := a.client.ChargerConfig(charger.ID)
-		if err != nil {
-			return fmt.Errorf("failed to fetch a charger config ID %s: %w", charger.ID, err)
-		}
-
-		gridType, phases := cfg.DetectedPowerGridType.ToFimpGridType()
-
-		supportedMaxCurrent := int64(math.Round(siteInfo.RatedCurrent))
-
 		seeds = append(seeds, &adapter.ThingSeed{
 			ID: charger.ID,
 			Info: easee.Info{
-				ChargerID:           charger.ID,
-				MaxCurrent:          cfg.MaxChargerCurrent,
-				SupportedMaxCurrent: supportedMaxCurrent,
-				GridType:            gridType,
-				Phases:              phases,
+				ChargerID: charger.ID,
 			},
 		})
 	}
