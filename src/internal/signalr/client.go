@@ -296,7 +296,7 @@ func (f *connectionFactory) Create() (signalr.Connection, error) {
 
 	conn, err := signalr.NewHTTPConnection(ctx, f.url(), signalr.WithHTTPHeaders(headers))
 	if err != nil {
-		// See the comment below for another sleep.
+		// See the comment above for another sleep.
 		time.Sleep(30 * time.Second)
 
 		return nil, fmt.Errorf("unable to instantiate signalR connection: %w", err)
