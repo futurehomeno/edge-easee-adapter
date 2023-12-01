@@ -11,7 +11,6 @@ const (
 	CableRating       ObservationID = 104
 	ChargerOPState    ObservationID = 109
 	TotalPower        ObservationID = 120
-	SessionEnergy     ObservationID = 121
 	LifetimeEnergy    ObservationID = 124
 )
 
@@ -31,7 +30,6 @@ func SupportedObservationIDs() []ObservationID {
 	return []ObservationID{
 		MaxChargerCurrent,
 		ChargerOPState,
-		SessionEnergy,
 		CableLocked,
 		TotalPower,
 		LifetimeEnergy,

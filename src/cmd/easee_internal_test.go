@@ -38,12 +38,6 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeDouble,
-								ID:        signalr.SessionEnergy,
-								Value:     "0",
-							},
-							{
-								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeBoolean,
 								ID:        signalr.CableLocked,
 								Value:     "false",
@@ -67,12 +61,6 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
 								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeDouble,
-								ID:        signalr.SessionEnergy,
-								Value:     "1.23",
 							},
 							{
 								ChargerID: test.ChargerID,
@@ -101,14 +89,12 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						Expectations: []*suite.Expectation{
 							// Initial batch
 							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "ready_to_charge"),
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.current_session.report", "chargepoint", 0),
 							suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", false),
 							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
 							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
 
 							// Update
 							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "charging"),
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.current_session.report", "chargepoint", 1.23),
 							suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", true),
 							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 1000).ExpectProperty("unit", "W"),
 							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"time"
+
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	log "github.com/sirupsen/logrus"
 )
@@ -41,6 +43,32 @@ type ChargerConfig struct {
 // ChargerSiteInfo represents charger rate current.
 type ChargerSiteInfo struct {
 	RatedCurrent float64 `json:"ratedCurrent"`
+}
+
+type ChargeSessions []*ChargeSession
+
+func (c ChargeSessions) LatestSession() *ChargeSession {
+	if len(c) < 1 {
+		return nil
+	}
+
+	return c[0]
+}
+
+func (c ChargeSessions) PreviousSession() *ChargeSession {
+	if len(c) < 2 {
+		return nil
+	}
+
+	return c[1]
+}
+
+// ChargerSession represents charger session.
+type ChargeSession struct {
+	CarConnected    time.Time `json:"carConnected"`
+	CarDisconnected time.Time `json:"carDisconnected"`
+	KiloWattHours   float64   `json:"kiloWattHours"`
+	IsComplete      bool      `json:"isComplete"`
 }
 
 // GridType represents a grdi type.

@@ -46,7 +46,6 @@ func NewObservationsHandler(thing adapter.Thing, cache config.Cache) (Observatio
 		CableRating:       handler.handleCableRating,
 		ChargerOPState:    handler.handleChargerState,
 		TotalPower:        handler.handleTotalPower,
-		SessionEnergy:     handler.handleSessionEnergy,
 		LifetimeEnergy:    handler.handleLifetimeEnergy,
 	}
 
@@ -123,19 +122,6 @@ func (o *observationsHandler) handleTotalPower(observation Observation) error {
 	o.cache.SetTotalPower(val * 1000)
 
 	_, err = o.meterElec.SendMeterReport(numericmeter.UnitW, false)
-
-	return err
-}
-
-func (o *observationsHandler) handleSessionEnergy(observation Observation) error {
-	val, err := observation.Float64Value()
-	if err != nil {
-		return err
-	}
-
-	o.cache.SetSessionEnergy(val)
-
-	_, err = o.chargepoint.SendCurrentSessionReport(false)
 
 	return err
 }

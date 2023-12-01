@@ -6,6 +6,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
@@ -25,23 +26,24 @@ type Controller interface {
 func NewController(client api.APIClient, manager signalr.Manager, cache config.Cache,
 	cfgService *config.Service, chargerID string, maxCurrent float64) Controller {
 	return &controller{
-		client:     client,
-		manager:    manager,
-		cache:      cache,
-		cfgService: cfgService,
-		chargerID:  chargerID,
-		maxCurrent: maxCurrent,
+		client:                  client,
+		manager:                 manager,
+		cache:                   cache,
+		cfgService:              cfgService,
+		chargerID:               chargerID,
+		maxCurrent:              maxCurrent,
+		chargeSessionsRefresher: newChargeSessionsRefresher(client, chargerID, cfgService.GetPollingInterval()),
 	}
 }
 
 type controller struct {
-	client     api.APIClient
-	manager    signalr.Manager
-	cache      config.Cache
-	cfgService *config.Service
-	chargerID  string
-	// TODO: needed?
-	maxCurrent float64
+	client                  api.APIClient
+	manager                 signalr.Manager
+	cache                   config.Cache
+	cfgService              *config.Service
+	chargerID               string
+	maxCurrent              float64 // TODO: needed?
+	chargeSessionsRefresher cache.Refresher[api.ChargeSessions]
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
@@ -97,13 +99,27 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		return nil, err
 	}
 
-	return &chargepoint.SessionReport{
-		SessionEnergy:         c.cache.SessionEnergy(),
-		PreviousSessionEnergy: 0,           // TODO
-		StartedAt:             time.Time{}, // TODO
-		FinishedAt:            time.Time{}, // TODO
-		OfferedCurrent:        0,           // TODO
-	}, nil
+	sessions, err := c.retrieveChargeSessions()
+	if err != nil {
+		return nil, err
+	}
+
+	ret := chargepoint.SessionReport{}
+
+	if latest := sessions.LatestSession(); latest != nil {
+		ret.SessionEnergy = latest.KiloWattHours
+		ret.StartedAt = latest.CarConnected
+		ret.FinishedAt = latest.CarDisconnected
+		if !latest.IsComplete {
+			ret.OfferedCurrent = 0 // TODO, find observation with current, add to cache and use here
+		}
+	}
+
+	if prev := sessions.PreviousSession(); prev != nil {
+		ret.PreviousSessionEnergy = prev.KiloWattHours
+	}
+
+	return &ret, nil
 }
 
 func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
@@ -181,4 +197,28 @@ func (c *controller) checkConnection() error {
 	}
 
 	return nil
+}
+
+// retrieveChargeSessions retrieves charge sessions from refresher cache.
+func (c *controller) retrieveChargeSessions() (api.ChargeSessions, error) {
+	sessions, err := c.chargeSessionsRefresher.Refresh()
+	if err != nil {
+		return nil, fmt.Errorf("controller: failed to refresh charge sessions: %w", err)
+	}
+
+	return sessions, nil
+}
+
+// newChargeSessionsRefresher creates new instance of a charge sessions refresher cache.
+func newChargeSessionsRefresher(client api.APIClient, id string, interval time.Duration) cache.Refresher[api.ChargeSessions] {
+	refresh := func() (api.ChargeSessions, error) {
+		sessions, err := client.ChargerSessions(id)
+		if err != nil {
+			return nil, fmt.Errorf("controller: failed to get charges history: %w", err)
+		}
+
+		return sessions, nil
+	}
+
+	return cache.NewRefresher(refresh, interval)
 }
