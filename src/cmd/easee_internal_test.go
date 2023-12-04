@@ -13,9 +13,11 @@ import (
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/test/suite"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
 )
 
 func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
@@ -28,6 +30,11 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
+						client.On("Ping").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []signalr.Observation{
 							{
@@ -108,6 +115,11 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
+						client.On("Ping").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []signalr.Observation{
 							{
@@ -154,8 +166,16 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
-				Name:     "Adapter should not report data if signalR connection is lost/not established",
-				Setup:    serviceSetup(testContainer, "configured", signalRSetup("localhost:1111", nil)),
+				Name: "Adapter should not report data if signalR connection is lost/not established",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup("localhost:1111", nil)),
 				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
 				Nodes: []*suite.Node{
 					{
@@ -172,6 +192,11 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
+						client.On("Ping").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []signalr.Observation{
 							{
@@ -217,8 +242,8 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 }
 
 //nolint:unparam
-func serviceSetup(tc *testContainer, configSet string, opts ...func(tc *testContainer)) suite.ServiceSetup {
-	return func(t *testing.T) (service suite.Service, mocks []suite.Mock) {
+func serviceSetup(tc *testContainer, configSet string, mockClientFn func(c *mocks.APIClient), opts ...func(tc *testContainer)) suite.ServiceSetup {
+	return func(t *testing.T) (service suite.Service, _ []suite.Mock) {
 		t.Helper()
 
 		tearDown(configSet)(t)
@@ -231,6 +256,11 @@ func serviceSetup(tc *testContainer, configSet string, opts ...func(tc *testCont
 		}
 
 		tc.SetUp()
+
+		client := mocks.NewAPIClient(t)
+		mockClientFn(client)
+
+		services.easeeAPIClient = client
 
 		app, err := Build(config)
 		if err != nil {
