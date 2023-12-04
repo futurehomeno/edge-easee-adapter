@@ -12,6 +12,7 @@ const (
 	CableRating           ObservationID = 104
 	ChargerOPState        ObservationID = 109
 	TotalPower            ObservationID = 120
+	EnergySession         ObservationID = 121
 	LifetimeEnergy        ObservationID = 124
 )
 
@@ -35,6 +36,7 @@ func SupportedObservationIDs() []ObservationID {
 		CableLocked,
 		TotalPower,
 		LifetimeEnergy,
+		EnergySession,
 		CableRating,
 	}
 }

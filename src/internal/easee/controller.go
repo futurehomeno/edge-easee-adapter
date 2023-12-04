@@ -105,11 +105,13 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	}
 
 	ret := chargepoint.SessionReport{}
+	ret.SessionEnergy = c.cache.EnergySession()
 
 	if latest := sessions.LatestSession(); latest != nil {
-		ret.SessionEnergy = latest.KiloWattHours
+
 		ret.StartedAt = latest.CarConnected
 		ret.FinishedAt = latest.CarDisconnected
+
 		if !latest.IsComplete {
 			ret.OfferedCurrent = c.cache.OfferedCurrent()
 		}
