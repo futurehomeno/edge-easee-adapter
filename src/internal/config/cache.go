@@ -21,9 +21,12 @@ type Cache interface {
 	TotalPower() float64
 	// LifetimeEnergy returns the lifetime energy.
 	LifetimeEnergy() float64
+	// OfferedCurrent returns the current value.
+	OfferedCurrent() int64
 
 	SetChargerState(state chargepoint.State)
 	SetMaxCurrent(current int64)
+	SetOfferedCurrent(current int64)
 	SetCableLocked(locked bool)
 	SetCableCurrent(current int64)
 	SetTotalPower(power float64)
@@ -35,6 +38,7 @@ type cache struct {
 
 	chargerState   chargepoint.State
 	maxCurrent     int64
+	offeredCurrent int64
 	cableLocked    bool
 	cableCurrent   int64
 	totalPower     float64
@@ -87,6 +91,13 @@ func (c *cache) LifetimeEnergy() float64 {
 	return c.lifetimeEnergy
 }
 
+func (c *cache) OfferedCurrent() int64 {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.offeredCurrent
+}
+
 func (c *cache) SetMaxCurrent(current int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -136,4 +147,11 @@ func (c *cache) SetChargerState(state chargepoint.State) {
 	defer c.mu.Unlock()
 
 	c.chargerState = state
+}
+
+func (c *cache) SetOfferedCurrent(current int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.offeredCurrent = current
 }

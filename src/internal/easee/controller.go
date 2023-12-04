@@ -111,7 +111,7 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		ret.StartedAt = latest.CarConnected
 		ret.FinishedAt = latest.CarDisconnected
 		if !latest.IsComplete {
-			ret.OfferedCurrent = 0 // TODO, find observation with current, add to cache and use here
+			ret.OfferedCurrent = c.cache.OfferedCurrent()
 		}
 	}
 
@@ -150,15 +150,15 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 	}
 }
 
-func (a *controller) UpdateInfo(info *Info) error {
-	configErr := a.updateChargerConfigInfo(info)
-	siteErr := a.updateChargerSiteInfo(info)
+func (c *controller) UpdateInfo(info *Info) error {
+	configErr := c.updateChargerConfigInfo(info)
+	siteErr := c.updateChargerSiteInfo(info)
 
 	return errors.Join(configErr, siteErr)
 }
 
-func (a *controller) updateChargerConfigInfo(info *Info) error {
-	cfg, err := a.client.ChargerConfig(info.ChargerID)
+func (c *controller) updateChargerConfigInfo(info *Info) error {
+	cfg, err := c.client.ChargerConfig(info.ChargerID)
 	if err != nil {
 		if info.GridType == "" {
 			return fmt.Errorf("failed to fetch a charger config ID %s: %w", info.ChargerID, err)
@@ -176,8 +176,8 @@ func (a *controller) updateChargerConfigInfo(info *Info) error {
 	return nil
 }
 
-func (a *controller) updateChargerSiteInfo(info *Info) error {
-	siteInfo, err := a.client.ChargerSiteInfo(info.ChargerID)
+func (c *controller) updateChargerSiteInfo(info *Info) error {
+	siteInfo, err := c.client.ChargerSiteInfo(info.ChargerID)
 	if err != nil {
 		if info.SupportedMaxCurrent == 0 {
 			return fmt.Errorf("failed to fetch a charger site info ID %s: %w", info.ChargerID, err)

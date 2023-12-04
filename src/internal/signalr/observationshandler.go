@@ -41,12 +41,13 @@ func NewObservationsHandler(thing adapter.Thing, cache config.Cache) (Observatio
 	}
 
 	handler.callbacks = map[ObservationID]func(Observation) error{
-		MaxChargerCurrent: handler.handleMaxChargerCurrent,
-		CableLocked:       handler.handleCableLocked,
-		CableRating:       handler.handleCableRating,
-		ChargerOPState:    handler.handleChargerState,
-		TotalPower:        handler.handleTotalPower,
-		LifetimeEnergy:    handler.handleLifetimeEnergy,
+		MaxChargerCurrent:     handler.handleMaxChargerCurrent,
+		DynamicChargerCurrent: handler.handleDynamicChargerCurrent,
+		CableLocked:           handler.handleCableLocked,
+		CableRating:           handler.handleCableRating,
+		ChargerOPState:        handler.handleChargerState,
+		TotalPower:            handler.handleTotalPower,
+		LifetimeEnergy:        handler.handleLifetimeEnergy,
 	}
 
 	return &handler, nil
@@ -70,6 +71,18 @@ func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) e
 	o.cache.SetMaxCurrent(current)
 
 	_, err = o.chargepoint.SendMaxCurrentReport(false)
+
+	return err
+}
+
+func (o *observationsHandler) handleDynamicChargerCurrent(observation Observation) error {
+	val, err := observation.Float64Value()
+	if err != nil {
+		return err
+	}
+
+	current := int64(math.Round(val))
+	o.cache.SetOfferedCurrent(current)
 
 	return err
 }
