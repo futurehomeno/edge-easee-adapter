@@ -231,13 +231,13 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
-					{
+					&adapter.ThingSeed{
 						ID: "123",
 						Info: easee.Info{
 							ChargerID: "123",
 						},
 					},
-					{
+					&adapter.ThingSeed{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID: "456",
@@ -304,13 +304,13 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
-					{
+					&adapter.ThingSeed{
 						ID: "123",
 						Info: easee.Info{
 							ChargerID: "123",
 						},
 					},
-					{
+					&adapter.ThingSeed{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID: "456",
@@ -349,13 +349,13 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
-					{
+					&adapter.ThingSeed{
 						ID: "123",
 						Info: easee.Info{
 							ChargerID: "123",
 						},
 					},
-					{
+					&adapter.ThingSeed{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID: "456",
@@ -621,6 +621,7 @@ func TestApplication_Initialize(t *testing.T) {
 
 			if tt.wantErr {
 				assert.Error(t, err)
+
 				return
 			}
 
@@ -629,24 +630,5 @@ func TestApplication_Initialize(t *testing.T) {
 				tt.lifecycleAssertions(lc)
 			}
 		})
-	}
-}
-
-// exampleChargerConfig returns an example charger config for testing purposes.
-func exampleChargerConfig(t *testing.T) *api.ChargerConfig {
-	t.Helper()
-
-	return &api.ChargerConfig{
-		MaxChargerCurrent:     0,
-		DetectedPowerGridType: 0,
-	}
-}
-
-// exampleChargerSiteInfo returns an example charger site info for testing purposes.
-func exampleChargerSiteInfo(t *testing.T) *api.ChargerSiteInfo {
-	t.Helper()
-
-	return &api.ChargerSiteInfo{
-		RatedCurrent: 0,
 	}
 }

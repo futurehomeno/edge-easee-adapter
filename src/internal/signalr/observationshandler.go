@@ -173,7 +173,7 @@ func getChargepointService(thing adapter.Thing) (chargepoint.Service, error) {
 		}
 	}
 
-	return nil, errors.New("There are no chargepoint services")
+	return nil, errors.New("there are no chargepoint services")
 }
 
 func getMeterElecService(thing adapter.Thing) (numericmeter.Service, error) {
@@ -183,5 +183,5 @@ func getMeterElecService(thing adapter.Thing) (numericmeter.Service, error) {
 		}
 	}
 
-	return nil, errors.New("There are no meterelec services")
+	return nil, errors.New("there are no meterelec services")
 }

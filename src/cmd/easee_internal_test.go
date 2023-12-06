@@ -4,7 +4,9 @@ import (
 	"io"
 	"os"
 	"path"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
 )
@@ -22,218 +25,8 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 
 	s := &suite.Suite{
 		Cases: []*suite.Case{
-			//{
-			//	Name: "Adapter is capable of reacting to incoming observations",
-			//	Setup: serviceSetup(
-			//		testContainer,
-			//		"configured",
-			//		func(client *mocks.APIClient) {
-			//			client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
-			//			client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
-			//			client.On("Ping").Return(nil)
-			//		},
-			//		signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-			//			s.MockObservations(0, []signalr.Observation{
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeInteger,
-			//					ID:        signalr.ChargerOPState,
-			//					Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
-			//				},
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeBoolean,
-			//					ID:        signalr.CableLocked,
-			//					Value:     "false",
-			//				},
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeDouble,
-			//					ID:        signalr.TotalPower,
-			//					Value:     "0",
-			//				},
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeDouble,
-			//					ID:        signalr.LifetimeEnergy,
-			//					Value:     "12.34",
-			//				},
-			//			})
-			//			s.MockObservations(300*time.Millisecond, []signalr.Observation{
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeInteger,
-			//					ID:        signalr.ChargerOPState,
-			//					Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
-			//				},
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeBoolean,
-			//					ID:        signalr.CableLocked,
-			//					Value:     "true",
-			//				},
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeDouble,
-			//					ID:        signalr.TotalPower,
-			//					Value:     "1",
-			//				},
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeDouble,
-			//					ID:        signalr.LifetimeEnergy,
-			//					Value:     "13.45",
-			//				},
-			//			})
-			//		})),
-			//	TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
-			//	Nodes: []*suite.Node{
-			//		{
-			//			InitCallbacks: []suite.Callback{waitForRunning()},
-			//			Expectations: []*suite.Expectation{
-			//				// Initial batch
-			//				suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "ready_to_charge"),
-			//				suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", false),
-			//				suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
-			//				suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
-			//
-			//				// Update
-			//				suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "charging"),
-			//				suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", true),
-			//				suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 1000).ExpectProperty("unit", "W"),
-			//				suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
-			//			},
-			//		},
-			//	},
-			//},
-			//{
-			//	// Regression: we've encountered cases where chargers reported power usage and a state other than "charging".
-			//	Name: "Adapter reports a charger state as charging based on power consumption",
-			//	Setup: serviceSetup(
-			//		testContainer,
-			//		"configured",
-			//		func(client *mocks.APIClient) {
-			//			client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
-			//			client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
-			//			client.On("Ping").Return(nil)
-			//		},
-			//		signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-			//			s.MockObservations(0, []signalr.Observation{
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeDouble,
-			//					ID:        signalr.TotalPower,
-			//					Value:     "0",
-			//				},
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeInteger,
-			//					ID:        signalr.ChargerOPState,
-			//					Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
-			//				},
-			//			})
-			//			s.MockObservations(300*time.Millisecond, []signalr.Observation{
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeDouble,
-			//					ID:        signalr.TotalPower,
-			//					Value:     "1.23",
-			//				},
-			//			})
-			//			s.MockObservations(300*time.Millisecond, []signalr.Observation{
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeInteger,
-			//					ID:        signalr.ChargerOPState,
-			//					Value:     strconv.Itoa(int(signalr.ChargerStateReadyToCharge)),
-			//				},
-			//			})
-			//		})),
-			//	TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
-			//	Nodes: []*suite.Node{
-			//		{
-			//			InitCallbacks: []suite.Callback{waitForRunning()},
-			//			Expectations: []*suite.Expectation{
-			//				suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
-			//				suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 1230).ExpectProperty("unit", "W"),
-			//				suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "ready_to_charge").ExactlyOnce(),
-			//				suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "charging").ExactlyOnce(),
-			//			},
-			//		},
-			//	},
-			//},
-			//{
-			//	Name: "Adapter should not report data if signalR connection is lost/not established",
-			//	Setup: serviceSetup(
-			//		testContainer,
-			//		"configured",
-			//		func(client *mocks.APIClient) {
-			//			client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
-			//			client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
-			//			client.On("Ping").Return(nil)
-			//		},
-			//		signalRSetup("localhost:1111", nil)),
-			//	TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
-			//	Nodes: []*suite.Node{
-			//		{
-			//			InitCallbacks: []suite.Callback{waitForRunning()},
-			//			Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.state.get_report", "chargepoint"),
-			//			Expectations: []*suite.Expectation{
-			//				suite.ExpectError("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "chargepoint"),
-			//			},
-			//		},
-			//	},
-			//},
-			//{
-			//	Name: "Lower lifetime energy reading should be skipped",
-			//	Setup: serviceSetup(
-			//		testContainer,
-			//		"configured",
-			//		func(client *mocks.APIClient) {
-			//			client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
-			//			client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
-			//			client.On("Ping").Return(nil)
-			//		},
-			//		signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-			//			s.MockObservations(0, []signalr.Observation{
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeDouble,
-			//					ID:        signalr.LifetimeEnergy,
-			//					Value:     "12.34",
-			//				},
-			//			})
-			//			s.MockObservations(200*time.Millisecond, []signalr.Observation{
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeDouble,
-			//					ID:        signalr.LifetimeEnergy,
-			//					Value:     "11",
-			//				},
-			//			})
-			//			s.MockObservations(200*time.Millisecond, []signalr.Observation{
-			//				{
-			//					ChargerID: test.ChargerID,
-			//					DataType:  signalr.ObservationDataTypeDouble,
-			//					ID:        signalr.LifetimeEnergy,
-			//					Value:     "13.45",
-			//				},
-			//			})
-			//		})),
-			//	TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
-			//	Nodes: []*suite.Node{
-			//		{
-			//			InitCallbacks: []suite.Callback{waitForRunning()},
-			//			Expectations: []*suite.Expectation{
-			//				suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
-			//				suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
-			//				suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 11).Never(),
-			//			},
-			//		},
-			//	},
-			//},
 			{
-				Name: "Set max current, to low value",
+				Name: "Adapter is capable of reacting to incoming observations",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -242,12 +35,152 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
 					},
-					signalRSetup(test.DefaultSignalRAddr, nil)),
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeBoolean,
+								ID:        signalr.CableLocked,
+								Value:     "false",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.TotalPower,
+								Value:     "0",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "12.34",
+							},
+						})
+						s.MockObservations(300*time.Millisecond, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeBoolean,
+								ID:        signalr.CableLocked,
+								Value:     "true",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.TotalPower,
+								Value:     "1",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "13.45",
+							},
+						})
+					})),
 				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
 				Nodes: []*suite.Node{
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
-						Command:       suite.IntMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.max_current.set", "chargepoint", 0),
+						Expectations: []*suite.Expectation{
+							// Initial batch
+							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "ready_to_charge"),
+							suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", false),
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
+
+							// Update
+							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "charging"),
+							suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", true),
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 1000).ExpectProperty("unit", "W"),
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
+						},
+					},
+				},
+			},
+			{
+				// Regression: we've encountered cases where chargers reported power usage and a state other than "charging".
+				Name: "Adapter reports a charger state as charging based on power consumption",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.TotalPower,
+								Value:     "0",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
+							},
+						})
+						s.MockObservations(300*time.Millisecond, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.TotalPower,
+								Value:     "1.23",
+							},
+						})
+						s.MockObservations(300*time.Millisecond, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateReadyToCharge)),
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 1230).ExpectProperty("unit", "W"),
+							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "ready_to_charge").ExactlyOnce(),
+							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "charging").ExactlyOnce(),
+						},
+					},
+				},
+			},
+			{
+				Name: "Adapter should not report data if signalR connection is lost/not established",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup("localhost:1111", nil)),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.state.get_report", "chargepoint"),
 						Expectations: []*suite.Expectation{
 							suite.ExpectError("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "chargepoint"),
 						},
@@ -255,7 +188,152 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
-				Name: "Set max current, to low value",
+				Name: "Lower lifetime energy reading should be skipped",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "12.34",
+							},
+						})
+						s.MockObservations(200*time.Millisecond, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "11",
+							},
+						})
+						s.MockObservations(200*time.Millisecond, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "13.45",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 11).Never(),
+						},
+					},
+				},
+			},
+			{
+				Name: "Get max current report",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{
+							MaxChargerCurrent: 32,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeBoolean,
+								ID:        signalr.CableLocked,
+								Value:     "false",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.TotalPower,
+								Value:     "0",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "12.34",
+							},
+						})
+						s.MockObservations(300*time.Millisecond, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeBoolean,
+								ID:        signalr.CableLocked,
+								Value:     "true",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.TotalPower,
+								Value:     "1",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "13.45",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.MaxChargerCurrent,
+								Value:     "32",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.DynamicChargerCurrent,
+								Value:     "16",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.EnergySession,
+								Value:     "13.45",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.max_current.get_report", "chargepoint"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectInt("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.max_current.report", "chargepoint", 32),
+						},
+					},
+				},
+			},
+			{
+				Name: "Set max current, too low value",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",

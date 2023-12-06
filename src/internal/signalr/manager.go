@@ -31,7 +31,7 @@ type manager struct {
 	done    chan struct{}
 	cfg     *config.Service
 
-	subscribtions  chan string
+	subscriptions  chan string
 	clientStarting bool
 
 	client   Client
@@ -55,7 +55,6 @@ func (m *manager) Connected(chargerID string) bool {
 	}
 
 	return false
-
 }
 
 func (m *manager) Start() error {
@@ -69,6 +68,7 @@ func (m *manager) Start() error {
 	if m.done != nil {
 		close(m.done)
 	}
+
 	m.done = make(chan struct{})
 
 	go m.run()
@@ -101,6 +101,7 @@ func (m *manager) Register(chargerID string, handler ObservationsHandler) {
 
 	if _, ok := m.chargers[chargerID]; ok {
 		log.Warnf("Charger '%s' is already registered", chargerID)
+
 		return
 	}
 
@@ -111,8 +112,8 @@ func (m *manager) Register(chargerID string, handler ObservationsHandler) {
 
 	m.ensureClientStarted()
 
-	if m.subscribtions != nil {
-		m.subscribtions <- chargerID
+	if m.subscriptions != nil {
+		m.subscriptions <- chargerID
 	}
 }
 
@@ -148,10 +149,11 @@ func (m *manager) run() {
 		case <-m.done:
 			return
 
-		case chargerID, ok := <-m.subscribtions:
+		case chargerID, ok := <-m.subscriptions:
 			if !ok {
 				continue
 			}
+
 			m.handleSubscribtion(chargerID)
 
 		case state := <-states:
@@ -174,7 +176,8 @@ func (m *manager) handleSubscribtion(chargerID string) {
 
 	if err := m.client.SubscribeCharger(chargerID); err != nil {
 		log.Warnf("Failed to subscribe charger '%s'", chargerID)
-		if m.subscribtions == nil {
+
+		if m.subscriptions == nil {
 			return
 		}
 
@@ -187,8 +190,9 @@ func (m *manager) handleSubscribtion(chargerID string) {
 			case <-timer.C:
 				m.mu.Lock()
 				defer m.mu.Unlock()
-				if m.subscribtions != nil {
-					m.subscribtions <- chargerID
+
+				if m.subscriptions != nil {
+					m.subscriptions <- chargerID
 				}
 			}
 		}()
@@ -205,12 +209,12 @@ func (m *manager) handleClientState(state ClientState) {
 
 	switch state {
 	case ClientStateConnected:
-		m.subscribtions = make(chan string, 1+len(m.chargers))
+		m.subscriptions = make(chan string, 1+len(m.chargers))
 
 		for chargerID := range m.chargers {
 			select {
 			case <-m.done:
-			case m.subscribtions <- chargerID:
+			case m.subscriptions <- chargerID:
 			}
 		}
 
@@ -219,10 +223,11 @@ func (m *manager) handleClientState(state ClientState) {
 			charger.isSubscribed = false
 		}
 
-		if m.subscribtions != nil {
-			close(m.subscribtions)
+		if m.subscriptions != nil {
+			close(m.subscriptions)
 		}
-		m.subscribtions = nil
+
+		m.subscriptions = nil
 
 	default:
 		log.Warnf("Unknown client state %v", state)
@@ -264,6 +269,7 @@ func (m *manager) ensureClientStarted() {
 	m.clientStartLock.Lock()
 	if m.clientStarting {
 		m.clientStartLock.Unlock()
+
 		return
 	}
 
@@ -272,6 +278,7 @@ func (m *manager) ensureClientStarted() {
 
 	if len(m.chargers) != 0 {
 		m.client.Start()
+
 		return
 	}
 

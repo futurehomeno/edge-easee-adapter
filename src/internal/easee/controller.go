@@ -108,7 +108,6 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	ret.SessionEnergy = c.cache.EnergySession()
 
 	if latest := sessions.LatestSession(); latest != nil {
-
 		ret.StartedAt = latest.CarConnected
 		ret.FinishedAt = latest.CarDisconnected
 

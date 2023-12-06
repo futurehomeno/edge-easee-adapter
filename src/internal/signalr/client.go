@@ -173,6 +173,7 @@ func (c *client) handleConnection(ctx context.Context) {
 
 func (c *client) notifyState(ctx context.Context) {
 	ch := make(chan signalr.ClientState, 1)
+
 	cancel := c.connection.ObserveStateChanged(ch)
 	defer cancel()
 
@@ -180,6 +181,7 @@ func (c *client) notifyState(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			c.updateState(ClientStateDisconnected)
+
 			return
 
 		case clientState := <-ch:
@@ -206,6 +208,7 @@ func (c *client) updateState(state ClientState) bool {
 	if c.connState != state {
 		c.connState = state
 		log.Info("signalR client state: ", state)
+
 		return true
 	}
 
@@ -245,6 +248,7 @@ func (c *client) getConnection() (signalr.Connection, error) {
 	defer cancel()
 
 	url := c.cfg.GetSignalRBaseURL() + signalRURI
+
 	conn, err := signalr.NewHTTPConnection(ctx, url, signalr.WithHTTPHeaders(headers))
 	if err != nil {
 		return nil, fmt.Errorf("unable to instantiate signalR connection: %w", err)

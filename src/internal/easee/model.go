@@ -1,7 +1,5 @@
 package easee
 
-// TODO, remove?
-
 const (
 	// ChargingModeNormal represents a "normal" charging mode.
 	ChargingModeNormal = "normal"
