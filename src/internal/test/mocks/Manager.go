@@ -27,7 +27,7 @@ func (_m *Manager) Connected(chargerID string) bool {
 }
 
 // Register provides a mock function with given fields: chargerID, handler
-func (_m *Manager) Register(chargerID string, handler signalr.ObservationsHandler) {
+func (_m *Manager) Register(chargerID string, handler signalr.Handler) {
 	_m.Called(chargerID, handler)
 }
 

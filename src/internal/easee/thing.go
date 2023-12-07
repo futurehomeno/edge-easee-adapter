@@ -24,13 +24,13 @@ type Info struct {
 }
 
 type thingFactory struct {
-	client         api.APIClient
+	client         api.Client
 	cfgService     *config.Service
 	signalRManager signalr.Manager
 }
 
 // NewThingFactory returns a new instance of adapter.ThingFactory.
-func NewThingFactory(client api.APIClient, cfgService *config.Service, signalRManager signalr.Manager) adapter.ThingFactory {
+func NewThingFactory(client api.Client, cfgService *config.Service, signalRManager signalr.Manager) adapter.ThingFactory {
 	return &thingFactory{
 		client:         client,
 		cfgService:     cfgService,

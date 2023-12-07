@@ -11,7 +11,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
-type ObservationsHandler interface {
+type Handler interface {
 	// HandleObservation handles signalr observation callback.
 	HandleObservation(observation Observation) error
 }
@@ -23,7 +23,7 @@ type observationsHandler struct {
 	callbacks   map[ObservationID]func(Observation) error
 }
 
-func NewObservationsHandler(thing adapter.Thing, cache config.Cache) (ObservationsHandler, error) {
+func NewObservationsHandler(thing adapter.Thing, cache config.Cache) (Handler, error) {
 	chargepoint, err := getChargepointService(thing)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func (o *observationsHandler) handleDynamicChargerCurrent(observation Observatio
 	current := int64(math.Round(val))
 	o.cache.SetOfferedCurrent(current)
 
-	return err
+	return nil
 }
 
 func (o *observationsHandler) handleCableLocked(observation Observation) error {

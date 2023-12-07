@@ -20,6 +20,12 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
 )
 
+const (
+	cmdDeviceChargepointTopic = "pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1"
+	evtDeviceChargepointTopic = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1"
+	evtDeviceMeterElecTopic   = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1"
+)
+
 func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 	testContainer := newTestContainer(t)
 
@@ -95,16 +101,16 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Expectations: []*suite.Expectation{
 							// Initial batch
-							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "ready_to_charge"),
-							suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", false),
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
+							suite.ExpectString(evtDeviceChargepointTopic, "evt.state.report", "chargepoint", "ready_to_charge"),
+							suite.ExpectBool(evtDeviceChargepointTopic, "evt.cable_lock.report", "chargepoint", false),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
 
 							// Update
-							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "charging"),
-							suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", true),
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 1000).ExpectProperty("unit", "W"),
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
+							suite.ExpectString(evtDeviceChargepointTopic, "evt.state.report", "chargepoint", "charging"),
+							suite.ExpectBool(evtDeviceChargepointTopic, "evt.cable_lock.report", "chargepoint", true),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 1000).ExpectProperty("unit", "W"),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
 						},
 					},
 				},
@@ -157,10 +163,10 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Expectations: []*suite.Expectation{
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 1230).ExpectProperty("unit", "W"),
-							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "ready_to_charge").ExactlyOnce(),
-							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.state.report", "chargepoint", "charging").ExactlyOnce(),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 1230).ExpectProperty("unit", "W"),
+							suite.ExpectString(evtDeviceChargepointTopic, "evt.state.report", "chargepoint", "ready_to_charge").ExactlyOnce(),
+							suite.ExpectString(evtDeviceChargepointTopic, "evt.state.report", "chargepoint", "charging").ExactlyOnce(),
 						},
 					},
 				},
@@ -180,9 +186,9 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Nodes: []*suite.Node{
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
-						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.state.get_report", "chargepoint"),
+						Command:       suite.NullMessage(cmdDeviceChargepointTopic, "cmd.state.get_report", "chargepoint"),
 						Expectations: []*suite.Expectation{
-							suite.ExpectError("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "chargepoint"),
+							suite.ExpectError(evtDeviceChargepointTopic, "chargepoint"),
 						},
 					},
 				},
@@ -228,9 +234,9 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Expectations: []*suite.Expectation{
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
-							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1", "evt.meter.report", "meter_elec", 11).Never(),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 11).Never(),
 						},
 					},
 				},
@@ -325,9 +331,9 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Nodes: []*suite.Node{
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
-						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.max_current.get_report", "chargepoint"),
+						Command:       suite.NullMessage(cmdDeviceChargepointTopic, "cmd.max_current.get_report", "chargepoint"),
 						Expectations: []*suite.Expectation{
-							suite.ExpectInt("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.max_current.report", "chargepoint", 32),
+							suite.ExpectInt(evtDeviceChargepointTopic, "evt.max_current.report", "chargepoint", 32),
 						},
 					},
 				},
@@ -347,9 +353,9 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Nodes: []*suite.Node{
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
-						Command:       suite.IntMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.max_current.set", "chargepoint", 0),
+						Command:       suite.IntMessage(cmdDeviceChargepointTopic, "cmd.max_current.set", "chargepoint", 0),
 						Expectations: []*suite.Expectation{
-							suite.ExpectError("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "chargepoint"),
+							suite.ExpectError(evtDeviceChargepointTopic, "chargepoint"),
 						},
 					},
 				},

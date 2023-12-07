@@ -2,8 +2,8 @@ package api
 
 import "fmt"
 
-// APIClient is a wrapper around the Easee HTTP Client with authentication capabilities.
-type APIClient interface {
+// Client is a wrapper around the Easee HTTP Client with authentication capabilities.
+type Client interface {
 	// UpdateMaxCurrent updates max charger current.
 	UpdateMaxCurrent(chargerID string, current float64) error
 	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
@@ -31,7 +31,7 @@ type apiClient struct {
 	auth       Authenticator
 }
 
-func NewAPIClient(http HTTPClient, auth Authenticator) APIClient {
+func NewAPIClient(http HTTPClient, auth Authenticator) Client {
 	return &apiClient{
 		httpClient: http,
 		auth:       auth,

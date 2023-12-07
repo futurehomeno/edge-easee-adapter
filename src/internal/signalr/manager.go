@@ -18,7 +18,7 @@ type Manager interface {
 	// Connected check if SignalR client is connected.
 	Connected(chargerID string) bool
 	// Register registers a charger to be managed.
-	Register(chargerID string, handler ObservationsHandler)
+	Register(chargerID string, handler Handler)
 	// Unregister unregisters a charger from being managed.
 	Unregister(chargerID string) error
 }
@@ -95,7 +95,7 @@ func (m *manager) Stop() error {
 	return nil
 }
 
-func (m *manager) Register(chargerID string, handler ObservationsHandler) {
+func (m *manager) Register(chargerID string, handler Handler) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -125,11 +125,11 @@ func (m *manager) Unregister(chargerID string) error {
 		return nil
 	}
 
-	delete(m.chargers, chargerID)
-
 	if err := m.client.UnsubscribeCharger(chargerID); err != nil {
 		return err
 	}
+
+	delete(m.chargers, chargerID)
 
 	if len(m.chargers) == 0 {
 		if err := m.client.Close(); err != nil {
@@ -154,7 +154,7 @@ func (m *manager) run() {
 				continue
 			}
 
-			m.handleSubscribtion(chargerID)
+			m.handleSubscription(chargerID)
 
 		case state := <-states:
 			m.handleClientState(state)
@@ -165,7 +165,7 @@ func (m *manager) run() {
 	}
 }
 
-func (m *manager) handleSubscribtion(chargerID string) {
+func (m *manager) handleSubscription(chargerID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -181,26 +181,28 @@ func (m *manager) handleSubscribtion(chargerID string) {
 			return
 		}
 
-		go func() {
-			timer := time.NewTimer(m.cfg.GetSignalRSubscribeInterval())
-			defer timer.Stop()
-
-			select {
-			case <-m.done:
-			case <-timer.C:
-				m.mu.Lock()
-				defer m.mu.Unlock()
-
-				if m.subscriptions != nil {
-					m.subscriptions <- chargerID
-				}
-			}
-		}()
+		go m.addChargerSubscription(chargerID)
 
 		return
 	}
 
 	charger.isSubscribed = true
+}
+
+func (m *manager) addChargerSubscription(chargerID string) {
+	timer := time.NewTimer(m.cfg.GetSignalRSubscribeInterval())
+	defer timer.Stop()
+
+	select {
+	case <-m.done:
+	case <-timer.C:
+		m.mu.Lock()
+		defer m.mu.Unlock()
+
+		if m.subscriptions != nil {
+			m.subscriptions <- chargerID
+		}
+	}
 }
 
 func (m *manager) handleClientState(state ClientState) {
@@ -284,10 +286,11 @@ func (m *manager) ensureClientStarted() {
 
 	m.clientStartLock.Lock()
 	defer m.clientStartLock.Unlock()
+
 	m.clientStarting = false
 }
 
 type charger struct {
-	handler      ObservationsHandler
+	handler      Handler
 	isSubscribed bool
 }

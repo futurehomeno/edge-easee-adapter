@@ -98,44 +98,45 @@ const (
 	GridTypeFirstInvalid = GridTypeWarningTN2PhasePin235
 )
 
+type networkType struct {
+	gridType chargepoint.GridType
+	phase    int
+}
+
+var easeeNetworkTypeMap = map[GridType]networkType{
+	GridTypeUnknown:                         {"", 0},
+	GridTypeNotYetDetected:                  {"", 0},
+	GridTypeTN3Phase:                        {chargepoint.GridTypeTN, 3},
+	GridTypeTN2PhasePin23:                   {chargepoint.GridTypeTN, 2},
+	GridTypeTN1Phase:                        {chargepoint.GridTypeTN, 1},
+	GridTypeIT3Phase:                        {chargepoint.GridTypeIT, 3},
+	GridTypeIT1Phase:                        {chargepoint.GridTypeIT, 1},
+	GridTypeWarningTN2PhasePin235:           {chargepoint.GridTypeTN, 2},
+	GridTypeWarningTN1PhaseNeutralOnPin3:    {chargepoint.GridTypeTN, 1},
+	GridTypeWarningIT3PhaseGNDFault:         {chargepoint.GridTypeIT, 3},
+	GridTypeWarningIT1PhaseGNDFault:         {chargepoint.GridTypeIT, 1},
+	GridTypeErrorNoValidPowerGridFound:      {"", 0},
+	GridTypeErrorTN400VNeutralOnWrongPin:    {chargepoint.GridTypeTN, 0},
+	GridTypeErrorITGroundConnectedToPin2Or3: {chargepoint.GridTypeIT, 0},
+	GridTypeWarningIT3PhaseGNDFaultL3:       {chargepoint.GridTypeIT, 3},
+	GridTypeWarningIT1PhaseGNDFaultL3:       {chargepoint.GridTypeIT, 1},
+	GridTypeWarningTN2PhasePIN234:           {chargepoint.GridTypeTN, 2},
+	GridTypeWarningTN3PhaseGNDFault:         {chargepoint.GridTypeTN, 3},
+	GridTypeWarningTN2PhaseGNDFault:         {chargepoint.GridTypeTN, 2},
+}
+
 func (g GridType) ToFimpGridType() (chargepoint.GridType, int) {
 	if g >= GridTypeFirstInvalid {
 		log.Warnf("Invalid grid type state %v", g)
 	}
 
-	switch g {
-	case GridTypeUnknown,
-		GridTypeNotYetDetected,
-		GridTypeErrorNoValidPowerGridFound:
-		return "", 0
-	case GridTypeTN3Phase,
-		GridTypeWarningTN3PhaseGNDFault:
-		return chargepoint.GridTypeTN, 3
-	case GridTypeTN2PhasePin23,
-		GridTypeWarningTN2PhasePin235,
-		GridTypeWarningTN2PhasePIN234,
-		GridTypeWarningTN2PhaseGNDFault:
-		return chargepoint.GridTypeTN, 2
-	case GridTypeTN1Phase,
-		GridTypeWarningTN1PhaseNeutralOnPin3:
-		return chargepoint.GridTypeTN, 1
-	case GridTypeIT3Phase,
-		GridTypeWarningIT3PhaseGNDFault,
-		GridTypeWarningIT3PhaseGNDFaultL3:
-		return chargepoint.GridTypeIT, 3
-	case GridTypeIT1Phase,
-		GridTypeWarningIT1PhaseGNDFault,
-		GridTypeWarningIT1PhaseGNDFaultL3:
-		return chargepoint.GridTypeIT, 1
-	case GridTypeErrorTN400VNeutralOnWrongPin:
-		return chargepoint.GridTypeTN, 0
-	case GridTypeErrorITGroundConnectedToPin2Or3:
-		return chargepoint.GridTypeIT, 0
-	default:
-		log.Warnf("Unknown grid type: %v", g)
-
-		return "", 0
+	if networkType, ok := easeeNetworkTypeMap[g]; ok {
+		return networkType.gridType, networkType.phase
 	}
+
+	log.Warnf("Unknown grid type: %v", g)
+
+	return "", 0
 }
 
 // loginBody represents a login request body.

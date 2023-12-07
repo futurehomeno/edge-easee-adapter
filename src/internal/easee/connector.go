@@ -11,13 +11,13 @@ import (
 
 type connector struct {
 	manager    signalr.Manager
-	httpClient api.APIClient
+	httpClient api.Client
 
 	chargerID string
 	cache     config.Cache
 }
 
-func NewConnector(manager signalr.Manager, httpClient api.APIClient, chargerID string, cache config.Cache) adapter.Connector {
+func NewConnector(manager signalr.Manager, httpClient api.Client, chargerID string, cache config.Cache) adapter.Connector {
 	return &connector{
 		manager:    manager,
 		httpClient: httpClient,

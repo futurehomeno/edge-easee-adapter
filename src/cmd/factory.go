@@ -39,7 +39,7 @@ type serviceContainer struct {
 	adapterState    adapter.State
 	httpClient      *http.Client
 	easeeHTTPClient api.HTTPClient
-	easeeAPIClient  api.APIClient
+	easeeAPIClient  api.Client
 	authenticator   api.Authenticator
 	signalRClient   signalr.Client
 	signalRManager  signalr.Manager
@@ -167,7 +167,7 @@ func getEaseeHTTPClient() api.HTTPClient {
 }
 
 // getEaseeAPIClient creates or returns existing Easee HTTP client.
-func getEaseeAPIClient(cfg *config.Config) api.APIClient {
+func getEaseeAPIClient(cfg *config.Config) api.Client {
 	if services.easeeAPIClient == nil {
 		services.easeeAPIClient = api.NewAPIClient(
 			getEaseeHTTPClient(),

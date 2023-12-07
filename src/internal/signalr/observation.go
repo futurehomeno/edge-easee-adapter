@@ -8,9 +8,9 @@ import (
 
 // Observation represents a SignalR observation data.
 type Observation struct {
+	ID        ObservationID       `json:"id"`
 	ChargerID string              `json:"mid"`
 	DataType  ObservationDataType `json:"dataType"`
-	ID        ObservationID       `json:"id"`
 	Timestamp time.Time           `json:"timestamp"`
 	Value     string              `json:"value"`
 }

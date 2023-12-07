@@ -27,7 +27,7 @@ func New(
 	cfgService *config.Service,
 	lc *lifecycle.Lifecycle,
 	mfLoader manifest.Loader,
-	client api.APIClient,
+	client api.Client,
 	auth api.Authenticator,
 ) Application {
 	return &application{
@@ -45,7 +45,7 @@ type application struct {
 	cfgService *config.Service
 	lifecycle  *lifecycle.Lifecycle
 	mfLoader   manifest.Loader
-	client     api.APIClient
+	client     api.Client
 	auth       api.Authenticator
 }
 

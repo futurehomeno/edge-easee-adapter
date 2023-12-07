@@ -28,8 +28,6 @@ const (
 	contentTypeHeader   = "Content-Type"
 
 	jsonContentType = "application/*+json"
-
-	pauseChargingCurrent = 0.
 )
 
 // HTTPClient represents Easee HTTP API Client.

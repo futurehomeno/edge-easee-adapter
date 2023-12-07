@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/cache"
@@ -23,26 +24,25 @@ type Controller interface {
 }
 
 // NewController returns a new instance of Controller.
-func NewController(client api.APIClient, manager signalr.Manager, cache config.Cache,
-	cfgService *config.Service, chargerID string, maxCurrent float64) Controller {
+func NewController(client api.Client, manager signalr.Manager, cache config.Cache,
+	cfgService *config.Service, chargerID string, maxCurrent float64,
+) Controller {
 	return &controller{
 		client:                  client,
 		manager:                 manager,
 		cache:                   cache,
 		cfgService:              cfgService,
 		chargerID:               chargerID,
-		maxCurrent:              maxCurrent,
 		chargeSessionsRefresher: newChargeSessionsRefresher(client, chargerID, cfgService.GetPollingInterval()),
 	}
 }
 
 type controller struct {
-	client                  api.APIClient
+	client                  api.Client
 	manager                 signalr.Manager
 	cache                   config.Cache
 	cfgService              *config.Service
 	chargerID               string
-	maxCurrent              float64 // TODO: needed?
 	chargeSessionsRefresher cache.Refresher[api.ChargeSessions]
 }
 
@@ -63,14 +63,12 @@ func (c *controller) SetChargepointOfferedCurrent(current int64) error {
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
-	// TODO: Remove Mode?
-
-	// switch strings.ToLower(settings.Mode) {
-	// case ChargingModeSlow:
-	// 	current = c.cfgService.GetSlowChargingCurrentInAmperes()
-	// default:
-	// 	current = c.maxCurrent
-	// }
+	if strings.ToLower(settings.Mode) == ChargingModeSlow {
+		err := c.SetChargepointOfferedCurrent(int64(math.Round(c.cfgService.GetSlowChargingCurrentInAmperes())))
+		if err != nil {
+			return err
+		}
+	}
 
 	return c.client.StartCharging(c.chargerID)
 }
@@ -104,8 +102,9 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		return nil, err
 	}
 
-	ret := chargepoint.SessionReport{}
-	ret.SessionEnergy = c.cache.EnergySession()
+	ret := chargepoint.SessionReport{
+		SessionEnergy: c.cache.EnergySession(),
+	}
 
 	if latest := sessions.LatestSession(); latest != nil {
 		ret.StartedAt = latest.CarConnected
@@ -211,7 +210,7 @@ func (c *controller) retrieveChargeSessions() (api.ChargeSessions, error) {
 }
 
 // newChargeSessionsRefresher creates new instance of a charge sessions refresher cache.
-func newChargeSessionsRefresher(client api.APIClient, id string, interval time.Duration) cache.Refresher[api.ChargeSessions] {
+func newChargeSessionsRefresher(client api.Client, id string, interval time.Duration) cache.Refresher[api.ChargeSessions] {
 	refresh := func() (api.ChargeSessions, error) {
 		sessions, err := client.ChargerSessions(id)
 		if err != nil {

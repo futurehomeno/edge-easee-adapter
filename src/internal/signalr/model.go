@@ -86,7 +86,7 @@ func SupportedChargingStates() []ChargerState {
 }
 
 // ToFimpState returns a human-readable name of the state.
-func (s ChargerState) ToFimpState() chargepoint.State {
+func (s ChargerState) ToFimpState() chargepoint.State { //nolint:cyclop
 	switch s {
 	case ChargerStateUnknown:
 		return chargepoint.StateUnknown
