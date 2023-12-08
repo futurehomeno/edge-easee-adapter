@@ -16,16 +16,37 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
+var extendedReportMapping = map[numericmeter.Value]specFunc{
+	numericmeter.ValueCurrentPhase1: func(report numericmeter.ValuesReport, c config.Cache) {
+		report[numericmeter.ValueCurrentPhase1] = c.Phase1Current()
+	},
+	numericmeter.ValueCurrentPhase2: func(report numericmeter.ValuesReport, c config.Cache) {
+		report[numericmeter.ValueCurrentPhase2] = c.Phase2Current()
+	},
+	numericmeter.ValueCurrentPhase3: func(report numericmeter.ValuesReport, c config.Cache) {
+		report[numericmeter.ValueCurrentPhase3] = c.Phase3Current()
+	},
+	numericmeter.ValuePowerImport: func(report numericmeter.ValuesReport, c config.Cache) {
+		report[numericmeter.ValuePowerImport] = c.TotalPower()
+	},
+	numericmeter.ValueEnergyImport: func(report numericmeter.ValuesReport, c config.Cache) {
+		report[numericmeter.ValueEnergyImport] = c.LifetimeEnergy()
+	},
+}
+
+type specFunc func(report numericmeter.ValuesReport, c config.Cache)
+
 // Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
 	numericmeter.Reporter
+	numericmeter.ExtendedReporter
 	UpdateInfo(*Info) error
 }
 
 // NewController returns a new instance of Controller.
 func NewController(client api.Client, manager signalr.Manager, cache config.Cache,
-	cfgService *config.Service, chargerID string, maxCurrent float64,
+	cfgService *config.Service, chargerID string,
 ) Controller {
 	return &controller{
 		client:                  client,
@@ -148,6 +169,22 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 	default:
 		return 0, fmt.Errorf("unsupported unit: %s", unit)
 	}
+}
+
+func (c *controller) MeterExtendedReport(values numericmeter.Values) (numericmeter.ValuesReport, error) {
+	if err := c.checkConnection(); err != nil {
+		return nil, err
+	}
+
+	ret := make(numericmeter.ValuesReport)
+
+	for _, value := range values {
+		if f, ok := extendedReportMapping[value]; ok {
+			f(ret, c.cache)
+		}
+	}
+
+	return ret, nil
 }
 
 func (c *controller) UpdateInfo(info *Info) error {

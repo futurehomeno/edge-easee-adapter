@@ -49,6 +49,9 @@ func NewObservationsHandler(thing adapter.Thing, cache config.Cache) (Handler, e
 		TotalPower:            handler.handleTotalPower,
 		LifetimeEnergy:        handler.handleLifetimeEnergy,
 		EnergySession:         handler.handleEnergySession,
+		InCurrentT3:           handler.handleInCurrentT3,
+		InCurrentT4:           handler.handleInCurrentT4,
+		InCurrentT5:           handler.handleInCurrentT5,
 	}
 
 	return &handler, nil
@@ -136,6 +139,11 @@ func (o *observationsHandler) handleTotalPower(observation Observation) error {
 	o.cache.SetTotalPower(val * 1000)
 
 	_, err = o.meterElec.SendMeterReport(numericmeter.UnitW, false)
+	if err != nil {
+		return err
+	}
+
+	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValuePowerImport}, false)
 
 	return err
 }
@@ -149,6 +157,11 @@ func (o *observationsHandler) handleLifetimeEnergy(observation Observation) erro
 	o.cache.SetLifetimeEnergy(val)
 
 	_, err = o.meterElec.SendMeterReport(numericmeter.UnitKWh, false)
+	if err != nil {
+		return err
+	}
+
+	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
 
 	return err
 }
@@ -162,6 +175,45 @@ func (o *observationsHandler) handleEnergySession(observation Observation) error
 	o.cache.SetEnergySession(val)
 
 	_, err = o.meterElec.SendMeterReport(numericmeter.UnitKWh, false)
+
+	return err
+}
+
+func (o *observationsHandler) handleInCurrentT3(observation Observation) error {
+	val, err := observation.Float64Value()
+	if err != nil {
+		return err
+	}
+
+	o.cache.SetPhase1Current(val)
+
+	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase1}, false)
+
+	return err
+}
+
+func (o *observationsHandler) handleInCurrentT4(observation Observation) error {
+	val, err := observation.Float64Value()
+	if err != nil {
+		return err
+	}
+
+	o.cache.SetPhase2Current(val)
+
+	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase2}, false)
+
+	return err
+}
+
+func (o *observationsHandler) handleInCurrentT5(observation Observation) error {
+	val, err := observation.Float64Value()
+	if err != nil {
+		return err
+	}
+
+	o.cache.SetPhase3Current(val)
+
+	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase3}, false)
 
 	return err
 }

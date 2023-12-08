@@ -46,7 +46,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	cache := config.NewCache()
-	controller := NewController(t.client, t.signalRManager, cache, t.cfgService, info.ChargerID, info.MaxCurrent)
+	controller := NewController(t.client, t.signalRManager, cache, t.cfgService, info.ChargerID)
 
 	if err := controller.UpdateInfo(info); err != nil {
 		return nil, err
@@ -111,5 +111,12 @@ func (t *thingFactory) meterElecSpecification(adapter adapter.Adapter, thingStat
 		thingState.Address(),
 		groups,
 		[]numericmeter.Unit{numericmeter.UnitW, numericmeter.UnitKWh},
+		numericmeter.WithExtendedValues(
+			numericmeter.ValueCurrentPhase1,
+			numericmeter.ValueCurrentPhase2,
+			numericmeter.ValueCurrentPhase3,
+			numericmeter.ValueEnergyImport,
+			numericmeter.ValuePowerImport,
+		),
 	)
 }

@@ -14,6 +14,9 @@ const (
 	TotalPower            ObservationID = 120
 	EnergySession         ObservationID = 121
 	LifetimeEnergy        ObservationID = 124
+	InCurrentT3           ObservationID = 183
+	InCurrentT4           ObservationID = 184
+	InCurrentT5           ObservationID = 185
 )
 
 // Supported returns true if the ObservationID is supported by our system.
@@ -38,6 +41,9 @@ func SupportedObservationIDs() []ObservationID {
 		LifetimeEnergy,
 		EnergySession,
 		CableRating,
+		InCurrentT3,
+		InCurrentT4,
+		InCurrentT5,
 	}
 }
 
