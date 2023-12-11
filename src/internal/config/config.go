@@ -60,8 +60,8 @@ type SignalR struct {
 	InitialBackoff       string `json:"initialBackoff"`
 	RepeatedBackoff      string `json:"repeatedBackoff"`
 	FinalBackoff         string `json:"finalBackoff"`
-	InitialFailureCount  int    `json:"initialFailureCount"`
-	RepeatedFailureCount int    `json:"repeatedFailureCount"`
+	InitialFailureCount  uint32 `json:"initialFailureCount"`
+	RepeatedFailureCount uint32 `json:"repeatedFailureCount"`
 	InvokeTimeout        string `json:"invokeTimeout"`
 }
 
@@ -406,7 +406,7 @@ func (cs *Service) SetSignalRFinalBackoff(interval time.Duration) error {
 }
 
 // GetSignalRInitialFailureCount allows to safely access signalr initial failure count.
-func (cs *Service) GetSignalRInitialFailureCount() int {
+func (cs *Service) GetSignalRInitialFailureCount() uint32 {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -414,7 +414,7 @@ func (cs *Service) GetSignalRInitialFailureCount() int {
 }
 
 // SetSignalRInitialFailureCount allows to safely alter signalr initial failure count.
-func (cs *Service) SetSignalRInitialFailureCount(n int) error {
+func (cs *Service) SetSignalRInitialFailureCount(n uint32) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -424,7 +424,7 @@ func (cs *Service) SetSignalRInitialFailureCount(n int) error {
 }
 
 // GetSignalRRepeatedFailureCount allows to safely access repeated failure count.
-func (cs *Service) GetSignalRRepeatedFailureCount() int {
+func (cs *Service) GetSignalRRepeatedFailureCount() uint32 {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -432,7 +432,7 @@ func (cs *Service) GetSignalRRepeatedFailureCount() int {
 }
 
 // SetSignalRRepeatedFailureCount allows to safely alter repeated failure count.
-func (cs *Service) SetSignalRRepeatedFailureCount(n int) error {
+func (cs *Service) SetSignalRRepeatedFailureCount(n uint32) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
