@@ -47,7 +47,7 @@ type client struct {
 	cfg           *config.Service
 	tokenProvider func() (string, error)
 	receiver      *receiver
-	backoff       *backoff.ExponentialBackoff
+	backoff       *backoff.Exponential
 
 	states       chan ClientState
 	observations chan Observation
@@ -59,7 +59,7 @@ type client struct {
 func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
 	observations := make(chan Observation, 100)
 
-	backoff := backoff.NewExponentialBackoff(cfg.GetSignalRInitialBackoff(),
+	backoff := backoff.NewExponential(cfg.GetSignalRInitialBackoff(),
 		cfg.GetSignalRRepeatedBackoff(),
 		cfg.GetSignalRFinalBackoff(),
 		cfg.GetSignalRInitialFailureCount(),

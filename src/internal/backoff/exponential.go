@@ -5,8 +5,8 @@ import (
 	"time"
 )
 
-// ExponentialBackoff is a struct that handles backoff duration.
-type ExponentialBackoff struct {
+// Exponential is a struct that handles backoff duration.
+type Exponential struct {
 	initialBackoff       time.Duration
 	repeatedBackoff      time.Duration
 	finalBackoff         time.Duration
@@ -16,11 +16,11 @@ type ExponentialBackoff struct {
 	failures atomic.Uint32
 }
 
-// NewExponentialBackoff creates ExponentialBackoff struct.
-func NewExponentialBackoff(initialBackoff, repeatedBackoff, finalBackoff time.Duration,
+// NewExponential creates ExponentialBackoff struct.
+func NewExponential(initialBackoff, repeatedBackoff, finalBackoff time.Duration,
 	initialFailureCount, repeatedFailureCount uint32,
-) *ExponentialBackoff {
-	return &ExponentialBackoff{
+) *Exponential {
+	return &Exponential{
 		initialBackoff:       initialBackoff,
 		repeatedBackoff:      repeatedBackoff,
 		finalBackoff:         finalBackoff,
@@ -30,12 +30,12 @@ func NewExponentialBackoff(initialBackoff, repeatedBackoff, finalBackoff time.Du
 }
 
 // Reset resets exponential backoff failures.
-func (e *ExponentialBackoff) Reset() {
+func (e *Exponential) Reset() {
 	e.failures.Swap(0)
 }
 
 // Next increases failure counter and calculates next backoff duration.
-func (e *ExponentialBackoff) Next() time.Duration {
+func (e *Exponential) Next() time.Duration {
 	failures := e.failures.Add(1)
 
 	if failures <= e.initialFailureCount {

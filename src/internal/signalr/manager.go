@@ -106,7 +106,7 @@ func (m *manager) Register(chargerID string, handler Handler) {
 		return
 	}
 
-	backoff := backoff.NewExponentialBackoff(m.cfg.GetSignalRInitialBackoff(),
+	backoff := backoff.NewExponential(m.cfg.GetSignalRInitialBackoff(),
 		m.cfg.GetSignalRRepeatedBackoff(),
 		m.cfg.GetSignalRFinalBackoff(),
 		m.cfg.GetSignalRInitialFailureCount(),
@@ -301,5 +301,5 @@ func (m *manager) ensureClientStarted() {
 type charger struct {
 	handler      Handler
 	isSubscribed bool
-	backoff      *backoff.ExponentialBackoff
+	backoff      *backoff.Exponential
 }
