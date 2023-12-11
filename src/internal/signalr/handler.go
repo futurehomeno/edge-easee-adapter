@@ -8,9 +8,10 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 )
 
+// Handler interface handles signalr observations.
 type Handler interface {
 	// HandleObservation handles signalr observation callback.
 	HandleObservation(observation Observation) error
@@ -19,11 +20,12 @@ type Handler interface {
 type observationsHandler struct {
 	chargepoint chargepoint.Service
 	meterElec   numericmeter.Service
-	cache       config.Cache
+	cache       cache.Cache
 	callbacks   map[ObservationID]func(Observation) error
 }
 
-func NewObservationsHandler(thing adapter.Thing, cache config.Cache) (Handler, error) {
+// NewObservationsHandler creates new observation handler.
+func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, error) {
 	chargepoint, err := getChargepointService(thing)
 	if err != nil {
 		return nil, err

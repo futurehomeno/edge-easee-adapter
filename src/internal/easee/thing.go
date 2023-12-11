@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/fimpgo/fimptype"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
+	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
@@ -45,7 +46,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		return nil, fmt.Errorf("factory: failed to retrieve information: %w", err)
 	}
 
-	cache := config.NewCache()
+	cache := cache.NewCache()
 	controller := NewController(t.client, t.signalRManager, cache, t.cfgService, info.ChargerID)
 
 	if err := controller.UpdateInfo(info); err != nil {

@@ -7,34 +7,35 @@ import (
 	"strings"
 	"time"
 
-	"github.com/futurehomeno/cliffhanger/adapter/cache"
+	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
+	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 var extendedReportMapping = map[numericmeter.Value]specFunc{
-	numericmeter.ValueCurrentPhase1: func(report numericmeter.ValuesReport, c config.Cache) {
+	numericmeter.ValueCurrentPhase1: func(report numericmeter.ValuesReport, c cache.Cache) {
 		report[numericmeter.ValueCurrentPhase1] = c.Phase1Current()
 	},
-	numericmeter.ValueCurrentPhase2: func(report numericmeter.ValuesReport, c config.Cache) {
+	numericmeter.ValueCurrentPhase2: func(report numericmeter.ValuesReport, c cache.Cache) {
 		report[numericmeter.ValueCurrentPhase2] = c.Phase2Current()
 	},
-	numericmeter.ValueCurrentPhase3: func(report numericmeter.ValuesReport, c config.Cache) {
+	numericmeter.ValueCurrentPhase3: func(report numericmeter.ValuesReport, c cache.Cache) {
 		report[numericmeter.ValueCurrentPhase3] = c.Phase3Current()
 	},
-	numericmeter.ValuePowerImport: func(report numericmeter.ValuesReport, c config.Cache) {
+	numericmeter.ValuePowerImport: func(report numericmeter.ValuesReport, c cache.Cache) {
 		report[numericmeter.ValuePowerImport] = c.TotalPower()
 	},
-	numericmeter.ValueEnergyImport: func(report numericmeter.ValuesReport, c config.Cache) {
+	numericmeter.ValueEnergyImport: func(report numericmeter.ValuesReport, c cache.Cache) {
 		report[numericmeter.ValueEnergyImport] = c.LifetimeEnergy()
 	},
 }
 
-type specFunc func(report numericmeter.ValuesReport, c config.Cache)
+type specFunc func(report numericmeter.ValuesReport, c cache.Cache)
 
 // Controller represents a charger controller.
 type Controller interface {
@@ -45,7 +46,7 @@ type Controller interface {
 }
 
 // NewController returns a new instance of Controller.
-func NewController(client api.Client, manager signalr.Manager, cache config.Cache,
+func NewController(client api.Client, manager signalr.Manager, cache cache.Cache,
 	cfgService *config.Service, chargerID string,
 ) Controller {
 	return &controller{
@@ -61,10 +62,10 @@ func NewController(client api.Client, manager signalr.Manager, cache config.Cach
 type controller struct {
 	client                  api.Client
 	manager                 signalr.Manager
-	cache                   config.Cache
+	cache                   cache.Cache
 	cfgService              *config.Service
 	chargerID               string
-	chargeSessionsRefresher cache.Refresher[api.ChargeSessions]
+	chargeSessionsRefresher cliffCache.Refresher[api.ChargeSessions]
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
@@ -127,7 +128,7 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		SessionEnergy: c.cache.EnergySession(),
 	}
 
-	if latest := sessions.LatestSession(); latest != nil {
+	if latest := sessions.Latest(); latest != nil {
 		ret.StartedAt = latest.CarConnected
 		ret.FinishedAt = latest.CarDisconnected
 
@@ -136,7 +137,7 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		}
 	}
 
-	if prev := sessions.PreviousSession(); prev != nil {
+	if prev := sessions.Previous(); prev != nil {
 		ret.PreviousSessionEnergy = prev.KiloWattHours
 	}
 
@@ -247,7 +248,7 @@ func (c *controller) retrieveChargeSessions() (api.ChargeSessions, error) {
 }
 
 // newChargeSessionsRefresher creates new instance of a charge sessions refresher cache.
-func newChargeSessionsRefresher(client api.Client, id string, interval time.Duration) cache.Refresher[api.ChargeSessions] {
+func newChargeSessionsRefresher(client api.Client, id string, interval time.Duration) cliffCache.Refresher[api.ChargeSessions] {
 	refresh := func() (api.ChargeSessions, error) {
 		sessions, err := client.ChargerSessions(id)
 		if err != nil {
@@ -257,5 +258,5 @@ func newChargeSessionsRefresher(client api.Client, id string, interval time.Dura
 		return sessions, nil
 	}
 
-	return cache.NewRefresher(refresh, interval)
+	return cliffCache.NewRefresher(refresh, interval)
 }
