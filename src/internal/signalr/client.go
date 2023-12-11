@@ -198,6 +198,7 @@ func (c *client) notifyState(ctx context.Context) {
 			state := ClientStateDisconnected
 			if clientState == signalr.ClientConnected {
 				state = ClientStateConnected
+
 				c.backoff.Reset()
 			}
 

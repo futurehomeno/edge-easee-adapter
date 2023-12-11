@@ -18,7 +18,8 @@ type ExponentialBackoff struct {
 
 // NewExponentialBackoff creates ExponentialBackoff struct.
 func NewExponentialBackoff(initialBackoff, repeatedBackoff, finalBackoff time.Duration,
-	initialFailureCount, repeatedFailureCount uint32) *ExponentialBackoff {
+	initialFailureCount, repeatedFailureCount uint32,
+) *ExponentialBackoff {
 	return &ExponentialBackoff{
 		initialBackoff:       initialBackoff,
 		repeatedBackoff:      repeatedBackoff,

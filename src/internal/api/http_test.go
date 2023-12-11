@@ -1,4 +1,7 @@
-package api_test // TODO: refactor there test to use our internal HTTP testing package.
+package api_test
+
+//nolint:godox
+// TODO: refactor there test to use our internal HTTP testing package.
 
 import (
 	"io"
