@@ -45,9 +45,11 @@ type ChargerSiteInfo struct {
 	RatedCurrent float64 `json:"ratedCurrent"`
 }
 
+// ChargeSessions represents charge sessions.
 type ChargeSessions []*ChargeSession
 
-func (c ChargeSessions) LatestSession() *ChargeSession {
+// Latest returns latest charge session.
+func (c ChargeSessions) Latest() *ChargeSession {
 	if len(c) < 1 {
 		return nil
 	}
@@ -55,7 +57,8 @@ func (c ChargeSessions) LatestSession() *ChargeSession {
 	return c[0]
 }
 
-func (c ChargeSessions) PreviousSession() *ChargeSession {
+// Previous returns previous charge session.
+func (c ChargeSessions) Previous() *ChargeSession {
 	if len(c) < 2 {
 		return nil
 	}
@@ -63,7 +66,7 @@ func (c ChargeSessions) PreviousSession() *ChargeSession {
 	return c[1]
 }
 
-// ChargerSession represents charger session.
+// ChargeSession represents charger session.
 type ChargeSession struct {
 	CarConnected    time.Time `json:"carConnected"`
 	CarDisconnected time.Time `json:"carDisconnected"`
@@ -71,7 +74,7 @@ type ChargeSession struct {
 	IsComplete      bool      `json:"isComplete"`
 }
 
-// GridType represents a grdi type.
+// GridType represents a grid type.
 type GridType int
 
 const (
@@ -125,6 +128,7 @@ var easeeNetworkTypeMap = map[GridType]networkType{
 	GridTypeWarningTN2PhaseGNDFault:         {chargepoint.GridTypeTN, 2},
 }
 
+// ToFimpGridType returns grid type and phases.
 func (g GridType) ToFimpGridType() (chargepoint.GridType, int) {
 	if g >= GridTypeFirstInvalid {
 		log.Warnf("Invalid grid type state %v", g)

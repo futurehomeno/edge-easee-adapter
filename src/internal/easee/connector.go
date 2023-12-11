@@ -5,7 +5,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
-	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -14,10 +14,10 @@ type connector struct {
 	httpClient api.Client
 
 	chargerID string
-	cache     config.Cache
+	cache     cache.Cache
 }
 
-func NewConnector(manager signalr.Manager, httpClient api.Client, chargerID string, cache config.Cache) adapter.Connector {
+func NewConnector(manager signalr.Manager, httpClient api.Client, chargerID string, cache cache.Cache) adapter.Connector {
 	return &connector{
 		manager:    manager,
 		httpClient: httpClient,

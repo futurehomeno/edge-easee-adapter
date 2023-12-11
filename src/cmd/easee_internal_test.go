@@ -360,6 +360,74 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					},
 				},
 			},
+			{
+				Name: "Extend Report Meter",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.TotalPower,
+								Value:     "12",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "13.45",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.InCurrentT3,
+								Value:     "1",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.InCurrentT4,
+								Value:     "2",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.InCurrentT5,
+								Value:     "12.3",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							extendMeterReportExpectation(map[string]float64{
+								"i1": 1,
+							}),
+							extendMeterReportExpectation(map[string]float64{
+								"i2": 2,
+							}),
+							extendMeterReportExpectation(map[string]float64{
+								"i3": 12.3,
+							}),
+							extendMeterReportExpectation(map[string]float64{
+								"e_import": 13.45,
+							}),
+							extendMeterReportExpectation(map[string]float64{
+								"p_import": 12000,
+							}),
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -496,6 +564,10 @@ func newTestContainer(t *testing.T) *testContainer {
 	return &testContainer{
 		t: t,
 	}
+}
+
+func extendMeterReportExpectation(expectation map[string]float64) *suite.Expectation {
+	return suite.ExpectFloatMap(evtDeviceMeterElecTopic, "evt.meter_ext.report", "meter_elec", expectation)
 }
 
 func (c *testContainer) SetUp() {

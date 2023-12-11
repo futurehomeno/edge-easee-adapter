@@ -1,4 +1,4 @@
-package config
+package cache
 
 import (
 	"sync"
@@ -25,6 +25,12 @@ type Cache interface {
 	OfferedCurrent() int64
 	// EnergySession returns the current session energy value.
 	EnergySession() float64
+	// Phase1Current return current on phase 1.
+	Phase1Current() float64
+	// Phase2Current return current on phase 2.
+	Phase2Current() float64
+	// Phase3Current return current on phase 3.
+	Phase3Current() float64
 
 	SetChargerState(state chargepoint.State)
 	SetMaxCurrent(current int64)
@@ -34,6 +40,9 @@ type Cache interface {
 	SetTotalPower(power float64)
 	SetLifetimeEnergy(energy float64)
 	SetEnergySession(energy float64)
+	SetPhase1Current(current float64)
+	SetPhase2Current(current float64)
+	SetPhase3Current(current float64)
 }
 
 type cache struct {
@@ -47,20 +56,9 @@ type cache struct {
 	cableCurrent   int64
 	totalPower     float64
 	lifetimeEnergy float64
-}
-
-func (c *cache) EnergySession() float64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.energySession
-}
-
-func (c *cache) SetEnergySession(energy float64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.energySession = energy
+	phase1Current  float64
+	phase2Current  float64
+	phase3Current  float64
 }
 
 func NewCache() Cache {
@@ -114,6 +112,41 @@ func (c *cache) OfferedCurrent() int64 {
 	defer c.mu.Unlock()
 
 	return c.offeredCurrent
+}
+
+func (c *cache) EnergySession() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.energySession
+}
+
+func (c *cache) Phase1Current() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.phase1Current
+}
+
+func (c *cache) Phase2Current() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.phase2Current
+}
+
+func (c *cache) Phase3Current() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.phase3Current
+}
+
+func (c *cache) SetEnergySession(energy float64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.energySession = energy
 }
 
 func (c *cache) SetMaxCurrent(current int64) {
@@ -172,4 +205,25 @@ func (c *cache) SetOfferedCurrent(current int64) {
 	defer c.mu.Unlock()
 
 	c.offeredCurrent = current
+}
+
+func (c *cache) SetPhase1Current(current float64) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	c.phase1Current = current
+}
+
+func (c *cache) SetPhase2Current(current float64) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	c.phase2Current = current
+}
+
+func (c *cache) SetPhase3Current(current float64) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	c.phase3Current = current
 }

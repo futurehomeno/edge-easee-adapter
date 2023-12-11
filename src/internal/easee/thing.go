@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/fimpgo/fimptype"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
+	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
@@ -45,8 +46,8 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		return nil, fmt.Errorf("factory: failed to retrieve information: %w", err)
 	}
 
-	cache := config.NewCache()
-	controller := NewController(t.client, t.signalRManager, cache, t.cfgService, info.ChargerID, info.MaxCurrent)
+	cache := cache.NewCache()
+	controller := NewController(t.client, t.signalRManager, cache, t.cfgService, info.ChargerID)
 
 	if err := controller.UpdateInfo(info); err != nil {
 		return nil, err
@@ -111,5 +112,12 @@ func (t *thingFactory) meterElecSpecification(adapter adapter.Adapter, thingStat
 		thingState.Address(),
 		groups,
 		[]numericmeter.Unit{numericmeter.UnitW, numericmeter.UnitKWh},
+		numericmeter.WithExtendedValues(
+			numericmeter.ValueCurrentPhase1,
+			numericmeter.ValueCurrentPhase2,
+			numericmeter.ValueCurrentPhase3,
+			numericmeter.ValueEnergyImport,
+			numericmeter.ValuePowerImport,
+		),
 	)
 }
