@@ -88,7 +88,7 @@ func (o *observationsHandler) handleDynamicChargerCurrent(observation Observatio
 	}
 
 	current := int64(math.Round(val))
-	o.cache.SetOfferedCurrent(current)
+	o.cache.SetDynamicCurrent(current)
 
 	return nil
 }
