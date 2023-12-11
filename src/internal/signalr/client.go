@@ -246,7 +246,14 @@ func (c *client) getClient(ctx context.Context) (signalr.Client, error) {
 func (c *client) getConnection() (signalr.Connection, error) {
 	token, err := c.tokenProvider()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get access token: %w", err)
+		// Currently we have a bug, when authorization gets broken the signalR library may start
+		// calling this method in a forever loop (with -1 timeout) trying to create a connection,
+		// when error returned - it is being logged.
+		// Implementing a proper start up -> shutdown should be done, but require a bit more thought.
+		// This is a hacky solution to avoid spam of logs.
+		time.Sleep(time.Minute)
+
+		return nil, fmt.Errorf("unable to get access token (signalR): %w", err)
 	}
 
 	headers := func() http.Header {
@@ -263,6 +270,9 @@ func (c *client) getConnection() (signalr.Connection, error) {
 
 	conn, err := signalr.NewHTTPConnection(ctx, url, signalr.WithHTTPHeaders(headers))
 	if err != nil {
+		// See the comment above for another sleep.
+		time.Sleep(30 * time.Second)
+
 		return nil, fmt.Errorf("unable to instantiate signalR connection: %w", err)
 	}
 
