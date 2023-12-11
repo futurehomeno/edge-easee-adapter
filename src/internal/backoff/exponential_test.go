@@ -9,6 +9,8 @@ import (
 )
 
 func TestExponentialBackoff(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name            string
 		backoff         *backoff.Exponential
@@ -59,8 +61,4 @@ func TestExponentialBackoff(t *testing.T) {
 			}
 		})
 	}
-}
-
-func iterate(t *testing.T) {
-
 }
