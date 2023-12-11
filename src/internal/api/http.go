@@ -19,7 +19,6 @@ const (
 	chargerConfigURITemplate   = "/api/chargers/%s/config"
 	chargerSiteURITemplate     = "/api/chargers/%s/site"
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
-	chargerStartURITemplate    = "/api/chargers/%s/commands/resume_charging"
 	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
 	chargerSessionsURITemplate = "/api/sessions/charger/%s/sessions/descending?limit=2"
@@ -40,8 +39,6 @@ type HTTPClient interface {
 	Login(userName, password string) (*Credentials, error)
 	// RefreshToken retrieves new credentials based on an access token and a refresh token.
 	RefreshToken(accessToken, refreshToken string) (*Credentials, error)
-	// StartCharging starts charging session for the selected charger.
-	StartCharging(accessToken, chargerID string) error
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(accessToken, chargerID string) error
 	// SetCableLock locks/unlocks the cable for the selected charger.
@@ -174,26 +171,6 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 	resp, err := c.performRequest(req, http.StatusAccepted)
 	if err != nil {
 		return errors.Wrap(err, "update dynamic current request failed")
-	}
-
-	defer resp.Body.Close()
-
-	return nil
-}
-
-func (c *httpClient) StartCharging(accessToken, chargerID string) error {
-	u := c.buildURL(chargerStartURITemplate, chargerID)
-
-	req, err := newRequestBuilder(http.MethodPost, u).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		build()
-	if err != nil {
-		return errors.Wrap(err, "failed to create start charging request")
-	}
-
-	resp, err := c.performRequest(req, http.StatusAccepted)
-	if err != nil {
-		return errors.Wrap(err, "start charging request failed")
 	}
 
 	defer resp.Body.Close()
