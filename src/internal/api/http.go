@@ -1,10 +1,8 @@
-package easee
+package api
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -19,135 +17,41 @@ const (
 	healthURI       = "/health"
 
 	chargerConfigURITemplate   = "/api/chargers/%s/config"
+	chargerSiteURITemplate     = "/api/chargers/%s/site"
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
+	chargerStartURITemplate    = "/api/chargers/%s/commands/resume_charging"
+	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
+	chargerSessionsURITemplate = "/api/sessions/charger/%s/sessions/descending?limit=2"
 
 	authorizationHeader = "Authorization"
 	contentTypeHeader   = "Content-Type"
 
 	jsonContentType = "application/*+json"
-
-	pauseChargingCurrent = 0.0
 )
-
-// HTTPError provides a way to pass more meaningful information regarding http errors without breaking interfaces.
-type HTTPError struct {
-	err    error
-	Status int
-	Body   io.ReadCloser
-}
-
-func (e HTTPError) Error() string {
-	body := ""
-	if e.Body != nil { //nolint
-		if bts, err := io.ReadAll(e.Body); err != nil {
-			body = string(bts)
-		}
-	}
-
-	return fmt.Sprintf("%s, status code: %d, body: %s", e.err, e.Status, body)
-}
-
-// APIClient is a wrapper around the Easee HTTP Client with authentication capabilities.
-type APIClient interface {
-	// StartCharging starts charging session for the selected charger.
-	StartCharging(chargerID string, current float64) error
-	// StopCharging stops charging session for the selected charger.
-	StopCharging(chargerID string) error
-	// SetCableLock locks/unlocks the cable for the selected charger.
-	SetCableLock(chargerID string, locked bool) error
-	// ChargerConfig retrieves charger config.
-	ChargerConfig(chargerID string) (*ChargerConfig, error)
-	// Chargers returns all available chargers.
-	Chargers() ([]Charger, error)
-	// Ping checks if an external service is available.
-	Ping() error
-}
-
-type apiClient struct {
-	httpClient HTTPClient
-	auth       Authenticator
-}
-
-func NewAPIClient(http HTTPClient, auth Authenticator) APIClient {
-	return &apiClient{
-		httpClient: http,
-		auth:       auth,
-	}
-}
-
-func (a *apiClient) StartCharging(chargerID string, current float64) error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.StartCharging(token, chargerID, current)
-}
-
-func (a *apiClient) StopCharging(chargerID string) error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.StopCharging(token, chargerID)
-}
-
-func (a *apiClient) SetCableLock(chargerID string, locked bool) error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.SetCableLock(token, chargerID, locked)
-}
-
-func (a *apiClient) ChargerConfig(chargerID string) (*ChargerConfig, error) {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return nil, a.tokenError(err)
-	}
-
-	return a.httpClient.ChargerConfig(token, chargerID)
-}
-
-func (a *apiClient) Chargers() ([]Charger, error) {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return nil, a.tokenError(err)
-	}
-
-	return a.httpClient.Chargers(token)
-}
-
-func (a *apiClient) Ping() error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.Ping(token)
-}
-
-func (a *apiClient) tokenError(err error) error {
-	return fmt.Errorf("unable to get access token: %w", err)
-}
 
 // HTTPClient represents Easee HTTP API Client.
 type HTTPClient interface {
+	// UpdateMaxCurrent updates max charger current.
+	UpdateMaxCurrent(accessToken, chargerID string, current float64) error
+	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
+	UpdateDynamicCurrent(accessToken, chargerID string, current float64) error
 	// Login logs the user in the Easee API and retrieves credentials.
 	Login(userName, password string) (*Credentials, error)
 	// RefreshToken retrieves new credentials based on an access token and a refresh token.
 	RefreshToken(accessToken, refreshToken string) (*Credentials, error)
 	// StartCharging starts charging session for the selected charger.
-	StartCharging(accessToken, chargerID string, current float64) error
+	StartCharging(accessToken, chargerID string) error
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(accessToken, chargerID string) error
 	// SetCableLock locks/unlocks the cable for the selected charger.
 	SetCableLock(accessToken, chargerID string, locked bool) error
 	// ChargerConfig retrieves charger config.
 	ChargerConfig(accessToken, chargerID string) (*ChargerConfig, error)
+	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
+	ChargerSiteInfo(accessToken, chargerID string) (*ChargerSiteInfo, error)
+	// ChargerSessions retrieves at most two latest charging sessions including current if present.
+	ChargerSessions(accessToken, chargerID string) (ChargeSessions, error)
 	// Chargers returns all available chargers.
 	Chargers(accessToken string) ([]Charger, error)
 	// Ping checks if an external service is available.
@@ -160,10 +64,7 @@ type httpClient struct {
 }
 
 // NewHTTPClient returns a new instance of Easee HTTPClient.
-func NewHTTPClient(
-	http *http.Client,
-	baseURL string,
-) HTTPClient {
+func NewHTTPClient(http *http.Client, baseURL string) HTTPClient {
 	return &httpClient{
 		httpClient: http,
 		baseURL:    baseURL,
@@ -236,13 +137,55 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*Credential
 	return loginData, nil
 }
 
-func (c *httpClient) StartCharging(accessToken, chargerID string, current float64) error {
+func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current float64) error {
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(chargerCurrentBody{DynamicChargerCurrent: current}).
+		withBody(maxCurrentBody{MaxChargerCurrent: current}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return errors.Wrap(err, "failed to create max current request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusAccepted)
+	if err != nil {
+		return errors.Wrap(err, "update max current request failed")
+	}
+
+	defer resp.Body.Close()
+
+	return nil
+}
+
+func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current float64) error {
+	u := c.buildURL(chargerSettingsURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodPost, u).
+		withBody(dynamicCurrentBody{DynamicChargerCurrent: current}).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return errors.Wrap(err, "failed to create dynamic current request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusAccepted)
+	if err != nil {
+		return errors.Wrap(err, "update dynamic current request failed")
+	}
+
+	defer resp.Body.Close()
+
+	return nil
+}
+
+func (c *httpClient) StartCharging(accessToken, chargerID string) error {
+	u := c.buildURL(chargerStartURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodPost, u).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		build()
 	if err != nil {
 		return errors.Wrap(err, "failed to create start charging request")
@@ -259,12 +202,10 @@ func (c *httpClient) StartCharging(accessToken, chargerID string, current float6
 }
 
 func (c *httpClient) StopCharging(accessToken, chargerID string) error {
-	u := c.buildURL(chargerSettingsURITemplate, chargerID)
+	u := c.buildURL(chargerStopURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(chargerCurrentBody{DynamicChargerCurrent: pauseChargingCurrent}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		addHeader(contentTypeHeader, jsonContentType).
 		build()
 	if err != nil {
 		return errors.Wrap(err, "failed to create stop charging request")
@@ -283,7 +224,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 func (c *httpClient) SetCableLock(accessToken, chargerID string, locked bool) error {
 	u := c.buildURL(cableLockURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodGet, u).
+	req, err := newRequestBuilder(http.MethodPost, u).
 		withBody(cableLockBody{State: locked}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		addHeader(contentTypeHeader, jsonContentType).
@@ -327,6 +268,60 @@ func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*ChargerConfi
 	}
 
 	return state, nil
+}
+
+func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*ChargerSiteInfo, error) {
+	u := c.buildURL(chargerSiteURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodGet, u).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		build()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create charger state request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusOK)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not perform charger state api call")
+	}
+
+	defer resp.Body.Close()
+
+	state := &ChargerSiteInfo{}
+
+	err = c.readResponseBody(resp, state)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not read charger state response body")
+	}
+
+	return state, nil
+}
+
+func (c *httpClient) ChargerSessions(accessToken, chargerID string) (ChargeSessions, error) {
+	u := c.buildURL(chargerSessionsURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodGet, u).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		build()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create charger state request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusOK)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not perform charger state api call")
+	}
+
+	defer resp.Body.Close()
+
+	sessions := ChargeSessions{}
+
+	err = c.readResponseBody(resp, &sessions)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not read charger state response body")
+	}
+
+	return sessions, nil
 }
 
 func (c *httpClient) Chargers(accessToken string) ([]Charger, error) {
@@ -403,55 +398,4 @@ func (c *httpClient) readResponseBody(r *http.Response, body interface{}) error 
 
 func (c *httpClient) bearerTokenHeader(authToken string) string {
 	return "Bearer " + authToken
-}
-
-type requestBuilder struct {
-	method  string
-	url     string
-	body    interface{}
-	headers map[string]string
-}
-
-func newRequestBuilder(method, url string) *requestBuilder {
-	return &requestBuilder{
-		method:  method,
-		url:     url,
-		headers: make(map[string]string),
-	}
-}
-
-func (r *requestBuilder) withBody(body interface{}) *requestBuilder {
-	r.body = body
-
-	return r
-}
-
-func (r *requestBuilder) addHeader(key, value string) *requestBuilder {
-	r.headers[key] = value
-
-	return r
-}
-
-func (r *requestBuilder) build() (*http.Request, error) {
-	var body io.Reader
-
-	if r.body != nil {
-		b, err := json.Marshal(r.body)
-		if err != nil {
-			return nil, err
-		}
-
-		body = bytes.NewReader(b)
-	}
-
-	req, err := http.NewRequest(r.method, r.url, body) //nolint:noctx
-	if err != nil {
-		return nil, err
-	}
-
-	for key, value := range r.headers {
-		req.Header.Add(key, value)
-	}
-
-	return req, nil
 }

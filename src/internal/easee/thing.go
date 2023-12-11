@@ -5,34 +5,37 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
-	"github.com/futurehomeno/cliffhanger/adapter/service/meterelec"
+	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/fimpgo/fimptype"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
+	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 // Info is an object representing charger persisted information.
 type Info struct {
-	ChargerID  string  `json:"chargerID"`
-	MaxCurrent float64 `json:"maxCurrent"`
+	ChargerID           string               `json:"chargerID"`
+	MaxCurrent          float64              `json:"maxCurrent"`
+	GridType            chargepoint.GridType `json:"gridType"`
+	Phases              int                  `json:"phases"`
+	SupportedMaxCurrent int64                `json:"supportedMaxCurrent"`
 }
 
 type thingFactory struct {
-	client         APIClient
+	client         api.Client
 	cfgService     *config.Service
-	signalRManager SignalRManager
-	signalRClient  signalr.Client
+	signalRManager signalr.Manager
 }
 
 // NewThingFactory returns a new instance of adapter.ThingFactory.
-func NewThingFactory(client APIClient, cfgService *config.Service, signalRManager SignalRManager, signalRClient signalr.Client) adapter.ThingFactory {
+func NewThingFactory(client api.Client, cfgService *config.Service, signalRManager signalr.Manager) adapter.ThingFactory {
 	return &thingFactory{
 		client:         client,
 		cfgService:     cfgService,
 		signalRManager: signalRManager,
-		signalRClient:  signalRClient,
 	}
 }
 
@@ -43,21 +46,25 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		return nil, fmt.Errorf("factory: failed to retrieve information: %w", err)
 	}
 
-	cache := NewObservationCache()
-	controller := NewController(t.client, cache, t.cfgService, info.ChargerID, info.MaxCurrent)
+	cache := cache.NewCache()
+	controller := NewController(t.client, t.signalRManager, cache, t.cfgService, info.ChargerID)
+
+	if err := controller.UpdateInfo(info); err != nil {
+		return nil, err
+	}
 
 	groups := []string{"ch_0"}
 
 	return thing.NewCarCharger(publisher, thingState, &thing.CarChargerConfig{
 		ThingConfig: &adapter.ThingConfig{
-			Connector:       NewConnector(t.signalRManager, t.client, t.signalRClient, info.ChargerID, cache),
+			Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, cache),
 			InclusionReport: t.inclusionReport(info, thingState, groups),
 		},
 		ChargepointConfig: &chargepoint.Config{
-			Specification: t.chargepointSpecification(ad, thingState, groups),
+			Specification: t.chargepointSpecification(ad, thingState, groups, info),
 			Controller:    controller,
 		},
-		MeterElecConfig: &meterelec.Config{
+		MeterElecConfig: &numericmeter.Config{
 			Specification: t.meterElecSpecification(ad, thingState, groups),
 			Reporter:      controller,
 		},
@@ -78,24 +85,39 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 	}
 }
 
-func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
+func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string, info *Info) *fimptype.Service {
+	var supportedStates []chargepoint.State
+	for _, s := range signalr.SupportedChargingStates() {
+		supportedStates = append(supportedStates, s.ToFimpState())
+	}
+
 	return chargepoint.Specification(
 		adapter.Name(),
 		adapter.Address(),
 		thingState.Address(),
 		groups,
-		SupportedChargingStates(),
-		SupportedChargingModes(),
+		supportedStates,
+		chargepoint.WithChargingModes(SupportedChargingModes()...),
+		chargepoint.WithPhases(info.Phases),
+		chargepoint.WithSupportedMaxCurrent(info.SupportedMaxCurrent),
+		chargepoint.WithGridType(info.GridType),
 	)
 }
 
 func (t *thingFactory) meterElecSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
-	return meterelec.Specification(
+	return numericmeter.Specification(
+		numericmeter.MeterElec,
 		adapter.Name(),
 		adapter.Address(),
 		thingState.Address(),
 		groups,
-		[]string{meterelec.UnitW, meterelec.UnitKWh},
-		nil,
+		[]numericmeter.Unit{numericmeter.UnitW, numericmeter.UnitKWh},
+		numericmeter.WithExtendedValues(
+			numericmeter.ValueCurrentPhase1,
+			numericmeter.ValueCurrentPhase2,
+			numericmeter.ValueCurrentPhase3,
+			numericmeter.ValueEnergyImport,
+			numericmeter.ValuePowerImport,
+		),
 	)
 }

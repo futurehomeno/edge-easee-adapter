@@ -1,4 +1,4 @@
-package easee //nolint
+package api //nolint:testpackage
 
 import (
 	"fmt"
@@ -73,7 +73,7 @@ func TestLogin(t *testing.T) {
 			defer server.Close()
 
 			cfg := config.Config{}
-			storage := mockedstorage.Storage{}
+			storage := mockedstorage.Storage[*config.Config]{}
 			storage.On("Model").Return(&cfg)
 			storage.On("Save").Return(v.saveError)
 
@@ -192,7 +192,7 @@ func TestAccessToken(t *testing.T) {
 
 			// mock cfgSvc
 			cfg := config.Config{Credentials: v.credentials, Backoff: config.BackoffCfg{Length: "0"}}
-			storage := mockedstorage.Storage{}
+			storage := mockedstorage.Storage[*config.Config]{}
 			storage.On("Model").Return(&cfg)
 			storage.On("Save").Return(v.saveError)
 
@@ -239,7 +239,7 @@ func TestLogout(t *testing.T) {
 			t.Parallel()
 
 			cfg := config.Config{Credentials: config.Credentials{AccessToken: "token"}}
-			storage := mockedstorage.Storage{}
+			storage := mockedstorage.Storage[*config.Config]{}
 			storage.On("Model").Return(&cfg)
 			storage.On("Save").Return(v.saveError)
 
@@ -255,7 +255,7 @@ func TestLogout(t *testing.T) {
 func TestHandleFailedRefreshToken(t *testing.T) {
 	t.Parallel()
 
-	testCases := []struct {
+	testCases := []*struct {
 		name                      string
 		errIn                     error
 		saveError                 error
@@ -327,14 +327,14 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 		},
 	}
 
-	for _, val := range testCases { //nolint
-		v := val //nolint
+	for _, val := range testCases {
+		v := val
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 
 			// mock cfgSvc
 			cfg := config.Config{Credentials: config.Credentials{}, Backoff: v.backoffCfg}
-			storage := mockedstorage.Storage{}
+			storage := mockedstorage.Storage[*config.Config]{}
 			storage.On("Model").Return(&cfg)
 			storage.On("Save").Return(v.saveError)
 
@@ -366,7 +366,7 @@ func TestHookResetToReconnecting(t *testing.T) {
 	t.Parallel()
 
 	cfg := config.Config{Backoff: config.BackoffCfg{Length: "0"}}
-	storage := mockedstorage.Storage{}
+	storage := mockedstorage.Storage[*config.Config]{}
 	storage.On("Model").Return(&cfg)
 
 	auth := authenticator{cfgSvc: config.NewService(&storage)}
@@ -389,5 +389,10 @@ func (m *NotificationMock) Message(arg string) error {
 
 func (m *NotificationMock) Event(event *notification.Event) error {
 	args := m.Called(event)
+	return args.Error(0) //nolint
+}
+
+func (m *NotificationMock) EventWithProps(event *notification.Event, props map[string]string) error {
+	args := m.Called(event, props)
 	return args.Error(0) //nolint
 }

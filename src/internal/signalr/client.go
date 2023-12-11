@@ -2,7 +2,7 @@ package signalr
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -11,29 +11,18 @@ import (
 	"github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/backoff"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
-// State represents the state of the SignalR client.
-type State int
-
-func (s State) String() string {
-	if s == Disconnected {
-		return "disconnected"
-	}
-
-	return "connected"
-}
-
 const (
-	Disconnected State = iota
-	Connected
+	signalRURI = "/hubs/chargers"
 )
 
 // Client is the interface for the SignalR client.
 type Client interface {
 	// Start starts the SignalR client.
-	Start() error
+	Start()
 	// Close stops the SignalR client.
 	Close() error
 
@@ -44,7 +33,7 @@ type Client interface {
 	// Connected returns true if the SignalR client is connected.
 	Connected() bool
 	// StateC returns a channel that will receive state updates.
-	StateC() <-chan State
+	StateC() <-chan ClientState
 	// ObservationC returns a channel that will receive charger observations.
 	ObservationC() <-chan Observation
 }
@@ -52,50 +41,45 @@ type Client interface {
 type client struct {
 	mu      sync.Mutex
 	running bool
-	done    chan struct{}
+	cancel  context.CancelFunc
 
-	c            signalr.Client
-	cfg          *config.Service
-	serverStopFn context.CancelFunc
-	connFactory  *connectionFactory
-	receiver     *receiver
-	stateC       chan State
-	connState    State
+	connection    signalr.Client
+	cfg           *config.Service
+	tokenProvider func() (string, error)
+	receiver      *receiver
+	backoff       *backoff.Exponential
+
+	states       chan ClientState
+	observations chan Observation
+
+	connState ClientState
 }
 
 // NewClient creates a new SignalR client.
-func NewClient(cfg *config.Service, authTokenProvider func() (string, error)) Client {
+func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
+	observations := make(chan Observation, 100)
+
+	backoff := backoff.NewExponential(cfg.GetSignalRInitialBackoff(),
+		cfg.GetSignalRRepeatedBackoff(),
+		cfg.GetSignalRFinalBackoff(),
+		cfg.GetSignalRInitialFailureCount(),
+		cfg.GetSignalRRepeatedFailureCount())
+
 	return &client{
-		cfg:         cfg,
-		receiver:    newReceiver(),
-		connFactory: newConnectionFactory(cfg, authTokenProvider),
-		stateC:      make(chan State, 10),
+		cfg:           cfg,
+		tokenProvider: tokenProvider,
+		receiver:      newReceiver(observations),
+		backoff:       backoff,
+		states:        make(chan ClientState, 10),
+		observations:  observations,
 	}
 }
 
 func (c *client) SubscribeCharger(id string) error {
-	c.mu.Lock()
-	if !c.running {
-		c.mu.Unlock()
-
-		return fmt.Errorf("client is not running")
-	}
-
-	c.mu.Unlock()
-
 	return c.invoke("SubscribeWithCurrentState", id, true) // true stands for sending initial batch of data
 }
 
 func (c *client) UnsubscribeCharger(id string) error {
-	c.mu.Lock()
-	if !c.running {
-		c.mu.Unlock()
-
-		return fmt.Errorf("client is not running")
-	}
-
-	c.mu.Unlock()
-
 	return c.invoke("Unsubscribe", id)
 }
 
@@ -107,42 +91,31 @@ func (c *client) Connected() bool {
 		return false
 	}
 
-	return c.connState == Connected
+	return c.connState == ClientStateConnected
 }
 
-func (c *client) StateC() <-chan State {
-	return c.stateC
+func (c *client) StateC() <-chan ClientState {
+	return c.states
 }
 
 func (c *client) ObservationC() <-chan Observation {
-	return c.receiver.observationC()
+	return c.observations
 }
 
-func (c *client) Start() error {
+func (c *client) Start() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.running {
-		return nil
+		return
 	}
 
-	client, stopFn, err := c.clientFactory(c.connFactory, c.receiver)
-	if err != nil {
-		return err
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.cancel = cancel
 
-	c.c = client
-	c.serverStopFn = stopFn
-
-	c.done = make(chan struct{})
-
-	c.c.Start()
-
-	go c.notifyState()
+	go c.handleConnection(ctx)
 
 	c.running = true
-
-	return nil
 }
 
 func (c *client) Close() error {
@@ -153,19 +126,31 @@ func (c *client) Close() error {
 		return nil
 	}
 
-	c.serverStopFn()
-	close(c.done)
+	if c.cancel != nil {
+		c.cancel()
+		c.cancel = nil
+	}
 
+	c.backoff.Reset()
 	c.running = false
 
 	return nil
 }
 
 func (c *client) invoke(method string, args ...any) error {
+	c.mu.Lock()
+	if !c.running || c.connection == nil {
+		c.mu.Unlock()
+
+		return errors.New("client is not running")
+	}
+
+	c.mu.Unlock()
+
 	timer := time.NewTimer(c.cfg.GetSignalRInvokeTimeout())
 	defer timer.Stop()
 
-	results := c.c.Invoke(method, args...)
+	results := c.connection.Invoke(method, args...)
 
 	select {
 	case result := <-results:
@@ -175,104 +160,91 @@ func (c *client) invoke(method string, args ...any) error {
 	}
 }
 
-func (c *client) notifyState() {
-	ch := make(chan signalr.ClientState, 1)
-	cancel := c.c.ObserveStateChanged(ch)
-
+func (c *client) handleConnection(ctx context.Context) {
 	for {
+		if client, err := c.getClient(ctx); err != nil {
+			log.WithError(err).Warn("Unable to start signalr client")
+		} else {
+			c.connection = client
+			c.connection.Start()
+
+			c.notifyState(ctx)
+		}
+
+		c.connection = nil
+
 		select {
-		case <-c.done:
-			cancel()
-
+		case <-ctx.Done():
 			return
-		case newState := <-ch:
-			var state State
-			if newState == signalr.ClientConnected {
-				state = Connected
-			}
-
-			c.mu.Lock()
-
-			if c.connState == state {
-				c.mu.Unlock()
-
-				continue
-			}
-
-			c.connState = state
-
-			c.mu.Unlock()
-
-			log.Info("signalR client state: ", state)
-
-			c.stateC <- state
+		case <-time.After(c.backoff.Next()):
 		}
 	}
 }
 
-func (c *client) clientFactory(connFactory *connectionFactory, rec *receiver) (signalr.Client, context.CancelFunc, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func (c *client) notifyState(ctx context.Context) {
+	ch := make(chan signalr.ClientState, 1)
 
-	client, err := signalr.NewClient(
+	cancel := c.connection.ObserveStateChanged(ch)
+	defer cancel()
+
+	for {
+		select {
+		case <-ctx.Done():
+			c.updateState(ClientStateDisconnected)
+
+			return
+
+		case clientState := <-ch:
+			state := ClientStateDisconnected
+			if clientState == signalr.ClientConnected {
+				state = ClientStateConnected
+
+				c.backoff.Reset()
+			}
+
+			if c.updateState(state) {
+				c.states <- state
+			}
+
+			if clientState == signalr.ClientClosed {
+				return
+			}
+		}
+	}
+}
+
+func (c *client) updateState(state ClientState) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.connState != state {
+		c.connState = state
+		log.Info("signalR client state: ", state)
+
+		return true
+	}
+
+	return false
+}
+
+func (c *client) getClient(ctx context.Context) (signalr.Client, error) {
+	connection, err := c.getConnection()
+	if err != nil {
+		return nil, err
+	}
+
+	return signalr.NewClient(
 		ctx,
 		signalr.KeepAliveInterval(c.cfg.GetSignalRKeepAliveInterval()),
 		signalr.TimeoutInterval(c.cfg.GetSignalRTimeoutInterval()),
-		signalr.WithConnector(connFactory.Create),
-		signalr.WithReceiver(rec),
+		signalr.WithConnection(connection),
+		signalr.WithReceiver(c.receiver),
 		signalr.Logger(newLogger(), false),
 	)
-	if err != nil {
-		cancel()
-
-		return nil, nil, err
-	}
-
-	return client, cancel, nil
 }
 
-type receiver struct {
-	signalr.Receiver
-
-	observations chan Observation
-}
-
-func newReceiver() *receiver {
-	return &receiver{
-		observations: make(chan Observation, 100),
-	}
-}
-
-func (r *receiver) ProductUpdate(o Observation) {
-	r.observations <- o
-}
-
-func (r *receiver) CommandResponse(resp any) {
-	res, _ := json.MarshalIndent(resp, "", "\t")
-	log.Info("command response: ", string(res))
-}
-
-func (r *receiver) observationC() <-chan Observation {
-	return r.observations
-}
-
-const (
-	signalRURI = "/hubs/chargers"
-)
-
-type connectionFactory struct {
-	cfg           *config.Service
-	tokenProvider func() (string, error)
-}
-
-func newConnectionFactory(cfg *config.Service, tokenProvider func() (string, error)) *connectionFactory {
-	return &connectionFactory{
-		cfg:           cfg,
-		tokenProvider: tokenProvider,
-	}
-}
-
-func (f *connectionFactory) Create() (signalr.Connection, error) {
-	token, err := f.tokenProvider()
+func (c *client) getConnection() (signalr.Connection, error) {
+	token, err := c.tokenProvider()
 	if err != nil {
 		// Currently we have a bug, when authorization gets broken the signalR library may start
 		// calling this method in a forever loop (with -1 timeout) trying to create a connection,
@@ -291,10 +263,12 @@ func (f *connectionFactory) Create() (signalr.Connection, error) {
 		return h
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), f.cfg.GetSignalRConnCreationTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.GetSignalRConnCreationTimeout())
 	defer cancel()
 
-	conn, err := signalr.NewHTTPConnection(ctx, f.url(), signalr.WithHTTPHeaders(headers))
+	url := c.cfg.GetSignalRBaseURL() + signalRURI
+
+	conn, err := signalr.NewHTTPConnection(ctx, url, signalr.WithHTTPHeaders(headers))
 	if err != nil {
 		// See the comment above for another sleep.
 		time.Sleep(30 * time.Second)
@@ -303,8 +277,4 @@ func (f *connectionFactory) Create() (signalr.Connection, error) {
 	}
 
 	return conn, nil
-}
-
-func (f *connectionFactory) url() string {
-	return f.cfg.GetSignalRBaseURL() + signalRURI
 }

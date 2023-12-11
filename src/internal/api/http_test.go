@@ -1,7 +1,9 @@
-package easee_test
+package api_test
+
+//nolint:godox
+// TODO: refactor there test to use our internal HTTP testing package.
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,7 +13,7 @@ import (
 	"github.com/michalkurzeja/go-clock"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 )
 
@@ -24,7 +26,7 @@ func TestClient_Login(t *testing.T) {
 		password         string
 		serverHandler    http.Handler
 		forceServerError bool
-		want             *easee.Credentials
+		want             *api.Credentials
 		wantErr          bool
 	}{
 		{
@@ -41,7 +43,7 @@ func TestClient_Login(t *testing.T) {
 				responseCode: http.StatusOK,
 				responseBody: `{"accessToken":"access-token","expiresIn":86400,"accessClaims":["User"],"tokenType":"Bearer","refreshToken":"refresh-token"}`,
 			}),
-			want: &easee.Credentials{
+			want: &api.Credentials{
 				AccessToken: "access-token",
 				ExpiresIn:   86400,
 				AccessClaims: []string{
@@ -106,7 +108,7 @@ func TestClient_Login(t *testing.T) {
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := easee.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.Login(tt.username, tt.password)
 			if tt.wantErr {
@@ -128,7 +130,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 		responseData  string
 		statusCode    int
 		errorContains string
-		expectedCreds easee.Credentials
+		expectedCreds api.Credentials
 	}{
 		{
 			name:          "should fail due to invalid url",
@@ -150,7 +152,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 			name:          "should form valid credentials",
 			responseData:  `{"accessToken":"access","refreshToken":"refresh"}`,
 			statusCode:    http.StatusOK,
-			expectedCreds: easee.Credentials{RefreshToken: "refresh", AccessToken: "access"},
+			expectedCreds: api.Credentials{RefreshToken: "refresh", AccessToken: "access"},
 		},
 	}
 
@@ -163,7 +165,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 			server := httptest.NewServer(http.HandlerFunc(handler))
 			defer server.Close()
 
-			client := easee.NewHTTPClient(server.Client(), server.URL+v.baseURLAdj)
+			client := api.NewHTTPClient(server.Client(), server.URL+v.baseURLAdj)
 			creds, err := client.RefreshToken("", "")
 
 			if v.errorContains != "" {
@@ -176,7 +178,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 	}
 }
 
-func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
+func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 	t.Cleanup(func() {
 		clock.Restore()
@@ -186,51 +188,48 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 		name             string
 		chargerID        string
 		accessToken      string
-		current          float64
 		serverHandler    http.Handler
 		forceServerError bool
+		current          float64
 		wantErr          bool
 	}{
 		{
 			name:        "successful call to Easee API",
 			chargerID:   test.ChargerID,
 			accessToken: test.AccessToken,
-			current:     40,
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
 					requestPath:   "/api/chargers/XX12345/settings",
+					requestBody:   `{"maxChargerCurrent":10}`,
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
-						"Content-Type":  "application/*+json",
 					},
-					requestBody:  `{"dynamicChargerCurrent":40}`,
 					responseCode: http.StatusAccepted,
 				},
 			}...),
+			current: 10,
 		},
 		{
 			name:        "response code != 200",
 			chargerID:   test.ChargerID,
 			accessToken: test.AccessToken,
-			current:     40,
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
 				requestPath:   "/api/chargers/XX12345/settings",
+				requestBody:   `{"maxChargerCurrent":10}`,
 				requestHeaders: map[string]string{
 					"Authorization": "Bearer test.access.token",
-					"Content-Type":  "application/*+json",
 				},
-				requestBody:  `{"dynamicChargerCurrent":40}`,
 				responseCode: http.StatusInternalServerError,
 			}),
+			current: 10,
 			wantErr: true,
 		},
 		{
 			name:             "http client error",
 			chargerID:        test.ChargerID,
 			accessToken:      test.AccessToken,
-			current:          40,
 			forceServerError: true,
 			wantErr:          true,
 		},
@@ -253,9 +252,180 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := easee.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
-			err := c.StartCharging(tt.accessToken, tt.chargerID, tt.current)
+			err := c.UpdateMaxCurrent(tt.accessToken, tt.chargerID, tt.current)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+	t.Cleanup(func() {
+		clock.Restore()
+	})
+
+	tests := []struct {
+		name             string
+		chargerID        string
+		accessToken      string
+		serverHandler    http.Handler
+		forceServerError bool
+		current          float64
+		wantErr          bool
+	}{
+		{
+			name:        "successful call to Easee API",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/XX12345/settings",
+					requestBody:   `{"dynamicChargerCurrent":10}`,
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusAccepted,
+				},
+			}...),
+			current: 10,
+		},
+		{
+			name:        "response code != 200",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/settings",
+				requestBody:   `{"dynamicChargerCurrent":10}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			current: 10,
+			wantErr: true,
+		},
+		{
+			name:             "http client error",
+			chargerID:        test.ChargerID,
+			accessToken:      test.AccessToken,
+			forceServerError: true,
+			wantErr:          true,
+		},
+		{
+			name:      "return error if access token is empty",
+			chargerID: test.ChargerID,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests { //nolint:paralleltest
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			httpClient := &http.Client{Timeout: 3 * time.Second}
+			c := api.NewHTTPClient(httpClient, s.URL)
+
+			err := c.UpdateDynamicCurrent(tt.accessToken, tt.chargerID, tt.current)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+	t.Cleanup(func() {
+		clock.Restore()
+	})
+
+	tests := []struct {
+		name             string
+		chargerID        string
+		accessToken      string
+		serverHandler    http.Handler
+		forceServerError bool
+		wantErr          bool
+	}{
+		{
+			name:        "successful call to Easee API",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/XX12345/commands/resume_charging",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusAccepted,
+				},
+			}...),
+		},
+		{
+			name:        "response code != 200",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/resume_charging",
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			wantErr: true,
+		},
+		{
+			name:             "http client error",
+			chargerID:        test.ChargerID,
+			accessToken:      test.AccessToken,
+			forceServerError: true,
+			wantErr:          true,
+		},
+		{
+			name:      "return error if access token is empty",
+			chargerID: test.ChargerID,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests { //nolint:paralleltest
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			httpClient := &http.Client{Timeout: 3 * time.Second}
+			c := api.NewHTTPClient(httpClient, s.URL)
+
+			err := c.StartCharging(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
 				assert.Error(t, err)
 
@@ -288,12 +458,10 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			serverHandler: newTestHandler(t, []call{
 				{
 					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/XX12345/settings",
+					requestPath:   "/api/chargers/XX12345/commands/pause_charging",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
-						"Content-Type":  "application/*+json",
 					},
-					requestBody:  `{"dynamicChargerCurrent":0}`,
 					responseCode: http.StatusAccepted,
 				},
 			}...),
@@ -304,12 +472,10 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			accessToken: test.AccessToken,
 			serverHandler: newTestHandler(t, call{
 				requestMethod: http.MethodPost,
-				requestPath:   "/api/chargers/XX12345/settings",
+				requestPath:   "/api/chargers/XX12345/commands/pause_charging",
 				requestHeaders: map[string]string{
 					"Authorization": "Bearer test.access.token",
-					"Content-Type":  "application/*+json",
 				},
-				requestBody:  `{"dynamicChargerCurrent":0}`,
 				responseCode: http.StatusInternalServerError,
 			}),
 			wantErr: true,
@@ -341,7 +507,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := easee.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.StopCharging(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -367,7 +533,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 		accessToken      string
 		serverHandler    http.Handler
 		forceServerError bool
-		want             *easee.ChargerConfig
+		want             *api.ChargerConfig
 		wantErr          bool
 	}{
 		{
@@ -381,9 +547,12 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 					"Authorization": "Bearer test.access.token",
 				},
 				responseCode: http.StatusOK,
-				responseBody: marshal(t, test.ExampleChargerConfig(t)),
+				responseBody: `{"maxChargerCurrent":32, "detectedPowerGridType":1}`,
 			}),
-			want: test.ExampleChargerConfig(t),
+			want: &api.ChargerConfig{
+				MaxChargerCurrent:     32,
+				DetectedPowerGridType: 1,
+			},
 		},
 		{
 			name:        "response code != 200",
@@ -425,7 +594,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := easee.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.ChargerConfig(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -502,7 +671,7 @@ func TestClient_Ping(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := easee.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.Ping(tt.accessToken)
 			if tt.wantErr {
@@ -527,7 +696,7 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 		accessToken      string
 		serverHandler    http.Handler
 		forceServerError bool
-		want             []easee.Charger
+		want             []api.Charger
 		wantErr          bool
 	}{
 		{
@@ -542,14 +711,14 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 				responseCode: http.StatusOK,
 				responseBody: `[{"id":"XX12345","name":"XX12345","color":4,"createdOn":"2021-09-22T12:01:43.299176","updatedOn":"2022-01-13T12:33:03.232669","backPlate":null,"levelOfAccess":1,"productCode":1}]`,
 			}),
-			want: []easee.Charger{
+			want: []api.Charger{
 				{
 					ID:            test.ChargerID,
 					Name:          test.ChargerID,
 					Color:         4,
 					CreatedOn:     "2021-09-22T12:01:43.299176",
 					UpdatedOn:     "2022-01-13T12:33:03.232669",
-					BackPlate:     easee.BackPlate{},
+					BackPlate:     api.BackPlate{},
 					LevelOfAccess: 1,
 					ProductCode:   1,
 				},
@@ -592,7 +761,7 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := easee.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.Chargers(tt.accessToken)
 			if tt.wantErr {
@@ -629,7 +798,7 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 			accessToken: test.AccessToken,
 			serverHandler: newTestHandler(t, []call{
 				{
-					requestMethod: http.MethodGet,
+					requestMethod: http.MethodPost,
 					requestPath:   "/api/chargers/XX12345/commands/lock_state",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
@@ -647,7 +816,7 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 			accessToken: test.AccessToken,
 			serverHandler: newTestHandler(t, []call{
 				{
-					requestMethod: http.MethodGet,
+					requestMethod: http.MethodPost,
 					requestPath:   "/api/chargers/XX12345/commands/lock_state",
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
@@ -664,7 +833,7 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 			locked:      true,
 			accessToken: test.AccessToken,
 			serverHandler: newTestHandler(t, call{
-				requestMethod: http.MethodGet,
+				requestMethod: http.MethodPost,
 				requestPath:   "/api/chargers/XX12345/commands/lock_state",
 				requestHeaders: map[string]string{
 					"Authorization": "Bearer test.access.token",
@@ -703,7 +872,7 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := easee.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.SetCableLock(tt.accessToken, tt.chargerID, tt.locked)
 			if tt.wantErr {
@@ -776,13 +945,4 @@ func (t *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(call.responseCode)
 	_, err = w.Write([]byte(call.responseBody))
 	assert.NoError(t.testingT, err)
-}
-
-func marshal(t *testing.T, v interface{}) string {
-	t.Helper()
-
-	b, err := json.Marshal(v)
-	assert.NoError(t, err)
-
-	return string(b)
 }

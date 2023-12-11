@@ -13,8 +13,17 @@ type Client struct {
 }
 
 // Close provides a mock function with given fields:
-func (_m *Client) Close() {
-	_m.Called()
+func (_m *Client) Close() error {
+	ret := _m.Called()
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }
 
 // Connected provides a mock function with given fields:
@@ -31,8 +40,8 @@ func (_m *Client) Connected() bool {
 	return r0
 }
 
-// ListenForObservations provides a mock function with given fields:
-func (_m *Client) ListenForObservations() <-chan signalr.Observation {
+// ObservationC provides a mock function with given fields:
+func (_m *Client) ObservationC() <-chan signalr.Observation {
 	ret := _m.Called()
 
 	var r0 <-chan signalr.Observation
@@ -47,25 +56,25 @@ func (_m *Client) ListenForObservations() <-chan signalr.Observation {
 	return r0
 }
 
-// ObserveState provides a mock function with given fields:
-func (_m *Client) ObserveState() <-chan signalr.State {
+// Start provides a mock function with given fields:
+func (_m *Client) Start() {
+	_m.Called()
+}
+
+// StateC provides a mock function with given fields:
+func (_m *Client) StateC() <-chan signalr.ClientState {
 	ret := _m.Called()
 
-	var r0 <-chan signalr.State
-	if rf, ok := ret.Get(0).(func() <-chan signalr.State); ok {
+	var r0 <-chan signalr.ClientState
+	if rf, ok := ret.Get(0).(func() <-chan signalr.ClientState); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(<-chan signalr.State)
+			r0 = ret.Get(0).(<-chan signalr.ClientState)
 		}
 	}
 
 	return r0
-}
-
-// Start provides a mock function with given fields:
-func (_m *Client) Start() {
-	_m.Called()
 }
 
 // SubscribeCharger provides a mock function with given fields: id
@@ -96,13 +105,12 @@ func (_m *Client) UnsubscribeCharger(id string) error {
 	return r0
 }
 
-type mockConstructorTestingTNewClient interface {
+// NewClient creates a new instance of Client. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
+// The first argument is typically a *testing.T value.
+func NewClient(t interface {
 	mock.TestingT
 	Cleanup(func())
-}
-
-// NewClient creates a new instance of Client. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
-func NewClient(t mockConstructorTestingTNewClient) *Client {
+}) *Client {
 	mock := &Client{}
 	mock.Mock.Test(t)
 

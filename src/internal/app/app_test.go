@@ -14,6 +14,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
@@ -184,7 +185,7 @@ func TestApplication_Uninstall(t *testing.T) {
 			}
 
 			if tt.configAssertions != nil {
-				tt.configAssertions(cfgService.Model().(*config.Config)) //nolint:forcetypeassert
+				tt.configAssertions(cfgService.Model())
 			}
 		})
 	}
@@ -222,28 +223,24 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				a.On("Login", "test-user", "test-password").Return(nil)
 			},
 			mockClient: func(c *mocks.APIClient) {
-				c.On("Chargers").Return([]easee.Charger{
+				c.On("Chargers").Return([]api.Charger{
 					{ID: "123"},
 					{ID: "456"},
 				}, nil)
 				c.On("Ping").Return(nil)
-				c.On("ChargerConfig", "123").Return(test.ExampleChargerConfig(t), nil).Once()
-				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
-					{
+					&adapter.ThingSeed{
 						ID: "123",
 						Info: easee.Info{
-							ChargerID:  "123",
-							MaxCurrent: 32,
+							ChargerID: "123",
 						},
 					},
-					{
+					&adapter.ThingSeed{
 						ID: "456",
 						Info: easee.Info{
-							ChargerID:  "456",
-							MaxCurrent: 32,
+							ChargerID: "456",
 						},
 					},
 				}).Return(nil)
@@ -299,28 +296,24 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				a.On("Login", "test-user", "test-password").Return(nil)
 			},
 			mockClient: func(c *mocks.APIClient) {
-				c.On("Chargers").Return([]easee.Charger{
+				c.On("Chargers").Return([]api.Charger{
 					{ID: "123"},
 					{ID: "456"},
 				}, nil)
 				c.On("Ping").Return(errors.New("oops"))
-				c.On("ChargerConfig", "123").Return(test.ExampleChargerConfig(t), nil).Once()
-				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
-					{
+					&adapter.ThingSeed{
 						ID: "123",
 						Info: easee.Info{
-							ChargerID:  "123",
-							MaxCurrent: 32,
+							ChargerID: "123",
 						},
 					},
-					{
+					&adapter.ThingSeed{
 						ID: "456",
 						Info: easee.Info{
-							ChargerID:  "456",
-							MaxCurrent: 32,
+							ChargerID: "456",
 						},
 					},
 				}).Return(nil)
@@ -348,28 +341,24 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				a.On("Login", "test-user", "test-password").Return(nil)
 			},
 			mockClient: func(c *mocks.APIClient) {
-				c.On("Chargers").Return([]easee.Charger{
+				c.On("Chargers").Return([]api.Charger{
 					{ID: "123"},
 					{ID: "456"},
 				}, nil)
 				c.On("Ping").Return(nil)
-				c.On("ChargerConfig", "123").Return(test.ExampleChargerConfig(t), nil).Once()
-				c.On("ChargerConfig", "456").Return(test.ExampleChargerConfig(t), nil).Once()
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
-					{
+					&adapter.ThingSeed{
 						ID: "123",
 						Info: easee.Info{
-							ChargerID:  "123",
-							MaxCurrent: 32,
+							ChargerID: "123",
 						},
 					},
-					{
+					&adapter.ThingSeed{
 						ID: "456",
 						Info: easee.Info{
-							ChargerID:  "456",
-							MaxCurrent: 32,
+							ChargerID: "456",
 						},
 					},
 				}).Return(errors.New("oops"))

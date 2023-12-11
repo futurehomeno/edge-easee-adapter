@@ -1,8 +1,6 @@
 package app
 
 import (
-	"fmt"
-
 	"github.com/futurehomeno/cliffhanger/adapter"
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
@@ -10,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 )
@@ -28,8 +27,8 @@ func New(
 	cfgService *config.Service,
 	lc *lifecycle.Lifecycle,
 	mfLoader manifest.Loader,
-	client easee.APIClient,
-	auth easee.Authenticator,
+	client api.Client,
+	auth api.Authenticator,
 ) Application {
 	return &application{
 		ad:         ad,
@@ -46,8 +45,8 @@ type application struct {
 	cfgService *config.Service
 	lifecycle  *lifecycle.Lifecycle
 	mfLoader   manifest.Loader
-	client     easee.APIClient
-	auth       easee.Authenticator
+	client     api.Client
+	auth       api.Authenticator
 }
 
 func (a *application) GetManifest() (*manifest.Manifest, error) {
@@ -175,16 +174,10 @@ func (a *application) registerChargers() error {
 	seeds := make([]*adapter.ThingSeed, 0, len(chargers))
 
 	for _, charger := range chargers {
-		cfg, err := a.client.ChargerConfig(charger.ID)
-		if err != nil {
-			return fmt.Errorf("failed to fetch a charger config ID %s: %w", charger.ID, err)
-		}
-
 		seeds = append(seeds, &adapter.ThingSeed{
 			ID: charger.ID,
 			Info: easee.Info{
-				ChargerID:  charger.ID,
-				MaxCurrent: cfg.MaxChargerCurrent,
+				ChargerID: charger.ID,
 			},
 		})
 	}
