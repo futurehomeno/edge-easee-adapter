@@ -7,6 +7,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/root"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/backoff"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
@@ -105,9 +106,16 @@ func (m *manager) Register(chargerID string, handler Handler) {
 		return
 	}
 
+	backoff := backoff.NewExponentialBackoff(m.cfg.GetSignalRInitialBackoff(),
+		m.cfg.GetSignalRRepeatedBackoff(),
+		m.cfg.GetSignalRFinalBackoff(),
+		m.cfg.GetSignalRInitialFailureCount(),
+		m.cfg.GetSignalRRepeatedFailureCount())
+
 	m.chargers[chargerID] = &charger{
 		handler:      handler,
 		isSubscribed: false,
+		backoff:      backoff,
 	}
 
 	m.ensureClientStarted()
@@ -181,16 +189,17 @@ func (m *manager) handleSubscription(chargerID string) {
 			return
 		}
 
-		go m.addChargerSubscription(chargerID)
+		go m.addChargerSubscription(chargerID, charger)
 
 		return
 	}
 
+	charger.backoff.Reset()
 	charger.isSubscribed = true
 }
 
-func (m *manager) addChargerSubscription(chargerID string) {
-	timer := time.NewTimer(m.cfg.GetSignalRSubscribeInterval())
+func (m *manager) addChargerSubscription(chargerID string, charger *charger) {
+	timer := time.NewTimer(charger.backoff.Next())
 	defer timer.Stop()
 
 	select {
@@ -222,6 +231,7 @@ func (m *manager) handleClientState(state ClientState) {
 
 	case ClientStateDisconnected:
 		for _, charger := range m.chargers {
+			charger.backoff.Reset()
 			charger.isSubscribed = false
 		}
 
@@ -248,8 +258,6 @@ func (m *manager) handleObservation(observation Observation) {
 	m.mu.RUnlock()
 
 	if !ok {
-		log.Warn("received observation for an unknown charger: ", observation.ChargerID)
-
 		return
 	}
 
@@ -293,4 +301,5 @@ func (m *manager) ensureClientStarted() {
 type charger struct {
 	handler      Handler
 	isSubscribed bool
+	backoff      *backoff.ExponentialBackoff
 }

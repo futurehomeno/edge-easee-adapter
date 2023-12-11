@@ -11,6 +11,7 @@ import (
 	"github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/backoff"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
@@ -46,6 +47,7 @@ type client struct {
 	cfg           *config.Service
 	tokenProvider func() (string, error)
 	receiver      *receiver
+	backoff       *backoff.ExponentialBackoff
 
 	states       chan ClientState
 	observations chan Observation
@@ -57,10 +59,17 @@ type client struct {
 func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
 	observations := make(chan Observation, 100)
 
+	backoff := backoff.NewExponentialBackoff(cfg.GetSignalRInitialBackoff(),
+		cfg.GetSignalRRepeatedBackoff(),
+		cfg.GetSignalRFinalBackoff(),
+		cfg.GetSignalRInitialFailureCount(),
+		cfg.GetSignalRRepeatedFailureCount())
+
 	return &client{
 		cfg:           cfg,
 		tokenProvider: tokenProvider,
 		receiver:      newReceiver(observations),
+		backoff:       backoff,
 		states:        make(chan ClientState, 10),
 		observations:  observations,
 	}
@@ -122,6 +131,7 @@ func (c *client) Close() error {
 		c.cancel = nil
 	}
 
+	c.backoff.Reset()
 	c.running = false
 
 	return nil
@@ -166,7 +176,7 @@ func (c *client) handleConnection(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(c.cfg.GetSignalRReconnectInterval()):
+		case <-time.After(c.backoff.Next()):
 		}
 	}
 }
@@ -188,6 +198,7 @@ func (c *client) notifyState(ctx context.Context) {
 			state := ClientStateDisconnected
 			if clientState == signalr.ClientConnected {
 				state = ClientStateConnected
+				c.backoff.Reset()
 			}
 
 			if c.updateState(state) {

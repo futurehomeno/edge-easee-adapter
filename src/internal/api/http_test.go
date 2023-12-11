@@ -1,4 +1,4 @@
-package api //nolint:testpackage
+package api_test // TODO: refactor there test to use our internal HTTP testing package.
 
 import (
 	"io"
@@ -10,6 +10,7 @@ import (
 	"github.com/michalkurzeja/go-clock"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 )
 
@@ -22,7 +23,7 @@ func TestClient_Login(t *testing.T) {
 		password         string
 		serverHandler    http.Handler
 		forceServerError bool
-		want             *Credentials
+		want             *api.Credentials
 		wantErr          bool
 	}{
 		{
@@ -39,7 +40,7 @@ func TestClient_Login(t *testing.T) {
 				responseCode: http.StatusOK,
 				responseBody: `{"accessToken":"access-token","expiresIn":86400,"accessClaims":["User"],"tokenType":"Bearer","refreshToken":"refresh-token"}`,
 			}),
-			want: &Credentials{
+			want: &api.Credentials{
 				AccessToken: "access-token",
 				ExpiresIn:   86400,
 				AccessClaims: []string{
@@ -104,7 +105,7 @@ func TestClient_Login(t *testing.T) {
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.Login(tt.username, tt.password)
 			if tt.wantErr {
@@ -126,7 +127,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 		responseData  string
 		statusCode    int
 		errorContains string
-		expectedCreds Credentials
+		expectedCreds api.Credentials
 	}{
 		{
 			name:          "should fail due to invalid url",
@@ -148,7 +149,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 			name:          "should form valid credentials",
 			responseData:  `{"accessToken":"access","refreshToken":"refresh"}`,
 			statusCode:    http.StatusOK,
-			expectedCreds: Credentials{RefreshToken: "refresh", AccessToken: "access"},
+			expectedCreds: api.Credentials{RefreshToken: "refresh", AccessToken: "access"},
 		},
 	}
 
@@ -161,7 +162,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 			server := httptest.NewServer(http.HandlerFunc(handler))
 			defer server.Close()
 
-			client := NewHTTPClient(server.Client(), server.URL+v.baseURLAdj)
+			client := api.NewHTTPClient(server.Client(), server.URL+v.baseURLAdj)
 			creds, err := client.RefreshToken("", "")
 
 			if v.errorContains != "" {
@@ -248,7 +249,7 @@ func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.UpdateMaxCurrent(tt.accessToken, tt.chargerID, tt.current)
 			if tt.wantErr {
@@ -336,7 +337,7 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.UpdateDynamicCurrent(tt.accessToken, tt.chargerID, tt.current)
 			if tt.wantErr {
@@ -419,7 +420,7 @@ func TestClient_StartCharging(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.StartCharging(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -503,7 +504,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.StopCharging(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -529,7 +530,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 		accessToken      string
 		serverHandler    http.Handler
 		forceServerError bool
-		want             *ChargerConfig
+		want             *api.ChargerConfig
 		wantErr          bool
 	}{
 		{
@@ -545,7 +546,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 				responseCode: http.StatusOK,
 				responseBody: `{"maxChargerCurrent":32, "detectedPowerGridType":1}`,
 			}),
-			want: &ChargerConfig{
+			want: &api.ChargerConfig{
 				MaxChargerCurrent:     32,
 				DetectedPowerGridType: 1,
 			},
@@ -590,7 +591,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.ChargerConfig(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -667,7 +668,7 @@ func TestClient_Ping(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.Ping(tt.accessToken)
 			if tt.wantErr {
@@ -692,7 +693,7 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 		accessToken      string
 		serverHandler    http.Handler
 		forceServerError bool
-		want             []Charger
+		want             []api.Charger
 		wantErr          bool
 	}{
 		{
@@ -707,14 +708,14 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 				responseCode: http.StatusOK,
 				responseBody: `[{"id":"XX12345","name":"XX12345","color":4,"createdOn":"2021-09-22T12:01:43.299176","updatedOn":"2022-01-13T12:33:03.232669","backPlate":null,"levelOfAccess":1,"productCode":1}]`,
 			}),
-			want: []Charger{
+			want: []api.Charger{
 				{
 					ID:            test.ChargerID,
 					Name:          test.ChargerID,
 					Color:         4,
 					CreatedOn:     "2021-09-22T12:01:43.299176",
 					UpdatedOn:     "2022-01-13T12:33:03.232669",
-					BackPlate:     BackPlate{},
+					BackPlate:     api.BackPlate{},
 					LevelOfAccess: 1,
 					ProductCode:   1,
 				},
@@ -757,7 +758,7 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.Chargers(tt.accessToken)
 			if tt.wantErr {
@@ -868,7 +869,7 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 			}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.SetCableLock(tt.accessToken, tt.chargerID, tt.locked)
 			if tt.wantErr {

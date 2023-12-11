@@ -53,13 +53,16 @@ func (c Credentials) Expired() bool {
 
 // SignalR represents SignalR configuration settings.
 type SignalR struct {
-	BaseURL             string `json:"baseURL"`
-	ConnCreationTimeout string `json:"connCreationTimeout"`
-	KeepAliveInterval   string `json:"keepAliveInterval2"`
-	TimeoutInterval     string `json:"timeoutInterval2"`
-	SubscribeInterval   string `json:"subscribeInterval"`
-	ReconnectInterval   string `json:"reconnectInterval"`
-	InvokeTimeout       string `json:"invokeTimeout"`
+	BaseURL              string `json:"baseURL"`
+	ConnCreationTimeout  string `json:"connCreationTimeout"`
+	KeepAliveInterval    string `json:"keepAliveInterval2"`
+	TimeoutInterval      string `json:"timeoutInterval2"`
+	InitialBackoff       string `json:"initialBackoff"`
+	RepeatedBackoff      string `json:"repeatedBackoff"`
+	FinalBackoff         string `json:"finalBackoff"`
+	InitialFailureCount  int    `json:"initialFailureCount"`
+	RepeatedFailureCount int    `json:"repeatedFailureCount"`
+	InvokeTimeout        string `json:"invokeTimeout"`
 }
 
 // Service is a configuration service responsible for:
@@ -330,12 +333,36 @@ func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
 	return cs.Storage.Save()
 }
 
-// GetSignalRSubscribeInterval allows to safely access a configuration setting.
-func (cs *Service) GetSignalRSubscribeInterval() time.Duration {
+// GetSignalRInitialBackoff allows to safely access a configuration setting.
+func (cs *Service) GetSignalRInitialBackoff() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	interval, err := time.ParseDuration(cs.Storage.Model().SignalR.SubscribeInterval)
+	interval, err := time.ParseDuration(cs.Storage.Model().SignalR.InitialBackoff)
+	if err != nil {
+		return 5 * time.Second
+	}
+
+	return interval
+}
+
+// SetSignalRInitialBackoff allows to safely set and persist configuration settings.
+func (cs *Service) SetSignalRInitialBackoff(interval time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().SignalR.InitialBackoff = interval.String()
+
+	return cs.Storage.Save()
+}
+
+// GetSignalRRepeatedBackoff allows to safely access a configuration setting.
+func (cs *Service) GetSignalRRepeatedBackoff() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	interval, err := time.ParseDuration(cs.Storage.Model().SignalR.RepeatedBackoff)
 	if err != nil {
 		return 30 * time.Second
 	}
@@ -343,37 +370,73 @@ func (cs *Service) GetSignalRSubscribeInterval() time.Duration {
 	return interval
 }
 
-// SetSignalRSubscribeInterval allows to safely set and persist configuration settings.
-func (cs *Service) SetSignalRSubscribeInterval(interval time.Duration) error {
+// SetSignalRRepeatedBackoff allows to safely set and persist configuration settings.
+func (cs *Service) SetSignalRRepeatedBackoff(interval time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().SignalR.SubscribeInterval = interval.String()
+	cs.Storage.Model().SignalR.RepeatedBackoff = interval.String()
 
 	return cs.Storage.Save()
 }
 
-// GetSignalRReconnectInterval allows to safely access a configuration setting.
-func (cs *Service) GetSignalRReconnectInterval() time.Duration {
+// GetSignalRFinalBackoff allows to safely access a configuration setting.
+func (cs *Service) GetSignalRFinalBackoff() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	interval, err := time.ParseDuration(cs.Storage.Model().SignalR.ReconnectInterval)
+	interval, err := time.ParseDuration(cs.Storage.Model().SignalR.FinalBackoff)
 	if err != nil {
-		return 15 * time.Second
+		return 2 * time.Minute
 	}
 
 	return interval
 }
 
-// SetSignalRReconnectInterval allows to safely set and persist configuration settings.
-func (cs *Service) SetSignalRReconnectInterval(interval time.Duration) error {
+// SetSignalRFinalBackoff allows to safely set and persist configuration settings.
+func (cs *Service) SetSignalRFinalBackoff(interval time.Duration) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().SignalR.ReconnectInterval = interval.String()
+	cs.Storage.Model().SignalR.FinalBackoff = interval.String()
+
+	return cs.Storage.Save()
+}
+
+// GetSignalRInitialFailureCount allows to safely access signalr initial failure count.
+func (cs *Service) GetSignalRInitialFailureCount() int {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().SignalR.InitialFailureCount
+}
+
+// SetSignalRInitialFailureCount allows to safely alter signalr initial failure count.
+func (cs *Service) SetSignalRInitialFailureCount(n int) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().SignalR.InitialFailureCount = n
+
+	return cs.Storage.Save()
+}
+
+// GetSignalRRepeatedFailureCount allows to safely access repeated failure count.
+func (cs *Service) GetSignalRRepeatedFailureCount() int {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Storage.Model().SignalR.RepeatedFailureCount
+}
+
+// SetSignalRRepeatedFailureCount allows to safely alter repeated failure count.
+func (cs *Service) SetSignalRRepeatedFailureCount(n int) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().SignalR.RepeatedFailureCount = n
 
 	return cs.Storage.Save()
 }
