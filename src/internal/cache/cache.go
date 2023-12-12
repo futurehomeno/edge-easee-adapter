@@ -91,8 +91,8 @@ func (c *cache) OfferedCurrent() int64 {
 }
 
 func (c *cache) DynamicCurrent() int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	return c.dynamicCurrent
 }
