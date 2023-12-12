@@ -102,7 +102,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	}
 
 	if startCurrent == 0 {
-		return errors.New("Invalid start current")
+		return errors.New("invalid start current")
 	}
 
 	// resume charing request is not used because it clears dynamic current value.

@@ -125,7 +125,12 @@ func (o *observationsHandler) handleChargerState(observation Observation) error 
 		return err
 	}
 
-	o.cache.SetChargerState(ChargerState(val).ToFimpState())
+	chargerState := ChargerState(val)
+	o.cache.SetChargerState(chargerState.ToFimpState())
+
+	if chargerState.IsSessionFinished() {
+		o.cache.SetOfferedCurrent(0)
+	}
 
 	_, err = o.chargepoint.SendStateReport(false)
 
