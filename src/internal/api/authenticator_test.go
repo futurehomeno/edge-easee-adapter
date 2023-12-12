@@ -77,10 +77,12 @@ func TestLogin(t *testing.T) {
 			storage.On("Model").Return(&cfg)
 			storage.On("Save").Return(v.saveError)
 
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
 			notificationManager := &NotificationMock{}
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			client := NewHTTPClient(httpClient, server.URL)
+			client := NewHTTPClient(cfgSrv, httpClient, server.URL)
 			auth := authenticator{http: client, cfgSvc: config.NewService(&storage), notificationManager: notificationManager}
 
 			err := auth.Login(v.username, v.password)
@@ -195,10 +197,11 @@ func TestAccessToken(t *testing.T) {
 			storage := mockedstorage.Storage[*config.Config]{}
 			storage.On("Model").Return(&cfg)
 			storage.On("Save").Return(v.saveError)
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
 
 			// mock httpClient
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			client := NewHTTPClient(httpClient, server.URL)
+			client := NewHTTPClient(cfgSrv, httpClient, server.URL)
 			auth := authenticator{http: client, cfgSvc: config.NewService(&storage), backoffCfg: backoffCfg{
 				status: v.authStatus,
 			}}

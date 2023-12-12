@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time"
 
+	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 )
 
@@ -107,8 +109,12 @@ func TestClient_Login(t *testing.T) {
 				s.Close()
 			}
 
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
 
 			got, err := c.Login(tt.username, tt.password)
 			if tt.wantErr {
@@ -165,7 +171,11 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 			server := httptest.NewServer(http.HandlerFunc(handler))
 			defer server.Close()
 
-			client := api.NewHTTPClient(server.Client(), server.URL+v.baseURLAdj)
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
+			client := api.NewHTTPClient(cfgSrv, server.Client(), server.URL+v.baseURLAdj)
 			creds, err := client.RefreshToken("", "")
 
 			if v.errorContains != "" {
@@ -251,8 +261,12 @@ func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
 				s.Close()
 			}
 
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
 
 			err := c.UpdateMaxCurrent(tt.accessToken, tt.chargerID, tt.current)
 			if tt.wantErr {
@@ -339,8 +353,12 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
 				s.Close()
 			}
 
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
 
 			err := c.UpdateDynamicCurrent(tt.accessToken, tt.chargerID, tt.current)
 			if tt.wantErr {
@@ -423,8 +441,12 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 				s.Close()
 			}
 
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
 
 			err := c.StopCharging(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -510,8 +532,12 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 				s.Close()
 			}
 
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
 
 			got, err := c.ChargerConfig(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -587,8 +613,12 @@ func TestClient_Ping(t *testing.T) { //nolint:paralleltest
 				s.Close()
 			}
 
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
 
 			err := c.Ping(tt.accessToken)
 			if tt.wantErr {
@@ -677,8 +707,12 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 				s.Close()
 			}
 
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
 
 			got, err := c.Chargers(tt.accessToken)
 			if tt.wantErr {
@@ -788,8 +822,12 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 				s.Close()
 			}
 
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(httpClient, s.URL)
+			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
 
 			err := c.SetCableLock(tt.accessToken, tt.chargerID, tt.locked)
 			if tt.wantErr {

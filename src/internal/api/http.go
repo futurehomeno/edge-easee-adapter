@@ -70,11 +70,12 @@ type httpClient struct {
 }
 
 // NewHTTPClient returns a new instance of Easee HTTPClient.
-func NewHTTPClient(http *http.Client, baseURL string) HTTPClient {
+func NewHTTPClient(cfgSrv *config.Service, http *http.Client, baseURL string) HTTPClient {
 	return &httpClient{
 		httpClient:        http,
 		baseURL:           baseURL,
 		lastMaxCurrentSet: make(map[string]time.Time),
+		cfgSrv:            cfgSrv,
 	}
 }
 

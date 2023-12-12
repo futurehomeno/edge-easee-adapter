@@ -30,6 +30,14 @@ func New(workDir string) *Config {
 	}
 }
 
+// NewConfigServiceWithStorage creates a new configuration service.
+func NewConfigServiceWithStorage(storage storage.Storage[*Config]) *Service {
+	return &Service{
+		Storage: storage,
+		lock:    &sync.RWMutex{},
+	}
+}
+
 // Factory is a factory method returning the configuration object without default settings.
 func Factory() *Config {
 	return &Config{}
