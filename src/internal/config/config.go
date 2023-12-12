@@ -20,6 +20,7 @@ type Config struct {
 	HTTPTimeout                  string     `json:"httpTimeout"`
 	SignalR                      SignalR    `json:"signalR"`
 	Backoff                      BackoffCfg `json:"backoff"`
+	OfferedCurrentWaitTime       string     `json:"offered_current_wait_time"`
 }
 
 // New creates new instance of a configuration object.
@@ -502,6 +503,30 @@ func (cs *Service) SetBackoffMaxAttempts(n int) error {
 	defer cs.lock.RUnlock()
 
 	cs.Storage.Model().Backoff.MaxAttempts = n
+
+	return cs.Storage.Save()
+}
+
+// GetOfferedCurrentWaitTime allows to safely access a configuration setting.
+func (cs *Service) GetOfferedCurrentWaitTime() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	duration, err := time.ParseDuration(cs.Storage.Model().OfferedCurrentWaitTime)
+	if err != nil {
+		return 30 * time.Second
+	}
+
+	return duration
+}
+
+// SetOfferedCurrentWaitTime allows to safely set and persist a configuration setting.
+func (cs *Service) SetOfferedCurrentWaitTime(duration time.Duration) error {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().OfferedCurrentWaitTime = duration.String()
 
 	return cs.Storage.Save()
 }

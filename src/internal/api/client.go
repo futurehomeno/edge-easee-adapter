@@ -1,6 +1,8 @@
 package api
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // Client is a wrapper around the Easee HTTP Client with authentication capabilities.
 type Client interface {

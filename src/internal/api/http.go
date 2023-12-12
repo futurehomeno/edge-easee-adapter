@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
 const (
@@ -58,13 +63,18 @@ type HTTPClient interface {
 type httpClient struct {
 	httpClient *http.Client
 	baseURL    string
+	cfgSrv     *config.Service
+
+	lock              sync.RWMutex
+	lastMaxCurrentSet map[string]time.Time
 }
 
 // NewHTTPClient returns a new instance of Easee HTTPClient.
 func NewHTTPClient(http *http.Client, baseURL string) HTTPClient {
 	return &httpClient{
-		httpClient: http,
-		baseURL:    baseURL,
+		httpClient:        http,
+		baseURL:           baseURL,
+		lastMaxCurrentSet: make(map[string]time.Time),
 	}
 }
 
@@ -157,6 +167,10 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 }
 
 func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current float64) error {
+	if c.shouldBackoffWithMaxCurrentChange(chargerID) {
+		return errors.New("client: failed to update dynamic current: too many requests")
+	}
+
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
@@ -172,6 +186,8 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 	if err != nil {
 		return errors.Wrap(err, "update dynamic current request failed")
 	}
+
+	c.registerMaxCurrentChange(chargerID)
 
 	defer resp.Body.Close()
 
@@ -375,4 +391,27 @@ func (c *httpClient) readResponseBody(r *http.Response, body interface{}) error 
 
 func (c *httpClient) bearerTokenHeader(authToken string) string {
 	return "Bearer " + authToken
+}
+
+func (c *httpClient) shouldBackoffWithMaxCurrentChange(chargerID string) bool {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	lastMaxCurrentSet, ok := c.lastMaxCurrentSet[chargerID]
+	if !ok {
+		return false
+	}
+
+	if clock.Now().Sub(lastMaxCurrentSet) >= c.cfgSrv.GetOfferedCurrentWaitTime() {
+		return false
+	}
+
+	return true
+}
+
+func (c *httpClient) registerMaxCurrentChange(chargerID string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.lastMaxCurrentSet[chargerID] = clock.Now()
 }
