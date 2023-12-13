@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/thoas/go-funk"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
 const (
@@ -19,7 +24,6 @@ const (
 	chargerConfigURITemplate   = "/api/chargers/%s/config"
 	chargerSiteURITemplate     = "/api/chargers/%s/site"
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
-	chargerStartURITemplate    = "/api/chargers/%s/commands/resume_charging"
 	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
 	chargerSessionsURITemplate = "/api/sessions/charger/%s/sessions/descending?limit=2"
@@ -40,8 +44,6 @@ type HTTPClient interface {
 	Login(userName, password string) (*Credentials, error)
 	// RefreshToken retrieves new credentials based on an access token and a refresh token.
 	RefreshToken(accessToken, refreshToken string) (*Credentials, error)
-	// StartCharging starts charging session for the selected charger.
-	StartCharging(accessToken, chargerID string) error
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(accessToken, chargerID string) error
 	// SetCableLock locks/unlocks the cable for the selected charger.
@@ -61,13 +63,19 @@ type HTTPClient interface {
 type httpClient struct {
 	httpClient *http.Client
 	baseURL    string
+	cfgSrv     *config.Service
+
+	lock              sync.RWMutex
+	lastMaxCurrentSet map[string]time.Time
 }
 
 // NewHTTPClient returns a new instance of Easee HTTPClient.
-func NewHTTPClient(http *http.Client, baseURL string) HTTPClient {
+func NewHTTPClient(cfgSrv *config.Service, http *http.Client, baseURL string) HTTPClient {
 	return &httpClient{
-		httpClient: http,
-		baseURL:    baseURL,
+		httpClient:        http,
+		baseURL:           baseURL,
+		lastMaxCurrentSet: make(map[string]time.Time),
+		cfgSrv:            cfgSrv,
 	}
 }
 
@@ -160,6 +168,10 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 }
 
 func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current float64) error {
+	if c.shouldBackoffWithMaxCurrentChange(chargerID) {
+		return errors.New("client: failed to update dynamic current: too many requests")
+	}
+
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
@@ -176,25 +188,7 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 		return errors.Wrap(err, "update dynamic current request failed")
 	}
 
-	defer resp.Body.Close()
-
-	return nil
-}
-
-func (c *httpClient) StartCharging(accessToken, chargerID string) error {
-	u := c.buildURL(chargerStartURITemplate, chargerID)
-
-	req, err := newRequestBuilder(http.MethodPost, u).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		build()
-	if err != nil {
-		return errors.Wrap(err, "failed to create start charging request")
-	}
-
-	resp, err := c.performRequest(req, http.StatusAccepted)
-	if err != nil {
-		return errors.Wrap(err, "start charging request failed")
-	}
+	c.registerMaxCurrentChange(chargerID)
 
 	defer resp.Body.Close()
 
@@ -398,4 +392,27 @@ func (c *httpClient) readResponseBody(r *http.Response, body interface{}) error 
 
 func (c *httpClient) bearerTokenHeader(authToken string) string {
 	return "Bearer " + authToken
+}
+
+func (c *httpClient) shouldBackoffWithMaxCurrentChange(chargerID string) bool {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	lastMaxCurrentSet, ok := c.lastMaxCurrentSet[chargerID]
+	if !ok {
+		return false
+	}
+
+	if clock.Now().Sub(lastMaxCurrentSet) >= c.cfgSrv.GetOfferedCurrentWaitTime() {
+		return false
+	}
+
+	return true
+}
+
+func (c *httpClient) registerMaxCurrentChange(chargerID string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.lastMaxCurrentSet[chargerID] = clock.Now()
 }

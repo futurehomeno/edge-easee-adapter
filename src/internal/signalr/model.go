@@ -119,6 +119,21 @@ func (s ChargerState) ToFimpState() chargepoint.State { //nolint:cyclop
 	}
 }
 
+func (s ChargerState) IsSessionFinished() bool {
+	switch s { //nolint:exhaustive
+	case ChargerStateUnknown,
+		ChargerStateOffline,
+		ChargerStateDisconnected,
+		ChargerStateCompleted,
+		ChargerStateError,
+		ChargerStateAwaitingAuthentication,
+		ChargerStateDeAuthenticating:
+		return true
+	default:
+		return false
+	}
+}
+
 // ClientState represents the state of the SignalR client.
 type ClientState int
 

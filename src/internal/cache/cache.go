@@ -11,8 +11,12 @@ import (
 type Cache interface {
 	// ChargerState returns the charger state.
 	ChargerState() chargepoint.State
-	// MaxCurrent returns the charger max current.
+	// MaxCurrent returns the charger max current set by the user.
 	MaxCurrent() int64
+	// OfferedCurrent returns the desired current determined by the controller.
+	OfferedCurrent() int64
+	// DynamicCurrent returns the actually used current value.
+	DynamicCurrent() int64
 	// CableLocked returns the cable locked state.
 	CableLocked() bool
 	// CableCurrent returns the cable max current.
@@ -21,8 +25,6 @@ type Cache interface {
 	TotalPower() float64
 	// LifetimeEnergy returns the lifetime energy.
 	LifetimeEnergy() float64
-	// OfferedCurrent returns the current value.
-	OfferedCurrent() int64
 	// EnergySession returns the current session energy value.
 	EnergySession() float64
 	// Phase1Current return current on phase 1.
@@ -35,6 +37,7 @@ type Cache interface {
 	SetChargerState(state chargepoint.State)
 	SetMaxCurrent(current int64)
 	SetOfferedCurrent(current int64)
+	SetDynamicCurrent(current int64)
 	SetCableLocked(locked bool)
 	SetCableCurrent(current int64)
 	SetTotalPower(power float64)
@@ -51,6 +54,7 @@ type cache struct {
 	chargerState   chargepoint.State
 	maxCurrent     int64
 	offeredCurrent int64
+	dynamicCurrent int64
 	energySession  float64
 	cableLocked    bool
 	cableCurrent   int64
@@ -79,6 +83,20 @@ func (c *cache) MaxCurrent() int64 {
 	return c.maxCurrent
 }
 
+func (c *cache) OfferedCurrent() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.offeredCurrent
+}
+
+func (c *cache) DynamicCurrent() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.dynamicCurrent
+}
+
 func (c *cache) CableLocked() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -105,13 +123,6 @@ func (c *cache) LifetimeEnergy() float64 {
 	defer c.mu.RUnlock()
 
 	return c.lifetimeEnergy
-}
-
-func (c *cache) OfferedCurrent() int64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return c.offeredCurrent
 }
 
 func (c *cache) EnergySession() float64 {
@@ -156,6 +167,20 @@ func (c *cache) SetMaxCurrent(current int64) {
 	c.maxCurrent = current
 }
 
+func (c *cache) SetOfferedCurrent(current int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.offeredCurrent = current
+}
+
+func (c *cache) SetDynamicCurrent(current int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.dynamicCurrent = current
+}
+
 func (c *cache) SetCableLocked(locked bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -198,13 +223,6 @@ func (c *cache) SetChargerState(state chargepoint.State) {
 	defer c.mu.Unlock()
 
 	c.chargerState = state
-}
-
-func (c *cache) SetOfferedCurrent(current int64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.offeredCurrent = current
 }
 
 func (c *cache) SetPhase1Current(current float64) {

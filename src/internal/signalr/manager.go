@@ -288,8 +288,6 @@ func (m *manager) ensureClientStarted() {
 
 	if len(m.chargers) != 0 {
 		m.client.Start()
-
-		return
 	}
 
 	m.clientStartLock.Lock()

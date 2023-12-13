@@ -1,6 +1,8 @@
 package api
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // Client is a wrapper around the Easee HTTP Client with authentication capabilities.
 type Client interface {
@@ -8,8 +10,6 @@ type Client interface {
 	UpdateMaxCurrent(chargerID string, current float64) error
 	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
 	UpdateDynamicCurrent(chargerID string, current float64) error
-	// StartCharging starts charging session for the selected charger.
-	StartCharging(chargerID string) error
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(chargerID string) error
 	// SetCableLock locks/unlocks the cable for the selected charger.
@@ -54,15 +54,6 @@ func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) erro
 	}
 
 	return a.httpClient.UpdateDynamicCurrent(token, chargerID, current)
-}
-
-func (a *apiClient) StartCharging(chargerID string) error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.StartCharging(token, chargerID)
 }
 
 func (a *apiClient) StopCharging(chargerID string) error {
