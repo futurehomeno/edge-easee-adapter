@@ -54,6 +54,7 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		InCurrentT3:           handler.handleInCurrentT3,
 		InCurrentT4:           handler.handleInCurrentT4,
 		InCurrentT5:           handler.handleInCurrentT5,
+		CloudConnected:        handler.handleCloudConnected,
 	}
 
 	return &handler, nil
@@ -77,6 +78,20 @@ func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) e
 	o.cache.SetMaxCurrent(current)
 
 	_, err = o.chargepoint.SendMaxCurrentReport(false)
+
+	return err
+}
+
+func (o *observationsHandler) handleCloudConnected(observation Observation) error {
+	val, err := observation.BoolValue()
+	if err != nil {
+		return err
+	}
+
+	if !val {
+		o.cache.SetChargerState(chargepoint.StateUnavailable)
+		_, err = o.chargepoint.SendStateReport(false)
+	}
 
 	return err
 }

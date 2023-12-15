@@ -17,6 +17,7 @@ const (
 	InCurrentT3           ObservationID = 183
 	InCurrentT4           ObservationID = 184
 	InCurrentT5           ObservationID = 185
+	CloudConnected        ObservationID = 250
 )
 
 // Supported returns true if the ObservationID is supported by our system.
@@ -44,6 +45,7 @@ func SupportedObservationIDs() []ObservationID {
 		InCurrentT3,
 		InCurrentT4,
 		InCurrentT5,
+		CloudConnected,
 	}
 }
 
