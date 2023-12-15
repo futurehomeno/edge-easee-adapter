@@ -88,7 +88,7 @@ func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 		)
 	}
 
-	services.mqtt.SetDefaultSource(routing.ServiceName)
+	services.mqtt.SetDefaultSource(routing.ResourceName)
 
 	return services.mqtt
 }

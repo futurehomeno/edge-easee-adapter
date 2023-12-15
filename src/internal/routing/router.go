@@ -14,6 +14,8 @@ import (
 const (
 	// ServiceName represents Easee service name.
 	ServiceName = "easee"
+	// ResourceName represents Easee source name.
+	ResourceName = "easee"
 )
 
 // New returns a new routing table.
