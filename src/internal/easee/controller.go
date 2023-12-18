@@ -10,12 +10,15 @@ import (
 	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	"github.com/futurehomeno/cliffhanger/event"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
+
+const maxCurrentValue = 32
 
 var extendedReportMapping = map[numericmeter.Value]specFunc{
 	numericmeter.ValueCurrentPhase1: func(report numericmeter.ValuesReport, c cache.Cache) {
@@ -66,6 +69,7 @@ type controller struct {
 	cfgService              *config.Service
 	chargerID               string
 	chargeSessionsRefresher cliffCache.Refresher[api.ChargeSessions]
+	testListener            event.Listener
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
@@ -239,7 +243,7 @@ func (c *controller) updateChargerSiteInfo(info *Info) error {
 		return nil
 	}
 
-	info.SupportedMaxCurrent = int64(math.Round(siteInfo.RatedCurrent))
+	info.SupportedMaxCurrent = min(int64(math.Round(siteInfo.RatedCurrent)), maxCurrentValue)
 
 	return nil
 }
