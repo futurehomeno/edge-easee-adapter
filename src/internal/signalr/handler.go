@@ -83,7 +83,7 @@ func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) e
 
 	o.eventManager.Publish(pubsub.NewMaxCurrentRefreshEvent(current))
 
-	return err
+	return nil
 }
 
 func (o *observationsHandler) handleCloudConnected(observation Observation) error {
