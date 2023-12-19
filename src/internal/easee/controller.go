@@ -93,9 +93,9 @@ func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
 }
 
 func (c *controller) SetChargepointOfferedCurrent(current int64) error {
-	finishedChan := make(chan struct{})
+	done := make(chan struct{})
 
-	listener, err := c.startListener(current, finishedChan)
+	listener, err := c.startListener(current, done)
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (c *controller) SetChargepointOfferedCurrent(current int64) error {
 		return err
 	}
 
-	return c.waitForEvent(current, finishedChan)
+	return c.waitForEvent(current, done)
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
