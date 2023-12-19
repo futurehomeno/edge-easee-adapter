@@ -7,8 +7,10 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	"github.com/futurehomeno/cliffhanger/event"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
+	"github.com/futurehomeno/edge-easee-adapter/internal/pubsub"
 )
 
 // Handler interface handles signalr observations.
@@ -18,14 +20,15 @@ type Handler interface {
 }
 
 type observationsHandler struct {
-	chargepoint chargepoint.Service
-	meterElec   numericmeter.Service
-	cache       cache.Cache
-	callbacks   map[ObservationID]func(Observation) error
+	chargepoint  chargepoint.Service
+	meterElec    numericmeter.Service
+	cache        cache.Cache
+	eventManager event.Manager
+	callbacks    map[ObservationID]func(Observation) error
 }
 
 // NewObservationsHandler creates new observation handler.
-func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, error) {
+func NewObservationsHandler(thing adapter.Thing, cache cache.Cache, eventManager event.Manager) (Handler, error) {
 	chargepoint, err := getChargepointService(thing)
 	if err != nil {
 		return nil, err
@@ -37,9 +40,10 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	}
 
 	handler := observationsHandler{
-		chargepoint: chargepoint,
-		meterElec:   meterElec,
-		cache:       cache,
+		chargepoint:  chargepoint,
+		meterElec:    meterElec,
+		cache:        cache,
+		eventManager: eventManager,
 	}
 
 	handler.callbacks = map[ObservationID]func(Observation) error{
@@ -104,6 +108,8 @@ func (o *observationsHandler) handleDynamicChargerCurrent(observation Observatio
 
 	current := int64(math.Round(val))
 	o.cache.SetDynamicCurrent(current)
+
+	o.eventManager.Publish(pubsub.NewOfferedCurrentRefreshEvent(current))
 
 	return nil
 }

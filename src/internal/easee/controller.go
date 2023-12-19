@@ -11,10 +11,12 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/event"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/pubsub"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -49,8 +51,13 @@ type Controller interface {
 }
 
 // NewController returns a new instance of Controller.
-func NewController(client api.Client, manager signalr.Manager, cache cache.Cache,
-	cfgService *config.Service, chargerID string,
+func NewController(
+	client api.Client,
+	manager signalr.Manager,
+	cache cache.Cache,
+	cfgService *config.Service,
+	chargerID string,
+	eventManager event.Manager,
 ) Controller {
 	return &controller{
 		client:                  client,
@@ -59,6 +66,7 @@ func NewController(client api.Client, manager signalr.Manager, cache cache.Cache
 		cfgService:              cfgService,
 		chargerID:               chargerID,
 		chargeSessionsRefresher: newChargeSessionsRefresher(client, chargerID, cfgService.GetPollingInterval()),
+		eventManager:            eventManager,
 	}
 }
 
@@ -69,7 +77,7 @@ type controller struct {
 	cfgService              *config.Service
 	chargerID               string
 	chargeSessionsRefresher cliffCache.Refresher[api.ChargeSessions]
-	testListener            event.Listener
+	eventManager            event.Manager
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
@@ -85,9 +93,21 @@ func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
 }
 
 func (c *controller) SetChargepointOfferedCurrent(current int64) error {
-	c.cache.SetOfferedCurrent(current)
+	finishedChan := make(chan struct{})
 
-	return c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
+	listener, err := c.startListener(current, finishedChan)
+	if err != nil {
+		return err
+	}
+
+	defer stopListener(listener)
+
+	err = c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
+	if err != nil {
+		return err
+	}
+
+	return c.waitForEvent(current, finishedChan)
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
@@ -278,4 +298,36 @@ func newChargeSessionsRefresher(client api.Client, id string, interval time.Dura
 	}
 
 	return cliffCache.NewRefresher(refresh, interval)
+}
+
+func (c *controller) startListener(current int64, finishedChan chan struct{}) (event.Listener, error) {
+	processor := event.ProcessorFn(func(event *event.Event) {
+		close(finishedChan)
+	})
+
+	listener := pubsub.NewOfferedCurrentListener(c.eventManager, current, processor)
+
+	err := listener.Start()
+
+	return listener, err
+}
+
+func stopListener(listener event.Listener) {
+	if err := listener.Stop(); err != nil {
+		log.Errorf("error during stopping listener: %v", err)
+	}
+}
+
+func (c *controller) waitForEvent(current int64, finishedChan chan struct{}) error {
+	timer := time.NewTimer(c.cfgService.GetPollingInterval())
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		return errors.New("timeout")
+	case <-finishedChan:
+		c.cache.SetOfferedCurrent(current)
+
+		return nil
+	}
 }
