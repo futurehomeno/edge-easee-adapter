@@ -300,9 +300,9 @@ func newChargeSessionsRefresher(client api.Client, id string, interval time.Dura
 	return cliffCache.NewRefresher(refresh, interval)
 }
 
-func (c *controller) startListener(current int64, finishedChan chan struct{}) (event.Listener, error) {
+func (c *controller) startListener(current int64, done chan struct{}) (event.Listener, error) {
 	processor := event.ProcessorFn(func(event *event.Event) {
-		close(finishedChan)
+		close(done)
 	})
 
 	listener := pubsub.NewOfferedCurrentListener(c.eventManager, current, processor)
@@ -318,14 +318,14 @@ func stopListener(listener event.Listener) {
 	}
 }
 
-func (c *controller) waitForEvent(current int64, finishedChan chan struct{}) error {
+func (c *controller) waitForEvent(current int64, done chan struct{}) error {
 	timer := time.NewTimer(c.cfgService.GetPollingInterval())
 	defer timer.Stop()
 
 	select {
 	case <-timer.C:
 		return errors.New("timeout")
-	case <-finishedChan:
+	case <-done:
 		c.cache.SetOfferedCurrent(current)
 
 		return nil
