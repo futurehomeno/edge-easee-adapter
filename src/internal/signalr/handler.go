@@ -81,7 +81,7 @@ func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) e
 	current := int64(math.Round(val))
 	o.cache.SetMaxCurrent(current)
 
-	_, err = o.chargepoint.SendMaxCurrentReport(false)
+	o.eventManager.Publish(pubsub.NewMaxCurrentRefreshEvent(current))
 
 	return err
 }
