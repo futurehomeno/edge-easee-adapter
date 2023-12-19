@@ -2,11 +2,14 @@ package easee
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
+	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
+	"github.com/futurehomeno/cliffhanger/event"
 	"github.com/futurehomeno/fimpgo/fimptype"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -28,14 +31,16 @@ type thingFactory struct {
 	client         api.Client
 	cfgService     *config.Service
 	signalRManager signalr.Manager
+	eventManager   event.Manager
 }
 
 // NewThingFactory returns a new instance of adapter.ThingFactory.
-func NewThingFactory(client api.Client, cfgService *config.Service, signalRManager signalr.Manager) adapter.ThingFactory {
+func NewThingFactory(client api.Client, cfgService *config.Service, signalRManager signalr.Manager, eventManager event.Manager) adapter.ThingFactory {
 	return &thingFactory{
 		client:         client,
 		cfgService:     cfgService,
 		signalRManager: signalRManager,
+		eventManager:   eventManager,
 	}
 }
 
@@ -46,8 +51,8 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		return nil, fmt.Errorf("factory: failed to retrieve information: %w", err)
 	}
 
-	cache := cache.NewCache()
-	controller := NewController(t.client, t.signalRManager, cache, t.cfgService, info.ChargerID)
+	thingCache := cache.NewCache()
+	controller := NewController(t.client, t.signalRManager, thingCache, t.cfgService, info.ChargerID, t.eventManager)
 
 	if err := controller.UpdateInfo(info); err != nil {
 		return nil, err
@@ -57,7 +62,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 
 	return thing.NewCarCharger(publisher, thingState, &thing.CarChargerConfig{
 		ThingConfig: &adapter.ThingConfig{
-			Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, cache),
+			Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.eventManager),
 			InclusionReport: t.inclusionReport(info, thingState, groups),
 		},
 		ChargepointConfig: &chargepoint.Config{
@@ -65,8 +70,9 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 			Controller:    controller,
 		},
 		MeterElecConfig: &numericmeter.Config{
-			Specification: t.meterElecSpecification(ad, thingState, groups),
-			Reporter:      controller,
+			Specification:     t.meterElecSpecification(ad, thingState, groups),
+			Reporter:          controller,
+			ReportingStrategy: cliffCache.ReportAlways(),
 		},
 	}), nil
 }
@@ -86,22 +92,29 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 }
 
 func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string, info *Info) *fimptype.Service {
-	var supportedStates []chargepoint.State
-	for _, s := range signalr.SupportedChargingStates() {
-		supportedStates = append(supportedStates, s.ToFimpState())
-	}
-
 	return chargepoint.Specification(
 		adapter.Name(),
 		adapter.Address(),
 		thingState.Address(),
 		groups,
-		supportedStates,
+		t.supportedStates(),
 		chargepoint.WithChargingModes(SupportedChargingModes()...),
 		chargepoint.WithPhases(info.Phases),
 		chargepoint.WithSupportedMaxCurrent(info.SupportedMaxCurrent),
 		chargepoint.WithGridType(info.GridType),
 	)
+}
+
+func (t *thingFactory) supportedStates() []chargepoint.State {
+	var supportedStates []chargepoint.State
+
+	for _, s := range signalr.SupportedChargingStates() {
+		if !slices.Contains(supportedStates, s.ToFimpState()) {
+			supportedStates = append(supportedStates, s.ToFimpState())
+		}
+	}
+
+	return supportedStates
 }
 
 func (t *thingFactory) meterElecSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
