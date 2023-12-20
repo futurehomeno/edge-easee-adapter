@@ -93,6 +93,7 @@ func (o *observationsHandler) handleCloudConnected(observation Observation) erro
 	}
 
 	if !val {
+		o.cache.SetTotalPower(0)
 		o.cache.SetChargerState(chargepoint.StateUnavailable)
 		_, err = o.chargepoint.SendStateReport(true)
 	}
