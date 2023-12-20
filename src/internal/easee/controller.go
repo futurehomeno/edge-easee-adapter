@@ -81,7 +81,21 @@ type controller struct {
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
-	return c.client.UpdateMaxCurrent(c.chargerID, float64(current))
+	done := make(chan struct{})
+
+	listener, err := c.startCurrentListener(current, done, pubsub.NewMaxCurrentListener)
+	if err != nil {
+		return err
+	}
+
+	defer stopListener(listener)
+
+	err = c.client.UpdateMaxCurrent(c.chargerID, float64(current))
+	if err != nil {
+		return err
+	}
+
+	return c.waitForCurrentEvent(done)
 }
 
 func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
@@ -95,7 +109,7 @@ func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
 func (c *controller) SetChargepointOfferedCurrent(current int64) error {
 	done := make(chan struct{})
 
-	listener, err := c.startListener(current, done)
+	listener, err := c.startCurrentListener(current, done, pubsub.NewOfferedCurrentListener)
 	if err != nil {
 		return err
 	}
@@ -107,7 +121,14 @@ func (c *controller) SetChargepointOfferedCurrent(current int64) error {
 		return err
 	}
 
-	return c.waitForEvent(current, done)
+	err = c.waitForCurrentEvent(done)
+	if err != nil {
+		return err
+	}
+
+	c.cache.SetOfferedCurrent(current)
+
+	return nil
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
@@ -172,7 +193,7 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		ret.FinishedAt = latest.CarDisconnected
 
 		if !latest.IsComplete {
-			ret.OfferedCurrent = c.cache.DynamicCurrent()
+			ret.OfferedCurrent = min(c.cache.DynamicCurrent(), c.cache.MaxCurrent())
 		}
 	}
 
@@ -300,25 +321,17 @@ func newChargeSessionsRefresher(client api.Client, id string, interval time.Dura
 	return cliffCache.NewRefresher(refresh, interval)
 }
 
-func (c *controller) startListener(current int64, done chan struct{}) (event.Listener, error) {
+func (c *controller) startCurrentListener(current int64, done chan struct{}, f pubsub.ListenerConstructor) (event.Listener, error) {
 	processor := event.ProcessorFn(func(event *event.Event) {
 		close(done)
 	})
 
-	listener := pubsub.NewOfferedCurrentListener(c.eventManager, current, processor)
+	listener := f(c.eventManager, current, processor)
 
-	err := listener.Start()
-
-	return listener, err
+	return listener, listener.Start()
 }
 
-func stopListener(listener event.Listener) {
-	if err := listener.Stop(); err != nil {
-		log.Errorf("error during stopping listener: %v", err)
-	}
-}
-
-func (c *controller) waitForEvent(current int64, done chan struct{}) error {
+func (c *controller) waitForCurrentEvent(done chan struct{}) error {
 	timer := time.NewTimer(c.cfgService.GetPollingInterval())
 	defer timer.Stop()
 
@@ -326,8 +339,12 @@ func (c *controller) waitForEvent(current int64, done chan struct{}) error {
 	case <-timer.C:
 		return errors.New("timeout")
 	case <-done:
-		c.cache.SetOfferedCurrent(current)
-
 		return nil
+	}
+}
+
+func stopListener(listener event.Listener) {
+	if err := listener.Stop(); err != nil {
+		log.Errorf("error during stopping listener: %v", err)
 	}
 }

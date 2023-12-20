@@ -10,3 +10,4 @@ testdata/log/*
 testdata/data/*
 !testdata/data/.gitkeep
 src/scratch
+edge-easee-adapter

@@ -81,9 +81,9 @@ func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) e
 	current := int64(math.Round(val))
 	o.cache.SetMaxCurrent(current)
 
-	_, err = o.chargepoint.SendMaxCurrentReport(false)
+	o.eventManager.Publish(pubsub.NewMaxCurrentRefreshEvent(current))
 
-	return err
+	return nil
 }
 
 func (o *observationsHandler) handleCloudConnected(observation Observation) error {
@@ -94,7 +94,7 @@ func (o *observationsHandler) handleCloudConnected(observation Observation) erro
 
 	if !val {
 		o.cache.SetChargerState(chargepoint.StateUnavailable)
-		_, err = o.chargepoint.SendStateReport(false)
+		_, err = o.chargepoint.SendStateReport(true)
 	}
 
 	return err
