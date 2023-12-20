@@ -259,76 +259,15 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						s.MockObservations(0, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeInteger,
-								ID:        signalr.ChargerOPState,
-								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeBoolean,
-								ID:        signalr.CableLocked,
-								Value:     "false",
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeDouble,
-								ID:        signalr.TotalPower,
-								Value:     "0",
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeDouble,
-								ID:        signalr.LifetimeEnergy,
-								Value:     "12.34",
-							},
-						})
-						s.MockObservations(300*time.Millisecond, []signalr.Observation{
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeInteger,
-								ID:        signalr.ChargerOPState,
-								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeBoolean,
-								ID:        signalr.CableLocked,
-								Value:     "true",
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeDouble,
-								ID:        signalr.TotalPower,
-								Value:     "1",
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeDouble,
-								ID:        signalr.LifetimeEnergy,
-								Value:     "13.45",
-							},
-							{
-								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.MaxChargerCurrent,
 								Value:     "32",
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeDouble,
-								ID:        signalr.DynamicChargerCurrent,
-								Value:     "16",
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeDouble,
-								ID:        signalr.EnergySession,
-								Value:     "13.45",
 							},
 						})
 					})),
 				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
 				Nodes: []*suite.Node{
+					suite.SleepNode(100 * time.Millisecond),
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.NullMessage(cmdDeviceChargepointTopic, "cmd.max_current.get_report", "chargepoint"),

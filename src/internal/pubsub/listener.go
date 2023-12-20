@@ -10,6 +10,8 @@ type RefreshOfferedCurrentEvent struct {
 	Value int64
 }
 
+type ListenerConstructor func(event.Manager, int64, event.Processor) event.Listener
+
 // RefreshMaxCurrentEvent is an event that is published when offered should be refreshed.
 type RefreshMaxCurrentEvent struct {
 	Value int64

@@ -83,7 +83,7 @@ type controller struct {
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
 	done := make(chan struct{})
 
-	listener, err := c.startMaxCurrentListener(current, done)
+	listener, err := c.startCurrentListener(current, done, pubsub.NewMaxCurrentListener)
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (c *controller) SetChargepointMaxCurrent(current int64) error {
 		return err
 	}
 
-	return c.waitForCurrentEvent(c.cache.OfferedCurrent(), done)
+	return c.waitForCurrentEvent(done)
 }
 
 func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
@@ -109,7 +109,7 @@ func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
 func (c *controller) SetChargepointOfferedCurrent(current int64) error {
 	done := make(chan struct{})
 
-	listener, err := c.startOfferedCurrentListener(current, done)
+	listener, err := c.startCurrentListener(current, done, pubsub.NewOfferedCurrentListener)
 	if err != nil {
 		return err
 	}
@@ -121,7 +121,14 @@ func (c *controller) SetChargepointOfferedCurrent(current int64) error {
 		return err
 	}
 
-	return c.waitForCurrentEvent(current, done)
+	err = c.waitForCurrentEvent(done)
+	if err != nil {
+		return err
+	}
+
+	c.cache.SetOfferedCurrent(current)
+
+	return nil
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
@@ -314,31 +321,17 @@ func newChargeSessionsRefresher(client api.Client, id string, interval time.Dura
 	return cliffCache.NewRefresher(refresh, interval)
 }
 
-func (c *controller) startOfferedCurrentListener(current int64, done chan struct{}) (event.Listener, error) {
+func (c *controller) startCurrentListener(current int64, done chan struct{}, f pubsub.ListenerConstructor) (event.Listener, error) {
 	processor := event.ProcessorFn(func(event *event.Event) {
 		close(done)
 	})
 
-	listener := pubsub.NewOfferedCurrentListener(c.eventManager, current, processor)
+	listener := f(c.eventManager, current, processor)
 
-	err := listener.Start()
-
-	return listener, err
+	return listener, listener.Start()
 }
 
-func (c *controller) startMaxCurrentListener(current int64, done chan struct{}) (event.Listener, error) {
-	processor := event.ProcessorFn(func(event *event.Event) {
-		close(done)
-	})
-
-	listener := pubsub.NewMaxCurrentListener(c.eventManager, current, processor)
-
-	err := listener.Start()
-
-	return listener, err
-}
-
-func (c *controller) waitForCurrentEvent(offeredCurrent int64, done chan struct{}) error {
+func (c *controller) waitForCurrentEvent(done chan struct{}) error {
 	timer := time.NewTimer(c.cfgService.GetPollingInterval())
 	defer timer.Stop()
 
@@ -346,10 +339,6 @@ func (c *controller) waitForCurrentEvent(offeredCurrent int64, done chan struct{
 	case <-timer.C:
 		return errors.New("timeout")
 	case <-done:
-		if offeredCurrent != c.cache.OfferedCurrent() {
-			c.cache.SetOfferedCurrent(offeredCurrent)
-		}
-
 		return nil
 	}
 }
