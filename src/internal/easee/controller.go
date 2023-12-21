@@ -47,7 +47,7 @@ type Controller interface {
 	chargepoint.Controller
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
-	cliffCache.ReportingStrategy
+	ReportRequired() cliffCache.ReportingStrategyFn
 	UpdateInfo(*Info) error
 }
 
@@ -256,8 +256,10 @@ func (c *controller) UpdateInfo(info *Info) error {
 	return errors.Join(configErr, siteErr)
 }
 
-func (c *controller) ReportRequired(bool, time.Time) bool {
-	return c.cache.ChargerState() != chargepoint.StateUnavailable
+func (c *controller) ReportRequired() cliffCache.ReportingStrategyFn {
+	return func(hasChanged bool, lastReported time.Time) bool {
+		return c.cache.ChargerState() != chargepoint.StateUnavailable
+	}
 }
 
 func (c *controller) updateChargerConfigInfo(info *Info) error {

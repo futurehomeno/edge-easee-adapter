@@ -71,7 +71,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		MeterElecConfig: &numericmeter.Config{
 			Specification:     t.meterElecSpecification(ad, thingState, groups),
 			Reporter:          controller,
-			ReportingStrategy: controller,
+			ReportingStrategy: controller.ReportRequired(),
 		},
 	}), nil
 }
