@@ -6,7 +6,6 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
-	"github.com/futurehomeno/cliffhanger/event"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
 	"github.com/futurehomeno/cliffhanger/notification"
@@ -44,7 +43,6 @@ type serviceContainer struct {
 	authenticator   api.Authenticator
 	signalRClient   signalr.Client
 	signalRManager  signalr.Manager
-	eventManager    event.Manager
 }
 
 func resetContainer() {
@@ -156,7 +154,6 @@ func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 			getEaseeAPIClient(cfg),
 			getConfigService(),
 			getSignalRManager(cfg),
-			getEventManager(cfg),
 		)
 	}
 
@@ -247,13 +244,4 @@ func newTasks(cfg *config.Config) []*task.Task {
 		getApplication(cfg),
 		getAdapter(cfg),
 	)
-}
-
-// getEventManager creates or returns existing event manager service.
-func getEventManager(_ *config.Config) event.Manager {
-	if services.eventManager == nil {
-		services.eventManager = event.NewManager()
-	}
-
-	return services.eventManager
 }

@@ -7,10 +7,8 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
-	"github.com/futurehomeno/cliffhanger/event"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
-	"github.com/futurehomeno/edge-easee-adapter/internal/pubsub"
 )
 
 // Handler interface handles signalr observations.
@@ -20,15 +18,14 @@ type Handler interface {
 }
 
 type observationsHandler struct {
-	chargepoint  chargepoint.Service
-	meterElec    numericmeter.Service
-	cache        cache.Cache
-	eventManager event.Manager
-	callbacks    map[ObservationID]func(Observation) error
+	chargepoint chargepoint.Service
+	meterElec   numericmeter.Service
+	cache       cache.Cache
+	callbacks   map[ObservationID]func(Observation) error
 }
 
 // NewObservationsHandler creates new observation handler.
-func NewObservationsHandler(thing adapter.Thing, cache cache.Cache, eventManager event.Manager) (Handler, error) {
+func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, error) {
 	chargepoint, err := getChargepointService(thing)
 	if err != nil {
 		return nil, err
@@ -40,10 +37,9 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache, eventManager
 	}
 
 	handler := observationsHandler{
-		chargepoint:  chargepoint,
-		meterElec:    meterElec,
-		cache:        cache,
-		eventManager: eventManager,
+		chargepoint: chargepoint,
+		meterElec:   meterElec,
+		cache:       cache,
 	}
 
 	handler.callbacks = map[ObservationID]func(Observation) error{
@@ -81,7 +77,10 @@ func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) e
 	current := int64(math.Round(val))
 	o.cache.SetMaxCurrent(current)
 
-	o.eventManager.Publish(pubsub.NewMaxCurrentRefreshEvent(current))
+	_, err = o.chargepoint.SendMaxCurrentReport(false)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -108,9 +107,12 @@ func (o *observationsHandler) handleDynamicChargerCurrent(observation Observatio
 	}
 
 	current := int64(math.Round(val))
-	o.cache.SetDynamicCurrent(current)
+	o.cache.SetOfferedCurrent(current)
 
-	o.eventManager.Publish(pubsub.NewOfferedCurrentRefreshEvent(current))
+	_, err = o.chargepoint.SendCurrentSessionReport(false)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -151,7 +153,7 @@ func (o *observationsHandler) handleChargerState(observation Observation) error 
 	o.cache.SetChargerState(chargerState.ToFimpState())
 
 	if chargerState.IsSessionFinished() {
-		o.cache.SetOfferedCurrent(0)
+		o.cache.SetRequestedOfferedCurrent(0)
 	}
 
 	_, err = o.chargepoint.SendStateReport(false)
@@ -203,7 +205,10 @@ func (o *observationsHandler) handleEnergySession(observation Observation) error
 
 	o.cache.SetEnergySession(val)
 
-	_, err = o.meterElec.SendMeterReport(numericmeter.UnitKWh, false)
+	_, err = o.chargepoint.SendCurrentSessionReport(false)
+	if err != nil {
+		return err
+	}
 
 	return err
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
-	"github.com/futurehomeno/cliffhanger/event"
 	"github.com/futurehomeno/fimpgo/fimptype"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -30,16 +29,14 @@ type thingFactory struct {
 	client         api.Client
 	cfgService     *config.Service
 	signalRManager signalr.Manager
-	eventManager   event.Manager
 }
 
 // NewThingFactory returns a new instance of adapter.ThingFactory.
-func NewThingFactory(client api.Client, cfgService *config.Service, signalRManager signalr.Manager, eventManager event.Manager) adapter.ThingFactory {
+func NewThingFactory(client api.Client, cfgService *config.Service, signalRManager signalr.Manager) adapter.ThingFactory {
 	return &thingFactory{
 		client:         client,
 		cfgService:     cfgService,
 		signalRManager: signalRManager,
-		eventManager:   eventManager,
 	}
 }
 
@@ -51,7 +48,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	thingCache := cache.NewCache()
-	controller := NewController(t.client, t.signalRManager, thingCache, t.cfgService, info.ChargerID, t.eventManager)
+	controller := NewController(t.client, t.signalRManager, thingCache, t.cfgService, info.ChargerID)
 
 	if err := controller.UpdateInfo(info); err != nil {
 		return nil, err
@@ -61,7 +58,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 
 	return thing.NewCarCharger(publisher, thingState, &thing.CarChargerConfig{
 		ThingConfig: &adapter.ThingConfig{
-			Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.eventManager),
+			Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache),
 			InclusionReport: t.inclusionReport(info, thingState, groups),
 		},
 		ChargepointConfig: &chargepoint.Config{
