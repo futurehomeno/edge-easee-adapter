@@ -15,6 +15,7 @@
   "easeeBaseURL2": "https://api.easee.com",
   "easeeBackoff": "4s",
   "pollingInterval": "30s",
+  "currentWaitDuration": "3s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
   "signalR": {

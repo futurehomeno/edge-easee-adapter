@@ -11,6 +11,7 @@
   "easeeBaseURL2": "http://localhost:9998",
   "easeeBackoff": "4s",
   "pollingInterval": "30s",
+  "currentWaitDuration": "3s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
   "signalR": {

@@ -10,13 +10,10 @@ import (
 	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
-	"github.com/futurehomeno/cliffhanger/event"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/pubsub"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -58,7 +55,6 @@ func NewController(
 	cache cache.Cache,
 	cfgService *config.Service,
 	chargerID string,
-	eventManager event.Manager,
 ) Controller {
 	return &controller{
 		client:                  client,
@@ -67,7 +63,6 @@ func NewController(
 		cfgService:              cfgService,
 		chargerID:               chargerID,
 		chargeSessionsRefresher: newChargeSessionsRefresher(client, chargerID, cfgService.GetPollingInterval()),
-		eventManager:            eventManager,
 	}
 }
 
@@ -78,25 +73,17 @@ type controller struct {
 	cfgService              *config.Service
 	chargerID               string
 	chargeSessionsRefresher cliffCache.Refresher[api.ChargeSessions]
-	eventManager            event.Manager
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
-	done := make(chan struct{})
-
-	listener, err := c.startCurrentListener(current, done, pubsub.NewMaxCurrentListener)
+	err := c.client.UpdateMaxCurrent(c.chargerID, float64(current))
 	if err != nil {
 		return err
 	}
 
-	defer stopListener(listener)
+	c.cache.WaitForMaxCurrent(current, c.cfgService.GetCurrentWaitDuration())
 
-	err = c.client.UpdateMaxCurrent(c.chargerID, float64(current))
-	if err != nil {
-		return err
-	}
-
-	return c.waitForCurrentEvent(done)
+	return nil
 }
 
 func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
@@ -108,26 +95,14 @@ func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
 }
 
 func (c *controller) SetChargepointOfferedCurrent(current int64) error {
-	done := make(chan struct{})
-
-	listener, err := c.startCurrentListener(current, done, pubsub.NewOfferedCurrentListener)
+	err := c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
 	if err != nil {
 		return err
 	}
 
-	defer stopListener(listener)
+	c.cache.SetRequestedOfferedCurrent(current)
 
-	err = c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
-	if err != nil {
-		return err
-	}
-
-	err = c.waitForCurrentEvent(done)
-	if err != nil {
-		return err
-	}
-
-	c.cache.SetOfferedCurrent(current)
+	c.cache.WaitForOfferedCurrent(current, c.cfgService.GetCurrentWaitDuration())
 
 	return nil
 }
@@ -135,7 +110,7 @@ func (c *controller) SetChargepointOfferedCurrent(current int64) error {
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
 	startCurrent := float64(c.cache.MaxCurrent())
 
-	if offered := c.cache.OfferedCurrent(); offered > 0 {
+	if offered := c.cache.RequestedOfferedCurrent(); offered > 0 {
 		startCurrent = float64(offered)
 	}
 
@@ -194,7 +169,7 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		ret.FinishedAt = latest.CarDisconnected
 
 		if !latest.IsComplete {
-			ret.OfferedCurrent = min(c.cache.DynamicCurrent(), c.cache.MaxCurrent())
+			ret.OfferedCurrent = min(c.cache.OfferedCurrent(), c.cache.MaxCurrent())
 		}
 	}
 
@@ -326,32 +301,4 @@ func newChargeSessionsRefresher(client api.Client, id string, interval time.Dura
 	}
 
 	return cliffCache.NewRefresher(refresh, interval)
-}
-
-func (c *controller) startCurrentListener(current int64, done chan struct{}, f pubsub.ListenerConstructor) (event.Listener, error) {
-	processor := event.ProcessorFn(func(event *event.Event) {
-		close(done)
-	})
-
-	listener := f(c.eventManager, current, processor)
-
-	return listener, listener.Start()
-}
-
-func (c *controller) waitForCurrentEvent(done chan struct{}) error {
-	timer := time.NewTimer(c.cfgService.GetPollingInterval())
-	defer timer.Stop()
-
-	select {
-	case <-timer.C:
-		return errors.New("timeout")
-	case <-done:
-		return nil
-	}
-}
-
-func stopListener(listener event.Listener) {
-	if err := listener.Stop(); err != nil {
-		log.Errorf("error during stopping listener: %v", err)
-	}
 }

@@ -196,6 +196,8 @@ func (m *manager) handleSubscription(chargerID string) {
 
 	charger.backoff.Reset()
 	charger.isSubscribed = true
+
+	log.Debugf("signalR: subscribed charger '%s'", chargerID)
 }
 
 func (m *manager) addChargerSubscription(chargerID string, charger *charger) {
@@ -220,6 +222,8 @@ func (m *manager) handleClientState(state ClientState) {
 
 	switch state {
 	case ClientStateConnected:
+		log.Debug("signalR: client connected")
+
 		m.subscriptions = make(chan string, 1+len(m.chargers))
 
 		for chargerID := range m.chargers {
@@ -230,6 +234,8 @@ func (m *manager) handleClientState(state ClientState) {
 		}
 
 	case ClientStateDisconnected:
+		log.Debug("signalR: client disconnected")
+
 		for _, charger := range m.chargers {
 			charger.backoff.Reset()
 			charger.isSubscribed = false
@@ -282,6 +288,8 @@ func (m *manager) ensureClientStarted() {
 
 		return
 	}
+
+	log.Trace("signalR: Starting client")
 
 	m.clientStarting = true
 	m.clientStartLock.Unlock()

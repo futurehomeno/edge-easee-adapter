@@ -16,6 +16,7 @@ type Config struct {
 
 	EaseeBaseURL                 string     `json:"easeeBaseURL2"`
 	PollingInterval              string     `json:"pollingInterval"`
+	CurrentWaitDuration          string     `json:"currentWaitDuration"`
 	SlowChargingCurrentInAmperes float64    `json:"slowChargingCurrentInAmperes"`
 	HTTPTimeout                  string     `json:"httpTimeout"`
 	SignalR                      SignalR    `json:"signalR"`
@@ -204,6 +205,30 @@ func (cs *Service) SetPollingInterval(interval time.Duration) error {
 
 	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
 	cs.Storage.Model().PollingInterval = interval.String()
+
+	return cs.Storage.Save()
+}
+
+// GetCurrentWaitDuration allows to safely access a configuration setting.
+func (cs *Service) GetCurrentWaitDuration() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	duration, err := time.ParseDuration(cs.Storage.Model().CurrentWaitDuration)
+	if err != nil {
+		return 3 * time.Second
+	}
+
+	return duration
+}
+
+// SetCurrentWaitDuration allows to safely set and persist configuration settings.
+func (cs *Service) SetCurrentWaitDuration(interval time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().CurrentWaitDuration = interval.String()
 
 	return cs.Storage.Save()
 }

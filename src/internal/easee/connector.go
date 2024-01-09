@@ -2,7 +2,6 @@ package easee
 
 import (
 	"github.com/futurehomeno/cliffhanger/adapter"
-	"github.com/futurehomeno/cliffhanger/event"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -11,26 +10,24 @@ import (
 )
 
 type connector struct {
-	manager      signalr.Manager
-	httpClient   api.Client
-	eventManager event.Manager
+	manager    signalr.Manager
+	httpClient api.Client
 
 	chargerID string
 	cache     cache.Cache
 }
 
-func NewConnector(manager signalr.Manager, httpClient api.Client, chargerID string, cache cache.Cache, eventManager event.Manager) adapter.Connector {
+func NewConnector(manager signalr.Manager, httpClient api.Client, chargerID string, cache cache.Cache) adapter.Connector {
 	return &connector{
-		manager:      manager,
-		httpClient:   httpClient,
-		chargerID:    chargerID,
-		cache:        cache,
-		eventManager: eventManager,
+		manager:    manager,
+		httpClient: httpClient,
+		chargerID:  chargerID,
+		cache:      cache,
 	}
 }
 
 func (c *connector) Connect(thing adapter.Thing) {
-	handler, err := signalr.NewObservationsHandler(thing, c.cache, c.eventManager)
+	handler, err := signalr.NewObservationsHandler(thing, c.cache)
 	if err != nil {
 		log.WithError(err).Error("failed to create signalRManager callbacks")
 
