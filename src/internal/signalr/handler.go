@@ -110,11 +110,7 @@ func (o *observationsHandler) handleDynamicChargerCurrent(observation Observatio
 	o.cache.SetOfferedCurrent(current)
 
 	_, err = o.chargepoint.SendCurrentSessionReport(false)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func (o *observationsHandler) handleCableLocked(observation Observation) error {
@@ -206,10 +202,6 @@ func (o *observationsHandler) handleEnergySession(observation Observation) error
 	o.cache.SetEnergySession(val)
 
 	_, err = o.chargepoint.SendCurrentSessionReport(false)
-	if err != nil {
-		return err
-	}
-
 	return err
 }
 
