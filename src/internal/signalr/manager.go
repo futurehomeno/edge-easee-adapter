@@ -52,7 +52,7 @@ func (m *manager) Connected(chargerID string) bool {
 	defer m.mu.RUnlock()
 
 	if charger, ok := m.chargers[chargerID]; ok {
-		return charger.isSubscribed
+		return charger.isSubscribed && charger.handler.IsOnline()
 	}
 
 	return false
