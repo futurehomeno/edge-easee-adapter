@@ -3,8 +3,10 @@ package easee
 import (
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
+	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
@@ -66,8 +68,9 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 			Controller:    controller,
 		},
 		MeterElecConfig: &numericmeter.Config{
-			Specification: t.meterElecSpecification(ad, thingState, groups),
-			Reporter:      controller,
+			Specification:     t.meterElecSpecification(ad, thingState, groups),
+			Reporter:          controller,
+			ReportingStrategy: cliffCache.ReportAtLeastEvery(time.Minute),
 		},
 	}), nil
 }
