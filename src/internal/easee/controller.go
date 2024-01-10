@@ -86,7 +86,7 @@ func (c *controller) SetChargepointMaxCurrent(current int64) error {
 }
 
 func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
-	if err := c.checkSignalRConnection(); err != nil {
+	if err := c.checkConnection(); err != nil {
 		return 0, err
 	}
 
@@ -139,7 +139,7 @@ func (c *controller) SetChargepointCableLock(locked bool) error {
 }
 
 func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, error) {
-	if err := c.checkSignalRConnection(); err != nil {
+	if err := c.checkConnection(); err != nil {
 		return nil, err
 	}
 
@@ -150,7 +150,7 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 }
 
 func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionReport, error) {
-	if err := c.checkSignalRConnection(); err != nil {
+	if err := c.checkConnection(); err != nil {
 		return nil, err
 	}
 
@@ -180,7 +180,7 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 }
 
 func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
-	if err := c.checkSignalRConnection(); err != nil {
+	if err := c.checkConnection(); err != nil {
 		return "", err
 	}
 
@@ -193,11 +193,7 @@ func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
 }
 
 func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
-	if err := c.checkChargerState(); err != nil {
-		return 0, err
-	}
-
-	if err := c.checkSignalRConnection(); err != nil {
+	if err := c.checkConnection(); err != nil {
 		return 0, err
 	}
 
@@ -212,11 +208,7 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 }
 
 func (c *controller) MeterExtendedReport(values numericmeter.Values) (numericmeter.ValuesReport, error) {
-	if err := c.checkChargerState(); err != nil {
-		return nil, err
-	}
-
-	if err := c.checkSignalRConnection(); err != nil {
+	if err := c.checkConnection(); err != nil {
 		return nil, err
 	}
 
@@ -272,17 +264,13 @@ func (c *controller) updateChargerSiteInfo(info *Info) error {
 	return nil
 }
 
-func (c *controller) checkSignalRConnection() error {
-	if !c.manager.Connected(c.chargerID) {
-		return errors.New("signalR connection is inactive, cannot determine actual state")
-	}
-
-	return nil
-}
-
-func (c *controller) checkChargerState() error {
+func (c *controller) checkConnection() error {
 	if c.cache.ChargerState() == chargepoint.StateUnavailable {
 		return errors.New("charger is unavailable, cannot determine actual state")
+	}
+
+	if !c.manager.Connected(c.chargerID) {
+		return errors.New("signalR connection is inactive, cannot determine actual state")
 	}
 
 	return nil
