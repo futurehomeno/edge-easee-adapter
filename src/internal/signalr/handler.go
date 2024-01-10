@@ -3,6 +3,7 @@ package signalr
 import (
 	"errors"
 	"math"
+	"sync/atomic"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
@@ -26,7 +27,7 @@ type observationsHandler struct {
 	cache       cache.Cache
 	callbacks   map[ObservationID]func(Observation) error
 
-	isOnline bool
+	isOnline atomic.Bool
 }
 
 // NewObservationsHandler creates new observation handler.
@@ -66,7 +67,7 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 }
 
 func (o *observationsHandler) IsOnline() bool {
-	return o.isOnline
+	return o.isOnline.Load()
 }
 
 func (o *observationsHandler) HandleObservation(observation Observation) error {
@@ -101,7 +102,7 @@ func (o *observationsHandler) handleCloudConnected(observation Observation) erro
 	}
 
 	if !val {
-		o.isOnline = false
+		o.isOnline.Store(false)
 	}
 
 	return err
@@ -155,7 +156,7 @@ func (o *observationsHandler) handleChargerState(observation Observation) error 
 
 	chargerState := ChargerState(val)
 	o.cache.SetChargerState(chargerState.ToFimpState())
-	o.isOnline = chargerState != ChargerStateOffline
+	o.isOnline.Store(chargerState != ChargerStateOffline)
 
 	if chargerState.IsSessionFinished() {
 		o.cache.SetRequestedOfferedCurrent(0)
