@@ -130,15 +130,15 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						s.MockObservations(0, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeDouble,
-								ID:        signalr.TotalPower,
-								Value:     "0",
-							},
-							{
-								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
 								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.TotalPower,
+								Value:     "0",
 							},
 						})
 						s.MockObservations(300*time.Millisecond, []signalr.Observation{
@@ -207,6 +207,12 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						s.MockObservations(0, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
+							},
+							{
+								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
 								Value:     "12.34",
@@ -257,6 +263,12 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
+							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
@@ -311,6 +323,12 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
+							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
