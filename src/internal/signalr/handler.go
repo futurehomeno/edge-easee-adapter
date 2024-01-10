@@ -3,6 +3,7 @@ package signalr
 import (
 	"errors"
 	"math"
+	"sync/atomic"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
@@ -13,6 +14,9 @@ import (
 
 // Handler interface handles signalr observations.
 type Handler interface {
+	// IsOnline return if the charger is online.
+	IsOnline() bool
+
 	// HandleObservation handles signalr observation callback.
 	HandleObservation(observation Observation) error
 }
@@ -22,6 +26,8 @@ type observationsHandler struct {
 	meterElec   numericmeter.Service
 	cache       cache.Cache
 	callbacks   map[ObservationID]func(Observation) error
+
+	isOnline atomic.Bool
 }
 
 // NewObservationsHandler creates new observation handler.
@@ -60,6 +66,10 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	return &handler, nil
 }
 
+func (o *observationsHandler) IsOnline() bool {
+	return o.isOnline.Load()
+}
+
 func (o *observationsHandler) HandleObservation(observation Observation) error {
 	if callback, ok := o.callbacks[observation.ID]; ok {
 		return callback(observation)
@@ -92,9 +102,7 @@ func (o *observationsHandler) handleCloudConnected(observation Observation) erro
 	}
 
 	if !val {
-		o.cache.SetTotalPower(0)
-		o.cache.SetChargerState(chargepoint.StateUnavailable)
-		_, err = o.chargepoint.SendStateReport(true)
+		o.isOnline.Store(false)
 	}
 
 	return err
@@ -148,6 +156,7 @@ func (o *observationsHandler) handleChargerState(observation Observation) error 
 
 	chargerState := ChargerState(val)
 	o.cache.SetChargerState(chargerState.ToFimpState())
+	o.isOnline.Store(chargerState != ChargerStateOffline)
 
 	if chargerState.IsSessionFinished() {
 		o.cache.SetRequestedOfferedCurrent(0)

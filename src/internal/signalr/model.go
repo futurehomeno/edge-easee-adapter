@@ -99,7 +99,7 @@ func (s ChargerState) ToFimpState() chargepoint.State { //nolint:cyclop
 	case ChargerStateUnknown:
 		return chargepoint.StateUnknown
 	case ChargerStateOffline:
-		return chargepoint.StateUnavailable
+		return chargepoint.StateUnknown
 	case ChargerStateDisconnected:
 		return chargepoint.StateDisconnected
 	case ChargerStateAwaitingStart:
@@ -113,9 +113,9 @@ func (s ChargerState) ToFimpState() chargepoint.State { //nolint:cyclop
 	case ChargerStateReadyToCharge:
 		return chargepoint.StateRequesting
 	case ChargerStateAwaitingAuthentication:
-		return chargepoint.StateUnavailable
+		return chargepoint.StateRequesting
 	case ChargerStateDeAuthenticating:
-		return chargepoint.StateUnavailable
+		return chargepoint.StateUnknown
 	default:
 		return chargepoint.StateUnknown
 	}

@@ -44,17 +44,16 @@ type Controller interface {
 	chargepoint.Controller
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
-	ReportRequired() cliffCache.ReportingStrategyFn
 	UpdateInfo(*Info) error
 }
 
 // NewController returns a new instance of Controller.
 func NewController(
-	client api.Client,
 	manager signalr.Manager,
+	client api.Client,
+	chargerID string,
 	cache cache.Cache,
 	cfgService *config.Service,
-	chargerID string,
 ) Controller {
 	return &controller{
 		client:                  client,
@@ -229,12 +228,6 @@ func (c *controller) UpdateInfo(info *Info) error {
 	siteErr := c.updateChargerSiteInfo(info)
 
 	return errors.Join(configErr, siteErr)
-}
-
-func (c *controller) ReportRequired() cliffCache.ReportingStrategyFn {
-	return func(hasChanged bool, lastReported time.Time) bool {
-		return c.cache.ChargerState() != chargepoint.StateUnavailable
-	}
 }
 
 func (c *controller) updateChargerConfigInfo(info *Info) error {

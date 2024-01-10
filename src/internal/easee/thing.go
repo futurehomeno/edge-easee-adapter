@@ -3,8 +3,10 @@ package easee
 import (
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
+	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
@@ -48,7 +50,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	thingCache := cache.NewCache()
-	controller := NewController(t.client, t.signalRManager, thingCache, t.cfgService, info.ChargerID)
+	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService)
 
 	if err := controller.UpdateInfo(info); err != nil {
 		return nil, err
@@ -68,7 +70,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		MeterElecConfig: &numericmeter.Config{
 			Specification:     t.meterElecSpecification(ad, thingState, groups),
 			Reporter:          controller,
-			ReportingStrategy: controller.ReportRequired(),
+			ReportingStrategy: cliffCache.ReportAtLeastEvery(time.Minute),
 		},
 	}), nil
 }
