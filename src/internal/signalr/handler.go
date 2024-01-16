@@ -27,7 +27,8 @@ type observationsHandler struct {
 	cache       cache.Cache
 	callbacks   map[ObservationID]func(Observation) error
 
-	isOnline atomic.Bool
+	isCloudOnline atomic.Bool
+	isStateOnline atomic.Bool
 }
 
 // NewObservationsHandler creates new observation handler.
@@ -48,6 +49,9 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		cache:       cache,
 	}
 
+	handler.isCloudOnline.Store(true)
+	handler.isStateOnline.Store(true)
+
 	handler.callbacks = map[ObservationID]func(Observation) error{
 		MaxChargerCurrent:     handler.handleMaxChargerCurrent,
 		DynamicChargerCurrent: handler.handleDynamicChargerCurrent,
@@ -67,7 +71,7 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 }
 
 func (o *observationsHandler) IsOnline() bool {
-	return o.isOnline.Load()
+	return o.isCloudOnline.Load() && o.isStateOnline.Load()
 }
 
 func (o *observationsHandler) HandleObservation(observation Observation) error {
@@ -101,9 +105,7 @@ func (o *observationsHandler) handleCloudConnected(observation Observation) erro
 		return err
 	}
 
-	if !val {
-		o.isOnline.Store(false)
-	}
+	o.isCloudOnline.Store(val)
 
 	return err
 }
@@ -156,7 +158,7 @@ func (o *observationsHandler) handleChargerState(observation Observation) error 
 
 	chargerState := ChargerState(val)
 	o.cache.SetChargerState(chargerState.ToFimpState())
-	o.isOnline.Store(chargerState != ChargerStateOffline)
+	o.isStateOnline.Store(chargerState != ChargerStateOffline)
 
 	if chargerState.IsSessionFinished() {
 		o.cache.SetRequestedOfferedCurrent(0)
