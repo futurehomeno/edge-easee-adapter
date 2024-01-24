@@ -1,6 +1,8 @@
 package app
 
 import (
+	"fmt"
+
 	"github.com/futurehomeno/cliffhanger/adapter"
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
@@ -93,7 +95,7 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 
-		return errors.Wrap(err, "failed to login")
+		return errors.Wrap(err, fmt.Sprintf("failed to login as '%s'", credentials.Username))
 	}
 
 	if err := a.registerChargers(); err != nil {
