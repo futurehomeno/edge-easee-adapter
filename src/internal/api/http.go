@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -371,7 +372,14 @@ func (c *httpClient) performRequest(req *http.Request, wantResponseCode int) (*h
 	}
 
 	if resp.StatusCode != wantResponseCode {
-		return resp, errors.Errorf("expected response code to be %d, but got %d instead", wantResponseCode, resp.StatusCode)
+		var response string
+		if data, err := io.ReadAll(resp.Body); err != nil {
+			response = fmt.Sprintf("unable to read response body: %v", err)
+		} else {
+			response = string(data)
+		}
+
+		return resp, errors.Errorf("expected response code to be %d, but got %d instead. %s", wantResponseCode, resp.StatusCode, response)
 	}
 
 	return resp, nil
