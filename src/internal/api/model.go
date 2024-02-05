@@ -155,10 +155,12 @@ type refreshBody struct {
 	RefreshToken string `json:"refreshToken"`
 }
 
+// The following struct is currently commented out because it is not needed for the current functionality.
+// However, it may be useful in implementing SetCableAlwaysLock method.
 // cableLockBody represents a cable lock request body.
-type cableLockBody struct {
-	State bool `json:"state"`
-}
+// type cableLockBody struct {
+// 	State bool `json:"state"`
+// }
 
 // maxCurrentBody represents a charger max current request body.
 type maxCurrentBody struct {

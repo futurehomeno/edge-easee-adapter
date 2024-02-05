@@ -183,7 +183,7 @@ func (_m *HTTPClient) RefreshToken(accessToken string, refreshToken string) (*ap
 }
 
 // SetCableLock provides a mock function with given fields: accessToken, chargerID, locked
-func (_m *HTTPClient) SetCableLock(accessToken string, chargerID string, locked bool) error {
+func (_m *HTTPClient) SetCableAlwaysLock(accessToken string, chargerID string, locked bool) error {
 	ret := _m.Called(accessToken, chargerID, locked)
 
 	var r0 error

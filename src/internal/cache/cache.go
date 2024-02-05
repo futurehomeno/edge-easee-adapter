@@ -19,8 +19,6 @@ type Cache interface {
 	RequestedOfferedCurrent() int64
 	// OfferedCurrent returns the current accepted by evse.
 	OfferedCurrent() int64
-	// CableLocked returns the cable locked state.
-	CableLocked() bool
 	// CableCurrent returns the cable max current.
 	CableCurrent() int64
 	// TotalPower returns the total power.
@@ -40,7 +38,6 @@ type Cache interface {
 	SetMaxCurrent(current int64)
 	SetRequestedOfferedCurrent(current int64)
 	SetOfferedCurrent(current int64)
-	SetCableLocked(locked bool)
 	SetCableCurrent(current int64)
 	SetTotalPower(power float64)
 	SetLifetimeEnergy(energy float64)
@@ -61,7 +58,6 @@ type cache struct {
 	requestedOfferedCurrent int64
 	offeredCurrent          int64
 	energySession           float64
-	cableLocked             bool
 	cableCurrent            int64
 	totalPower              float64
 	lifetimeEnergy          float64
@@ -104,13 +100,6 @@ func (c *cache) OfferedCurrent() int64 {
 	defer c.mu.RUnlock()
 
 	return c.offeredCurrent
-}
-
-func (c *cache) CableLocked() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.cableLocked
 }
 
 func (c *cache) CableCurrent() int64 {
@@ -208,13 +197,6 @@ func (c *cache) SetOfferedCurrent(current int64) {
 			}
 		}
 	}
-}
-
-func (c *cache) SetCableLocked(locked bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.cableLocked = locked
 }
 
 func (c *cache) SetCableCurrent(current int64) {

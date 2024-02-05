@@ -134,21 +134,6 @@ func (c *controller) StopChargepointCharging() error {
 	return c.client.StopCharging(c.chargerID)
 }
 
-func (c *controller) SetChargepointCableLock(locked bool) error {
-	return c.client.SetCableLock(c.chargerID, locked)
-}
-
-func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, error) {
-	if err := c.checkConnection(); err != nil {
-		return nil, err
-	}
-
-	return &chargepoint.CableReport{
-		CableLock:    c.cache.CableLocked(),
-		CableCurrent: c.cache.CableCurrent(),
-	}, nil
-}
-
 func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionReport, error) {
 	if err := c.checkConnection(); err != nil {
 		return nil, err

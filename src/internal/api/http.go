@@ -47,8 +47,6 @@ type HTTPClient interface {
 	RefreshToken(accessToken, refreshToken string) (*Credentials, error)
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(accessToken, chargerID string) error
-	// SetCableLock locks/unlocks the cable for the selected charger.
-	SetCableLock(accessToken, chargerID string, locked bool) error
 	// ChargerConfig retrieves charger config.
 	ChargerConfig(accessToken, chargerID string) (*ChargerConfig, error)
 	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
@@ -216,27 +214,29 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 	return nil
 }
 
-func (c *httpClient) SetCableLock(accessToken, chargerID string, locked bool) error {
-	u := c.buildURL(cableLockURITemplate, chargerID)
-
-	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(cableLockBody{State: locked}).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		addHeader(contentTypeHeader, jsonContentType).
-		build()
-	if err != nil {
-		return errors.Wrap(err, "failed to create cable lock request")
-	}
-
-	resp, err := c.performRequest(req, http.StatusAccepted)
-	if err != nil {
-		return errors.Wrap(err, "could not perform cable lock api call")
-	}
-
-	defer resp.Body.Close()
-
-	return nil
-}
+// The following method is currently commented out because it is not needed for the current functionality.
+// However, it may be useful in implementing cable always lock feature, so it is kept here for reference.
+// func (c *httpClient) SetCableAlwaysLock(accessToken, chargerID string, locked bool) error {
+// 	u := c.buildURL(cableLockURITemplate, chargerID)
+//
+// 	req, err := newRequestBuilder(http.MethodPost, u).
+//		withBody(cableLockBody{State: locked}).
+//		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+//		addHeader(contentTypeHeader, jsonContentType).
+//		build()
+//	if err != nil {
+//		return errors.Wrap(err, "failed to create cable lock request")
+//	}
+//
+//	resp, err := c.performRequest(req, http.StatusAccepted)
+//	if err != nil {
+//		return errors.Wrap(err, "could not perform cable lock api call")
+//	}
+//
+//	defer resp.Body.Close()
+//
+//	return nil
+// }
 
 func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*ChargerConfig, error) {
 	u := c.buildURL(chargerConfigURITemplate, chargerID)

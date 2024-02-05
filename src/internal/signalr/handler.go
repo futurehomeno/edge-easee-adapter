@@ -55,7 +55,6 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	handler.callbacks = map[ObservationID]func(Observation) error{
 		MaxChargerCurrent:     handler.handleMaxChargerCurrent,
 		DynamicChargerCurrent: handler.handleDynamicChargerCurrent,
-		CableLocked:           handler.handleCableLocked,
 		CableRating:           handler.handleCableRating,
 		ChargerOPState:        handler.handleChargerState,
 		TotalPower:            handler.handleTotalPower,
@@ -120,19 +119,6 @@ func (o *observationsHandler) handleDynamicChargerCurrent(observation Observatio
 	o.cache.SetOfferedCurrent(current)
 
 	_, err = o.chargepoint.SendCurrentSessionReport(false)
-
-	return err
-}
-
-func (o *observationsHandler) handleCableLocked(observation Observation) error {
-	val, err := observation.BoolValue()
-	if err != nil {
-		return err
-	}
-
-	o.cache.SetCableLocked(val)
-
-	_, err = o.chargepoint.SendCableLockReport(false)
 
 	return err
 }
