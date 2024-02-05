@@ -22,8 +22,6 @@ github.com/eclipse/paho.mqtt.golang v1.3.5/go.mod h1:eTzb4gxwwyWpqBUHGQZ4ABAV7+J
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
 github.com/fsnotify/fsnotify v1.5.1 h1:mZcQUHVQUQWoPXXtuf9yuEXKudkV2sx1E06UadKWpgI=
 github.com/fsnotify/fsnotify v1.5.1/go.mod h1:T3375wBYaZdLLcVNkcVbzGHY7f1l/uK5T5Ai1i3InKU=
-github.com/futurehomeno/cliffhanger v0.45.0 h1:a4dDjjzd6carPmQwOOtmp6zGfeynP7OcN8fI1nH1BbE=
-github.com/futurehomeno/cliffhanger v0.45.0/go.mod h1:szHVX/zpxe8P42BRPEC0vc6kgRCy7UczdlcuBkH/GSo=
 github.com/futurehomeno/cliffhanger v0.48.0 h1:RV9dCLg1TZME8fgazXIAks4QZOSYIeBVbnKP+avhT1U=
 github.com/futurehomeno/cliffhanger v0.48.0/go.mod h1:szHVX/zpxe8P42BRPEC0vc6kgRCy7UczdlcuBkH/GSo=
 github.com/futurehomeno/fimpgo v1.13.3 h1:ZLa8pnsUXztQbZNtnXz4VA8nof8xkrnQAw8qYFef9xU=
