@@ -51,12 +51,6 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeBoolean,
-								ID:        signalr.CableLocked,
-								Value:     "false",
-							},
-							{
-								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.TotalPower,
 								Value:     "0",
@@ -74,12 +68,6 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
 								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  signalr.ObservationDataTypeBoolean,
-								ID:        signalr.CableLocked,
-								Value:     "true",
 							},
 							{
 								ChargerID: test.ChargerID,

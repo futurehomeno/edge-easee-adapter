@@ -8,7 +8,6 @@ type ObservationID int
 const (
 	MaxChargerCurrent     ObservationID = 47
 	DynamicChargerCurrent ObservationID = 48
-	CableLocked           ObservationID = 103
 	CableRating           ObservationID = 104
 	ChargerOPState        ObservationID = 109
 	TotalPower            ObservationID = 120
@@ -37,7 +36,6 @@ func SupportedObservationIDs() []ObservationID {
 		MaxChargerCurrent,
 		DynamicChargerCurrent,
 		ChargerOPState,
-		CableLocked,
 		TotalPower,
 		LifetimeEnergy,
 		EnergySession,
