@@ -829,7 +829,7 @@ func TestClient_SetCableLock(t *testing.T) { //nolint:paralleltest
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
 
-			err := c.SetCableLock(tt.accessToken, tt.chargerID, tt.locked)
+			err := c.SetCableAlwaysLock(tt.accessToken, tt.chargerID, tt.locked)
 			if tt.wantErr {
 				assert.Error(t, err)
 

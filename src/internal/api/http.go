@@ -47,8 +47,8 @@ type HTTPClient interface {
 	RefreshToken(accessToken, refreshToken string) (*Credentials, error)
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(accessToken, chargerID string) error
-	// SetCableLock locks/unlocks the cable for the selected charger.
-	SetCableLock(accessToken, chargerID string, locked bool) error
+	// SetCableAlwaysLock locks/unlocks the cable for the selected charger.
+	SetCableAlwaysLock(accessToken, chargerID string, locked bool) error
 	// ChargerConfig retrieves charger config.
 	ChargerConfig(accessToken, chargerID string) (*ChargerConfig, error)
 	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
@@ -216,7 +216,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 	return nil
 }
 
-func (c *httpClient) SetCableLock(accessToken, chargerID string, locked bool) error {
+func (c *httpClient) SetCableAlwaysLock(accessToken, chargerID string, locked bool) error {
 	u := c.buildURL(cableLockURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
