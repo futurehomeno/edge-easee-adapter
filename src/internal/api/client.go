@@ -12,8 +12,6 @@ type Client interface {
 	UpdateDynamicCurrent(chargerID string, current float64) error
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(chargerID string) error
-	// SetCableAlwaysLock locks/unlocks the cable for the selected charger.
-	SetCableAlwaysLock(chargerID string, locked bool) error
 	// ChargerConfig retrieves charger config.
 	ChargerConfig(chargerID string) (*ChargerConfig, error)
 	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
@@ -63,15 +61,6 @@ func (a *apiClient) StopCharging(chargerID string) error {
 	}
 
 	return a.httpClient.StopCharging(token, chargerID)
-}
-
-func (a *apiClient) SetCableAlwaysLock(chargerID string, locked bool) error {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return a.tokenError(err)
-	}
-
-	return a.httpClient.SetCableAlwaysLock(token, chargerID, locked)
 }
 
 func (a *apiClient) ChargerSiteInfo(chargerID string) (*ChargerSiteInfo, error) {
