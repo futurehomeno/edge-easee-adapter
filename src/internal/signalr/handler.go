@@ -130,9 +130,7 @@ func (o *observationsHandler) handleCableLocked(observation Observation) error {
 		return err
 	}
 
-	o.cache.SetCableLocked(val)
-
-	_, err = o.chargepoint.SendCableLockReport(false)
+	o.cache.SetCableAlwaysLocked(val)
 
 	return err
 }

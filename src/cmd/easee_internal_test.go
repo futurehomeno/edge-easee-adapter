@@ -102,13 +102,11 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						Expectations: []*suite.Expectation{
 							// Initial batch
 							suite.ExpectString(evtDeviceChargepointTopic, "evt.state.report", "chargepoint", "ready_to_charge"),
-							suite.ExpectBool(evtDeviceChargepointTopic, "evt.cable_lock.report", "chargepoint", false),
 							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
 							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 12.34).ExpectProperty("unit", "kWh"),
 
 							// Update
 							suite.ExpectString(evtDeviceChargepointTopic, "evt.state.report", "chargepoint", "charging"),
-							suite.ExpectBool(evtDeviceChargepointTopic, "evt.cable_lock.report", "chargepoint", true),
 							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 1000).ExpectProperty("unit", "W"),
 							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
 						},

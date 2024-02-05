@@ -40,7 +40,7 @@ type Cache interface {
 	SetMaxCurrent(current int64)
 	SetRequestedOfferedCurrent(current int64)
 	SetOfferedCurrent(current int64)
-	SetCableLocked(locked bool)
+	SetCableAlwaysLocked(locked bool)
 	SetCableCurrent(current int64)
 	SetTotalPower(power float64)
 	SetLifetimeEnergy(energy float64)
@@ -61,7 +61,7 @@ type cache struct {
 	requestedOfferedCurrent int64
 	offeredCurrent          int64
 	energySession           float64
-	cableLocked             bool
+	cableAlwaysLocked       bool
 	cableCurrent            int64
 	totalPower              float64
 	lifetimeEnergy          float64
@@ -110,7 +110,7 @@ func (c *cache) CableLocked() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.cableLocked
+	return c.cableAlwaysLocked
 }
 
 func (c *cache) CableCurrent() int64 {
@@ -210,11 +210,11 @@ func (c *cache) SetOfferedCurrent(current int64) {
 	}
 }
 
-func (c *cache) SetCableLocked(locked bool) {
+func (c *cache) SetCableAlwaysLocked(locked bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.cableLocked = locked
+	c.cableAlwaysLocked = locked
 }
 
 func (c *cache) SetCableCurrent(current int64) {
