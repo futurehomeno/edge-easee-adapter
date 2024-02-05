@@ -216,10 +216,10 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 
 // The following method is currently commented out because it is not needed for the current functionality.
 // However, it may be useful in implementing cable always lock feature, so it is kept here for reference.
-//func (c *httpClient) SetCableAlwaysLock(accessToken, chargerID string, locked bool) error {
-//	u := c.buildURL(cableLockURITemplate, chargerID)
+// func (c *httpClient) SetCableAlwaysLock(accessToken, chargerID string, locked bool) error {
+// 	u := c.buildURL(cableLockURITemplate, chargerID)
 //
-//	req, err := newRequestBuilder(http.MethodPost, u).
+// 	req, err := newRequestBuilder(http.MethodPost, u).
 //		withBody(cableLockBody{State: locked}).
 //		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 //		addHeader(contentTypeHeader, jsonContentType).
@@ -236,7 +236,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 //	defer resp.Body.Close()
 //
 //	return nil
-//}
+// }
 
 func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*ChargerConfig, error) {
 	u := c.buildURL(chargerConfigURITemplate, chargerID)
