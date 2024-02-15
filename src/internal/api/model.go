@@ -36,7 +36,6 @@ type BackPlate struct {
 
 // ChargerConfig represents charger config.
 type ChargerConfig struct {
-	MaxChargerCurrent     float64  `json:"maxChargerCurrent"`
 	DetectedPowerGridType GridType `json:"detectedPowerGridType"`
 }
 

@@ -44,7 +44,7 @@ type Controller interface {
 	chargepoint.Controller
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
-	UpdateInfo(*Info) error
+	UpdateState(chargerID string, state *State) error
 }
 
 // NewController returns a new instance of Controller.
@@ -208,18 +208,18 @@ func (c *controller) MeterExtendedReport(values numericmeter.Values) (numericmet
 	return ret, nil
 }
 
-func (c *controller) UpdateInfo(info *Info) error {
-	configErr := c.updateChargerConfigInfo(info)
-	siteErr := c.updateChargerSiteInfo(info)
+func (c *controller) UpdateState(chargerID string, state *State) error {
+	configErr := c.updateChargerConfigInfo(chargerID, state)
+	siteErr := c.updateChargerSiteInfo(chargerID, state)
 
 	return errors.Join(configErr, siteErr)
 }
 
-func (c *controller) updateChargerConfigInfo(info *Info) error {
-	cfg, err := c.client.ChargerConfig(info.ChargerID)
+func (c *controller) updateChargerConfigInfo(chargerID string, state *State) error {
+	cfg, err := c.client.ChargerConfig(chargerID)
 	if err != nil {
-		if info.GridType == "" {
-			return fmt.Errorf("failed to fetch a charger config ID %s: %w", info.ChargerID, err)
+		if state.GridType == "" {
+			return fmt.Errorf("failed to fetch a charger config ID %s: %w", chargerID, err)
 		}
 
 		return nil
@@ -227,24 +227,23 @@ func (c *controller) updateChargerConfigInfo(info *Info) error {
 
 	gridType, phases := cfg.DetectedPowerGridType.ToFimpGridType()
 
-	info.MaxCurrent = cfg.MaxChargerCurrent
-	info.GridType = gridType
-	info.Phases = phases
+	state.GridType = gridType
+	state.Phases = phases
 
 	return nil
 }
 
-func (c *controller) updateChargerSiteInfo(info *Info) error {
-	siteInfo, err := c.client.ChargerSiteInfo(info.ChargerID)
+func (c *controller) updateChargerSiteInfo(chargerID string, state *State) error {
+	siteInfo, err := c.client.ChargerSiteInfo(chargerID)
 	if err != nil {
-		if info.SupportedMaxCurrent == 0 {
-			return fmt.Errorf("failed to fetch a charger site info ID %s: %w", info.ChargerID, err)
+		if state.SupportedMaxCurrent == 0 {
+			return fmt.Errorf("failed to fetch a charger site info ID %s: %w", chargerID, err)
 		}
 
 		return nil
 	}
 
-	info.SupportedMaxCurrent = min(int64(math.Round(siteInfo.RatedCurrent)), maxCurrentValue)
+	state.SupportedMaxCurrent = min(int64(math.Round(siteInfo.RatedCurrent)), maxCurrentValue)
 
 	return nil
 }

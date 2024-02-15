@@ -160,6 +160,8 @@ func (a *application) Logout() error {
 		return err
 	}
 
+	_ = a.Check()
+
 	a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)

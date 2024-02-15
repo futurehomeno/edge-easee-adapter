@@ -489,7 +489,6 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 				responseBody: `{"maxChargerCurrent":32, "detectedPowerGridType":1}`,
 			}),
 			want: &api.ChargerConfig{
-				MaxChargerCurrent:     32,
 				DetectedPowerGridType: 1,
 			},
 		},

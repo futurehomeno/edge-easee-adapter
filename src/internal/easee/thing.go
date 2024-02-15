@@ -11,6 +11,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/fimpgo/fimptype"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
@@ -20,8 +21,11 @@ import (
 
 // Info is an object representing charger persisted information.
 type Info struct {
-	ChargerID           string               `json:"chargerID"`
-	MaxCurrent          float64              `json:"maxCurrent"`
+	ChargerID string `json:"chargerID"`
+}
+
+// State is an object representing charger persisted mutable information.
+type State struct {
 	GridType            chargepoint.GridType `json:"gridType"`
 	Phases              int                  `json:"phases"`
 	SupportedMaxCurrent int64                `json:"supportedMaxCurrent"`
@@ -52,8 +56,17 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	thingCache := cache.NewCache()
 	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService)
 
-	if err := controller.UpdateInfo(info); err != nil {
+	state := &State{}
+	if err := thingState.State(state); err != nil {
+		log.WithError(err).Warnf("factory: failed to retrieve state: %v", err)
+	}
+
+	if err := controller.UpdateState(info.ChargerID, state); err != nil {
 		return nil, err
+	}
+
+	if err := thingState.SetState(state); err != nil {
+		log.WithError(err).Warnf("factory: failed to set state: %v", err)
 	}
 
 	groups := []string{"ch_0"}
@@ -64,7 +77,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 			InclusionReport: t.inclusionReport(info, thingState, groups),
 		},
 		ChargepointConfig: &chargepoint.Config{
-			Specification: t.chargepointSpecification(ad, thingState, groups, info),
+			Specification: t.chargepointSpecification(ad, thingState, groups, state),
 			Controller:    controller,
 		},
 		MeterElecConfig: &numericmeter.Config{
@@ -89,7 +102,7 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 	}
 }
 
-func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string, info *Info) *fimptype.Service {
+func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
 	return chargepoint.Specification(
 		adapter.Name(),
 		adapter.Address(),
@@ -97,9 +110,9 @@ func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingSt
 		groups,
 		t.supportedStates(),
 		chargepoint.WithChargingModes(SupportedChargingModes()...),
-		chargepoint.WithPhases(info.Phases),
-		chargepoint.WithSupportedMaxCurrent(info.SupportedMaxCurrent),
-		chargepoint.WithGridType(info.GridType),
+		chargepoint.WithPhases(state.Phases),
+		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
+		chargepoint.WithGridType(state.GridType),
 	)
 }
 
