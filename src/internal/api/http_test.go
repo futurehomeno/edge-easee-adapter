@@ -101,6 +101,7 @@ func TestClient_Login(t *testing.T) {
 			t.Parallel()
 
 			s := httptest.NewServer(tt.serverHandler)
+
 			t.Cleanup(func() {
 				s.Close()
 			})
@@ -191,6 +192,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 
 func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -284,6 +286,7 @@ func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
 
 func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -377,6 +380,7 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
 
 func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -466,6 +470,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 
 func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -558,6 +563,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 
 func TestClient_Ping(t *testing.T) { //nolint:paralleltest
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -609,6 +615,7 @@ func TestClient_Ping(t *testing.T) { //nolint:paralleltest
 	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
+
 			t.Cleanup(func() {
 				s.Close()
 			})
@@ -638,6 +645,7 @@ func TestClient_Ping(t *testing.T) { //nolint:paralleltest
 
 func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -703,6 +711,7 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
+
 			t.Cleanup(func() {
 				s.Close()
 			})
