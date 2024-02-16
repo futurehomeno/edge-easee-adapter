@@ -254,6 +254,7 @@ func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
 	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
+
 			t.Cleanup(func() {
 				s.Close()
 			})
@@ -435,6 +436,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
+
 			t.Cleanup(func() {
 				s.Close()
 			})
@@ -525,6 +527,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
+
 			t.Cleanup(func() {
 				s.Close()
 			})
