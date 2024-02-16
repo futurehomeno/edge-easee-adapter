@@ -630,6 +630,7 @@ func TestApplication_Initialize(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
+
 			if tt.lifecycleAssertions != nil {
 				tt.lifecycleAssertions(lc)
 			}

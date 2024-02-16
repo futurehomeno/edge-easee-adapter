@@ -164,10 +164,11 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 
 	for _, v := range testCases { //nolint:paralleltest
 		t.Run(v.name, func(t *testing.T) {
-			handler := func(w http.ResponseWriter, r *http.Request) {
+			handler := func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(v.statusCode)
 				_, _ = w.Write([]byte(v.responseData))
 			}
+
 			server := httptest.NewServer(http.HandlerFunc(handler))
 			defer server.Close()
 
@@ -345,6 +346,7 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
 	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
+
 			t.Cleanup(func() {
 				s.Close()
 			})
