@@ -239,9 +239,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					func(client *mocks.APIClient) {
-						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{
-							MaxChargerCurrent: 32,
-						}, nil)
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{
 							RatedCurrent: 32,
 						}, nil)

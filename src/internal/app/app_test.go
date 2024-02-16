@@ -433,6 +433,7 @@ func TestApplication_Logout(t *testing.T) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
+				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 			},
 		},
 		{
@@ -460,10 +461,13 @@ func TestApplication_Logout(t *testing.T) {
 			lc := lifecycle.New()
 			tt.setLifecycle(lc)
 
+			clientMock := new(mocks.APIClient)
+			clientMock.On("Ping").Return(errors.New("oops"))
+
 			authMock := &mocks.Authenticator{}
 			authMock.On("Logout").Return(tt.authLogoutError)
 
-			application := app.New(nil, nil, lc, nil, nil, authMock)
+			application := app.New(nil, nil, lc, nil, clientMock, authMock)
 			err := application.Logout()
 
 			assert.Equal(t, tt.wantErr, err != nil, "failed error expectation")
@@ -626,6 +630,7 @@ func TestApplication_Initialize(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
+
 			if tt.lifecycleAssertions != nil {
 				tt.lifecycleAssertions(lc)
 			}

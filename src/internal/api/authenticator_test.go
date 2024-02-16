@@ -61,15 +61,18 @@ func TestLogin(t *testing.T) {
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := func(w http.ResponseWriter, r *http.Request) {
+			handler := func(w http.ResponseWriter, _ *http.Request) {
 				data := fmt.Sprintf(`{"accessToken":"%s","refreshToken":"%s"}`,
 					v.accessToken,
 					v.refreshToken,
 				)
+
 				w.WriteHeader(v.loginStatus)
+
 				_, _ = w.Write([]byte(data))
 			}
 			server := httptest.NewServer(http.HandlerFunc(handler))
+
 			defer server.Close()
 
 			cfg := config.Config{}
@@ -181,14 +184,17 @@ func TestAccessToken(t *testing.T) {
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := func(w http.ResponseWriter, r *http.Request) {
+			handler := func(w http.ResponseWriter, _ *http.Request) {
 				data := fmt.Sprintf(`{"accessToken":"%s","refreshToken":"%s"}`,
 					v.accessToken,
 					v.refreshToken,
 				)
+
 				w.WriteHeader(v.refreshStatus)
+
 				_, _ = w.Write([]byte(data))
 			}
+
 			server := httptest.NewServer(http.HandlerFunc(handler))
 			defer server.Close()
 
