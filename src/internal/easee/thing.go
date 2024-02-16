@@ -31,6 +31,14 @@ type State struct {
 	SupportedMaxCurrent int64                `json:"supportedMaxCurrent"`
 }
 
+func (s *State) IsConfigUpdateNeeded() bool {
+	return s.GridType == ""
+}
+
+func (s *State) IsSiteUpdateNeeded() bool {
+	return s.SupportedMaxCurrent == 0
+}
+
 type thingFactory struct {
 	client         api.Client
 	cfgService     *config.Service

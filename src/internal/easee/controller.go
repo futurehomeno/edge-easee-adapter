@@ -209,16 +209,16 @@ func (c *controller) MeterExtendedReport(values numericmeter.Values) (numericmet
 }
 
 func (c *controller) UpdateState(chargerID string, state *State) error {
-	configErr := c.updateChargerConfigInfo(chargerID, state)
-	siteErr := c.updateChargerSiteInfo(chargerID, state)
+	configErr := c.updateChargerConfigState(chargerID, state)
+	siteErr := c.updateChargerSiteState(chargerID, state)
 
 	return errors.Join(configErr, siteErr)
 }
 
-func (c *controller) updateChargerConfigInfo(chargerID string, state *State) error {
+func (c *controller) updateChargerConfigState(chargerID string, state *State) error {
 	cfg, err := c.client.ChargerConfig(chargerID)
 	if err != nil {
-		if state.GridType == "" {
+		if state.IsConfigUpdateNeeded() {
 			return fmt.Errorf("failed to fetch a charger config ID %s: %w", chargerID, err)
 		}
 
@@ -233,10 +233,10 @@ func (c *controller) updateChargerConfigInfo(chargerID string, state *State) err
 	return nil
 }
 
-func (c *controller) updateChargerSiteInfo(chargerID string, state *State) error {
+func (c *controller) updateChargerSiteState(chargerID string, state *State) error {
 	siteInfo, err := c.client.ChargerSiteInfo(chargerID)
 	if err != nil {
-		if state.SupportedMaxCurrent == 0 {
+		if state.IsSiteUpdateNeeded() {
 			return fmt.Errorf("failed to fetch a charger site info ID %s: %w", chargerID, err)
 		}
 
