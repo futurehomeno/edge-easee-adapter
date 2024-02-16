@@ -1,4 +1,4 @@
-version="2.2.10"
+version="2.3.0"
 version_file=package/debian/opt/thingsplex/$(app_name)/VERSION
 working_dir=$(shell pwd)
 app_name=easee
