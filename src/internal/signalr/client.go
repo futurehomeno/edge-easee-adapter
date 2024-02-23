@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/backoff"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
