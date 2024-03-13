@@ -99,6 +99,15 @@ func (a *apiClient) Chargers() ([]Charger, error) {
 	return a.httpClient.Chargers(token)
 }
 
+func (a *apiClient) ChargerDetails(chargerID string) (ChargerDetails, error) {
+	token, err := a.auth.AccessToken()
+	if err != nil {
+		return ChargerDetails{}, a.tokenError(err)
+	}
+
+	return a.httpClient.ChargerDetails(token, chargerID)
+}
+
 func (a *apiClient) Ping() error {
 	token, err := a.auth.AccessToken()
 	if err != nil {

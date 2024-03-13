@@ -28,6 +28,7 @@ const (
 	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
 	chargerSessionsURITemplate = "/api/sessions/charger/%s/sessions/descending?limit=2"
+	chargerDetailsURITemplate  = "api/chargers/%s/details"
 
 	authorizationHeader = "Authorization"
 	contentTypeHeader   = "Content-Type"
@@ -55,6 +56,8 @@ type HTTPClient interface {
 	ChargerSessions(accessToken, chargerID string) (ChargeSessions, error)
 	// Chargers returns all available chargers.
 	Chargers(accessToken string) ([]Charger, error)
+	// ChargerDetails returns product's name.
+	ChargerDetails(accessToken string, chargerID string) (ChargerDetails, error)
 	// Ping checks if an external service is available.
 	Ping(accessToken string) error
 }
@@ -341,6 +344,33 @@ func (c *httpClient) Chargers(accessToken string) ([]Charger, error) {
 	}
 
 	return chargers, nil
+}
+
+func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (ChargerDetails, error) {
+	u := c.buildURL(chargerDetailsURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodGet, u).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		build()
+	if err != nil {
+		return ChargerDetails{}, errors.Wrap(err, "failed to create charger details state request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusOK)
+	if err != nil {
+		return ChargerDetails{}, errors.Wrap(err, "could not perform charger details api call")
+	}
+
+	defer resp.Body.Close()
+
+	chargerDetails := ChargerDetails{}
+
+	err = c.readResponseBody(resp, &chargerDetails)
+	if err != nil {
+		return ChargerDetails{}, errors.Wrap(err, "could not read charger details response body")
+	}
+
+	return chargerDetails, nil
 }
 
 func (c *httpClient) Ping(accessToken string) error {
