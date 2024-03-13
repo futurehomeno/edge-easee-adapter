@@ -20,6 +20,7 @@ type Client interface {
 	ChargerSessions(chargerID string) (ChargeSessions, error)
 	// Chargers returns all available chargers.
 	Chargers() ([]Charger, error)
+	ChargerDetails(chargerID string) (ChargerDetails, error)
 	// Ping checks if an external service is available.
 	Ping() error
 }

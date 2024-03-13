@@ -28,7 +28,7 @@ const (
 	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
 	chargerSessionsURITemplate = "/api/sessions/charger/%s/sessions/descending?limit=2"
-	chargerDetailsURITemplate  = "api/chargers/%s/details"
+	chargerDetailsURITemplate  = "/api/chargers/%s/details"
 
 	authorizationHeader = "Authorization"
 	contentTypeHeader   = "Content-Type"
@@ -347,10 +347,11 @@ func (c *httpClient) Chargers(accessToken string) ([]Charger, error) {
 }
 
 func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (ChargerDetails, error) {
-	u := c.buildURL(chargerDetailsURITemplate, chargerID)
+	u := c.buildURL(chargerDetailsURITemplate, chargerID) + "?alwaysGetChargerAccessLevel=false"
 
 	req, err := newRequestBuilder(http.MethodGet, u).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		addHeader("accept", "application/json").
 		build()
 	if err != nil {
 		return ChargerDetails{}, errors.Wrap(err, "failed to create charger details state request")
