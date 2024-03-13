@@ -12,6 +12,31 @@ type APIClient struct {
 	mock.Mock
 }
 
+func (_m *APIClient) ChargerDetails(chargerID string) (api.ChargerDetails, error) {
+	ret := _m.Called(chargerID)
+
+	var r0 api.ChargerDetails
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) (api.ChargerDetails, error)); ok {
+		return rf(chargerID)
+	}
+	if rf, ok := ret.Get(0).(func(string) api.ChargerDetails); ok {
+		r0 = rf(chargerID)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(api.ChargerDetails)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(chargerID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ChargerConfig provides a mock function with given fields: chargerID
 func (_m *APIClient) ChargerConfig(chargerID string) (*api.ChargerConfig, error) {
 	ret := _m.Called(chargerID)
