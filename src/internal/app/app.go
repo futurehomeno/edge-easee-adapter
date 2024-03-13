@@ -178,7 +178,6 @@ func (a *application) registerChargers() error {
 	seeds := make([]*adapter.ThingSeed, 0, len(chargers))
 
 	for _, charger := range chargers {
-
 		chargerDetails, err := a.client.ChargerDetails(charger.ID)
 		if err != nil {
 			return errors.Wrap(err, "failed to fetch charger details from Easee API")
