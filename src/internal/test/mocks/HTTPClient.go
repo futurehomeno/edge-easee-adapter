@@ -38,6 +38,30 @@ func (_m *HTTPClient) ChargerConfig(accessToken string, chargerID string) (*api.
 	return r0, r1
 }
 
+// ChargerDetails provides a mock function with given fields: accessToken, chargerID
+func (_m *HTTPClient) ChargerDetails(accessToken string, chargerID string) (api.ChargerDetails, error) {
+	ret := _m.Called(accessToken, chargerID)
+
+	var r0 api.ChargerDetails
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (api.ChargerDetails, error)); ok {
+		return rf(accessToken, chargerID)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) api.ChargerDetails); ok {
+		r0 = rf(accessToken, chargerID)
+	} else {
+		r0 = ret.Get(0).(api.ChargerDetails)
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(accessToken, chargerID)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // ChargerSessions provides a mock function with given fields: accessToken, chargerID
 func (_m *HTTPClient) ChargerSessions(accessToken string, chargerID string) (api.ChargeSessions, error) {
 	ret := _m.Called(accessToken, chargerID)
@@ -180,34 +204,6 @@ func (_m *HTTPClient) RefreshToken(accessToken string, refreshToken string) (*ap
 	}
 
 	return r0, r1
-}
-
-// SetCableLock provides a mock function with given fields: accessToken, chargerID, locked
-func (_m *HTTPClient) SetCableAlwaysLock(accessToken string, chargerID string, locked bool) error {
-	ret := _m.Called(accessToken, chargerID, locked)
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, bool) error); ok {
-		r0 = rf(accessToken, chargerID, locked)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// StartCharging provides a mock function with given fields: accessToken, chargerID
-func (_m *HTTPClient) StartCharging(accessToken string, chargerID string) error {
-	ret := _m.Called(accessToken, chargerID)
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string) error); ok {
-		r0 = rf(accessToken, chargerID)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
 }
 
 // StopCharging provides a mock function with given fields: accessToken, chargerID

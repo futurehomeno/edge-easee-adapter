@@ -16,32 +16,6 @@ type Controller struct {
 	mock.Mock
 }
 
-// ChargepointCableLockReport provides a mock function with given fields:
-func (_m *Controller) ChargepointCableLockReport() (*chargepoint.CableReport, error) {
-	ret := _m.Called()
-
-	var r0 *chargepoint.CableReport
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (*chargepoint.CableReport, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() *chargepoint.CableReport); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*chargepoint.CableReport)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // ChargepointCurrentSessionReport provides a mock function with given fields:
 func (_m *Controller) ChargepointCurrentSessionReport() (*chargepoint.SessionReport, error) {
 	ret := _m.Called()
@@ -92,6 +66,32 @@ func (_m *Controller) ChargepointStateReport() (chargepoint.State, error) {
 	return r0, r1
 }
 
+// MeterExtendedReport provides a mock function with given fields: values
+func (_m *Controller) MeterExtendedReport(values numericmeter.Values) (numericmeter.ValuesReport, error) {
+	ret := _m.Called(values)
+
+	var r0 numericmeter.ValuesReport
+	var r1 error
+	if rf, ok := ret.Get(0).(func(numericmeter.Values) (numericmeter.ValuesReport, error)); ok {
+		return rf(values)
+	}
+	if rf, ok := ret.Get(0).(func(numericmeter.Values) numericmeter.ValuesReport); ok {
+		r0 = rf(values)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(numericmeter.ValuesReport)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(numericmeter.Values) error); ok {
+		r1 = rf(values)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // MeterReport provides a mock function with given fields: unit
 func (_m *Controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 	ret := _m.Called(unit)
@@ -114,20 +114,6 @@ func (_m *Controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 	}
 
 	return r0, r1
-}
-
-// SetChargepointCableLock provides a mock function with given fields: _a0
-func (_m *Controller) SetChargepointCableLock(_a0 bool) error {
-	ret := _m.Called(_a0)
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(bool) error); ok {
-		r0 = rf(_a0)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
 }
 
 // StartChargepointCharging provides a mock function with given fields: settings
@@ -158,13 +144,13 @@ func (_m *Controller) StopChargepointCharging() error {
 	return r0
 }
 
-// UpdateInfo provides a mock function with given fields: _a0
-func (_m *Controller) UpdateInfo(_a0 *easee.Info) error {
-	ret := _m.Called(_a0)
+// UpdateState provides a mock function with given fields: chargerID, state
+func (_m *Controller) UpdateState(chargerID string, state *easee.State) error {
+	ret := _m.Called(chargerID, state)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*easee.Info) error); ok {
-		r0 = rf(_a0)
+	if rf, ok := ret.Get(0).(func(string, *easee.State) error); ok {
+		r0 = rf(chargerID, state)
 	} else {
 		r0 = ret.Error(0)
 	}

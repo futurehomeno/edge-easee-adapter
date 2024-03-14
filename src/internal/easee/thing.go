@@ -22,6 +22,7 @@ import (
 // Info is an object representing charger persisted information.
 type Info struct {
 	ChargerID string `json:"chargerID"`
+	Product   string `json:"product"`
 }
 
 // State is an object representing charger persisted mutable information.
@@ -99,8 +100,8 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState, groups []string) *fimptype.ThingInclusionReport {
 	return &fimptype.ThingInclusionReport{
 		Address:        thingState.Address(),
-		ProductHash:    "Easee - Easee - Easee Home",
-		ProductName:    "Easee Home",
+		ProductHash:    "Easee - Easee - " + info.Product,
+		ProductName:    info.Product,
 		DeviceId:       info.ChargerID,
 		CommTechnology: "cloud",
 		ManufacturerId: "Easee",
