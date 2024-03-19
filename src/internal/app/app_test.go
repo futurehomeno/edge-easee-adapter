@@ -227,6 +227,8 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					{ID: "123"},
 					{ID: "456"},
 				}, nil)
+				c.On("ChargerDetails", "123").Return(api.ChargerDetails{Product: "xd"}, nil)
+				c.On("ChargerDetails", "456").Return(api.ChargerDetails{Product: "edi"}, nil)
 				c.On("Ping").Return(nil)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
@@ -235,12 +237,14 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 						ID: "123",
 						Info: easee.Info{
 							ChargerID: "123",
+							Product:   "xd",
 						},
 					},
 					&adapter.ThingSeed{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID: "456",
+							Product:   "edi",
 						},
 					},
 				}).Return(nil)
@@ -300,6 +304,8 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					{ID: "123"},
 					{ID: "456"},
 				}, nil)
+				c.On("ChargerDetails", "123").Return(api.ChargerDetails{Product: "xd"}, nil)
+				c.On("ChargerDetails", "456").Return(api.ChargerDetails{Product: "edi"}, nil)
 				c.On("Ping").Return(errors.New("oops"))
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
@@ -308,12 +314,14 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 						ID: "123",
 						Info: easee.Info{
 							ChargerID: "123",
+							Product:   "xd",
 						},
 					},
 					&adapter.ThingSeed{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID: "456",
+							Product:   "edi",
 						},
 					},
 				}).Return(nil)
@@ -345,6 +353,8 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					{ID: "123"},
 					{ID: "456"},
 				}, nil)
+				c.On("ChargerDetails", "123").Return(api.ChargerDetails{Product: "xd"}, nil)
+				c.On("ChargerDetails", "456").Return(api.ChargerDetails{Product: "edi"}, nil)
 				c.On("Ping").Return(nil)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
@@ -353,12 +363,14 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 						ID: "123",
 						Info: easee.Info{
 							ChargerID: "123",
+							Product:   "xd",
 						},
 					},
 					&adapter.ThingSeed{
 						ID: "456",
 						Info: easee.Info{
 							ChargerID: "456",
+							Product:   "edi",
 						},
 					},
 				}).Return(errors.New("oops"))

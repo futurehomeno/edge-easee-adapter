@@ -28,6 +28,11 @@ type Charger struct {
 	ProductCode   int       `json:"productCode"`
 }
 
+// ChargerDetails represents charger's details.
+type ChargerDetails struct {
+	Product string `json:"product"`
+}
+
 // BackPlate represents charger's back plate.
 type BackPlate struct {
 	ID                string `json:"id"`
