@@ -8,10 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/backoff"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
@@ -47,7 +47,7 @@ type client struct {
 	cfg           *config.Service
 	tokenProvider func() (string, error)
 	receiver      *receiver
-	backoff       *backoff.Exponential
+	backoff       backoff.Stateful
 
 	states       chan ClientState
 	observations chan Observation
@@ -59,7 +59,7 @@ type client struct {
 func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
 	observations := make(chan Observation, 100)
 
-	backoff := backoff.NewExponential(cfg.GetSignalRInitialBackoff(),
+	backoff := backoff.NewStateful(cfg.GetSignalRInitialBackoff(),
 		cfg.GetSignalRRepeatedBackoff(),
 		cfg.GetSignalRFinalBackoff(),
 		cfg.GetSignalRInitialFailureCount(),

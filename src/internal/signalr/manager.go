@@ -4,10 +4,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/root"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/backoff"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
@@ -106,7 +106,7 @@ func (m *manager) Register(chargerID string, handler Handler) {
 		return
 	}
 
-	backoff := backoff.NewExponential(m.cfg.GetSignalRInitialBackoff(),
+	backoff := backoff.NewStateful(m.cfg.GetSignalRInitialBackoff(),
 		m.cfg.GetSignalRRepeatedBackoff(),
 		m.cfg.GetSignalRFinalBackoff(),
 		m.cfg.GetSignalRInitialFailureCount(),
@@ -307,5 +307,5 @@ func (m *manager) ensureClientStarted() {
 type charger struct {
 	handler      Handler
 	isSubscribed bool
-	backoff      *backoff.Exponential
+	backoff      backoff.Stateful
 }
