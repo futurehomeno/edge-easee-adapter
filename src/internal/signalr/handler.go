@@ -53,6 +53,7 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	handler.isStateOnline.Store(true)
 
 	handler.callbacks = map[ObservationID]func(Observation) error{
+		PhaseMode:             handler.handlePhaseMode,
 		MaxChargerCurrent:     handler.handleMaxChargerCurrent,
 		DynamicChargerCurrent: handler.handleDynamicChargerCurrent,
 		ChargerOPState:        handler.handleChargerState,
@@ -76,6 +77,17 @@ func (o *observationsHandler) HandleObservation(observation Observation) error {
 	if callback, ok := o.callbacks[observation.ID]; ok {
 		return callback(observation)
 	}
+
+	return nil
+}
+
+func (o *observationsHandler) handlePhaseMode(observation Observation) error {
+	val, err := observation.IntValue()
+	if err != nil {
+		return err
+	}
+
+	o.cache.SetPhaseMode(val)
 
 	return nil
 }

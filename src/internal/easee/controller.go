@@ -42,6 +42,10 @@ type specFunc func(report numericmeter.ValuesReport, c cache.Cache)
 // Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
+	chargepoint.AwarePhaseModeController
+	chargepoint.AdjustablePhaseModeController
+	chargepoint.AdjustableMaxCurrentController
+	chargepoint.AdjustableOfferedCurrentController
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
 	UpdateState(chargerID string, state *State) error
@@ -72,6 +76,19 @@ type controller struct {
 	cfgService              *config.Service
 	chargerID               string
 	chargeSessionsRefresher cliffCache.Refresher[api.ChargeSessions]
+}
+
+func (c *controller) SetChargepointPhaseMode(mode chargepoint.PhaseMode) error {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {
+	if err := c.checkConnection(); err != nil {
+		return "", err
+	}
+
+	return "", nil //todo
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
@@ -229,6 +246,7 @@ func (c *controller) updateChargerConfigState(chargerID string, state *State) er
 
 	state.GridType = gridType
 	state.Phases = phases
+	state.PhaseMode = cfg.PhaseMode
 
 	return nil
 }

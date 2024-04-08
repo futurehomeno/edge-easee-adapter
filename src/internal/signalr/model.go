@@ -6,10 +6,12 @@ import "github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 type ObservationID int
 
 const (
+	PhaseMode             ObservationID = 38
 	MaxChargerCurrent     ObservationID = 47
 	DynamicChargerCurrent ObservationID = 48
 	CableRating           ObservationID = 104
 	ChargerOPState        ObservationID = 109
+	OutputPhase           ObservationID = 110
 	TotalPower            ObservationID = 120
 	EnergySession         ObservationID = 121
 	LifetimeEnergy        ObservationID = 124
@@ -33,9 +35,11 @@ func (o ObservationID) Supported() bool {
 // SupportedObservationIDs returns all observation IDs supported by our system.
 func SupportedObservationIDs() []ObservationID {
 	return []ObservationID{
+		PhaseMode,
 		MaxChargerCurrent,
 		DynamicChargerCurrent,
 		ChargerOPState,
+		OutputPhase,
 		TotalPower,
 		LifetimeEnergy,
 		EnergySession,
@@ -74,6 +78,22 @@ const (
 	ChargerStateReadyToCharge          ChargerState = 6
 	ChargerStateAwaitingAuthentication ChargerState = 7
 	ChargerStateDeAuthenticating       ChargerState = 8
+)
+
+type OutputPhaseType int
+
+const (
+	Unsigned     OutputPhaseType = 0
+	P1T2T3TN     OutputPhaseType = 10
+	P1T2T3IT     OutputPhaseType = 11
+	P1T2T4TN     OutputPhaseType = 12
+	P1T2T4IT     OutputPhaseType = 13
+	P1T2T5TN     OutputPhaseType = 14
+	P1T3T4IT     OutputPhaseType = 15
+	P2T2T3T4TN   OutputPhaseType = 20
+	P2T2T4T5TN   OutputPhaseType = 21
+	P1T2T3T4IT   OutputPhaseType = 22
+	P3T2T3T4T5TN OutputPhaseType = 30
 )
 
 // SupportedChargingStates returns all charging states supported by Easee.
@@ -131,6 +151,27 @@ func (s ChargerState) IsSessionFinished() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode {
+	switch o {
+	case P1T2T3TN:
+		return chargepoint.PhaseModeNL1
+	case P1T2T3IT:
+		return chargepoint.PhaseModeL1L2
+	case P1T2T4TN:
+		return chargepoint.PhaseModeNL2
+	case P1T2T4IT:
+		return chargepoint.PhaseModeL3L1
+	case P1T2T5TN:
+		return chargepoint.PhaseModeNL3
+	case P1T3T4IT:
+		return chargepoint.PhaseModeL2L3
+	case P3T2T3T4T5TN:
+		return chargepoint.PhaseModeNL1L2L3
+	default:
+		return "" // modes not supported by cliffhanger, todo
 	}
 }
 

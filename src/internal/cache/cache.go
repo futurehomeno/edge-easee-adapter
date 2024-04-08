@@ -11,6 +11,8 @@ import (
 
 // Cache is a cache for charger observations.
 type Cache interface {
+	// PhaseMode returns the charger phase mode.
+	PhaseMode() int
 	// ChargerState returns the charger state.
 	ChargerState() chargepoint.State
 	// MaxCurrent returns the charger max current set by the user.
@@ -32,6 +34,7 @@ type Cache interface {
 	// Phase3Current return current on phase 3.
 	Phase3Current() float64
 
+	SetPhaseMode(phaseMode int)
 	SetChargerState(state chargepoint.State)
 	SetMaxCurrent(current int64)
 	SetRequestedOfferedCurrent(current int64)
@@ -50,6 +53,7 @@ type Cache interface {
 type cache struct {
 	mu sync.RWMutex
 
+	phaseMode               int
 	chargerState            chargepoint.State
 	maxCurrent              int64
 	requestedOfferedCurrent int64
@@ -68,6 +72,13 @@ func NewCache() Cache {
 	return &cache{
 		currentListeners: make(map[waitGroup][]chan<- int64),
 	}
+}
+
+func (c *cache) PhaseMode() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.phaseMode
 }
 
 func (c *cache) ChargerState() chargepoint.State {
@@ -138,6 +149,13 @@ func (c *cache) Phase3Current() float64 {
 	defer c.mu.RUnlock()
 
 	return c.phase3Current
+}
+
+func (c *cache) SetPhaseMode(phaseMode int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.phaseMode = phaseMode
 }
 
 func (c *cache) SetEnergySession(energy float64) {

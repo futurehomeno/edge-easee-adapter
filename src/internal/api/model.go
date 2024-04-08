@@ -42,6 +42,7 @@ type BackPlate struct {
 // ChargerConfig represents charger config.
 type ChargerConfig struct {
 	DetectedPowerGridType GridType `json:"detectedPowerGridType"`
+	PhaseMode             int      `json:"phaseMode"`
 }
 
 // ChargerSiteInfo represents charger rate current.
