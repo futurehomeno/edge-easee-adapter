@@ -170,6 +170,8 @@ func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode {
 		return chargepoint.PhaseModeL2L3
 	case P3T2T3T4T5TN:
 		return chargepoint.PhaseModeNL1L2L3
+	case P2T2T3T4TN, P2T2T4T5TN, P1T2T3T4IT, Unsigned:
+		return ""
 	default:
 		return ""
 	}

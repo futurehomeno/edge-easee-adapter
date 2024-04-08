@@ -153,7 +153,6 @@ func SupportedPhaseModes(state *State) []chargepoint.PhaseMode {
 	}
 
 	if state.Phases == 3 {
-
 		if state.GridType == chargepoint.GridTypeTN {
 			switch state.PhaseMode {
 			case 1:

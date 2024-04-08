@@ -91,7 +91,6 @@ func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error)
 		}
 
 		if supportedPhaseModes := SupportedPhaseModes(&state); supportedPhaseModes != nil {
-
 			return supportedPhaseModes[0], nil
 		}
 
