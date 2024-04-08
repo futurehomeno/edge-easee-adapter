@@ -43,7 +43,6 @@ type specFunc func(report numericmeter.ValuesReport, c cache.Cache)
 type Controller interface {
 	chargepoint.Controller
 	chargepoint.AwarePhaseModeController
-	chargepoint.AdjustablePhaseModeController
 	chargepoint.AdjustableMaxCurrentController
 	chargepoint.AdjustableOfferedCurrentController
 	numericmeter.Reporter
@@ -78,17 +77,28 @@ type controller struct {
 	chargeSessionsRefresher cliffCache.Refresher[api.ChargeSessions]
 }
 
-func (c *controller) SetChargepointPhaseMode(mode chargepoint.PhaseMode) error {
-	//TODO implement me
-	panic("implement me")
-}
-
 func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {
 	if err := c.checkConnection(); err != nil {
 		return "", err
 	}
 
-	return "", nil //todo
+	outputPhase := c.cache.OutputPhaseType()
+
+	if outputPhase == "" {
+		state := State{}
+		if err := c.UpdateState(c.chargerID, &state); err != nil {
+			return "", err
+		}
+
+		if supportedPhaseModes := SupportedPhaseModes(&state); supportedPhaseModes != nil {
+
+			return supportedPhaseModes[0], nil
+		}
+
+		return "", nil
+	}
+
+	return outputPhase, nil
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {

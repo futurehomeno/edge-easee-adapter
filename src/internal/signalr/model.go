@@ -171,7 +171,7 @@ func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode {
 	case P3T2T3T4T5TN:
 		return chargepoint.PhaseModeNL1L2L3
 	default:
-		return "" // modes not supported by cliffhanger, todo
+		return ""
 	}
 }
 

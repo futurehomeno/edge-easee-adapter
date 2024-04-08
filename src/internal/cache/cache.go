@@ -33,6 +33,8 @@ type Cache interface {
 	Phase2Current() float64
 	// Phase3Current return current on phase 3.
 	Phase3Current() float64
+	// OutputPhaseType return output phase type.
+	OutputPhaseType() chargepoint.PhaseMode
 
 	SetPhaseMode(phaseMode int)
 	SetChargerState(state chargepoint.State)
@@ -45,6 +47,7 @@ type Cache interface {
 	SetPhase1Current(current float64)
 	SetPhase2Current(current float64)
 	SetPhase3Current(current float64)
+	SetOutputPhaseType(mode chargepoint.PhaseMode)
 
 	WaitForMaxCurrent(current int64, duration time.Duration) bool
 	WaitForOfferedCurrent(current int64, duration time.Duration) bool
@@ -64,6 +67,7 @@ type cache struct {
 	phase1Current           float64
 	phase2Current           float64
 	phase3Current           float64
+	outputPhase             chargepoint.PhaseMode
 
 	currentListeners map[waitGroup][]chan<- int64
 }
@@ -79,6 +83,13 @@ func (c *cache) PhaseMode() int {
 	defer c.mu.RUnlock()
 
 	return c.phaseMode
+}
+
+func (c *cache) OutputPhaseType() chargepoint.PhaseMode {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.outputPhase
 }
 
 func (c *cache) ChargerState() chargepoint.State {
@@ -156,6 +167,13 @@ func (c *cache) SetPhaseMode(phaseMode int) {
 	defer c.mu.Unlock()
 
 	c.phaseMode = phaseMode
+}
+
+func (c *cache) SetOutputPhaseType(mode chargepoint.PhaseMode) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.outputPhase = mode
 }
 
 func (c *cache) SetEnergySession(energy float64) {

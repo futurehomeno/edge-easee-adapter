@@ -57,6 +57,7 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		MaxChargerCurrent:     handler.handleMaxChargerCurrent,
 		DynamicChargerCurrent: handler.handleDynamicChargerCurrent,
 		ChargerOPState:        handler.handleChargerState,
+		OutputPhase:           handler.handleOutPhase,
 		TotalPower:            handler.handleTotalPower,
 		LifetimeEnergy:        handler.handleLifetimeEnergy,
 		EnergySession:         handler.handleEnergySession,
@@ -237,6 +238,18 @@ func (o *observationsHandler) handleInCurrentT5(observation Observation) error {
 	o.cache.SetPhase3Current(val)
 
 	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase3}, false)
+
+	return err
+}
+
+func (o *observationsHandler) handleOutPhase(observation Observation) error {
+	val, err := observation.IntValue()
+	if err != nil {
+		return err
+	}
+
+	outPhaseType := OutputPhaseType(val)
+	o.cache.SetOutputPhaseType(outPhaseType.ToFimpState())
 
 	return err
 }

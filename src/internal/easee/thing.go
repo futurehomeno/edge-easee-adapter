@@ -121,7 +121,7 @@ func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingSt
 		t.supportedStates(),
 		chargepoint.WithChargingModes(SupportedChargingModes()...),
 		chargepoint.WithPhases(state.Phases),
-		chargepoint.WithSupportedPhaseModes(supportedPhaseModes(state)...),
+		chargepoint.WithSupportedPhaseModes(SupportedPhaseModes(state)...),
 		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
 		chargepoint.WithGridType(state.GridType),
 	)
@@ -139,7 +139,7 @@ func (t *thingFactory) supportedStates() []chargepoint.State {
 	return supportedStates
 }
 
-func supportedPhaseModes(state *State) []chargepoint.PhaseMode {
+func SupportedPhaseModes(state *State) []chargepoint.PhaseMode {
 
 	if state.Phases == 1 {
 		if state.GridType == chargepoint.GridTypeTN {
