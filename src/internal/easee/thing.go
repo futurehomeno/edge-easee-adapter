@@ -140,7 +140,6 @@ func (t *thingFactory) supportedStates() []chargepoint.State {
 }
 
 func SupportedPhaseModes(state *State) []chargepoint.PhaseMode {
-
 	if state.Phases == 1 {
 		if state.GridType == chargepoint.GridTypeTN {
 			return []chargepoint.PhaseMode{chargepoint.PhaseModeNL1}
@@ -149,7 +148,6 @@ func SupportedPhaseModes(state *State) []chargepoint.PhaseMode {
 		if state.GridType == chargepoint.GridTypeIT || state.GridType == chargepoint.GridTypeTT {
 			return []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2}
 		}
-
 	}
 
 	if state.Phases == 3 {
