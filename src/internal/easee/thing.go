@@ -16,6 +16,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/helper"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -79,6 +80,9 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		log.WithError(err).Warnf("factory: failed to set state: %v", err)
 	}
 
+	thingCache.SetGridType(state.GridType)
+	thingCache.SetPhases(state.Phases)
+
 	groups := []string{"ch_0"}
 
 	return thing.NewCarCharger(publisher, thingState, &thing.CarChargerConfig{
@@ -121,7 +125,7 @@ func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingSt
 		t.supportedStates(),
 		chargepoint.WithChargingModes(SupportedChargingModes()...),
 		chargepoint.WithPhases(state.Phases),
-		chargepoint.WithSupportedPhaseModes(SupportedPhaseModes(state)...),
+		chargepoint.WithSupportedPhaseModes(helper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases)...),
 		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
 		chargepoint.WithGridType(state.GridType),
 	)
@@ -137,44 +141,6 @@ func (t *thingFactory) supportedStates() []chargepoint.State {
 	}
 
 	return supportedStates
-}
-
-func SupportedPhaseModes(state *State) []chargepoint.PhaseMode {
-	if state.Phases == 1 {
-		if state.GridType == chargepoint.GridTypeTN {
-			return []chargepoint.PhaseMode{chargepoint.PhaseModeNL1}
-		}
-
-		if state.GridType == chargepoint.GridTypeIT || state.GridType == chargepoint.GridTypeTT {
-			return []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2}
-		}
-	}
-
-	if state.Phases == 3 {
-		if state.GridType == chargepoint.GridTypeTN {
-			switch state.PhaseMode {
-			case 1:
-				return []chargepoint.PhaseMode{chargepoint.PhaseModeNL1, chargepoint.PhaseModeNL2, chargepoint.PhaseModeNL3}
-			case 2:
-				return []chargepoint.PhaseMode{chargepoint.PhaseModeNL1, chargepoint.PhaseModeNL2, chargepoint.PhaseModeNL3, chargepoint.PhaseModeNL1L2L3}
-			case 3:
-				return []chargepoint.PhaseMode{chargepoint.PhaseModeNL1L2L3}
-			}
-		}
-
-		if state.GridType == chargepoint.GridTypeIT || state.GridType == chargepoint.GridTypeTT {
-			switch state.PhaseMode {
-			case 1:
-				return []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2, chargepoint.PhaseModeL2L3, chargepoint.PhaseModeL3L1}
-			case 2:
-				return []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2, chargepoint.PhaseModeL2L3, chargepoint.PhaseModeL3L1, chargepoint.PhaseModeL1L2L3}
-			case 3:
-				return []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2L3}
-			}
-		}
-	}
-
-	return []chargepoint.PhaseMode{}
 }
 
 func (t *thingFactory) meterElecSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {

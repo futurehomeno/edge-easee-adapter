@@ -6,6 +6,7 @@ import "github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 type ObservationID int
 
 const (
+	DetectedPowerGridType ObservationID = 21
 	PhaseMode             ObservationID = 38
 	MaxChargerCurrent     ObservationID = 47
 	DynamicChargerCurrent ObservationID = 48
@@ -35,6 +36,7 @@ func (o ObservationID) Supported() bool {
 // SupportedObservationIDs returns all observation IDs supported by our system.
 func SupportedObservationIDs() []ObservationID {
 	return []ObservationID{
+		DetectedPowerGridType,
 		PhaseMode,
 		MaxChargerCurrent,
 		DynamicChargerCurrent,

@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
+	"github.com/futurehomeno/edge-easee-adapter/internal/helper"
 )
 
 // Handler interface handles signalr observations.
@@ -26,6 +27,7 @@ type observationsHandler struct {
 	meterElec   numericmeter.Service
 	cache       cache.Cache
 	callbacks   map[ObservationID]func(Observation) error
+	thing       adapter.Thing
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
@@ -33,22 +35,23 @@ type observationsHandler struct {
 
 // NewObservationsHandler creates new observation handler.
 func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, error) {
-	chargepoint, err := getChargepointService(thing)
-	if err != nil {
-		return nil, err
-	}
-
-	meterElec, err := getMeterElecService(thing)
-	if err != nil {
-		return nil, err
-	}
-
 	handler := observationsHandler{
-		chargepoint: chargepoint,
-		meterElec:   meterElec,
-		cache:       cache,
+		cache: cache,
+		thing: thing,
 	}
 
+	chargepoint, err := handler.getChargepointService()
+	if err != nil {
+		return nil, err
+	}
+
+	meterElec, err := handler.getMeterElecService()
+	if err != nil {
+		return nil, err
+	}
+
+	handler.chargepoint = chargepoint
+	handler.meterElec = meterElec
 	handler.isCloudOnline.Store(true)
 	handler.isStateOnline.Store(true)
 
@@ -90,7 +93,23 @@ func (o *observationsHandler) handlePhaseMode(observation Observation) error {
 
 	o.cache.SetPhaseMode(val)
 
-	return nil
+	chargepointSrv, err := o.getChargepointService()
+	if err != nil {
+		return err
+	}
+
+	o.cache.OutputPhaseType()
+
+	newChargepointSrv := chargepointSrv
+	newChargepointSrv.Specification().Props["sup_phase_modes"] = helper.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
+
+	if err := o.thing.Update(adapter.ThingUpdateRemoveService(chargepointSrv), adapter.ThingUpdateAddService(newChargepointSrv)); err != nil {
+		return err
+	}
+
+	_, err = o.thing.SendInclusionReport(false)
+
+	return err
 }
 
 func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) error {
@@ -251,11 +270,13 @@ func (o *observationsHandler) handleOutPhase(observation Observation) error {
 	outPhaseType := OutputPhaseType(val)
 	o.cache.SetOutputPhaseType(outPhaseType.ToFimpState())
 
+	_, err = o.chargepoint.SendPhaseModeReport(false)
+
 	return err
 }
 
-func getChargepointService(thing adapter.Thing) (chargepoint.Service, error) {
-	for _, service := range thing.Services(chargepoint.Chargepoint) {
+func (o *observationsHandler) getChargepointService() (chargepoint.Service, error) {
+	for _, service := range o.thing.Services(chargepoint.Chargepoint) {
 		if service, ok := service.(chargepoint.Service); ok {
 			return service, nil
 		}
@@ -264,8 +285,8 @@ func getChargepointService(thing adapter.Thing) (chargepoint.Service, error) {
 	return nil, errors.New("there are no chargepoint services")
 }
 
-func getMeterElecService(thing adapter.Thing) (numericmeter.Service, error) {
-	for _, service := range thing.Services(numericmeter.MeterElec) {
+func (o *observationsHandler) getMeterElecService() (numericmeter.Service, error) {
+	for _, service := range o.thing.Services(numericmeter.MeterElec) {
 		if service, ok := service.(numericmeter.Service); ok {
 			return service, nil
 		}
