@@ -43,7 +43,7 @@ type specFunc func(report numericmeter.ValuesReport, c cache.Cache)
 // Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
-	chargepoint.AwarePhaseModeController
+	chargepoint.PhaseModeAwareController
 	chargepoint.AdjustableMaxCurrentController
 	chargepoint.AdjustableOfferedCurrentController
 	numericmeter.Reporter
