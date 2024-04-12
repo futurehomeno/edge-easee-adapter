@@ -5,7 +5,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func SupportedPhaseModes(gridType chargepoint.GridType, phaseMode int, phases int) []chargepoint.PhaseMode {
+func SupportedPhaseModes(gridType chargepoint.GridType, phaseMode int, phases int) []chargepoint.PhaseMode { //nolint:cyclop
 	if phases == 1 {
 		if gridType == chargepoint.GridTypeTN {
 			return []chargepoint.PhaseMode{chargepoint.PhaseModeNL1}
