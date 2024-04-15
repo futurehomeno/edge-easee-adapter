@@ -141,6 +141,7 @@ func (o *observationsHandler) handleDynamicChargerCurrent(observation Observatio
 	if err != nil {
 		return err
 	}
+
 	_, err = chargepointSrv.SendCurrentSessionReport(false)
 
 	return err

@@ -99,7 +99,6 @@ func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error)
 	}
 
 	return "", nil
-
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
