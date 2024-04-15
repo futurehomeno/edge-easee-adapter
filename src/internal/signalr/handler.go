@@ -23,11 +23,9 @@ type Handler interface {
 }
 
 type observationsHandler struct {
-	chargepoint chargepoint.Service
-	meterElec   numericmeter.Service
-	cache       cache.Cache
-	callbacks   map[ObservationID]func(Observation) error
-	thing       adapter.Thing
+	cache     cache.Cache
+	callbacks map[ObservationID]func(Observation) error
+	thing     adapter.Thing
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
@@ -40,18 +38,6 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		thing: thing,
 	}
 
-	chargepoint, err := handler.getChargepointService()
-	if err != nil {
-		return nil, err
-	}
-
-	meterElec, err := handler.getMeterElecService()
-	if err != nil {
-		return nil, err
-	}
-
-	handler.chargepoint = chargepoint
-	handler.meterElec = meterElec
 	handler.isCloudOnline.Store(true)
 	handler.isStateOnline.Store(true)
 
@@ -121,12 +107,14 @@ func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) e
 	current := int64(math.Round(val))
 	o.cache.SetMaxCurrent(current)
 
-	_, err = o.chargepoint.SendMaxCurrentReport(false)
+	chargepointSrv, err := o.getChargepointService()
 	if err != nil {
 		return err
 	}
 
-	return nil
+	_, err = chargepointSrv.SendMaxCurrentReport(false)
+
+	return err
 }
 
 func (o *observationsHandler) handleCloudConnected(observation Observation) error {
@@ -149,7 +137,11 @@ func (o *observationsHandler) handleDynamicChargerCurrent(observation Observatio
 	current := int64(math.Round(val))
 	o.cache.SetOfferedCurrent(current)
 
-	_, err = o.chargepoint.SendCurrentSessionReport(false)
+	chargepointSrv, err := o.getChargepointService()
+	if err != nil {
+		return err
+	}
+	_, err = chargepointSrv.SendCurrentSessionReport(false)
 
 	return err
 }
@@ -168,7 +160,12 @@ func (o *observationsHandler) handleChargerState(observation Observation) error 
 		o.cache.SetRequestedOfferedCurrent(0)
 	}
 
-	_, err = o.chargepoint.SendStateReport(false)
+	chargepointSrv, err := o.getChargepointService()
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendStateReport(false)
 
 	return err
 }
@@ -181,12 +178,17 @@ func (o *observationsHandler) handleTotalPower(observation Observation) error {
 
 	o.cache.SetTotalPower(val * 1000)
 
-	_, err = o.meterElec.SendMeterReport(numericmeter.UnitW, false)
+	meterElecSrv, err := o.getMeterElecService()
 	if err != nil {
 		return err
 	}
 
-	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValuePowerImport}, false)
+	_, err = meterElecSrv.SendMeterReport(numericmeter.UnitW, false)
+	if err != nil {
+		return err
+	}
+
+	_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValuePowerImport}, false)
 
 	return err
 }
@@ -199,12 +201,17 @@ func (o *observationsHandler) handleLifetimeEnergy(observation Observation) erro
 
 	o.cache.SetLifetimeEnergy(val)
 
-	_, err = o.meterElec.SendMeterReport(numericmeter.UnitKWh, false)
+	meterElecSrv, err := o.getMeterElecService()
 	if err != nil {
 		return err
 	}
 
-	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
+	_, err = meterElecSrv.SendMeterReport(numericmeter.UnitKWh, false)
+	if err != nil {
+		return err
+	}
+
+	_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
 
 	return err
 }
@@ -217,7 +224,12 @@ func (o *observationsHandler) handleEnergySession(observation Observation) error
 
 	o.cache.SetEnergySession(val)
 
-	_, err = o.chargepoint.SendCurrentSessionReport(false)
+	chargepointSrv, err := o.getChargepointService()
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendCurrentSessionReport(false)
 
 	return err
 }
@@ -230,7 +242,12 @@ func (o *observationsHandler) handleInCurrentT3(observation Observation) error {
 
 	o.cache.SetPhase1Current(val)
 
-	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase1}, false)
+	meterElecSrv, err := o.getMeterElecService()
+	if err != nil {
+		return err
+	}
+
+	_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase1}, false)
 
 	return err
 }
@@ -243,7 +260,12 @@ func (o *observationsHandler) handleInCurrentT4(observation Observation) error {
 
 	o.cache.SetPhase2Current(val)
 
-	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase2}, false)
+	meterElecSrv, err := o.getMeterElecService()
+	if err != nil {
+		return err
+	}
+
+	_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase2}, false)
 
 	return err
 }
@@ -256,7 +278,12 @@ func (o *observationsHandler) handleInCurrentT5(observation Observation) error {
 
 	o.cache.SetPhase3Current(val)
 
-	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase3}, false)
+	meterElecSrv, err := o.getMeterElecService()
+	if err != nil {
+		return err
+	}
+
+	_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase3}, false)
 
 	return err
 }
@@ -270,7 +297,12 @@ func (o *observationsHandler) handleOutPhase(observation Observation) error {
 	outPhaseType := OutputPhaseType(val)
 	o.cache.SetOutputPhaseType(outPhaseType.ToFimpState())
 
-	_, err = o.chargepoint.SendPhaseModeReport(false)
+	chargepointSrv, err := o.getChargepointService()
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendPhaseModeReport(false)
 
 	return err
 }

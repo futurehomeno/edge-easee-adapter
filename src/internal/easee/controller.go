@@ -83,22 +83,23 @@ func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error)
 		return "", err
 	}
 
-	outputPhase := c.cache.OutputPhaseType()
-
-	if outputPhase == "" {
-		state := State{}
-		if err := c.UpdateState(c.chargerID, &state); err != nil {
-			return "", err
-		}
-
-		if supportedPhaseModes := helper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); supportedPhaseModes != nil {
-			return supportedPhaseModes[0], nil
-		}
-
-		return "", nil
+	if outputPhase := c.cache.OutputPhaseType(); outputPhase != "" {
+		return outputPhase, nil
 	}
 
-	return outputPhase, nil
+	// outputPhase is unassigned when not charging
+	// if not previous value was recorded, default first value from sup_phase_modes is used
+	state := State{}
+	if err := c.UpdateState(c.chargerID, &state); err != nil {
+		return "", err
+	}
+
+	if supportedPhaseModes := helper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); supportedPhaseModes != nil {
+		return supportedPhaseModes[0], nil
+	}
+
+	return "", nil
+
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
