@@ -1,4 +1,4 @@
-package signalr
+package model
 
 import "github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 
@@ -85,7 +85,7 @@ const (
 type OutputPhaseType int
 
 const (
-	Unsigned     OutputPhaseType = 0
+	Unassigned   OutputPhaseType = 0
 	P1T2T3TN     OutputPhaseType = 10
 	P1T2T3IT     OutputPhaseType = 11
 	P1T2T4TN     OutputPhaseType = 12
@@ -99,7 +99,7 @@ const (
 )
 
 func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode {
-	switch o {
+	switch o { //nolint:exhaustive
 	case P1T2T3TN:
 		return chargepoint.PhaseModeNL1
 	case P1T2T3IT:
@@ -110,12 +110,6 @@ func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode {
 		return chargepoint.PhaseModeL3L1
 	case P1T2T5TN:
 		return chargepoint.PhaseModeNL3
-	case P1T3T4IT:
-		return chargepoint.PhaseModeL2L3
-	case P3T2T3T4T5TN:
-		return chargepoint.PhaseModeNL1L2L3
-	case P2T2T3T4TN, P2T2T4T5TN, P1T2T3T4IT, Unsigned:
-		return ""
 	default:
 		return ""
 	}

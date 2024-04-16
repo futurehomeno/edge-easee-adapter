@@ -16,7 +16,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/maper"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -118,14 +118,24 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 
 func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
 	options := []adapter.SpecificationOption{
-		chargepoint.WithChargingModes(SupportedChargingModes()...),
-		chargepoint.WithPhases(state.Phases),
+		chargepoint.WithChargingModes(model.SupportedChargingModes()...),
 		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
-		chargepoint.WithGridType(state.GridType),
 	}
 
-	if supportedPhaseModes := maper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(supportedPhaseModes) > 0 {
-		options = append(options, chargepoint.WithSupportedPhaseModes(maper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases)...))
+	if supportedPhases := state.Phases; supportedPhases > 0 {
+		options = append(options, chargepoint.WithPhases(supportedPhases))
+	}
+
+	if supportedGridType := state.GridType; supportedGridType != "" {
+		options = append(options, chargepoint.WithGridType(supportedGridType))
+	}
+
+	if supportedMaxCurrent := state.SupportedMaxCurrent; supportedMaxCurrent > 0 {
+		options = append(options, chargepoint.WithSupportedMaxCurrent(supportedMaxCurrent))
+	}
+
+	if supportedPhaseModes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(supportedPhaseModes) > 0 {
+		options = append(options, chargepoint.WithSupportedPhaseModes(model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases)...))
 	}
 
 	return chargepoint.Specification(
@@ -141,7 +151,7 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 func (t *thingFactory) supportedStates() []chargepoint.State {
 	var supportedStates []chargepoint.State
 
-	for _, s := range signalr.SupportedChargingStates() {
+	for _, s := range model.SupportedChargingStates() {
 		if !slices.Contains(supportedStates, s.ToFimpState()) {
 			supportedStates = append(supportedStates, s.ToFimpState())
 		}

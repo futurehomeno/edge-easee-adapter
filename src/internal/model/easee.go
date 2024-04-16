@@ -1,4 +1,4 @@
-package easee
+package model
 
 const (
 	// ChargingModeNormal represents a "normal" charging mode.

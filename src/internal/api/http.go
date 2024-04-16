@@ -14,6 +14,7 @@ import (
 	"github.com/thoas/go-funk"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 const (
@@ -43,21 +44,21 @@ type HTTPClient interface {
 	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
 	UpdateDynamicCurrent(accessToken, chargerID string, current float64) error
 	// Login logs the user in the Easee API and retrieves credentials.
-	Login(userName, password string) (*Credentials, error)
+	Login(userName, password string) (*model.Credentials, error)
 	// RefreshToken retrieves new credentials based on an access token and a refresh token.
-	RefreshToken(accessToken, refreshToken string) (*Credentials, error)
+	RefreshToken(accessToken, refreshToken string) (*model.Credentials, error)
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(accessToken, chargerID string) error
 	// ChargerConfig retrieves charger config.
-	ChargerConfig(accessToken, chargerID string) (*ChargerConfig, error)
+	ChargerConfig(accessToken, chargerID string) (*model.ChargerConfig, error)
 	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
-	ChargerSiteInfo(accessToken, chargerID string) (*ChargerSiteInfo, error)
+	ChargerSiteInfo(accessToken, chargerID string) (*model.ChargerSiteInfo, error)
 	// ChargerSessions retrieves at most two latest charging sessions including current if present.
-	ChargerSessions(accessToken, chargerID string) (ChargeSessions, error)
+	ChargerSessions(accessToken, chargerID string) (model.ChargeSessions, error)
 	// Chargers returns all available chargers.
-	Chargers(accessToken string) ([]Charger, error)
+	Chargers(accessToken string) ([]model.Charger, error)
 	// ChargerDetails returns product's name.
-	ChargerDetails(accessToken string, chargerID string) (ChargerDetails, error)
+	ChargerDetails(accessToken string, chargerID string) (model.ChargerDetails, error)
 	// Ping checks if an external service is available.
 	Ping(accessToken string) error
 }
@@ -81,8 +82,8 @@ func NewHTTPClient(cfgSrv *config.Service, http *http.Client, baseURL string) HT
 	}
 }
 
-func (c *httpClient) Login(userName, password string) (*Credentials, error) {
-	body := loginBody{
+func (c *httpClient) Login(userName, password string) (*model.Credentials, error) {
+	body := model.LoginBody{
 		Username: strings.TrimSpace(userName),
 		Password: strings.TrimSpace(password),
 	}
@@ -102,7 +103,7 @@ func (c *httpClient) Login(userName, password string) (*Credentials, error) {
 
 	defer resp.Body.Close()
 
-	credentials := &Credentials{}
+	credentials := &model.Credentials{}
 
 	err = c.readResponseBody(resp, credentials)
 	if err != nil {
@@ -112,8 +113,8 @@ func (c *httpClient) Login(userName, password string) (*Credentials, error) {
 	return credentials, nil
 }
 
-func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*Credentials, error) {
-	body := refreshBody{
+func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Credentials, error) {
+	body := model.RefreshBody{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	}
@@ -137,7 +138,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*Credential
 
 	defer resp.Body.Close()
 
-	loginData := &Credentials{}
+	loginData := &model.Credentials{}
 
 	err = c.readResponseBody(resp, loginData)
 	if err != nil {
@@ -151,7 +152,7 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(maxCurrentBody{MaxChargerCurrent: current}).
+		withBody(model.MaxCurrentBody{MaxChargerCurrent: current}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		addHeader(contentTypeHeader, jsonContentType).
 		build()
@@ -177,7 +178,7 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(dynamicCurrentBody{DynamicChargerCurrent: current}).
+		withBody(model.DynamicCurrentBody{DynamicChargerCurrent: current}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		addHeader(contentTypeHeader, jsonContentType).
 		build()
@@ -241,7 +242,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 //	return nil
 // }
 
-func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*ChargerConfig, error) {
+func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*model.ChargerConfig, error) {
 	u := c.buildURL(chargerConfigURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodGet, u).
@@ -258,7 +259,7 @@ func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*ChargerConfi
 
 	defer resp.Body.Close()
 
-	state := &ChargerConfig{}
+	state := &model.ChargerConfig{}
 
 	err = c.readResponseBody(resp, state)
 	if err != nil {
@@ -268,7 +269,7 @@ func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*ChargerConfi
 	return state, nil
 }
 
-func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*ChargerSiteInfo, error) {
+func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*model.ChargerSiteInfo, error) {
 	u := c.buildURL(chargerSiteURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodGet, u).
@@ -285,7 +286,7 @@ func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*ChargerSit
 
 	defer resp.Body.Close()
 
-	state := &ChargerSiteInfo{}
+	state := &model.ChargerSiteInfo{}
 
 	err = c.readResponseBody(resp, state)
 	if err != nil {
@@ -295,7 +296,7 @@ func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*ChargerSit
 	return state, nil
 }
 
-func (c *httpClient) ChargerSessions(accessToken, chargerID string) (ChargeSessions, error) {
+func (c *httpClient) ChargerSessions(accessToken, chargerID string) (model.ChargeSessions, error) {
 	u := c.buildURL(chargerSessionsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodGet, u).
@@ -312,7 +313,7 @@ func (c *httpClient) ChargerSessions(accessToken, chargerID string) (ChargeSessi
 
 	defer resp.Body.Close()
 
-	sessions := ChargeSessions{}
+	sessions := model.ChargeSessions{}
 
 	err = c.readResponseBody(resp, &sessions)
 	if err != nil {
@@ -322,7 +323,7 @@ func (c *httpClient) ChargerSessions(accessToken, chargerID string) (ChargeSessi
 	return sessions, nil
 }
 
-func (c *httpClient) Chargers(accessToken string) ([]Charger, error) {
+func (c *httpClient) Chargers(accessToken string) ([]model.Charger, error) {
 	req, err := newRequestBuilder(http.MethodGet, c.buildURL(chargersURI)).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		build()
@@ -337,7 +338,7 @@ func (c *httpClient) Chargers(accessToken string) ([]Charger, error) {
 
 	defer resp.Body.Close()
 
-	var chargers []Charger
+	var chargers []model.Charger
 
 	if err := c.readResponseBody(resp, &chargers); err != nil {
 		return nil, errors.Wrap(err, "failed to read request body")
@@ -346,28 +347,28 @@ func (c *httpClient) Chargers(accessToken string) ([]Charger, error) {
 	return chargers, nil
 }
 
-func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (ChargerDetails, error) {
+func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (model.ChargerDetails, error) {
 	u := c.buildURL(chargerDetailsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodGet, u).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		build()
 	if err != nil {
-		return ChargerDetails{}, errors.Wrap(err, "failed to create charger details state request")
+		return model.ChargerDetails{}, errors.Wrap(err, "failed to create charger details state request")
 	}
 
 	resp, err := c.performRequest(req, http.StatusOK)
 	if err != nil {
-		return ChargerDetails{}, errors.Wrap(err, "could not perform charger details api call")
+		return model.ChargerDetails{}, errors.Wrap(err, "could not perform charger details api call")
 	}
 
 	defer resp.Body.Close()
 
-	chargerDetails := ChargerDetails{}
+	chargerDetails := model.ChargerDetails{}
 
 	err = c.readResponseBody(resp, &chargerDetails)
 	if err != nil {
-		return ChargerDetails{}, errors.Wrap(err, "could not read charger details response body")
+		return model.ChargerDetails{}, errors.Wrap(err, "could not read charger details response body")
 	}
 
 	return chargerDetails, nil

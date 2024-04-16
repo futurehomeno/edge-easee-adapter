@@ -14,10 +14,10 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
@@ -223,12 +223,12 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				a.On("Login", "test-user", "test-password").Return(nil)
 			},
 			mockClient: func(c *mocks.APIClient) {
-				c.On("Chargers").Return([]api.Charger{
+				c.On("Chargers").Return([]model.Charger{
 					{ID: "123"},
 					{ID: "456"},
 				}, nil)
-				c.On("ChargerDetails", "123").Return(api.ChargerDetails{Product: "xd"}, nil)
-				c.On("ChargerDetails", "456").Return(api.ChargerDetails{Product: "edi"}, nil)
+				c.On("ChargerDetails", "123").Return(model.ChargerDetails{Product: "xd"}, nil)
+				c.On("ChargerDetails", "456").Return(model.ChargerDetails{Product: "edi"}, nil)
 				c.On("Ping").Return(nil)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
@@ -300,12 +300,12 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				a.On("Login", "test-user", "test-password").Return(nil)
 			},
 			mockClient: func(c *mocks.APIClient) {
-				c.On("Chargers").Return([]api.Charger{
+				c.On("Chargers").Return([]model.Charger{
 					{ID: "123"},
 					{ID: "456"},
 				}, nil)
-				c.On("ChargerDetails", "123").Return(api.ChargerDetails{Product: "xd"}, nil)
-				c.On("ChargerDetails", "456").Return(api.ChargerDetails{Product: "edi"}, nil)
+				c.On("ChargerDetails", "123").Return(model.ChargerDetails{Product: "xd"}, nil)
+				c.On("ChargerDetails", "456").Return(model.ChargerDetails{Product: "edi"}, nil)
 				c.On("Ping").Return(errors.New("oops"))
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
@@ -349,12 +349,12 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				a.On("Login", "test-user", "test-password").Return(nil)
 			},
 			mockClient: func(c *mocks.APIClient) {
-				c.On("Chargers").Return([]api.Charger{
+				c.On("Chargers").Return([]model.Charger{
 					{ID: "123"},
 					{ID: "456"},
 				}, nil)
-				c.On("ChargerDetails", "123").Return(api.ChargerDetails{Product: "xd"}, nil)
-				c.On("ChargerDetails", "456").Return(api.ChargerDetails{Product: "edi"}, nil)
+				c.On("ChargerDetails", "123").Return(model.ChargerDetails{Product: "xd"}, nil)
+				c.On("ChargerDetails", "456").Return(model.ChargerDetails{Product: "edi"}, nil)
 				c.On("Ping").Return(nil)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {

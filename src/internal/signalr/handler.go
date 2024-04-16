@@ -10,7 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
-	"github.com/futurehomeno/edge-easee-adapter/internal/maper"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 // Handler interface handles signalr observations.
@@ -24,7 +24,7 @@ type Handler interface {
 
 type observationsHandler struct {
 	cache     cache.Cache
-	callbacks map[ObservationID]func(Observation) error
+	callbacks map[model.ObservationID]func(Observation) error
 	thing     adapter.Thing
 
 	isCloudOnline atomic.Bool
@@ -41,20 +41,20 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	handler.isCloudOnline.Store(true)
 	handler.isStateOnline.Store(true)
 
-	handler.callbacks = map[ObservationID]func(Observation) error{
-		DetectedPowerGridType: handler.handleDetectedPowerGridType,
-		PhaseMode:             handler.handlePhaseMode,
-		MaxChargerCurrent:     handler.handleMaxChargerCurrent,
-		DynamicChargerCurrent: handler.handleDynamicChargerCurrent,
-		ChargerOPState:        handler.handleChargerState,
-		OutputPhase:           handler.handleOutPhase,
-		TotalPower:            handler.handleTotalPower,
-		LifetimeEnergy:        handler.handleLifetimeEnergy,
-		EnergySession:         handler.handleEnergySession,
-		InCurrentT3:           handler.handleInCurrentT3,
-		InCurrentT4:           handler.handleInCurrentT4,
-		InCurrentT5:           handler.handleInCurrentT5,
-		CloudConnected:        handler.handleCloudConnected,
+	handler.callbacks = map[model.ObservationID]func(Observation) error{
+		model.DetectedPowerGridType: handler.handleDetectedPowerGridType,
+		model.PhaseMode:             handler.handlePhaseMode,
+		model.MaxChargerCurrent:     handler.handleMaxChargerCurrent,
+		model.DynamicChargerCurrent: handler.handleDynamicChargerCurrent,
+		model.ChargerOPState:        handler.handleChargerState,
+		model.OutputPhase:           handler.handleOutPhase,
+		model.TotalPower:            handler.handleTotalPower,
+		model.LifetimeEnergy:        handler.handleLifetimeEnergy,
+		model.EnergySession:         handler.handleEnergySession,
+		model.InCurrentT3:           handler.handleInCurrentT3,
+		model.InCurrentT4:           handler.handleInCurrentT4,
+		model.InCurrentT5:           handler.handleInCurrentT5,
+		model.CloudConnected:        handler.handleCloudConnected,
 	}
 
 	return &handler, nil
@@ -91,7 +91,7 @@ func (o *observationsHandler) handlePhaseMode(observation Observation) error {
 
 	newChargepointSrv := chargepointSrv
 
-	supportedPhaseModes := maper.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
+	supportedPhaseModes := model.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
 	if len(supportedPhaseModes) == 0 {
 		return errors.New("can't set supported phase modes")
 	}
@@ -162,9 +162,9 @@ func (o *observationsHandler) handleChargerState(observation Observation) error 
 		return err
 	}
 
-	chargerState := ChargerState(val)
+	chargerState := model.ChargerState(val)
 	o.cache.SetChargerState(chargerState.ToFimpState())
-	o.isStateOnline.Store(chargerState != ChargerStateOffline)
+	o.isStateOnline.Store(chargerState != model.ChargerStateOffline)
 
 	if chargerState.IsSessionFinished() {
 		o.cache.SetRequestedOfferedCurrent(0)
@@ -304,7 +304,7 @@ func (o *observationsHandler) handleOutPhase(observation Observation) error {
 		return err
 	}
 
-	outPhaseType := OutputPhaseType(val)
+	outPhaseType := model.OutputPhaseType(val)
 	o.cache.SetOutputPhaseType(outPhaseType.ToFimpState())
 
 	chargepointSrv, err := o.getChargepointService()
@@ -323,13 +323,13 @@ func (o *observationsHandler) handleDetectedPowerGridType(observation Observatio
 		return err
 	}
 
-	gridType, phases := maper.GridType(val).ToFimpGridType()
-	if gridType == o.cache.GridType() && phases == o.cache.Phases() {
+	supportedGridType, supportedPhases := model.GridType(val).ToFimpGridType()
+	if supportedGridType == o.cache.GridType() && supportedPhases == o.cache.Phases() {
 		return nil
 	}
 
-	o.cache.SetGridType(gridType)
-	o.cache.SetPhases(phases)
+	o.cache.SetGridType(supportedGridType)
+	o.cache.SetPhases(supportedPhases)
 
 	chargepointSrv, err := o.getChargepointService()
 	if err != nil {
@@ -338,12 +338,14 @@ func (o *observationsHandler) handleDetectedPowerGridType(observation Observatio
 
 	newChargepointSrv := chargepointSrv
 
-	supportedPhaseModes := maper.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
+	supportedPhaseModes := model.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
 	if len(supportedPhaseModes) == 0 {
 		return errors.New("can't set supported phase modes")
 	}
 
 	newChargepointSrv.Specification().Props[chargepoint.PropertySupportedPhaseModes] = supportedPhaseModes
+	newChargepointSrv.Specification().Props[chargepoint.PropertyPhases] = supportedPhases
+	newChargepointSrv.Specification().Props[chargepoint.PropertyGridType] = supportedGridType
 
 	if err := o.thing.Update(adapter.ThingUpdateRemoveService(chargepointSrv), adapter.ThingUpdateAddService(newChargepointSrv)); err != nil {
 		return err

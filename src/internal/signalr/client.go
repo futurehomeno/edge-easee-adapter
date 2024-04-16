@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 const (
@@ -33,7 +34,7 @@ type Client interface {
 	// Connected returns true if the SignalR client is connected.
 	Connected() bool
 	// StateC returns a channel that will receive state updates.
-	StateC() <-chan ClientState
+	StateC() <-chan model.ClientState
 	// ObservationC returns a channel that will receive charger observations.
 	ObservationC() <-chan Observation
 }
@@ -49,10 +50,10 @@ type client struct {
 	receiver      *receiver
 	backoff       backoff.Stateful
 
-	states       chan ClientState
+	states       chan model.ClientState
 	observations chan Observation
 
-	connState ClientState
+	connState model.ClientState
 }
 
 // NewClient creates a new SignalR client.
@@ -70,7 +71,7 @@ func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client
 		tokenProvider: tokenProvider,
 		receiver:      newReceiver(observations),
 		backoff:       backoff,
-		states:        make(chan ClientState, 10),
+		states:        make(chan model.ClientState, 10),
 		observations:  observations,
 	}
 }
@@ -91,10 +92,10 @@ func (c *client) Connected() bool {
 		return false
 	}
 
-	return c.connState == ClientStateConnected
+	return c.connState == model.ClientStateConnected
 }
 
-func (c *client) StateC() <-chan ClientState {
+func (c *client) StateC() <-chan model.ClientState {
 	return c.states
 }
 
@@ -190,14 +191,14 @@ func (c *client) notifyState(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			c.updateState(ClientStateDisconnected)
+			c.updateState(model.ClientStateDisconnected)
 
 			return
 
 		case clientState := <-ch:
-			state := ClientStateDisconnected
+			state := model.ClientStateDisconnected
 			if clientState == signalr.ClientConnected {
-				state = ClientStateConnected
+				state = model.ClientStateConnected
 
 				c.backoff.Reset()
 			}
@@ -213,7 +214,7 @@ func (c *client) notifyState(ctx context.Context) {
 	}
 }
 
-func (c *client) updateState(state ClientState) bool {
+func (c *client) updateState(state model.ClientState) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

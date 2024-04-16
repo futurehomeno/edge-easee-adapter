@@ -14,7 +14,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/maper"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -75,7 +75,7 @@ type controller struct {
 	cache                   cache.Cache
 	cfgService              *config.Service
 	chargerID               string
-	chargeSessionsRefresher cliffCache.Refresher[api.ChargeSessions]
+	chargeSessionsRefresher cliffCache.Refresher[model.ChargeSessions]
 }
 
 func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {
@@ -94,7 +94,7 @@ func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error)
 		return "", err
 	}
 
-	if supportedPhaseModes := maper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); supportedPhaseModes != nil {
+	if supportedPhaseModes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); supportedPhaseModes != nil {
 		return supportedPhaseModes[0], nil
 	}
 
@@ -140,7 +140,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		startCurrent = float64(offered)
 	}
 
-	if strings.ToLower(settings.Mode) == ChargingModeSlow {
+	if strings.ToLower(settings.Mode) == model.ChargingModeSlow {
 		slowCurrent := c.cfgService.GetSlowChargingCurrentInAmperes()
 
 		if slowCurrent > 0 {
@@ -285,7 +285,7 @@ func (c *controller) checkConnection() error {
 }
 
 // retrieveChargeSessions retrieves charge sessions from refresher cache.
-func (c *controller) retrieveChargeSessions() (api.ChargeSessions, error) {
+func (c *controller) retrieveChargeSessions() (model.ChargeSessions, error) {
 	sessions, err := c.chargeSessionsRefresher.Refresh()
 	if err != nil {
 		return nil, fmt.Errorf("controller: failed to refresh charge sessions: %w", err)
@@ -295,8 +295,8 @@ func (c *controller) retrieveChargeSessions() (api.ChargeSessions, error) {
 }
 
 // newChargeSessionsRefresher creates new instance of a charge sessions refresher cache.
-func newChargeSessionsRefresher(client api.Client, id string, interval time.Duration) cliffCache.Refresher[api.ChargeSessions] {
-	refresh := func() (api.ChargeSessions, error) {
+func newChargeSessionsRefresher(client api.Client, id string, interval time.Duration) cliffCache.Refresher[model.ChargeSessions] {
+	refresh := func() (model.ChargeSessions, error) {
 		sessions, err := client.ChargerSessions(id)
 		if err != nil {
 			return nil, fmt.Errorf("controller: failed to get charges history: %w", err)

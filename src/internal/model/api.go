@@ -1,9 +1,7 @@
-package api
+package model
 
 import (
 	"time"
-
-	"github.com/futurehomeno/edge-easee-adapter/internal/maper"
 )
 
 // Credentials stands for Easee API credentials.
@@ -40,8 +38,8 @@ type BackPlate struct {
 
 // ChargerConfig represents charger config.
 type ChargerConfig struct {
-	DetectedPowerGridType maper.GridType `json:"detectedPowerGridType"`
-	PhaseMode             int            `json:"phaseMode"`
+	DetectedPowerGridType GridType `json:"detectedPowerGridType"`
+	PhaseMode             int      `json:"phaseMode"`
 }
 
 // ChargerSiteInfo represents charger rate current.
@@ -78,14 +76,14 @@ type ChargeSession struct {
 	IsComplete      bool      `json:"isComplete"`
 }
 
-// loginBody represents a login request body.
-type loginBody struct {
+// LoginBody represents a login request body.
+type LoginBody struct {
 	Username string `json:"userName"`
 	Password string `json:"password"`
 }
 
-// refreshBody represents a token refresh request body.
-type refreshBody struct {
+// RefreshBody represents a token refresh request body.
+type RefreshBody struct {
 	AccessToken  string `json:"accessToken"`
 	RefreshToken string `json:"refreshToken"`
 }
@@ -97,12 +95,12 @@ type refreshBody struct {
 // 	State bool `json:"state"`
 // }
 
-// maxCurrentBody represents a charger max current request body.
-type maxCurrentBody struct {
+// MaxCurrentBody represents a charger max current request body.
+type MaxCurrentBody struct {
 	MaxChargerCurrent float64 `json:"maxChargerCurrent"`
 }
 
-// dynamicCurrentBody represents a charger dynamic current request body.
-type dynamicCurrentBody struct {
+// DynamicCurrentBody represents a charger dynamic current request body.
+type DynamicCurrentBody struct {
 	DynamicChargerCurrent float64 `json:"dynamicChargerCurrent"`
 }

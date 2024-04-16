@@ -2,6 +2,8 @@ package api
 
 import (
 	"fmt"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 // Client is a wrapper around the Easee HTTP Client with authentication capabilities.
@@ -13,14 +15,14 @@ type Client interface {
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(chargerID string) error
 	// ChargerConfig retrieves charger config.
-	ChargerConfig(chargerID string) (*ChargerConfig, error)
+	ChargerConfig(chargerID string) (*model.ChargerConfig, error)
 	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
-	ChargerSiteInfo(chargerID string) (*ChargerSiteInfo, error)
+	ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, error)
 	// ChargerSessions retrieves at most two latest charging sessions including current if present.
-	ChargerSessions(chargerID string) (ChargeSessions, error)
+	ChargerSessions(chargerID string) (model.ChargeSessions, error)
 	// Chargers returns all available chargers.
-	Chargers() ([]Charger, error)
-	ChargerDetails(chargerID string) (ChargerDetails, error)
+	Chargers() ([]model.Charger, error)
+	ChargerDetails(chargerID string) (model.ChargerDetails, error)
 	// Ping checks if an external service is available.
 	Ping() error
 }
@@ -64,7 +66,7 @@ func (a *apiClient) StopCharging(chargerID string) error {
 	return a.httpClient.StopCharging(token, chargerID)
 }
 
-func (a *apiClient) ChargerSiteInfo(chargerID string) (*ChargerSiteInfo, error) {
+func (a *apiClient) ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, error) {
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -73,7 +75,7 @@ func (a *apiClient) ChargerSiteInfo(chargerID string) (*ChargerSiteInfo, error) 
 	return a.httpClient.ChargerSiteInfo(token, chargerID)
 }
 
-func (a *apiClient) ChargerSessions(chargerID string) (ChargeSessions, error) {
+func (a *apiClient) ChargerSessions(chargerID string) (model.ChargeSessions, error) {
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -82,7 +84,7 @@ func (a *apiClient) ChargerSessions(chargerID string) (ChargeSessions, error) {
 	return a.httpClient.ChargerSessions(token, chargerID)
 }
 
-func (a *apiClient) ChargerConfig(chargerID string) (*ChargerConfig, error) {
+func (a *apiClient) ChargerConfig(chargerID string) (*model.ChargerConfig, error) {
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -91,7 +93,7 @@ func (a *apiClient) ChargerConfig(chargerID string) (*ChargerConfig, error) {
 	return a.httpClient.ChargerConfig(token, chargerID)
 }
 
-func (a *apiClient) Chargers() ([]Charger, error) {
+func (a *apiClient) Chargers() ([]model.Charger, error) {
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -100,10 +102,10 @@ func (a *apiClient) Chargers() ([]Charger, error) {
 	return a.httpClient.Chargers(token)
 }
 
-func (a *apiClient) ChargerDetails(chargerID string) (ChargerDetails, error) {
+func (a *apiClient) ChargerDetails(chargerID string) (model.ChargerDetails, error) {
 	token, err := a.auth.AccessToken()
 	if err != nil {
-		return ChargerDetails{}, a.tokenError(err)
+		return model.ChargerDetails{}, a.tokenError(err)
 	}
 
 	return a.httpClient.ChargerDetails(token, chargerID)

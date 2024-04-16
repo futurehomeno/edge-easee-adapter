@@ -1,4 +1,4 @@
-package maper
+package model
 
 import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
