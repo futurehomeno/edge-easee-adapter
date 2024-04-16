@@ -10,7 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
-	"github.com/futurehomeno/edge-easee-adapter/internal/helper"
+	"github.com/futurehomeno/edge-easee-adapter/internal/maper"
 )
 
 // Handler interface handles signalr observations.
@@ -42,6 +42,7 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	handler.isStateOnline.Store(true)
 
 	handler.callbacks = map[ObservationID]func(Observation) error{
+		DetectedPowerGridType: handler.handleDetectedPowerGridType,
 		PhaseMode:             handler.handlePhaseMode,
 		MaxChargerCurrent:     handler.handleMaxChargerCurrent,
 		DynamicChargerCurrent: handler.handleDynamicChargerCurrent,
@@ -77,6 +78,10 @@ func (o *observationsHandler) handlePhaseMode(observation Observation) error {
 		return err
 	}
 
+	if val == o.cache.PhaseMode() {
+		return nil
+	}
+
 	o.cache.SetPhaseMode(val)
 
 	chargepointSrv, err := o.getChargepointService()
@@ -84,10 +89,14 @@ func (o *observationsHandler) handlePhaseMode(observation Observation) error {
 		return err
 	}
 
-	o.cache.OutputPhaseType()
-
 	newChargepointSrv := chargepointSrv
-	newChargepointSrv.Specification().Props["sup_phase_modes"] = helper.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
+
+	supportedPhaseModes := maper.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
+	if len(supportedPhaseModes) == 0 {
+		return errors.New("can't set supported phase modes")
+	}
+
+	newChargepointSrv.Specification().Props[chargepoint.PropertySupportedPhaseModes] = supportedPhaseModes
 
 	if err := o.thing.Update(adapter.ThingUpdateRemoveService(chargepointSrv), adapter.ThingUpdateAddService(newChargepointSrv)); err != nil {
 		return err
@@ -304,6 +313,43 @@ func (o *observationsHandler) handleOutPhase(observation Observation) error {
 	}
 
 	_, err = chargepointSrv.SendPhaseModeReport(false)
+
+	return err
+}
+
+func (o *observationsHandler) handleDetectedPowerGridType(observation Observation) error {
+	val, err := observation.IntValue()
+	if err != nil {
+		return err
+	}
+
+	gridType, phases := maper.GridType(val).ToFimpGridType()
+	if gridType == o.cache.GridType() && phases == o.cache.Phases() {
+		return nil
+	}
+
+	o.cache.SetGridType(gridType)
+	o.cache.SetPhases(phases)
+
+	chargepointSrv, err := o.getChargepointService()
+	if err != nil {
+		return err
+	}
+
+	newChargepointSrv := chargepointSrv
+
+	supportedPhaseModes := maper.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
+	if len(supportedPhaseModes) == 0 {
+		return errors.New("can't set supported phase modes")
+	}
+
+	newChargepointSrv.Specification().Props[chargepoint.PropertySupportedPhaseModes] = supportedPhaseModes
+
+	if err := o.thing.Update(adapter.ThingUpdateRemoveService(chargepointSrv), adapter.ThingUpdateAddService(newChargepointSrv)); err != nil {
+		return err
+	}
+
+	_, err = o.thing.SendInclusionReport(false)
 
 	return err
 }

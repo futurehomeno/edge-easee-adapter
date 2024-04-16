@@ -16,7 +16,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/helper"
+	"github.com/futurehomeno/edge-easee-adapter/internal/maper"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -116,18 +116,25 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 	}
 }
 
-func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
+func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
+	options := []adapter.SpecificationOption{
+		chargepoint.WithChargingModes(SupportedChargingModes()...),
+		chargepoint.WithPhases(state.Phases),
+		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
+		chargepoint.WithGridType(state.GridType),
+	}
+
+	if supportedPhaseModes := maper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(supportedPhaseModes) > 0 {
+		options = append(options, chargepoint.WithSupportedPhaseModes(maper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases)...))
+	}
+
 	return chargepoint.Specification(
-		adapter.Name(),
-		adapter.Address(),
+		ad.Name(),
+		ad.Address(),
 		thingState.Address(),
 		groups,
 		t.supportedStates(),
-		chargepoint.WithChargingModes(SupportedChargingModes()...),
-		chargepoint.WithPhases(state.Phases),
-		chargepoint.WithSupportedPhaseModes(helper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases)...),
-		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
-		chargepoint.WithGridType(state.GridType),
+		options...,
 	)
 }
 

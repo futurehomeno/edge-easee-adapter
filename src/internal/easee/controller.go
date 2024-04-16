@@ -14,7 +14,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/helper"
+	"github.com/futurehomeno/edge-easee-adapter/internal/maper"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -94,7 +94,7 @@ func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error)
 		return "", err
 	}
 
-	if supportedPhaseModes := helper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); supportedPhaseModes != nil {
+	if supportedPhaseModes := maper.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); supportedPhaseModes != nil {
 		return supportedPhaseModes[0], nil
 	}
 

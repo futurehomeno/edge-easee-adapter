@@ -98,6 +98,29 @@ const (
 	P3T2T3T4T5TN OutputPhaseType = 30
 )
 
+func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode {
+	switch o {
+	case P1T2T3TN:
+		return chargepoint.PhaseModeNL1
+	case P1T2T3IT:
+		return chargepoint.PhaseModeL1L2
+	case P1T2T4TN:
+		return chargepoint.PhaseModeNL2
+	case P1T2T4IT:
+		return chargepoint.PhaseModeL3L1
+	case P1T2T5TN:
+		return chargepoint.PhaseModeNL3
+	case P1T3T4IT:
+		return chargepoint.PhaseModeL2L3
+	case P3T2T3T4T5TN:
+		return chargepoint.PhaseModeNL1L2L3
+	case P2T2T3T4TN, P2T2T4T5TN, P1T2T3T4IT, Unsigned:
+		return ""
+	default:
+		return ""
+	}
+}
+
 // SupportedChargingStates returns all charging states supported by Easee.
 func SupportedChargingStates() []ChargerState {
 	return []ChargerState{
@@ -153,29 +176,6 @@ func (s ChargerState) IsSessionFinished() bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode {
-	switch o {
-	case P1T2T3TN:
-		return chargepoint.PhaseModeNL1
-	case P1T2T3IT:
-		return chargepoint.PhaseModeL1L2
-	case P1T2T4TN:
-		return chargepoint.PhaseModeNL2
-	case P1T2T4IT:
-		return chargepoint.PhaseModeL3L1
-	case P1T2T5TN:
-		return chargepoint.PhaseModeNL3
-	case P1T3T4IT:
-		return chargepoint.PhaseModeL2L3
-	case P3T2T3T4T5TN:
-		return chargepoint.PhaseModeNL1L2L3
-	case P2T2T3T4TN, P2T2T4T5TN, P1T2T3T4IT, Unsigned:
-		return ""
-	default:
-		return ""
 	}
 }
 
