@@ -94,11 +94,11 @@ const (
 	P1T3T4IT     OutputPhaseType = 15
 	P2T2T3T4TN   OutputPhaseType = 20
 	P2T2T4T5TN   OutputPhaseType = 21
-	P1T2T3T4IT   OutputPhaseType = 22
+	P2T2T3T4IT   OutputPhaseType = 22
 	P3T2T3T4T5TN OutputPhaseType = 30
 )
 
-func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode {
+func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode { //nolint:cyclop
 	switch o { //nolint:exhaustive
 	case P1T2T3TN:
 		return chargepoint.PhaseModeNL1
@@ -110,6 +110,16 @@ func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode {
 		return chargepoint.PhaseModeL3L1
 	case P1T2T5TN:
 		return chargepoint.PhaseModeNL3
+	case P1T3T4IT:
+		return chargepoint.PhaseModeL2L3
+	case P2T2T3T4TN:
+		return chargepoint.PhaseModeNL1L2
+	case P2T2T4T5TN:
+		return chargepoint.PhaseModeNL2L3
+	case P2T2T3T4IT:
+		return chargepoint.PhaseModeL1L2L3
+	case P3T2T3T4T5TN:
+		return chargepoint.PhaseModeNL1L2L3
 	default:
 		return ""
 	}

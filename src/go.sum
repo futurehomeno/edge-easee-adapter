@@ -24,6 +24,8 @@ github.com/fsnotify/fsnotify v1.5.1 h1:mZcQUHVQUQWoPXXtuf9yuEXKudkV2sx1E06UadKWp
 github.com/fsnotify/fsnotify v1.5.1/go.mod h1:T3375wBYaZdLLcVNkcVbzGHY7f1l/uK5T5Ai1i3InKU=
 github.com/futurehomeno/cliffhanger v0.53.0 h1:8BvlX8K9vR57REM+OM4sYuj/FOAzXGaCrL/R0D0e2RY=
 github.com/futurehomeno/cliffhanger v0.53.0/go.mod h1:UO7RlnL59XwIUzE+BnXVf0cgTgbn3iVPloSKv441wIo=
+github.com/futurehomeno/cliffhanger v0.53.1 h1:tiQB0i0uRwKv8X1x2vZkManxJCbmhXlMCrJUP1MS4BY=
+github.com/futurehomeno/cliffhanger v0.53.1/go.mod h1:UO7RlnL59XwIUzE+BnXVf0cgTgbn3iVPloSKv441wIo=
 github.com/futurehomeno/fimpgo v1.13.3 h1:ZLa8pnsUXztQbZNtnXz4VA8nof8xkrnQAw8qYFef9xU=
 github.com/futurehomeno/fimpgo v1.13.3/go.mod h1:Nwtf0Pu7I8kMH6PUKNJ4KgSl104Sbjn6kJ1m44+q5TA=
 github.com/gin-contrib/sse v0.1.0 h1:Y/yl/+YNO8GZSjAhjMsSuLt29uWRFHdHYUb5lYOV9qE=
