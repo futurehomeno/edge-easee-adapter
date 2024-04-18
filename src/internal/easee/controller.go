@@ -10,6 +10,7 @@ import (
 	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
@@ -94,11 +95,19 @@ func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error)
 		return "", err
 	}
 
-	if supportedPhaseModes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); supportedPhaseModes != nil {
-		return supportedPhaseModes[0], nil
+	if modes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(modes) > 0 {
+		return modes[0], nil
 	}
 
-	return "", nil
+	errMsg := "unable to map phase modes"
+
+	log.WithField("charger_id", c.chargerID).
+		WithField("grid_type", state.GridType).
+		WithField("phases", state.Phases).
+		WithField("internal_phase_mode", state.PhaseMode).
+		Error(errMsg)
+
+	return "", errors.New(errMsg)
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {

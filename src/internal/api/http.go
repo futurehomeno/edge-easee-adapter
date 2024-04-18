@@ -83,7 +83,7 @@ func NewHTTPClient(cfgSrv *config.Service, http *http.Client, baseURL string) HT
 }
 
 func (c *httpClient) Login(userName, password string) (*model.Credentials, error) {
-	body := model.LoginBody{
+	body := loginBody{
 		Username: strings.TrimSpace(userName),
 		Password: strings.TrimSpace(password),
 	}
@@ -114,7 +114,7 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 }
 
 func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Credentials, error) {
-	body := model.RefreshBody{
+	body := refreshBody{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 	}
@@ -152,7 +152,7 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(model.MaxCurrentBody{MaxChargerCurrent: current}).
+		withBody(maxCurrentBody{MaxChargerCurrent: current}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		addHeader(contentTypeHeader, jsonContentType).
 		build()
@@ -178,7 +178,7 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(model.DynamicCurrentBody{DynamicChargerCurrent: current}).
+		withBody(dynamicCurrentBody{DynamicChargerCurrent: current}).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		addHeader(contentTypeHeader, jsonContentType).
 		build()

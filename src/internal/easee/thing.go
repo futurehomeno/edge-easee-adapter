@@ -122,20 +122,20 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
 	}
 
-	if supportedPhases := state.Phases; supportedPhases > 0 {
-		options = append(options, chargepoint.WithPhases(supportedPhases))
+	if phases := state.Phases; phases > 0 {
+		options = append(options, chargepoint.WithPhases(phases))
 	}
 
-	if supportedGridType := state.GridType; supportedGridType != "" {
-		options = append(options, chargepoint.WithGridType(supportedGridType))
+	if gridType := state.GridType; gridType != "" {
+		options = append(options, chargepoint.WithGridType(gridType))
 	}
 
-	if supportedMaxCurrent := state.SupportedMaxCurrent; supportedMaxCurrent > 0 {
-		options = append(options, chargepoint.WithSupportedMaxCurrent(supportedMaxCurrent))
+	if maxCurrent := state.SupportedMaxCurrent; maxCurrent > 0 {
+		options = append(options, chargepoint.WithSupportedMaxCurrent(maxCurrent))
 	}
 
-	if supportedPhaseModes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(supportedPhaseModes) > 0 {
-		options = append(options, chargepoint.WithSupportedPhaseModes(model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases)...))
+	if phaseModes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(phaseModes) > 0 {
+		options = append(options, chargepoint.WithSupportedPhaseModes(phaseModes...))
 	}
 
 	return chargepoint.Specification(
