@@ -93,7 +93,7 @@ func (o *observationsHandler) handlePhaseMode(observation Observation) error {
 
 	supportedPhaseModes := model.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
 	if len(supportedPhaseModes) == 0 {
-		return errors.New("can't set supported phase modes")
+		supportedPhaseModes = []chargepoint.PhaseMode{""}
 	}
 
 	newChargepointSrv.Specification().Props[chargepoint.PropertySupportedPhaseModes] = supportedPhaseModes
@@ -325,7 +325,8 @@ func (o *observationsHandler) handleDetectedPowerGridType(observation Observatio
 
 	supportedGridType, supportedPhases := model.GridType(val).ToFimpGridType()
 	if supportedGridType == o.cache.GridType() && supportedPhases == o.cache.Phases() {
-		return nil
+		supportedPhases = 0
+		supportedGridType = ""
 	}
 
 	o.cache.SetGridType(supportedGridType)
@@ -340,7 +341,7 @@ func (o *observationsHandler) handleDetectedPowerGridType(observation Observatio
 
 	supportedPhaseModes := model.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
 	if len(supportedPhaseModes) == 0 {
-		return errors.New("can't set supported phase modes")
+		supportedPhaseModes = []chargepoint.PhaseMode{""}
 	}
 
 	newChargepointSrv.Specification().Props[chargepoint.PropertySupportedPhaseModes] = supportedPhaseModes
