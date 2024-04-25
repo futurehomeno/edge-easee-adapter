@@ -419,7 +419,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.thing.get_inclusion_report", "easee", "1"),
 						Expectations: []*suite.Expectation{
-							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(3, "TN", []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"}, 32)),
+							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(3, "TN", []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"})),
 						},
 					},
 				},
@@ -460,7 +460,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Expectations: []*suite.Expectation{
-							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(3, "TN", []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"}, 32)),
+							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(3, "TN", []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"})),
 						},
 					},
 				},
@@ -515,7 +515,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.thing.get_inclusion_report", "easee", "1"),
 						Expectations: []*suite.Expectation{
-							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(1, "TN", []interface{}{"NL1"}, 32)),
+							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(1, "TN", []interface{}{"NL1"})),
 						},
 					},
 				},
@@ -661,7 +661,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.thing.get_inclusion_report", "easee", "1"),
 						Expectations: []*suite.Expectation{
-							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(0, "", []interface{}{}, 32, "grid_type", "phases", "sup_phase_modes")),
+							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(0, "", []interface{}{}, "grid_type", "phases", "sup_phase_modes")),
 						},
 					},
 				},
@@ -731,7 +731,7 @@ func cleanUpTestData(t *testing.T, configSet string) {
 	}
 
 	// recreate 'data' path
-	if err = os.Mkdir(dataPath, 0755); err != nil { //nolint:gofumpt
+	if err = os.Mkdir(dataPath, 0o755); err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
 
@@ -842,7 +842,6 @@ func ExpectObjectValueWithChargepointProps(topic string, msgType string, service
 	e.Voters = append(e.Voters, router.MessageVoterFn(func(message *fimpgo.Message) bool {
 		x := &fimptype.ThingInclusionReport{}
 		err := message.Payload.GetObjectValue(x)
-
 		if err != nil {
 			return false
 		}
@@ -859,12 +858,12 @@ func ExpectObjectValueWithChargepointProps(topic string, msgType string, service
 	return e
 }
 
-func chargepointSrvProps(phases int, gridType string, phaseMode []interface{}, maxCurrent int, opts ...string) map[string]interface{} {
+func chargepointSrvProps(phases int, gridType string, phaseMode []interface{}, opts ...string) map[string]interface{} {
 	props := make(map[string]interface{})
 	props[chargepoint.PropertyGridType] = gridType
 	props[chargepoint.PropertyPhases] = float64(phases)
 	props[chargepoint.PropertySupportedChargingModes] = []interface{}{"normal", "slow"}
-	props[chargepoint.PropertySupportedMaxCurrent] = float64(maxCurrent)
+	props[chargepoint.PropertySupportedMaxCurrent] = float64(32)
 	props[chargepoint.PropertySupportedPhaseModes] = phaseMode
 	props[chargepoint.PropertySupportedStates] = []interface{}{"unknown", "disconnected", "ready_to_charge", "charging", "finished", "error", "requesting"}
 
