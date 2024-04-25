@@ -841,6 +841,7 @@ func ExpectObjectValueWithChargepointProps(topic string, msgType string, service
 
 	e.Voters = append(e.Voters, router.MessageVoterFn(func(message *fimpgo.Message) bool {
 		x := &fimptype.ThingInclusionReport{}
+
 		err := message.Payload.GetObjectValue(x)
 		if err != nil {
 			return false
