@@ -82,6 +82,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 
 	thingCache.SetGridType(state.GridType)
 	thingCache.SetPhases(state.Phases)
+	thingCache.SetPhaseMode(state.PhaseMode)
 
 	groups := []string{"ch_0"}
 

@@ -8,10 +8,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
+	"github.com/futurehomeno/cliffhanger/prime"
+	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/test/suite"
+	"github.com/futurehomeno/fimpgo"
+	"github.com/futurehomeno/fimpgo/fimptype"
+	"github.com/google/go-cmp/cmp"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
@@ -370,7 +376,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
-				Name: "Inclusion report updated",
+				Name: "Inclusion report updated: changed phase mode",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -401,12 +407,6 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
-								ID:        model.DetectedPowerGridType,
-								Value:     "1",
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  model.ObservationDataTypeInteger,
 								ID:        model.PhaseMode,
 								Value:     "2",
 							},
@@ -419,7 +419,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.thing.get_inclusion_report", "easee", "1"),
 						Expectations: []*suite.Expectation{
-							suite.ExpectObject("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", inclusionReportValueUpdate("TN", []string{"NL1", "NL2", "NL3", "NL1L2L3"}, 3, true, chargepointAllPropsSrv)),
+							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(3, "TN", []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"}, 32)),
 						},
 					},
 				},
@@ -460,20 +460,20 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Expectations: []*suite.Expectation{
-							suite.ExpectObject("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", inclusionReportValueUpdate("TN", []string{"NL1", "NL2", "NL3", "NL1L2L3"}, 3, false, chargepointAllPropsSrv)),
+							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(3, "TN", []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"}, 32)),
 						},
 					},
 				},
 			},
 			{
-				Name: "Inclusion report not updated - incorrect DectedPowerGridType and PhaseMode values",
+				Name: "Inclusion report updated - different grid type",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
-							PhaseMode:             2,
+							PhaseMode:             1,
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -498,7 +498,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
 								ID:        model.DetectedPowerGridType,
-								Value:     "11",
+								Value:     strconv.Itoa(int(model.GridTypeTN1Phase)),
 							},
 							{
 								ChargerID: test.ChargerID,
@@ -515,7 +515,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.thing.get_inclusion_report", "easee", "1"),
 						Expectations: []*suite.Expectation{
-							suite.ExpectObject("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", inclusionReportValueUpdate("TN", []string{"NL1", "NL2", "NL3", "NL1L2L3"}, 3, false, chargepointAllPropsSrv)),
+							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(1, "TN", []interface{}{"NL1"}, 32)),
 						},
 					},
 				},
@@ -553,19 +553,13 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
 								ID:        model.DetectedPowerGridType,
-								Value:     "1",
-							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  model.ObservationDataTypeInteger,
-								ID:        model.PhaseMode,
-								Value:     "5",
+								Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
 								ID:        model.OutputPhase,
-								Value:     "14",
+								Value:     strconv.Itoa(int(model.P1T2T5TN)),
 							},
 						})
 					})),
@@ -582,7 +576,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
-				Name: "Phase mode report",
+				Name: "Phase mode report - no OutputPhase observation",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -614,7 +608,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
 								ID:        model.DetectedPowerGridType,
-								Value:     "1",
+								Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
 							},
 							{
 								ChargerID: test.ChargerID,
@@ -622,21 +616,16 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								ID:        model.PhaseMode,
 								Value:     "1",
 							},
-							{
-								ChargerID: test.ChargerID,
-								DataType:  model.ObservationDataTypeInteger,
-								ID:        model.OutputPhase,
-								Value:     "12",
-							},
 						})
 					})),
 				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
 				Nodes: []*suite.Node{
+					suite.SleepNode(300 * time.Millisecond),
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.phase_mode.get_report", "chargepoint"),
 						Expectations: []*suite.Expectation{
-							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.phase_mode.report", "chargepoint", "NL2"),
+							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.phase_mode.report", "chargepoint", "NL1"),
 						},
 					},
 				},
@@ -648,7 +637,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					"configured",
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
-							DetectedPowerGridType: -1,
+							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
@@ -672,7 +661,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.thing.get_inclusion_report", "easee", "1"),
 						Expectations: []*suite.Expectation{
-							suite.ExpectObject("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", inclusionReportValueUpdate("", []string{}, 0, false, chargepointNoGridTypeSrv)),
+							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(0, "", []interface{}{}, 32, "grid_type", "phases", "sup_phase_modes")),
 						},
 					},
 				},
@@ -844,320 +833,44 @@ func (c *testContainer) TearDown() suite.Callback {
 	}
 }
 
-type Props struct {
-	IsVirtual        *bool    `json:"is_virtual,omitempty"`
-	SupExtendedVals  []string `json:"sup_extended_vals,omitempty"`
-	SupUnits         []string `json:"sup_units,omitempty"`
-	GridType         string   `json:"grid_type,omitempty"`
-	Phases           int      `json:"phases,omitempty"`
-	SupChargingModes []string `json:"sup_charging_modes,omitempty"`
-	SupMaxCurrent    int      `json:"sup_max_current,omitempty"`
-	SupPhaseModes    []string `json:"sup_phase_modes,omitempty"`
-	SupStates        []string `json:"sup_states,omitempty"`
+func ExpectObjectValueWithChargepointProps(topic string, msgType string, service string, object interface{}) *suite.Expectation {
+	e := suite.NewExpectation().
+		ExpectTopic(topic).
+		ExpectService(service).
+		ExpectType(msgType)
+
+	e.Voters = append(e.Voters, router.MessageVoterFn(func(message *fimpgo.Message) bool {
+		x := &fimptype.ThingInclusionReport{}
+		err := message.Payload.GetObjectValue(x)
+
+		if err != nil {
+			return false
+		}
+
+		for _, s := range x.Services {
+			if s.Name == prime.TypeChargepoint {
+				return cmp.Equal(s.Props, object)
+			}
+		}
+
+		return false
+	}))
+
+	return e
 }
 
-type Interface struct {
-	IntfT string `json:"intf_t"`
-	MsgT  string `json:"msg_t"`
-	ValT  string `json:"val_t"`
-	Ver   string `json:"ver"`
-}
+func chargepointSrvProps(phases int, gridType string, phaseMode []interface{}, maxCurrent int, opts ...string) map[string]interface{} {
+	props := make(map[string]interface{})
+	props[chargepoint.PropertyGridType] = gridType
+	props[chargepoint.PropertyPhases] = float64(phases)
+	props[chargepoint.PropertySupportedChargingModes] = []interface{}{"normal", "slow"}
+	props[chargepoint.PropertySupportedMaxCurrent] = float64(maxCurrent)
+	props[chargepoint.PropertySupportedPhaseModes] = phaseMode
+	props[chargepoint.PropertySupportedStates] = []interface{}{"unknown", "disconnected", "ready_to_charge", "charging", "finished", "error", "requesting"}
 
-type Services struct {
-	Name       string      `json:"name"`
-	Alias      string      `json:"alias"`
-	Address    string      `json:"address"`
-	Enabled    bool        `json:"enabled"`
-	Groups     []string    `json:"groups"`
-	Props      Props       `json:"props"`
-	Tags       interface{} `json:"tags"`
-	PropSetRef string      `json:"prop_set_ref"`
-	Interfaces []Interface `json:"interfaces"`
-}
-
-type InclusionReportValue struct {
-	Address           string      `json:"address"`
-	Groups            []string    `json:"groups"`
-	Services          []Services  `json:"services"`
-	ProductName       string      `json:"product_name"`
-	ProductHash       string      `json:"product_hash"`
-	ProductID         string      `json:"product_id"`
-	ManufacturerID    string      `json:"manufacturer_id"`
-	DeviceID          string      `json:"device_id"`
-	HwVer             string      `json:"hw_ver"`
-	SwVer             string      `json:"sw_ver"`
-	CommTech          string      `json:"comm_tech"`
-	PowerSource       string      `json:"power_source"`
-	WakeupInterval    string      `json:"wakeup_interval"`
-	Security          string      `json:"security"`
-	TechSpecificProps interface{} `json:"tech_specific_props"`
-	PropSet           interface{} `json:"prop_set"`
-}
-
-func inclusionReportValueUpdate(gridType string, phaseMode []string, phases int, isUpdated bool, chargepointSrv Services) InclusionReportValue {
-	isVirtual := false
-
-	inclusionReportUpdateValue := InclusionReportValue{
-		Address:           "1",
-		Groups:            []string{"ch_0"},
-		Services:          []Services{},
-		ProductName:       "",
-		ProductHash:       "Easee - Easee - ",
-		ProductID:         "",
-		ManufacturerID:    "Easee",
-		DeviceID:          "XX12345",
-		HwVer:             "",
-		SwVer:             "",
-		CommTech:          "cloud",
-		PowerSource:       "ac",
-		WakeupInterval:    "-1",
-		Security:          "",
-		TechSpecificProps: nil,
-		PropSet:           nil,
+	for _, opt := range opts {
+		delete(props, opt)
 	}
 
-	chargepointSrv.Props.GridType = gridType
-	chargepointSrv.Props.Phases = phases
-	chargepointSrv.Props.SupPhaseModes = phaseMode
-	meterElecSrv.Props.IsVirtual = &isVirtual
-
-	if isUpdated {
-		inclusionReportUpdateValue.Services = append(inclusionReportUpdateValue.Services, meterElecSrv)
-		inclusionReportUpdateValue.Services = append(inclusionReportUpdateValue.Services, chargepointSrv)
-
-		return inclusionReportUpdateValue
-	}
-
-	inclusionReportUpdateValue.Services = append(inclusionReportUpdateValue.Services, chargepointSrv)
-	inclusionReportUpdateValue.Services = append(inclusionReportUpdateValue.Services, meterElecSrv)
-
-	return inclusionReportUpdateValue
-}
-
-var meterElecSrv = Services{
-	Name:    "meter_elec",
-	Alias:   "",
-	Address: "/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1",
-	Enabled: true,
-	Groups:  []string{"ch_0"},
-	Props: Props{
-		IsVirtual:       nil,
-		SupExtendedVals: []string{"i1", "i2", "i3", "e_import", "p_import"},
-		SupUnits:        []string{"W", "kWh"},
-	},
-	Tags:       nil,
-	PropSetRef: "",
-	Interfaces: []Interface{
-		{
-			IntfT: "in",
-			MsgT:  "cmd.meter.get_report",
-			ValT:  "string",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.meter.report",
-			ValT:  "float",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.error.report",
-			ValT:  "string",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.meter_ext.get_report",
-			ValT:  "str_array",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.meter_ext.report",
-			ValT:  "float_map",
-			Ver:   "1",
-		},
-	},
-}
-
-var chargepointAllPropsSrv = Services{
-	Name:    "chargepoint",
-	Alias:   "",
-	Address: "/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1",
-	Enabled: true,
-	Groups:  []string{"ch_0"},
-	Props: Props{
-		GridType:         "TN",
-		Phases:           3,
-		SupChargingModes: []string{"normal", "slow"},
-		SupMaxCurrent:    32,
-		SupPhaseModes:    []string{"NL1", "NL2", "NL3", "NL1L2L3"},
-		SupStates:        []string{"unknown", "disconnected", "ready_to_charge", "charging", "finished", "error", "requesting"},
-	},
-	Tags:       nil,
-	PropSetRef: "",
-	Interfaces: []Interface{
-		{
-			IntfT: "in",
-			MsgT:  "cmd.charge.start",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.charge.stop",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.state.get_report",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.state.report",
-			ValT:  "string",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.current_session.get_report",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.current_session.report",
-			ValT:  "float",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.error.report",
-			ValT:  "string",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.max_current.set",
-			ValT:  "int",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.max_current.get_report",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.max_current.report",
-			ValT:  "int",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.current_session.set_current",
-			ValT:  "int",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.phase_mode.get_report",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.phase_mode.report",
-			ValT:  "string",
-			Ver:   "1",
-		},
-	},
-}
-
-var chargepointNoGridTypeSrv = Services{
-	Name:    "chargepoint",
-	Alias:   "",
-	Address: "/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1",
-	Enabled: true,
-	Groups:  []string{"ch_0"},
-	Props: Props{
-		SupChargingModes: []string{"normal", "slow"},
-		SupMaxCurrent:    32,
-		SupStates:        []string{"unknown", "disconnected", "ready_to_charge", "charging", "finished", "error", "requesting"},
-	},
-	Tags:       nil,
-	PropSetRef: "",
-	Interfaces: []Interface{
-		{
-			IntfT: "in",
-			MsgT:  "cmd.charge.start",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.charge.stop",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.state.get_report",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.state.report",
-			ValT:  "string",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.current_session.get_report",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.current_session.report",
-			ValT:  "float",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.error.report",
-			ValT:  "string",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.max_current.set",
-			ValT:  "int",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.max_current.get_report",
-			ValT:  "null",
-			Ver:   "1",
-		},
-		{
-			IntfT: "out",
-			MsgT:  "evt.max_current.report",
-			ValT:  "int",
-			Ver:   "1",
-		},
-		{
-			IntfT: "in",
-			MsgT:  "cmd.current_session.set_current",
-			ValT:  "int",
-			Ver:   "1",
-		},
-	},
+	return props
 }
