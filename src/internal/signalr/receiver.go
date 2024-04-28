@@ -5,21 +5,23 @@ import (
 
 	"github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 type receiver struct {
 	signalr.Receiver
 
-	observations chan<- Observation
+	observations chan<- model.Observation
 }
 
-func newReceiver(observations chan<- Observation) *receiver {
+func newReceiver(observations chan<- model.Observation) *receiver {
 	return &receiver{
 		observations: observations,
 	}
 }
 
-func (r *receiver) ProductUpdate(o Observation) {
+func (r *receiver) ProductUpdate(o model.Observation) {
 	r.observations <- o
 }
 

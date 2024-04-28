@@ -21,7 +21,6 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
-	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
 )
@@ -32,7 +31,7 @@ const (
 	evtDeviceMeterElecTopic   = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1"
 )
 
-func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
+func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 	testContainer := newTestContainer(t)
 
 	s := &suite.Suite{
@@ -48,7 +47,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -68,7 +67,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								Value:     "12.34",
 							},
 						})
-						s.MockObservations(300*time.Millisecond, []signalr.Observation{
+						s.MockObservations(300*time.Millisecond, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -119,7 +118,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -133,7 +132,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								Value:     "0",
 							},
 						})
-						s.MockObservations(300*time.Millisecond, []signalr.Observation{
+						s.MockObservations(300*time.Millisecond, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeDouble,
@@ -141,7 +140,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								Value:     "1.23",
 							},
 						})
-						s.MockObservations(300*time.Millisecond, []signalr.Observation{
+						s.MockObservations(300*time.Millisecond, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -196,7 +195,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -210,7 +209,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								Value:     "12.34",
 							},
 						})
-						s.MockObservations(200*time.Millisecond, []signalr.Observation{
+						s.MockObservations(200*time.Millisecond, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeDouble,
@@ -218,7 +217,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								Value:     "11",
 							},
 						})
-						s.MockObservations(200*time.Millisecond, []signalr.Observation{
+						s.MockObservations(200*time.Millisecond, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeDouble,
@@ -252,7 +251,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -312,7 +311,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -391,7 +390,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -419,7 +418,12 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.thing.get_inclusion_report", "easee", "1"),
 						Expectations: []*suite.Expectation{
-							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(3, "TN", []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"})),
+							ExpectInclusionReportWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", map[string]any{
+								chargepoint.PropertySupportedMaxCurrent: float64(32),
+								chargepoint.PropertyPhases:              float64(3),
+								chargepoint.PropertyGridType:            "TN",
+								chargepoint.PropertySupportedPhaseModes: []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"},
+							}, nil),
 						},
 					},
 				},
@@ -440,7 +444,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -460,7 +464,12 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Expectations: []*suite.Expectation{
-							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(3, "TN", []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"})),
+							ExpectInclusionReportWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", map[string]any{
+								chargepoint.PropertySupportedMaxCurrent: float64(32),
+								chargepoint.PropertyPhases:              float64(3),
+								chargepoint.PropertyGridType:            "TN",
+								chargepoint.PropertySupportedPhaseModes: []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"},
+							}, nil),
 						},
 					},
 				},
@@ -481,7 +490,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -515,7 +524,12 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.thing.get_inclusion_report", "easee", "1"),
 						Expectations: []*suite.Expectation{
-							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(1, "TN", []interface{}{"NL1"})),
+							ExpectInclusionReportWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", map[string]any{
+								chargepoint.PropertySupportedMaxCurrent: float64(32),
+								chargepoint.PropertyPhases:              float64(1),
+								chargepoint.PropertyGridType:            "TN",
+								chargepoint.PropertySupportedPhaseModes: []interface{}{"NL1"},
+							}, nil),
 						},
 					},
 				},
@@ -536,7 +550,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -591,7 +605,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -646,7 +660,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []signalr.Observation{
+						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
@@ -661,7 +675,12 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.thing.get_inclusion_report", "easee", "1"),
 						Expectations: []*suite.Expectation{
-							ExpectObjectValueWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.thing.inclusion_report", "easee", chargepointSrvProps(0, "", []interface{}{}, "grid_type", "phases", "sup_phase_modes")),
+							ExpectInclusionReportWithChargepointProps(
+								"pt:j1/mt:evt/rt:ad/rn:easee/ad:1",
+								map[string]any{
+									chargepoint.PropertySupportedMaxCurrent: float64(32),
+								},
+								[]string{chargepoint.PropertyPhases, chargepoint.PropertyGridType, chargepoint.PropertySupportedPhaseModes}),
 						},
 					},
 				},
@@ -833,44 +852,48 @@ func (c *testContainer) TearDown() suite.Callback {
 	}
 }
 
-func ExpectObjectValueWithChargepointProps(topic string, msgType string, service string, object interface{}) *suite.Expectation {
+func ExpectInclusionReportWithChargepointProps(topic string, wanted map[string]any, notWanted []string) *suite.Expectation {
 	e := suite.NewExpectation().
 		ExpectTopic(topic).
-		ExpectService(service).
-		ExpectType(msgType)
+		ExpectService("easee").
+		ExpectType("evt.thing.inclusion_report")
 
 	e.Voters = append(e.Voters, router.MessageVoterFn(func(message *fimpgo.Message) bool {
-		x := &fimptype.ThingInclusionReport{}
+		var inclusionReport fimptype.ThingInclusionReport
 
-		err := message.Payload.GetObjectValue(x)
+		err := message.Payload.GetObjectValue(&inclusionReport)
 		if err != nil {
 			return false
 		}
 
-		for _, s := range x.Services {
-			if s.Name == prime.TypeChargepoint {
-				return cmp.Equal(s.Props, object)
+		for _, service := range inclusionReport.Services {
+			if service.Name != prime.TypeChargepoint {
+				continue
 			}
+
+			for k, v := range wanted {
+				val, ok := service.Props[k]
+				if !ok {
+					return false
+				}
+
+				if !cmp.Equal(val, v) {
+					return false
+				}
+			}
+
+			for _, k := range notWanted {
+				if _, ok := service.Props[k]; ok {
+					return false
+				}
+			}
+
+			return true
 		}
 
 		return false
 	}))
 
 	return e
-}
 
-func chargepointSrvProps(phases int, gridType string, phaseMode []interface{}, opts ...string) map[string]interface{} {
-	props := make(map[string]interface{})
-	props[chargepoint.PropertyGridType] = gridType
-	props[chargepoint.PropertyPhases] = float64(phases)
-	props[chargepoint.PropertySupportedChargingModes] = []interface{}{"normal", "slow"}
-	props[chargepoint.PropertySupportedMaxCurrent] = float64(32)
-	props[chargepoint.PropertySupportedPhaseModes] = phaseMode
-	props[chargepoint.PropertySupportedStates] = []interface{}{"unknown", "disconnected", "ready_to_charge", "charging", "finished", "error", "requesting"}
-
-	for _, opt := range opts {
-		delete(props, opt)
-	}
-
-	return props
 }

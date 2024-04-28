@@ -8,6 +8,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	"github.com/thoas/go-funk"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
@@ -19,13 +20,13 @@ type Handler interface {
 	IsOnline() bool
 
 	// HandleObservation handles signalr observation callback.
-	HandleObservation(observation Observation) error
+	HandleObservation(observation model.Observation) error
 }
 
 type observationsHandler struct {
-	cache     cache.Cache
-	callbacks map[model.ObservationID]func(Observation) error
-	thing     adapter.Thing
+	cache    cache.Cache
+	handlers map[model.ObservationID]func(model.Observation) error
+	thing    adapter.Thing
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
@@ -41,7 +42,7 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	handler.isCloudOnline.Store(true)
 	handler.isStateOnline.Store(true)
 
-	handler.callbacks = map[model.ObservationID]func(Observation) error{
+	handler.handlers = map[model.ObservationID]func(model.Observation) error{
 		model.DetectedPowerGridType: handler.handleDetectedPowerGridType,
 		model.PhaseMode:             handler.handlePhaseMode,
 		model.MaxChargerCurrent:     handler.handleMaxChargerCurrent,
@@ -60,63 +61,58 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	return &handler, nil
 }
 
-func (o *observationsHandler) IsOnline() bool {
-	return o.isCloudOnline.Load() && o.isStateOnline.Load()
+func (h *observationsHandler) IsOnline() bool {
+	return h.isCloudOnline.Load() && h.isStateOnline.Load()
 }
 
-func (o *observationsHandler) HandleObservation(observation Observation) error {
-	if callback, ok := o.callbacks[observation.ID]; ok {
-		return callback(observation)
+func (h *observationsHandler) HandleObservation(observation model.Observation) error {
+	if handler, ok := h.handlers[observation.ID]; ok {
+		return handler(observation)
 	}
 
 	return nil
 }
 
-func (o *observationsHandler) handlePhaseMode(observation Observation) error {
+func (h *observationsHandler) handlePhaseMode(observation model.Observation) error {
 	val, err := observation.IntValue()
 	if err != nil {
 		return err
 	}
 
-	if val == o.cache.PhaseMode() {
+	if val == h.cache.PhaseMode() {
 		return nil
 	}
 
-	o.cache.SetPhaseMode(val)
+	h.cache.SetPhaseMode(val)
 
-	chargepointSrv, err := o.getChargepointService()
+	service, err := h.getChargepointService()
 	if err != nil {
 		return err
 	}
 
-	newChargepointSrv := chargepointSrv
+	service = h.ensureChargepointProps(service, map[string]interface{}{
+		chargepoint.PropertySupportedPhaseModes: model.SupportedPhaseModes(h.cache.GridType(), h.cache.PhaseMode(), h.cache.Phases()),
+	})
 
-	supportedPhaseModes := model.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
-	if len(supportedPhaseModes) == 0 {
-		supportedPhaseModes = []chargepoint.PhaseMode{""}
-	}
-
-	newChargepointSrv.Specification().Props[chargepoint.PropertySupportedPhaseModes] = supportedPhaseModes
-
-	if err := o.thing.Update(adapter.ThingUpdateRemoveService(chargepointSrv), adapter.ThingUpdateAddService(newChargepointSrv)); err != nil {
+	if err := h.thing.Update(adapter.ThingUpdateRemoveService(service), adapter.ThingUpdateAddService(service)); err != nil {
 		return err
 	}
 
-	_, err = o.thing.SendInclusionReport(false)
+	_, err = h.thing.SendInclusionReport(false)
 
 	return err
 }
 
-func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) error {
+func (h *observationsHandler) handleMaxChargerCurrent(observation model.Observation) error {
 	val, err := observation.Float64Value()
 	if err != nil {
 		return err
 	}
 
 	current := int64(math.Round(val))
-	o.cache.SetMaxCurrent(current)
+	h.cache.SetMaxCurrent(current)
 
-	chargepointSrv, err := o.getChargepointService()
+	chargepointSrv, err := h.getChargepointService()
 	if err != nil {
 		return err
 	}
@@ -126,27 +122,27 @@ func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) e
 	return err
 }
 
-func (o *observationsHandler) handleCloudConnected(observation Observation) error {
+func (h *observationsHandler) handleCloudConnected(observation model.Observation) error {
 	val, err := observation.BoolValue()
 	if err != nil {
 		return err
 	}
 
-	o.isCloudOnline.Store(val)
+	h.isCloudOnline.Store(val)
 
 	return err
 }
 
-func (o *observationsHandler) handleDynamicChargerCurrent(observation Observation) error {
+func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Observation) error {
 	val, err := observation.Float64Value()
 	if err != nil {
 		return err
 	}
 
 	current := int64(math.Round(val))
-	o.cache.SetOfferedCurrent(current)
+	h.cache.SetOfferedCurrent(current)
 
-	chargepointSrv, err := o.getChargepointService()
+	chargepointSrv, err := h.getChargepointService()
 	if err != nil {
 		return err
 	}
@@ -156,21 +152,21 @@ func (o *observationsHandler) handleDynamicChargerCurrent(observation Observatio
 	return err
 }
 
-func (o *observationsHandler) handleChargerState(observation Observation) error {
+func (h *observationsHandler) handleChargerState(observation model.Observation) error {
 	val, err := observation.IntValue()
 	if err != nil {
 		return err
 	}
 
 	chargerState := model.ChargerState(val)
-	o.cache.SetChargerState(chargerState.ToFimpState())
-	o.isStateOnline.Store(chargerState != model.ChargerStateOffline)
+	h.cache.SetChargerState(chargerState.ToFimpState())
+	h.isStateOnline.Store(chargerState != model.ChargerStateOffline)
 
 	if chargerState.IsSessionFinished() {
-		o.cache.SetRequestedOfferedCurrent(0)
+		h.cache.SetRequestedOfferedCurrent(0)
 	}
 
-	chargepointSrv, err := o.getChargepointService()
+	chargepointSrv, err := h.getChargepointService()
 	if err != nil {
 		return err
 	}
@@ -180,15 +176,15 @@ func (o *observationsHandler) handleChargerState(observation Observation) error 
 	return err
 }
 
-func (o *observationsHandler) handleTotalPower(observation Observation) error {
+func (h *observationsHandler) handleTotalPower(observation model.Observation) error {
 	val, err := observation.Float64Value()
 	if err != nil {
 		return err
 	}
 
-	o.cache.SetTotalPower(val * 1000)
+	h.cache.SetTotalPower(val * 1000)
 
-	meterElecSrv, err := o.getMeterElecService()
+	meterElecSrv, err := h.getMeterElecService()
 	if err != nil {
 		return err
 	}
@@ -203,15 +199,15 @@ func (o *observationsHandler) handleTotalPower(observation Observation) error {
 	return err
 }
 
-func (o *observationsHandler) handleLifetimeEnergy(observation Observation) error {
+func (h *observationsHandler) handleLifetimeEnergy(observation model.Observation) error {
 	val, err := observation.Float64Value()
 	if err != nil {
 		return err
 	}
 
-	o.cache.SetLifetimeEnergy(val)
+	h.cache.SetLifetimeEnergy(val)
 
-	meterElecSrv, err := o.getMeterElecService()
+	meterElecSrv, err := h.getMeterElecService()
 	if err != nil {
 		return err
 	}
@@ -226,15 +222,15 @@ func (o *observationsHandler) handleLifetimeEnergy(observation Observation) erro
 	return err
 }
 
-func (o *observationsHandler) handleEnergySession(observation Observation) error {
+func (h *observationsHandler) handleEnergySession(observation model.Observation) error {
 	val, err := observation.Float64Value()
 	if err != nil {
 		return err
 	}
 
-	o.cache.SetEnergySession(val)
+	h.cache.SetEnergySession(val)
 
-	chargepointSrv, err := o.getChargepointService()
+	chargepointSrv, err := h.getChargepointService()
 	if err != nil {
 		return err
 	}
@@ -244,15 +240,15 @@ func (o *observationsHandler) handleEnergySession(observation Observation) error
 	return err
 }
 
-func (o *observationsHandler) handleInCurrentT3(observation Observation) error {
+func (h *observationsHandler) handleInCurrentT3(observation model.Observation) error {
 	val, err := observation.Float64Value()
 	if err != nil {
 		return err
 	}
 
-	o.cache.SetPhase1Current(val)
+	h.cache.SetPhase1Current(val)
 
-	meterElecSrv, err := o.getMeterElecService()
+	meterElecSrv, err := h.getMeterElecService()
 	if err != nil {
 		return err
 	}
@@ -262,15 +258,15 @@ func (o *observationsHandler) handleInCurrentT3(observation Observation) error {
 	return err
 }
 
-func (o *observationsHandler) handleInCurrentT4(observation Observation) error {
+func (h *observationsHandler) handleInCurrentT4(observation model.Observation) error {
 	val, err := observation.Float64Value()
 	if err != nil {
 		return err
 	}
 
-	o.cache.SetPhase2Current(val)
+	h.cache.SetPhase2Current(val)
 
-	meterElecSrv, err := o.getMeterElecService()
+	meterElecSrv, err := h.getMeterElecService()
 	if err != nil {
 		return err
 	}
@@ -280,15 +276,15 @@ func (o *observationsHandler) handleInCurrentT4(observation Observation) error {
 	return err
 }
 
-func (o *observationsHandler) handleInCurrentT5(observation Observation) error {
+func (h *observationsHandler) handleInCurrentT5(observation model.Observation) error {
 	val, err := observation.Float64Value()
 	if err != nil {
 		return err
 	}
 
-	o.cache.SetPhase3Current(val)
+	h.cache.SetPhase3Current(val)
 
-	meterElecSrv, err := o.getMeterElecService()
+	meterElecSrv, err := h.getMeterElecService()
 	if err != nil {
 		return err
 	}
@@ -298,16 +294,16 @@ func (o *observationsHandler) handleInCurrentT5(observation Observation) error {
 	return err
 }
 
-func (o *observationsHandler) handleOutPhase(observation Observation) error {
+func (h *observationsHandler) handleOutPhase(observation model.Observation) error {
 	val, err := observation.IntValue()
 	if err != nil {
 		return err
 	}
 
 	outPhaseType := model.OutputPhaseType(val)
-	o.cache.SetOutputPhaseType(outPhaseType.ToFimpState())
+	h.cache.SetOutputPhaseType(outPhaseType.ToFimpState())
 
-	chargepointSrv, err := o.getChargepointService()
+	chargepointSrv, err := h.getChargepointService()
 	if err != nil {
 		return err
 	}
@@ -317,48 +313,42 @@ func (o *observationsHandler) handleOutPhase(observation Observation) error {
 	return err
 }
 
-func (o *observationsHandler) handleDetectedPowerGridType(observation Observation) error {
+func (h *observationsHandler) handleDetectedPowerGridType(observation model.Observation) error {
 	val, err := observation.IntValue()
 	if err != nil {
 		return err
 	}
 
 	supportedGridType, supportedPhases := model.GridType(val).ToFimpGridType()
-	if supportedGridType == o.cache.GridType() && supportedPhases == o.cache.Phases() {
-		supportedPhases = 0
-		supportedGridType = ""
+	if supportedGridType == h.cache.GridType() && supportedPhases == h.cache.Phases() {
+		return nil
 	}
 
-	o.cache.SetGridType(supportedGridType)
-	o.cache.SetPhases(supportedPhases)
+	h.cache.SetGridType(supportedGridType)
+	h.cache.SetPhases(supportedPhases)
 
-	chargepointSrv, err := o.getChargepointService()
+	service, err := h.getChargepointService()
 	if err != nil {
 		return err
 	}
 
-	newChargepointSrv := chargepointSrv
+	service = h.ensureChargepointProps(service, map[string]interface{}{
+		chargepoint.PropertyGridType:            supportedGridType,
+		chargepoint.PropertyPhases:              supportedPhases,
+		chargepoint.PropertySupportedPhaseModes: model.SupportedPhaseModes(h.cache.GridType(), h.cache.PhaseMode(), h.cache.Phases()),
+	})
 
-	supportedPhaseModes := model.SupportedPhaseModes(o.cache.GridType(), o.cache.PhaseMode(), o.cache.Phases())
-	if len(supportedPhaseModes) == 0 {
-		supportedPhaseModes = []chargepoint.PhaseMode{""}
-	}
-
-	newChargepointSrv.Specification().Props[chargepoint.PropertySupportedPhaseModes] = supportedPhaseModes
-	newChargepointSrv.Specification().Props[chargepoint.PropertyPhases] = supportedPhases
-	newChargepointSrv.Specification().Props[chargepoint.PropertyGridType] = supportedGridType
-
-	if err := o.thing.Update(adapter.ThingUpdateRemoveService(chargepointSrv), adapter.ThingUpdateAddService(newChargepointSrv)); err != nil {
+	if err := h.thing.Update(adapter.ThingUpdateRemoveService(service), adapter.ThingUpdateAddService(service)); err != nil {
 		return err
 	}
 
-	_, err = o.thing.SendInclusionReport(false)
+	_, err = h.thing.SendInclusionReport(false)
 
 	return err
 }
 
-func (o *observationsHandler) getChargepointService() (chargepoint.Service, error) {
-	for _, service := range o.thing.Services(chargepoint.Chargepoint) {
+func (h *observationsHandler) getChargepointService() (chargepoint.Service, error) {
+	for _, service := range h.thing.Services(chargepoint.Chargepoint) {
 		if service, ok := service.(chargepoint.Service); ok {
 			return service, nil
 		}
@@ -367,12 +357,26 @@ func (o *observationsHandler) getChargepointService() (chargepoint.Service, erro
 	return nil, errors.New("there are no chargepoint services")
 }
 
-func (o *observationsHandler) getMeterElecService() (numericmeter.Service, error) {
-	for _, service := range o.thing.Services(numericmeter.MeterElec) {
+func (h *observationsHandler) getMeterElecService() (numericmeter.Service, error) {
+	for _, service := range h.thing.Services(numericmeter.MeterElec) {
 		if service, ok := service.(numericmeter.Service); ok {
 			return service, nil
 		}
 	}
 
 	return nil, errors.New("there are no meterelec services")
+}
+
+func (h *observationsHandler) ensureChargepointProps(srv chargepoint.Service, props map[string]interface{}) chargepoint.Service {
+	for k, v := range props {
+		if funk.IsEmpty(v) {
+			delete(srv.Specification().Props, k)
+
+			continue
+		}
+
+		srv.Specification().Props[k] = v
+	}
+
+	return srv
 }

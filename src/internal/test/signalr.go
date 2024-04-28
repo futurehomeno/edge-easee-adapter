@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 var (
@@ -80,7 +80,7 @@ func (s *SignalRServer) Close() {
 	s.running = false
 }
 
-func (s *SignalRServer) MockObservations(delay time.Duration, o []signalr.Observation) {
+func (s *SignalRServer) MockObservations(delay time.Duration, o []model.Observation) {
 	s.mockedObservations = append(s.mockedObservations, observationBatch{
 		delay:        delay,
 		observations: o,
@@ -108,7 +108,7 @@ type signalRHub struct {
 	mu sync.Mutex
 
 	numSubscriptions int
-	observations     []signalr.Observation
+	observations     []model.Observation
 }
 
 func newSignalRHub(t *testing.T) *signalRHub {
@@ -140,7 +140,7 @@ func (h *signalRHub) OnDisconnected(connID string) {
 	log.Infof("signalR test server: client disconnected: connID %s", connID)
 }
 
-func (h *signalRHub) propagate(observations []signalr.Observation) {
+func (h *signalRHub) propagate(observations []model.Observation) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -157,5 +157,5 @@ func (h *signalRHub) propagate(observations []signalr.Observation) {
 
 type observationBatch struct {
 	delay        time.Duration
-	observations []signalr.Observation
+	observations []model.Observation
 }

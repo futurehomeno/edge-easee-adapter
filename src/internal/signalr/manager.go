@@ -253,7 +253,7 @@ func (m *manager) handleClientState(state model.ClientState) {
 	}
 }
 
-func (m *manager) handleObservation(observation Observation) {
+func (m *manager) handleObservation(observation model.Observation) {
 	if !observation.ID.Supported() {
 		return
 	}

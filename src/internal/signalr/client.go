@@ -36,7 +36,7 @@ type Client interface {
 	// StateC returns a channel that will receive state updates.
 	StateC() <-chan model.ClientState
 	// ObservationC returns a channel that will receive charger observations.
-	ObservationC() <-chan Observation
+	ObservationC() <-chan model.Observation
 }
 
 type client struct {
@@ -51,14 +51,14 @@ type client struct {
 	backoff       backoff.Stateful
 
 	states       chan model.ClientState
-	observations chan Observation
+	observations chan model.Observation
 
 	connState model.ClientState
 }
 
 // NewClient creates a new SignalR client.
 func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
-	observations := make(chan Observation, 100)
+	observations := make(chan model.Observation, 100)
 
 	backoff := backoff.NewStateful(cfg.GetSignalRInitialBackoff(),
 		cfg.GetSignalRRepeatedBackoff(),
@@ -99,7 +99,7 @@ func (c *client) StateC() <-chan model.ClientState {
 	return c.states
 }
 
-func (c *client) ObservationC() <-chan Observation {
+func (c *client) ObservationC() <-chan model.Observation {
 	return c.observations
 }
 
