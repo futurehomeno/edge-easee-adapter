@@ -895,5 +895,4 @@ func ExpectInclusionReportWithChargepointProps(topic string, wanted map[string]a
 	}))
 
 	return e
-
 }
