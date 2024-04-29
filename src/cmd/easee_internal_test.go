@@ -382,7 +382,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
-							PhaseMode:             1,
+							PhaseMode:             1, // results in NL1, NL2, NL3
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
