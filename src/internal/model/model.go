@@ -187,29 +187,29 @@ func SupportedObservationIDs() []ObservationID {
 type ObservationDataType int
 
 const (
-	ObservationDataTypeBinary     ObservationDataType = 1
-	ObservationDataTypeBoolean    ObservationDataType = 2
-	ObservationDataTypeDouble     ObservationDataType = 3
-	ObservationDataTypeInteger    ObservationDataType = 4
-	ObservationDataTypePosition   ObservationDataType = 5
-	ObservationDataTypeString     ObservationDataType = 6
-	ObservationDataTypeStatistics ObservationDataType = 7
+	ObservationDataTypeBinary ObservationDataType = iota + 1
+	ObservationDataTypeBoolean
+	ObservationDataTypeDouble
+	ObservationDataTypeInteger
+	ObservationDataTypePosition
+	ObservationDataTypeString
+	ObservationDataTypeStatistics
 )
 
 // ChargerState represents an observation charger state.
 type ChargerState int
 
 const (
-	ChargerStateUnknown                ChargerState = -1
-	ChargerStateOffline                ChargerState = 0
-	ChargerStateDisconnected           ChargerState = 1
-	ChargerStateAwaitingStart          ChargerState = 2
-	ChargerStateCharging               ChargerState = 3
-	ChargerStateCompleted              ChargerState = 4
-	ChargerStateError                  ChargerState = 5
-	ChargerStateReadyToCharge          ChargerState = 6
-	ChargerStateAwaitingAuthentication ChargerState = 7
-	ChargerStateDeAuthenticating       ChargerState = 8
+	ChargerStateUnknown ChargerState = iota - 1
+	ChargerStateOffline
+	ChargerStateDisconnected
+	ChargerStateAwaitingStart
+	ChargerStateCharging
+	ChargerStateCompleted
+	ChargerStateError
+	ChargerStateReadyToCharge
+	ChargerStateAwaitingAuthentication
+	ChargerStateDeAuthenticating
 )
 
 type OutputPhaseType int
@@ -344,26 +344,86 @@ const (
 	GridTypeWarningTN1PhaseNeutralOnPin3    GridType = 31
 	GridTypeWarningIT3PhaseGNDFault         GridType = 32
 	GridTypeWarningIT1PhaseGNDFault         GridType = 33
-	GridTypeErrorNoValidPowerGridFound      GridType = 50
-	GridTypeErrorTN400VNeutralOnWrongPin    GridType = 51
-	GridTypeErrorITGroundConnectedToPin2Or3 GridType = 52
 	GridTypeWarningIT3PhaseGNDFaultL3       GridType = 34
 	GridTypeWarningIT1PhaseGNDFaultL3       GridType = 35
 	GridTypeWarningTN2PhasePIN234           GridType = 36
 	GridTypeWarningTN3PhaseGNDFault         GridType = 37
 	GridTypeWarningTN2PhaseGNDFault         GridType = 38
-
-	GridTypeFirstInvalid = GridTypeWarningTN2PhasePin235
+	GridTypeErrorNoValidPowerGridFound      GridType = 50
+	GridTypeErrorTN400VNeutralOnWrongPin    GridType = 51
+	GridTypeErrorITGroundConnectedToPin2Or3 GridType = 52
 )
+
+// ToFimpGridType returns grid type and phases.
+func (g GridType) ToFimpGridType() (chargepoint.GridType, int) {
+	if g >= GridTypeWarningTN2PhasePin235 {
+		log.Warnf("faulty grid type detected: %s", g)
+	}
+
+	if t, ok := easeeNetworkTypeMap[g]; ok {
+		return t.gridType, t.phases
+	}
+
+	log.Warnf("unknown grid type detected: %d", g)
+
+	return "", 0
+}
+
+// String returns a human-readable name of the grid type.
+func (g GridType) String() string {
+	switch g {
+	case GridTypeNotYetDetected:
+		return "not yet detected"
+	case GridTypeTN3Phase:
+		return "TN 3-phase"
+	case GridTypeTN2PhasePin23:
+		return "TN 2-phase (pin 2, 3)"
+	case GridTypeTN1Phase:
+		return "TN 1-phase"
+	case GridTypeIT3Phase:
+		return "IT 3-phase"
+	case GridTypeIT1Phase:
+		return "IT 1-phase"
+	case GridTypeWarningTN2PhasePin235:
+		return "TN 2-phase (pin 2, 3, 5)"
+	case GridTypeWarningTN1PhaseNeutralOnPin3:
+		return "TN 1-phase (neutral on pin 3)"
+	case GridTypeWarningIT3PhaseGNDFault:
+		return "IT 3-phase (ground fault)"
+	case GridTypeWarningIT1PhaseGNDFault:
+		return "IT 1-phase (ground fault)"
+	case GridTypeWarningIT3PhaseGNDFaultL3:
+		return "IT 3-phase (ground fault L3)"
+	case GridTypeWarningIT1PhaseGNDFaultL3:
+		return "IT 1-phase (ground fault L3)"
+	case GridTypeWarningTN2PhasePIN234:
+		return "TN 2-phase (pin 2, 3, 4)"
+	case GridTypeWarningTN3PhaseGNDFault:
+		return "TN 3-phase (ground fault)"
+	case GridTypeWarningTN2PhaseGNDFault:
+		return "TN 2-phase (ground fault)"
+	case GridTypeErrorNoValidPowerGridFound:
+		return "error - no valid power grid found"
+	case GridTypeErrorTN400VNeutralOnWrongPin:
+		return "error - TN 400V neutral on wrong pin"
+	case GridTypeErrorITGroundConnectedToPin2Or3:
+		return "error - IT ground connected to pin 2 or 3"
+	default:
+		return "unknown"
+	}
+}
 
 type networkType struct {
 	gridType chargepoint.GridType
-	phase    int
+	phases   int
 }
 
 var easeeNetworkTypeMap = map[GridType]networkType{
 	GridTypeUnknown:                         {"", 0},
 	GridTypeNotYetDetected:                  {"", 0},
+	GridTypeErrorNoValidPowerGridFound:      {"", 0},
+	GridTypeErrorTN400VNeutralOnWrongPin:    {chargepoint.GridTypeTN, 0},
+	GridTypeErrorITGroundConnectedToPin2Or3: {chargepoint.GridTypeIT, 0},
 	GridTypeTN3Phase:                        {chargepoint.GridTypeTN, 3},
 	GridTypeTN2PhasePin23:                   {chargepoint.GridTypeTN, 2},
 	GridTypeTN1Phase:                        {chargepoint.GridTypeTN, 1},
@@ -373,27 +433,9 @@ var easeeNetworkTypeMap = map[GridType]networkType{
 	GridTypeWarningTN1PhaseNeutralOnPin3:    {chargepoint.GridTypeTN, 1},
 	GridTypeWarningIT3PhaseGNDFault:         {chargepoint.GridTypeIT, 3},
 	GridTypeWarningIT1PhaseGNDFault:         {chargepoint.GridTypeIT, 1},
-	GridTypeErrorNoValidPowerGridFound:      {"", 0},
-	GridTypeErrorTN400VNeutralOnWrongPin:    {chargepoint.GridTypeTN, 0},
-	GridTypeErrorITGroundConnectedToPin2Or3: {chargepoint.GridTypeIT, 0},
 	GridTypeWarningIT3PhaseGNDFaultL3:       {chargepoint.GridTypeIT, 3},
 	GridTypeWarningIT1PhaseGNDFaultL3:       {chargepoint.GridTypeIT, 1},
 	GridTypeWarningTN2PhasePIN234:           {chargepoint.GridTypeTN, 2},
 	GridTypeWarningTN3PhaseGNDFault:         {chargepoint.GridTypeTN, 3},
 	GridTypeWarningTN2PhaseGNDFault:         {chargepoint.GridTypeTN, 2},
-}
-
-// ToFimpGridType returns grid type and phases.
-func (g GridType) ToFimpGridType() (chargepoint.GridType, int) {
-	if g >= GridTypeFirstInvalid {
-		log.Warnf("Invalid grid type state %v", g)
-	}
-
-	if networkType, ok := easeeNetworkTypeMap[g]; ok {
-		return networkType.gridType, networkType.phase
-	}
-
-	log.Warnf("Unknown grid type: %v", g)
-
-	return "", 0
 }
