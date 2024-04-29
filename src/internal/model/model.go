@@ -370,8 +370,8 @@ func (g GridType) ToFimpGridType() (chargepoint.GridType, int) {
 }
 
 // String returns a human-readable name of the grid type.
-func (g GridType) String() string {
-	switch g {
+func (g GridType) String() string { //nolint:cyclop
+	switch g { //nolint:exhaustive
 	case GridTypeNotYetDetected:
 		return "not yet detected"
 	case GridTypeTN3Phase:
