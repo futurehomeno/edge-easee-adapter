@@ -11,6 +11,8 @@ import (
 
 // Cache is a cache for charger observations.
 type Cache interface {
+	// PhaseMode returns the charger phase mode.
+	PhaseMode() int
 	// ChargerState returns the charger state.
 	ChargerState() chargepoint.State
 	// MaxCurrent returns the charger max current set by the user.
@@ -31,7 +33,14 @@ type Cache interface {
 	Phase2Current() float64
 	// Phase3Current return current on phase 3.
 	Phase3Current() float64
+	// OutputPhaseType return output phase type.
+	OutputPhaseType() chargepoint.PhaseMode
+	// GridType return GridType.
+	GridType() chargepoint.GridType
+	// Phases return phases.
+	Phases() int
 
+	SetPhaseMode(phaseMode int)
 	SetChargerState(state chargepoint.State)
 	SetMaxCurrent(current int64)
 	SetRequestedOfferedCurrent(current int64)
@@ -42,6 +51,9 @@ type Cache interface {
 	SetPhase1Current(current float64)
 	SetPhase2Current(current float64)
 	SetPhase3Current(current float64)
+	SetOutputPhaseType(mode chargepoint.PhaseMode)
+	SetGridType(gridType chargepoint.GridType)
+	SetPhases(phases int)
 
 	WaitForMaxCurrent(current int64, duration time.Duration) bool
 	WaitForOfferedCurrent(current int64, duration time.Duration) bool
@@ -50,6 +62,7 @@ type Cache interface {
 type cache struct {
 	mu sync.RWMutex
 
+	phaseMode               int
 	chargerState            chargepoint.State
 	maxCurrent              int64
 	requestedOfferedCurrent int64
@@ -60,6 +73,9 @@ type cache struct {
 	phase1Current           float64
 	phase2Current           float64
 	phase3Current           float64
+	outputPhase             chargepoint.PhaseMode
+	gridType                chargepoint.GridType
+	phase                   int
 
 	currentListeners map[waitGroup][]chan<- int64
 }
@@ -68,6 +84,20 @@ func NewCache() Cache {
 	return &cache{
 		currentListeners: make(map[waitGroup][]chan<- int64),
 	}
+}
+
+func (c *cache) PhaseMode() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.phaseMode
+}
+
+func (c *cache) OutputPhaseType() chargepoint.PhaseMode {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.outputPhase
 }
 
 func (c *cache) ChargerState() chargepoint.State {
@@ -138,6 +168,34 @@ func (c *cache) Phase3Current() float64 {
 	defer c.mu.RUnlock()
 
 	return c.phase3Current
+}
+
+func (c *cache) GridType() chargepoint.GridType {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.gridType
+}
+
+func (c *cache) Phases() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.phase
+}
+
+func (c *cache) SetPhaseMode(phaseMode int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.phaseMode = phaseMode
+}
+
+func (c *cache) SetOutputPhaseType(mode chargepoint.PhaseMode) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.outputPhase = mode
 }
 
 func (c *cache) SetEnergySession(energy float64) {
@@ -237,6 +295,20 @@ func (c *cache) SetPhase3Current(current float64) {
 	defer c.mu.RUnlock()
 
 	c.phase3Current = current
+}
+
+func (c *cache) SetGridType(gridType chargepoint.GridType) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	c.gridType = gridType
+}
+
+func (c *cache) SetPhases(phases int) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	c.phase = phases
 }
 
 type waitGroup int

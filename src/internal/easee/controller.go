@@ -10,10 +10,12 @@ import (
 	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -42,6 +44,9 @@ type specFunc func(report numericmeter.ValuesReport, c cache.Cache)
 // Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
+	chargepoint.PhaseModeAwareController
+	chargepoint.AdjustableMaxCurrentController
+	chargepoint.AdjustableOfferedCurrentController
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
 	UpdateState(chargerID string, state *State) error
@@ -71,7 +76,38 @@ type controller struct {
 	cache                   cache.Cache
 	cfgService              *config.Service
 	chargerID               string
-	chargeSessionsRefresher cliffCache.Refresher[api.ChargeSessions]
+	chargeSessionsRefresher cliffCache.Refresher[model.ChargeSessions]
+}
+
+func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {
+	if err := c.checkConnection(); err != nil {
+		return "", err
+	}
+
+	if outputPhase := c.cache.OutputPhaseType(); outputPhase != "" {
+		return outputPhase, nil
+	}
+
+	// outputPhase is unassigned when not charging
+	// if not previous value was recorded, default first value from sup_phase_modes is used
+	state := State{}
+	if err := c.UpdateState(c.chargerID, &state); err != nil {
+		return "", err
+	}
+
+	if modes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(modes) > 0 {
+		return modes[0], nil
+	}
+
+	errMsg := "unable to map phase modes"
+
+	log.WithField("charger_id", c.chargerID).
+		WithField("grid_type", state.GridType).
+		WithField("phases", state.Phases).
+		WithField("internal_phase_mode", state.PhaseMode).
+		Error(errMsg)
+
+	return "", errors.New(errMsg)
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int64) error {
@@ -113,7 +149,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		startCurrent = float64(offered)
 	}
 
-	if strings.ToLower(settings.Mode) == ChargingModeSlow {
+	if strings.ToLower(settings.Mode) == model.ChargingModeSlow {
 		slowCurrent := c.cfgService.GetSlowChargingCurrentInAmperes()
 
 		if slowCurrent > 0 {
@@ -229,6 +265,7 @@ func (c *controller) updateChargerConfigState(chargerID string, state *State) er
 
 	state.GridType = gridType
 	state.Phases = phases
+	state.PhaseMode = cfg.PhaseMode
 
 	return nil
 }
@@ -257,7 +294,7 @@ func (c *controller) checkConnection() error {
 }
 
 // retrieveChargeSessions retrieves charge sessions from refresher cache.
-func (c *controller) retrieveChargeSessions() (api.ChargeSessions, error) {
+func (c *controller) retrieveChargeSessions() (model.ChargeSessions, error) {
 	sessions, err := c.chargeSessionsRefresher.Refresh()
 	if err != nil {
 		return nil, fmt.Errorf("controller: failed to refresh charge sessions: %w", err)
@@ -267,8 +304,8 @@ func (c *controller) retrieveChargeSessions() (api.ChargeSessions, error) {
 }
 
 // newChargeSessionsRefresher creates new instance of a charge sessions refresher cache.
-func newChargeSessionsRefresher(client api.Client, id string, interval time.Duration) cliffCache.Refresher[api.ChargeSessions] {
-	refresh := func() (api.ChargeSessions, error) {
+func newChargeSessionsRefresher(client api.Client, id string, interval time.Duration) cliffCache.Refresher[model.ChargeSessions] {
+	refresh := func() (model.ChargeSessions, error) {
 		sessions, err := client.ChargerSessions(id)
 		if err != nil {
 			return nil, fmt.Errorf("controller: failed to get charges history: %w", err)

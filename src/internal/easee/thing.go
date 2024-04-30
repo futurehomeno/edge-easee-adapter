@@ -16,6 +16,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -29,6 +30,7 @@ type Info struct {
 type State struct {
 	GridType            chargepoint.GridType `json:"gridType"`
 	Phases              int                  `json:"phases"`
+	PhaseMode           int                  `json:"phaseMode"`
 	SupportedMaxCurrent int64                `json:"supportedMaxCurrent"`
 }
 
@@ -78,6 +80,10 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		log.WithError(err).Warnf("factory: failed to set state: %v", err)
 	}
 
+	thingCache.SetGridType(state.GridType)
+	thingCache.SetPhases(state.Phases)
+	thingCache.SetPhaseMode(state.PhaseMode)
+
 	groups := []string{"ch_0"}
 
 	return thing.NewCarCharger(publisher, thingState, &thing.CarChargerConfig{
@@ -111,24 +117,42 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 	}
 }
 
-func (t *thingFactory) chargepointSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
+func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
+	options := []adapter.SpecificationOption{
+		chargepoint.WithChargingModes(model.SupportedChargingModes()...),
+		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
+	}
+
+	if phases := state.Phases; phases > 0 {
+		options = append(options, chargepoint.WithPhases(phases))
+	}
+
+	if gridType := state.GridType; gridType != "" {
+		options = append(options, chargepoint.WithGridType(gridType))
+	}
+
+	if maxCurrent := state.SupportedMaxCurrent; maxCurrent > 0 {
+		options = append(options, chargepoint.WithSupportedMaxCurrent(maxCurrent))
+	}
+
+	if phaseModes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(phaseModes) > 0 {
+		options = append(options, chargepoint.WithSupportedPhaseModes(phaseModes...))
+	}
+
 	return chargepoint.Specification(
-		adapter.Name(),
-		adapter.Address(),
+		ad.Name(),
+		ad.Address(),
 		thingState.Address(),
 		groups,
 		t.supportedStates(),
-		chargepoint.WithChargingModes(SupportedChargingModes()...),
-		chargepoint.WithPhases(state.Phases),
-		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
-		chargepoint.WithGridType(state.GridType),
+		options...,
 	)
 }
 
 func (t *thingFactory) supportedStates() []chargepoint.State {
 	var supportedStates []chargepoint.State
 
-	for _, s := range signalr.SupportedChargingStates() {
+	for _, s := range model.SupportedChargingStates() {
 		if !slices.Contains(supportedStates, s.ToFimpState()) {
 			supportedStates = append(supportedStates, s.ToFimpState())
 		}

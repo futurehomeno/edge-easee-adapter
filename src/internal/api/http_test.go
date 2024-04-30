@@ -16,6 +16,7 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 )
 
@@ -28,7 +29,7 @@ func TestClient_Login(t *testing.T) {
 		password         string
 		serverHandler    http.Handler
 		forceServerError bool
-		want             *api.Credentials
+		want             *model.Credentials
 		wantErr          bool
 	}{
 		{
@@ -45,7 +46,7 @@ func TestClient_Login(t *testing.T) {
 				responseCode: http.StatusOK,
 				responseBody: `{"accessToken":"access-token","expiresIn":86400,"accessClaims":["User"],"tokenType":"Bearer","refreshToken":"refresh-token"}`,
 			}),
-			want: &api.Credentials{
+			want: &model.Credentials{
 				AccessToken: "access-token",
 				ExpiresIn:   86400,
 				AccessClaims: []string{
@@ -137,7 +138,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 		responseData  string
 		statusCode    int
 		errorContains string
-		expectedCreds api.Credentials
+		expectedCreds model.Credentials
 	}{
 		{
 			name:          "should fail due to invalid url",
@@ -159,7 +160,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 			name:          "should form valid credentials",
 			responseData:  `{"accessToken":"access","refreshToken":"refresh"}`,
 			statusCode:    http.StatusOK,
-			expectedCreds: api.Credentials{RefreshToken: "refresh", AccessToken: "access"},
+			expectedCreds: model.Credentials{RefreshToken: "refresh", AccessToken: "access"},
 		},
 	}
 
@@ -481,7 +482,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 		accessToken      string
 		serverHandler    http.Handler
 		forceServerError bool
-		want             *api.ChargerConfig
+		want             *model.ChargerConfig
 		wantErr          bool
 	}{
 		{
@@ -497,7 +498,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 				responseCode: http.StatusOK,
 				responseBody: `{"maxChargerCurrent":32, "detectedPowerGridType":1}`,
 			}),
-			want: &api.ChargerConfig{
+			want: &model.ChargerConfig{
 				DetectedPowerGridType: 1,
 			},
 		},
@@ -655,7 +656,7 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 		accessToken      string
 		serverHandler    http.Handler
 		forceServerError bool
-		want             []api.Charger
+		want             []model.Charger
 		wantErr          bool
 	}{
 		{
@@ -670,14 +671,14 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 				responseCode: http.StatusOK,
 				responseBody: `[{"id":"XX12345","name":"XX12345","color":4,"createdOn":"2021-09-22T12:01:43.299176","updatedOn":"2022-01-13T12:33:03.232669","backPlate":null,"levelOfAccess":1,"productCode":1}]`,
 			}),
-			want: []api.Charger{
+			want: []model.Charger{
 				{
 					ID:            test.ChargerID,
 					Name:          test.ChargerID,
 					Color:         4,
 					CreatedOn:     "2021-09-22T12:01:43.299176",
 					UpdatedOn:     "2022-01-13T12:33:03.232669",
-					BackPlate:     api.BackPlate{},
+					BackPlate:     model.BackPlate{},
 					LevelOfAccess: 1,
 					ProductCode:   1,
 				},

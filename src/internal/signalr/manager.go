@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 // Manager is the interface for the Easee signalR manager.
@@ -216,12 +217,12 @@ func (m *manager) addChargerSubscription(chargerID string, charger *charger) {
 	}
 }
 
-func (m *manager) handleClientState(state ClientState) {
+func (m *manager) handleClientState(state model.ClientState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	switch state {
-	case ClientStateConnected:
+	case model.ClientStateConnected:
 		log.Debug("signalR: client connected")
 
 		m.subscriptions = make(chan string, 1+len(m.chargers))
@@ -233,7 +234,7 @@ func (m *manager) handleClientState(state ClientState) {
 			}
 		}
 
-	case ClientStateDisconnected:
+	case model.ClientStateDisconnected:
 		log.Debug("signalR: client disconnected")
 
 		for _, charger := range m.chargers {
@@ -252,7 +253,7 @@ func (m *manager) handleClientState(state ClientState) {
 	}
 }
 
-func (m *manager) handleObservation(observation Observation) {
+func (m *manager) handleObservation(observation model.Observation) {
 	if !observation.ID.Supported() {
 		return
 	}
