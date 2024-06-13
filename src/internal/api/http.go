@@ -199,8 +199,8 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 }
 
 func (c *httpClient) StopCharging(accessToken, chargerID string) error {
-	// When stop charging command is sent than easee sets dynamic current for 0.
-	// That's why protection against changing offered current more often than once in 30 seconds is needed.
+	// When stop charging command is sent, Easee sets dynamic current to 0.
+	// That's why a protection against changing offered current more often than once in 30 seconds is needed.
 	if c.shouldBackoffWithMaxCurrentChange(chargerID) {
 		return errors.New("client: failed to stop charging: too many requests to the charger")
 	}
