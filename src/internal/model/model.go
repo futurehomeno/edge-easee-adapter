@@ -140,6 +140,7 @@ const (
 	PhaseMode             ObservationID = 38
 	MaxChargerCurrent     ObservationID = 47
 	DynamicChargerCurrent ObservationID = 48
+	CableLocked           ObservationID = 103
 	CableRating           ObservationID = 104
 	ChargerOPState        ObservationID = 109
 	OutputPhase           ObservationID = 110
@@ -180,6 +181,8 @@ func SupportedObservationIDs() []ObservationID {
 		InCurrentT4,
 		InCurrentT5,
 		CloudConnected,
+		CableLocked,
+		CableRating,
 	}
 }
 

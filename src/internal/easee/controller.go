@@ -47,6 +47,7 @@ type Controller interface {
 	chargepoint.PhaseModeAwareController
 	chargepoint.AdjustableMaxCurrentController
 	chargepoint.AdjustableOfferedCurrentController
+	chargepoint.AdjustableCableLockController
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
 	UpdateState(chargerID string, state *State) error
@@ -77,6 +78,21 @@ type controller struct {
 	cfgService              *config.Service
 	chargerID               string
 	chargeSessionsRefresher cliffCache.Refresher[model.ChargeSessions]
+}
+
+func (c *controller) SetChargepointCableLock(_ bool) error {
+	return fmt.Errorf("SetChargepointCableLock not supported by Easee")
+}
+
+func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, error) {
+	if err := c.checkConnection(); err != nil {
+		return nil, err
+	}
+
+	return &chargepoint.CableReport{
+		CableLock:    c.cache.CableLocked(),
+		CableCurrent: c.cache.CableCurrent(),
+	}, nil
 }
 
 func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {

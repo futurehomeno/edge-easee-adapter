@@ -56,6 +56,8 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		model.InCurrentT4:           handler.handleInCurrentT4,
 		model.InCurrentT5:           handler.handleInCurrentT5,
 		model.CloudConnected:        handler.handleCloudConnected,
+		model.CableLocked:           handler.handleCableLocked,
+		model.CableRating:           handler.handleCableRating,
 	}
 
 	return &handler, nil
@@ -148,6 +150,42 @@ func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Obse
 	}
 
 	_, err = chargepointSrv.SendCurrentSessionReport(false)
+
+	return err
+}
+
+func (h *observationsHandler) handleCableLocked(observation model.Observation) error {
+	val, err := observation.BoolValue()
+	if err != nil {
+		return err
+	}
+
+	h.cache.SetCableLocked(val)
+
+	chargepointSrv, err := h.getChargepointService()
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendCableLockReport(false)
+
+	return err
+}
+
+func (h *observationsHandler) handleCableRating(observation model.Observation) error {
+	val, err := observation.IntValue()
+	if err != nil {
+		return err
+	}
+
+	h.cache.SetCableCurrent(int64(val))
+
+	chargepointSrv, err := h.getChargepointService()
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendCableLockReport(false)
 
 	return err
 }
