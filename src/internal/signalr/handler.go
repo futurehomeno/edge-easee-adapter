@@ -173,7 +173,7 @@ func (h *observationsHandler) handleCableLocked(observation model.Observation) e
 }
 
 func (h *observationsHandler) handleCableRating(observation model.Observation) error {
-	val, err := observation.IntValue()
+	val, err := observation.Float64Value()
 	if err != nil {
 		return err
 	}
