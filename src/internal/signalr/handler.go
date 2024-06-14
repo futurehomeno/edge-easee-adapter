@@ -340,10 +340,6 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	}
 
 	outPhaseType := model.OutputPhaseType(val)
-	if outPhaseType.ToFimpState() == "" {
-		return nil
-	}
-
 	h.cache.SetOutputPhaseType(outPhaseType.ToFimpState())
 
 	chargepointSrv, err := h.getChargepointService()
