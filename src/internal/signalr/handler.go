@@ -58,6 +58,7 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		model.CloudConnected:        handler.handleCloudConnected,
 		model.CableLocked:           handler.handleCableLocked,
 		model.CableRating:           handler.handleCableRating,
+		model.LockCablePermanently:  handler.handleLockCablePermanently,
 	}
 
 	return &handler, nil
@@ -173,7 +174,7 @@ func (h *observationsHandler) handleCableLocked(observation model.Observation) e
 }
 
 func (h *observationsHandler) handleCableRating(observation model.Observation) error {
-	val, err := observation.Float64Value()
+	val, err := observation.IntValue()
 	if err != nil {
 		return err
 	}
@@ -339,6 +340,10 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	}
 
 	outPhaseType := model.OutputPhaseType(val)
+	if outPhaseType.ToFimpState() == "" {
+		return nil
+	}
+
 	h.cache.SetOutputPhaseType(outPhaseType.ToFimpState())
 
 	chargepointSrv, err := h.getChargepointService()
@@ -383,6 +388,17 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	_, err = h.thing.SendInclusionReport(false)
 
 	return err
+}
+
+func (h *observationsHandler) handleLockCablePermanently(observation model.Observation) error {
+	val, err := observation.BoolValue()
+	if err != nil {
+		return err
+	}
+
+	h.cache.SetCableAlwaysLocked(val)
+
+	return nil
 }
 
 func (h *observationsHandler) getChargepointService() (chargepoint.Service, error) {

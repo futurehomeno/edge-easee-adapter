@@ -13,6 +13,11 @@ type APIClient struct {
 	mock.Mock
 }
 
+func (_m *APIClient) SetCableAlwaysLockState(chargerID string, state bool) error {
+	//TODO implement me
+	panic("implement me")
+}
+
 func (_m *APIClient) ChargerDetails(chargerID string) (api.ChargerDetails, error) {
 	ret := _m.Called(chargerID)
 

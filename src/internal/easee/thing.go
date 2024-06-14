@@ -9,7 +9,7 @@ import (
 	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
-	"github.com/futurehomeno/cliffhanger/adapter/thing"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
@@ -85,22 +85,16 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	thingCache.SetPhaseMode(state.PhaseMode)
 
 	groups := []string{"ch_0"}
+	services := []adapter.Service{
+		t.newChargepointService(publisher, ad, thingState, groups, controller, state),
+		t.newMeterElecService(publisher, ad, thingState, groups, controller),
+		t.newParametersService(publisher, ad, thingState, groups, controller),
+	}
 
-	return thing.NewCarCharger(publisher, thingState, &thing.CarChargerConfig{
-		ThingConfig: &adapter.ThingConfig{
-			Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache),
-			InclusionReport: t.inclusionReport(info, thingState, groups),
-		},
-		ChargepointConfig: &chargepoint.Config{
-			Specification: t.chargepointSpecification(ad, thingState, groups, state),
-			Controller:    controller,
-		},
-		MeterElecConfig: &numericmeter.Config{
-			Specification:     t.meterElecSpecification(ad, thingState, groups),
-			Reporter:          controller,
-			ReportingStrategy: cliffCache.ReportAtLeastEvery(time.Minute),
-		},
-	}), nil
+	return adapter.NewThing(publisher, thingState, &adapter.ThingConfig{
+		Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache),
+		InclusionReport: t.inclusionReport(info, thingState, groups),
+	}, services...), nil
 }
 
 func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState, groups []string) *fimptype.ThingInclusionReport {
@@ -177,4 +171,70 @@ func (t *thingFactory) meterElecSpecification(adapter adapter.Adapter, thingStat
 			numericmeter.ValuePowerImport,
 		),
 	)
+}
+
+func (t *thingFactory) newChargepointService(
+	publisher adapter.ServicePublisher,
+	ad adapter.Adapter,
+	thingState adapter.ThingState,
+	groups []string,
+	controller Controller,
+	state *State,
+) adapter.Service {
+	return chargepoint.NewService(publisher, &chargepoint.Config{
+		Specification: t.chargepointSpecification(ad, thingState, groups, state),
+		Controller:    controller,
+	})
+}
+
+func (t *thingFactory) newMeterElecService(publisher adapter.ServicePublisher,
+	ad adapter.Adapter,
+	thingState adapter.ThingState,
+	groups []string,
+	controller Controller,
+) adapter.Service {
+	return numericmeter.NewService(publisher, &numericmeter.Config{
+		Specification:     t.meterElecSpecification(ad, thingState, groups),
+		Reporter:          controller,
+		ReportingStrategy: cliffCache.ReportAtLeastEvery(time.Minute),
+	})
+}
+
+func (t *thingFactory) newParametersService(publisher adapter.ServicePublisher,
+	ad adapter.Adapter,
+	thingState adapter.ThingState,
+	groups []string,
+	controller Controller,
+) adapter.Service {
+	return parameters.NewService(publisher, &parameters.Config{
+		Specification: t.parametersSpecification(ad, thingState, groups),
+		Controller:    controller,
+	})
+}
+
+func (t *thingFactory) parametersSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
+	return parameters.Specification(adapter.Name(), adapter.Address(), thingState.Address(), groups)
+}
+
+// parameterSpecificationCableAlwaysLocked returns parameter specification for the associated configuration option.
+func parameterSpecificationCableAlwaysLocked() *parameters.ParameterSpecification {
+	return &parameters.ParameterSpecification{
+		ID:          "cable_always_locked",
+		Name:        "Cable always locked",
+		Description: "Maintains locked cable at all times.",
+		ValueType:   parameters.ValueTypeBool,
+		WidgetType:  parameters.WidgetTypeSelect,
+		Options: parameters.SelectOptions{
+			{
+				Label: "Yes",
+				Value: true,
+			},
+			{
+				Label: "No",
+				Value: false,
+			},
+		},
+		DefaultValue: false,
+		ReadOnly:     false,
+	}
 }

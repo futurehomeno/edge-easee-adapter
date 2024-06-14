@@ -59,6 +59,8 @@ type HTTPClient interface {
 	Chargers(accessToken string) ([]model.Charger, error)
 	// ChargerDetails returns product's name.
 	ChargerDetails(accessToken string, chargerID string) (model.ChargerDetails, error)
+	// SetCableAlwaysLockState sets cable always lock state.
+	SetCableAlwaysLockState(accessToken string, chargerID string, state bool) error
 	// Ping checks if an external service is available.
 	Ping(accessToken string) error
 }
@@ -146,6 +148,28 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 	}
 
 	return loginData, nil
+}
+
+func (c *httpClient) SetCableAlwaysLockState(accessToken, chargerID string, state bool) error {
+	u := c.buildURL(cableLockURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodPost, u).
+		withBody(cableLockStateBody{state}).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return errors.Wrap(err, "failed to create cable lock state request")
+	}
+
+	resp, err := c.performRequest(req, http.StatusAccepted)
+	if err != nil {
+		return errors.Wrap(err, "set cable lock request failed")
+	}
+
+	defer resp.Body.Close()
+
+	return nil
 }
 
 func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current float64) error {

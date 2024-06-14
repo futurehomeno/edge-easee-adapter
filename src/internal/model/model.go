@@ -137,6 +137,7 @@ type ObservationID int
 
 const (
 	DetectedPowerGridType ObservationID = 21
+	LockCablePermanently  ObservationID = 30
 	PhaseMode             ObservationID = 38
 	MaxChargerCurrent     ObservationID = 47
 	DynamicChargerCurrent ObservationID = 48
@@ -183,6 +184,7 @@ func SupportedObservationIDs() []ObservationID {
 		CloudConnected,
 		CableLocked,
 		CableRating,
+		LockCablePermanently,
 	}
 }
 

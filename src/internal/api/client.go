@@ -23,6 +23,7 @@ type Client interface {
 	// Chargers returns all available chargers.
 	Chargers() ([]model.Charger, error)
 	ChargerDetails(chargerID string) (model.ChargerDetails, error)
+	SetCableAlwaysLockState(chargerID string, state bool) error
 	// Ping checks if an external service is available.
 	Ping() error
 }
@@ -46,6 +47,15 @@ func (a *apiClient) UpdateMaxCurrent(chargerID string, current float64) error {
 	}
 
 	return a.httpClient.UpdateMaxCurrent(token, chargerID, current)
+}
+
+func (a *apiClient) SetCableAlwaysLockState(chargerID string, state bool) error {
+	token, err := a.auth.AccessToken()
+	if err != nil {
+		return a.tokenError(err)
+	}
+
+	return a.httpClient.SetCableAlwaysLockState(token, chargerID, state)
 }
 
 func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) error {

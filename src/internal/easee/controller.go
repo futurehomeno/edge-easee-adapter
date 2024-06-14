@@ -10,6 +10,7 @@ import (
 	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -48,6 +49,7 @@ type Controller interface {
 	chargepoint.AdjustableMaxCurrentController
 	chargepoint.AdjustableOfferedCurrentController
 	chargepoint.AdjustableCableLockController
+	parameters.Controller
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
 	UpdateState(chargerID string, state *State) error
@@ -78,6 +80,35 @@ type controller struct {
 	cfgService              *config.Service
 	chargerID               string
 	chargeSessionsRefresher cliffCache.Refresher[model.ChargeSessions]
+}
+
+func (c *controller) SetParameter(p *parameters.Parameter) error {
+	if p.ID == "cable_always_locked" {
+		val, err := p.BoolValue()
+		if err != nil {
+			return err
+		}
+
+		return c.client.SetCableAlwaysLockState(c.chargerID, val)
+	}
+
+	return fmt.Errorf("parameter: %v not supported", p.ID)
+}
+
+func (c *controller) GetParameter(id string) (*parameters.Parameter, error) {
+	if id == "cable_always_locked" {
+		c.cache.CableAlwaysLocked()
+
+		return parameters.NewBoolParameter(id, c.cache.CableAlwaysLocked()), nil
+	}
+
+	return nil, fmt.Errorf("parameter: %v not supported", id)
+}
+
+func (c *controller) GetParameterSpecifications() ([]*parameters.ParameterSpecification, error) {
+	return []*parameters.ParameterSpecification{
+		parameterSpecificationCableAlwaysLocked(),
+	}, nil
 }
 
 func (c *controller) SetChargepointCableLock(_ bool) error {
