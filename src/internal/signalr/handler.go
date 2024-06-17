@@ -8,6 +8,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/thoas/go-funk"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
@@ -401,7 +402,14 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 
 	h.cache.SetCableAlwaysLocked(val)
 
-	return nil
+	parameterSrv, err := h.getParametersService()
+	if err != nil {
+		return err
+	}
+
+	_, err = parameterSrv.SendParameterReport("cable_always_locked", val)
+
+	return err
 }
 
 func (h *observationsHandler) getChargepointService() (chargepoint.Service, error) {
@@ -436,4 +444,14 @@ func (h *observationsHandler) ensureChargepointProps(srv chargepoint.Service, pr
 	}
 
 	return srv
+}
+
+func (h *observationsHandler) getParametersService() (parameters.Service, error) {
+	for _, service := range h.thing.Services(parameters.Parameters) {
+		if service, ok := service.(parameters.Service); ok {
+			return service, nil
+		}
+	}
+
+	return nil, errors.New("there are no meterelec services")
 }
