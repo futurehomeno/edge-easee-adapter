@@ -83,7 +83,7 @@ type controller struct {
 }
 
 func (c *controller) SetParameter(p *parameters.Parameter) error {
-	if p.ID == "cable_always_locked" {
+	if p.ID == model.CableAlwaysLockedParameter {
 		val, err := p.BoolValue()
 		if err != nil {
 			return err
@@ -96,7 +96,7 @@ func (c *controller) SetParameter(p *parameters.Parameter) error {
 }
 
 func (c *controller) GetParameter(id string) (*parameters.Parameter, error) {
-	if id == "cable_always_locked" {
+	if id == model.CableAlwaysLockedParameter {
 		c.cache.CableAlwaysLocked()
 
 		return parameters.NewBoolParameter(id, c.cache.CableAlwaysLocked()), nil

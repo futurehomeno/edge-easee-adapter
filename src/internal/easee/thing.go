@@ -219,7 +219,7 @@ func (t *thingFactory) parametersSpecification(adapter adapter.Adapter, thingSta
 // parameterSpecificationCableAlwaysLocked returns parameter specification for the associated configuration option.
 func parameterSpecificationCableAlwaysLocked() *parameters.ParameterSpecification {
 	return &parameters.ParameterSpecification{
-		ID:          "cable_always_locked",
+		ID:          model.CableAlwaysLockedParameter,
 		Name:        "Cable always locked",
 		Description: "Maintains locked cable at all times.",
 		ValueType:   parameters.ValueTypeBool,

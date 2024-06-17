@@ -407,7 +407,7 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 		return err
 	}
 
-	_, err = parameterSrv.SendParameterReport("cable_always_locked", val)
+	_, err = parameterSrv.SendParameterReport(model.CableAlwaysLockedParameter, val)
 
 	return err
 }

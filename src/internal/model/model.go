@@ -9,6 +9,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	CableAlwaysLockedParameter = "cable_always_locked"
+)
+
 // Credentials stands for Easee API credentials.
 type Credentials struct {
 	AccessToken  string   `json:"accessToken"`
