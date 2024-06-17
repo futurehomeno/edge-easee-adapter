@@ -14,6 +14,50 @@ type Cache struct {
 	mock.Mock
 }
 
+// CableAlwaysLocked provides a mock function with given fields:
+func (_m *Cache) CableAlwaysLocked() bool {
+	ret := _m.Called()
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// CableCurrent provides a mock function with given fields:
+func (_m *Cache) CableCurrent() *int64 {
+	ret := _m.Called()
+
+	var r0 *int64
+	if rf, ok := ret.Get(0).(func() *int64); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*int64)
+		}
+	}
+
+	return r0
+}
+
+// CableLocked provides a mock function with given fields:
+func (_m *Cache) CableLocked() bool {
+	ret := _m.Called()
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
 // ChargerState provides a mock function with given fields:
 func (_m *Cache) ChargerState() chargepoint.State {
 	ret := _m.Called()
@@ -37,6 +81,34 @@ func (_m *Cache) EnergySession() float64 {
 		r0 = rf()
 	} else {
 		r0 = ret.Get(0).(float64)
+	}
+
+	return r0
+}
+
+// GridType provides a mock function with given fields:
+func (_m *Cache) GridType() chargepoint.GridType {
+	ret := _m.Called()
+
+	var r0 chargepoint.GridType
+	if rf, ok := ret.Get(0).(func() chargepoint.GridType); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(chargepoint.GridType)
+	}
+
+	return r0
+}
+
+// HasOngoingChargingSession provides a mock function with given fields:
+func (_m *Cache) HasOngoingChargingSession() bool {
+	ret := _m.Called()
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
 	}
 
 	return r0
@@ -84,6 +156,20 @@ func (_m *Cache) OfferedCurrent() int64 {
 	return r0
 }
 
+// OutputPhaseType provides a mock function with given fields:
+func (_m *Cache) OutputPhaseType() chargepoint.PhaseMode {
+	ret := _m.Called()
+
+	var r0 chargepoint.PhaseMode
+	if rf, ok := ret.Get(0).(func() chargepoint.PhaseMode); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(chargepoint.PhaseMode)
+	}
+
+	return r0
+}
+
 // Phase1Current provides a mock function with given fields:
 func (_m *Cache) Phase1Current() float64 {
 	ret := _m.Called()
@@ -126,6 +212,34 @@ func (_m *Cache) Phase3Current() float64 {
 	return r0
 }
 
+// PhaseMode provides a mock function with given fields:
+func (_m *Cache) PhaseMode() int {
+	ret := _m.Called()
+
+	var r0 int
+	if rf, ok := ret.Get(0).(func() int); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	return r0
+}
+
+// Phases provides a mock function with given fields:
+func (_m *Cache) Phases() int {
+	ret := _m.Called()
+
+	var r0 int
+	if rf, ok := ret.Get(0).(func() int); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	return r0
+}
+
 // RequestedOfferedCurrent provides a mock function with given fields:
 func (_m *Cache) RequestedOfferedCurrent() int64 {
 	ret := _m.Called()
@@ -140,6 +254,21 @@ func (_m *Cache) RequestedOfferedCurrent() int64 {
 	return r0
 }
 
+// SetCableAlwaysLocked provides a mock function with given fields: val
+func (_m *Cache) SetCableAlwaysLocked(val bool) {
+	_m.Called(val)
+}
+
+// SetCableCurrent provides a mock function with given fields: current
+func (_m *Cache) SetCableCurrent(current int64) {
+	_m.Called(current)
+}
+
+// SetCableLocked provides a mock function with given fields: locked
+func (_m *Cache) SetCableLocked(locked bool) {
+	_m.Called(locked)
+}
+
 // SetChargerState provides a mock function with given fields: state
 func (_m *Cache) SetChargerState(state chargepoint.State) {
 	_m.Called(state)
@@ -148,6 +277,16 @@ func (_m *Cache) SetChargerState(state chargepoint.State) {
 // SetEnergySession provides a mock function with given fields: energy
 func (_m *Cache) SetEnergySession(energy float64) {
 	_m.Called(energy)
+}
+
+// SetGridType provides a mock function with given fields: gridType
+func (_m *Cache) SetGridType(gridType chargepoint.GridType) {
+	_m.Called(gridType)
+}
+
+// SetHasOngoingChargingSession provides a mock function with given fields: val
+func (_m *Cache) SetHasOngoingChargingSession(val bool) {
+	_m.Called(val)
 }
 
 // SetLifetimeEnergy provides a mock function with given fields: energy
@@ -165,6 +304,11 @@ func (_m *Cache) SetOfferedCurrent(current int64) {
 	_m.Called(current)
 }
 
+// SetOutputPhaseType provides a mock function with given fields: mode
+func (_m *Cache) SetOutputPhaseType(mode chargepoint.PhaseMode) {
+	_m.Called(mode)
+}
+
 // SetPhase1Current provides a mock function with given fields: current
 func (_m *Cache) SetPhase1Current(current float64) {
 	_m.Called(current)
@@ -178,6 +322,16 @@ func (_m *Cache) SetPhase2Current(current float64) {
 // SetPhase3Current provides a mock function with given fields: current
 func (_m *Cache) SetPhase3Current(current float64) {
 	_m.Called(current)
+}
+
+// SetPhaseMode provides a mock function with given fields: phaseMode
+func (_m *Cache) SetPhaseMode(phaseMode int) {
+	_m.Called(phaseMode)
+}
+
+// SetPhases provides a mock function with given fields: phases
+func (_m *Cache) SetPhases(phases int) {
+	_m.Called(phases)
 }
 
 // SetRequestedOfferedCurrent provides a mock function with given fields: current

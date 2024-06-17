@@ -83,26 +83,26 @@ type controller struct {
 }
 
 func (c *controller) SetParameter(p *parameters.Parameter) error {
-	if p.ID == model.CableAlwaysLockedParameter {
-		val, err := p.BoolValue()
-		if err != nil {
-			return err
-		}
-
-		return c.client.SetCableAlwaysLockState(c.chargerID, val)
+	if p.ID != model.CableAlwaysLockedParameter {
+		return fmt.Errorf("parameter: %v not supported", p.ID)
 	}
 
-	return fmt.Errorf("parameter: %v not supported", p.ID)
+	val, err := p.BoolValue()
+	if err != nil {
+		return err
+	}
+
+	return c.client.SetCableAlwaysLocked(c.chargerID, val)
 }
 
 func (c *controller) GetParameter(id string) (*parameters.Parameter, error) {
-	if id == model.CableAlwaysLockedParameter {
-		c.cache.CableAlwaysLocked()
-
-		return parameters.NewBoolParameter(id, c.cache.CableAlwaysLocked()), nil
+	if id != model.CableAlwaysLockedParameter {
+		return nil, fmt.Errorf("parameter: %v not supported", id)
 	}
 
-	return nil, fmt.Errorf("parameter: %v not supported", id)
+	c.cache.CableAlwaysLocked()
+
+	return parameters.NewBoolParameter(id, c.cache.CableAlwaysLocked()), nil
 }
 
 func (c *controller) GetParameterSpecifications() ([]*parameters.ParameterSpecification, error) {

@@ -202,9 +202,9 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 	h.cache.SetChargerState(chargerState.ToFimpState())
 	h.isStateOnline.Store(chargerState != model.ChargerStateOffline)
 
-	h.cache.SetIsSessionFinished(chargerState.IsSessionFinished())
+	h.cache.SetHasOngoingChargingSession(!chargerState.IsSessionFinished())
 
-	if h.cache.IsSessionFinished() {
+	if !h.cache.HasOngoingChargingSession() {
 		h.cache.SetRequestedOfferedCurrent(0)
 	}
 
@@ -344,7 +344,8 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 
 	outPhaseType := model.OutputPhaseType(val).ToFimpState()
 
-	if outPhaseType == "" && !h.cache.IsSessionFinished() {
+	// Charger sets outPhaseType parameter to "" if charger not charging, even if it has ongoing charging session.
+	if outPhaseType == "" && (h.cache.HasOngoingChargingSession() || h.cache.TotalPower() > 0) {
 		return nil
 	}
 
@@ -453,5 +454,5 @@ func (h *observationsHandler) getParametersService() (parameters.Service, error)
 		}
 	}
 
-	return nil, errors.New("there are no meterelec services")
+	return nil, errors.New("there are no parameters services")
 }

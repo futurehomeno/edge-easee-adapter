@@ -13,11 +13,6 @@ type APIClient struct {
 	mock.Mock
 }
 
-func (_m *APIClient) SetCableAlwaysLockState(chargerID string, state bool) error {
-	//TODO implement me
-	panic("implement me")
-}
-
 func (_m *APIClient) ChargerDetails(chargerID string) (api.ChargerDetails, error) {
 	ret := _m.Called(chargerID)
 
@@ -161,8 +156,8 @@ func (_m *APIClient) Ping() error {
 	return r0
 }
 
-// SetCableAlwaysLock provides a mock function with given fields: chargerID, locked
-func (_m *APIClient) SetCableAlwaysLock(chargerID string, locked bool) error {
+// SetCableAlwaysLocked provides a mock function with given fields: chargerID, locked
+func (_m *APIClient) SetCableAlwaysLocked(chargerID string, locked bool) error {
 	ret := _m.Called(chargerID, locked)
 
 	var r0 error

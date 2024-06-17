@@ -686,7 +686,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
-				Name: "Cable lock report",
+				Name: "Cable lock get report when cable is locked",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
