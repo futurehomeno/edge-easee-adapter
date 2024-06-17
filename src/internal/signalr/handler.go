@@ -201,7 +201,9 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 	h.cache.SetChargerState(chargerState.ToFimpState())
 	h.isStateOnline.Store(chargerState != model.ChargerStateOffline)
 
-	if chargerState.IsSessionFinished() {
+	h.cache.SetIsSessionFinished(chargerState.IsSessionFinished())
+
+	if h.cache.IsSessionFinished() {
 		h.cache.SetRequestedOfferedCurrent(0)
 	}
 
@@ -339,8 +341,13 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
-	outPhaseType := model.OutputPhaseType(val)
-	h.cache.SetOutputPhaseType(outPhaseType.ToFimpState())
+	outPhaseType := model.OutputPhaseType(val).ToFimpState()
+
+	if outPhaseType == "" && !h.cache.IsSessionFinished() {
+		return nil
+	}
+
+	h.cache.SetOutputPhaseType(outPhaseType)
 
 	chargepointSrv, err := h.getChargepointService()
 	if err != nil {

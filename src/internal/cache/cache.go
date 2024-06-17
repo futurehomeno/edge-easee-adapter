@@ -45,6 +45,7 @@ type Cache interface {
 	CableCurrent() *int64
 	// CableAlwaysLocked returns state of cable always locked parameter.
 	CableAlwaysLocked() bool
+	IsSessionFinished() bool
 
 	SetPhaseMode(phaseMode int)
 	SetChargerState(state chargepoint.State)
@@ -63,6 +64,7 @@ type Cache interface {
 	SetCableLocked(locked bool)
 	SetCableCurrent(current int64)
 	SetCableAlwaysLocked(val bool)
+	SetIsSessionFinished(val bool)
 
 	WaitForMaxCurrent(current int64, duration time.Duration) bool
 	WaitForOfferedCurrent(current int64, duration time.Duration) bool
@@ -88,8 +90,23 @@ type cache struct {
 	cableLocked             bool
 	cableCurrent            int64
 	cableAlwaysLocked       bool
+	isSessionFinished       bool
 
 	currentListeners map[waitGroup][]chan<- int64
+}
+
+func (c *cache) SetIsSessionFinished(val bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	c.isSessionFinished = val
+}
+
+func (c *cache) IsSessionFinished() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.isSessionFinished
 }
 
 func NewCache() Cache {
