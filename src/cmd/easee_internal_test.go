@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
@@ -681,6 +682,266 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 									chargepoint.PropertySupportedMaxCurrent: float64(32),
 								},
 								[]string{chargepoint.PropertyPhases, chargepoint.PropertyGridType, chargepoint.PropertySupportedPhaseModes}),
+						},
+					},
+				},
+			},
+			{
+				Name: "Cable lock get report when cable is locked",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeUnknown,
+							PhaseMode:             1,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeBoolean,
+								ID:        model.CableLocked,
+								Value:     "true",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeDouble,
+								ID:        model.CableRating,
+								Value:     "123",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.NullMessage(cmdDeviceChargepointTopic, "cmd.cable_lock.get_report", "chargepoint"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectBool(evtDeviceChargepointTopic, "evt.cable_lock.report", "chargepoint", true),
+						},
+					},
+				},
+			},
+			{
+				Name: "Error when user tries set cable lock",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeUnknown,
+							PhaseMode:             1,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeBoolean,
+								ID:        model.CableLocked,
+								Value:     "true",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeDouble,
+								ID:        model.CableRating,
+								Value:     "123",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.NullMessage(cmdDeviceChargepointTopic, "cmd.cable_lock.set", "chargepoint"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectError(evtDeviceChargepointTopic, "chargepoint"),
+						},
+					},
+				},
+			},
+			{
+				Name: "Get supported parameters",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeUnknown,
+							PhaseMode:             1,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeBoolean,
+								ID:        model.CableLocked,
+								Value:     "true",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeBoolean,
+								ID:        model.LockCablePermanently,
+								Value:     "true",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:parameters/ad:1", "cmd.sup_params.get_report", "parameters"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectObject("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:parameters/ad:1", "evt.sup_params.report", "parameters", []parameters.ParameterSpecification{{
+								ID:          "cable_always_locked",
+								Name:        "Cable always locked",
+								Description: "Maintains locked cable at all times.",
+								ValueType:   "bool",
+								WidgetType:  "select",
+								Options: parameters.SelectOptions{
+									parameters.SelectOption{
+										Label: "Yes",
+										Value: true,
+									},
+									parameters.SelectOption{
+										Label: "No",
+										Value: false,
+									},
+								},
+								DefaultValue: false,
+								ReadOnly:     false,
+							}}),
+						},
+					},
+				},
+			},
+			{
+				Name: "Get cable lock parameter report",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeUnknown,
+							PhaseMode:             1,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeBoolean,
+								ID:        model.CableLocked,
+								Value:     "true",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeBoolean,
+								ID:        model.LockCablePermanently,
+								Value:     "false",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:parameters/ad:1", "cmd.param.get_report", "parameters", "cable_always_locked"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectObject("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:parameters/ad:1", "evt.param.report", "parameters",
+								parameters.NewBoolParameter("cable_always_locked", false),
+							),
+						},
+					},
+				},
+			},
+			{
+				Name: "Get error for no supported parameter",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeUnknown,
+							PhaseMode:             1,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeBoolean,
+								ID:        model.CableLocked,
+								Value:     "true",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeBoolean,
+								ID:        model.LockCablePermanently,
+								Value:     "false",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:parameters/ad:1", "cmd.param.get_report", "parameters", "fake_param"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectError("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:parameters/ad:1", "parameters"),
 						},
 					},
 				},

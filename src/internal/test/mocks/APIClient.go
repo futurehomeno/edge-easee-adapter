@@ -156,8 +156,8 @@ func (_m *APIClient) Ping() error {
 	return r0
 }
 
-// SetCableAlwaysLock provides a mock function with given fields: chargerID, locked
-func (_m *APIClient) SetCableAlwaysLock(chargerID string, locked bool) error {
+// SetCableAlwaysLocked provides a mock function with given fields: chargerID, locked
+func (_m *APIClient) SetCableAlwaysLocked(chargerID string, locked bool) error {
 	ret := _m.Called(chargerID, locked)
 
 	var r0 error

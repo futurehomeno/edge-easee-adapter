@@ -28,3 +28,8 @@ type maxCurrentBody struct {
 type dynamicCurrentBody struct {
 	DynamicChargerCurrent float64 `json:"dynamicChargerCurrent"`
 }
+
+// cableLockStateBody represents a charger cable lock state request body.
+type cableLockStateBody struct {
+	State bool `json:"state"`
+}

@@ -8,6 +8,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/thoas/go-funk"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
@@ -56,6 +57,9 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		model.InCurrentT4:           handler.handleInCurrentT4,
 		model.InCurrentT5:           handler.handleInCurrentT5,
 		model.CloudConnected:        handler.handleCloudConnected,
+		model.CableLocked:           handler.handleCableLocked,
+		model.CableRating:           handler.handleCableRating,
+		model.LockCablePermanently:  handler.handleLockCablePermanently,
 	}
 
 	return &handler, nil
@@ -148,6 +152,42 @@ func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Obse
 	}
 
 	_, err = chargepointSrv.SendCurrentSessionReport(false)
+
+	return err
+}
+
+func (h *observationsHandler) handleCableLocked(observation model.Observation) error {
+	val, err := observation.BoolValue()
+	if err != nil {
+		return err
+	}
+
+	h.cache.SetCableLocked(val)
+
+	chargepointSrv, err := h.getChargepointService()
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendCableLockReport(false)
+
+	return err
+}
+
+func (h *observationsHandler) handleCableRating(observation model.Observation) error {
+	val, err := observation.IntValue()
+	if err != nil {
+		return err
+	}
+
+	h.cache.SetCableCurrent(int64(val))
+
+	chargepointSrv, err := h.getChargepointService()
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendCableLockReport(false)
 
 	return err
 }
@@ -300,8 +340,14 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
-	outPhaseType := model.OutputPhaseType(val)
-	h.cache.SetOutputPhaseType(outPhaseType.ToFimpState())
+	outPhaseType := model.OutputPhaseType(val).ToFimpState()
+
+	// Charger sets outPhaseType parameter to "" if charger not charging, even if it has ongoing charging session.
+	if outPhaseType == "" {
+		return nil
+	}
+
+	h.cache.SetOutputPhaseType(outPhaseType)
 
 	chargepointSrv, err := h.getChargepointService()
 	if err != nil {
@@ -347,6 +393,24 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	return err
 }
 
+func (h *observationsHandler) handleLockCablePermanently(observation model.Observation) error {
+	val, err := observation.BoolValue()
+	if err != nil {
+		return err
+	}
+
+	h.cache.SetCableAlwaysLocked(val)
+
+	parameterSrv, err := h.getParametersService()
+	if err != nil {
+		return err
+	}
+
+	_, err = parameterSrv.SendParameterReport(model.CableAlwaysLockedParameter, val)
+
+	return err
+}
+
 func (h *observationsHandler) getChargepointService() (chargepoint.Service, error) {
 	for _, service := range h.thing.Services(chargepoint.Chargepoint) {
 		if service, ok := service.(chargepoint.Service); ok {
@@ -379,4 +443,14 @@ func (h *observationsHandler) ensureChargepointProps(srv chargepoint.Service, pr
 	}
 
 	return srv
+}
+
+func (h *observationsHandler) getParametersService() (parameters.Service, error) {
+	for _, service := range h.thing.Services(parameters.Parameters) {
+		if service, ok := service.(parameters.Service); ok {
+			return service, nil
+		}
+	}
+
+	return nil, errors.New("there are no parameters services")
 }

@@ -10,6 +10,7 @@ import (
 	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -47,6 +48,8 @@ type Controller interface {
 	chargepoint.PhaseModeAwareController
 	chargepoint.AdjustableMaxCurrentController
 	chargepoint.AdjustableOfferedCurrentController
+	chargepoint.AdjustableCableLockController
+	parameters.Controller
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
 	UpdateState(chargerID string, state *State) error
@@ -77,6 +80,48 @@ type controller struct {
 	cfgService              *config.Service
 	chargerID               string
 	chargeSessionsRefresher cliffCache.Refresher[model.ChargeSessions]
+}
+
+func (c *controller) SetParameter(p *parameters.Parameter) error {
+	if p.ID != model.CableAlwaysLockedParameter {
+		return fmt.Errorf("parameter: %v not supported", p.ID)
+	}
+
+	val, err := p.BoolValue()
+	if err != nil {
+		return err
+	}
+
+	return c.client.SetCableAlwaysLocked(c.chargerID, val)
+}
+
+func (c *controller) GetParameter(id string) (*parameters.Parameter, error) {
+	if id != model.CableAlwaysLockedParameter {
+		return nil, fmt.Errorf("parameter: %v not supported", id)
+	}
+
+	return parameters.NewBoolParameter(id, c.cache.CableAlwaysLocked()), nil
+}
+
+func (c *controller) GetParameterSpecifications() ([]*parameters.ParameterSpecification, error) {
+	return []*parameters.ParameterSpecification{
+		parameterSpecificationCableAlwaysLocked(),
+	}, nil
+}
+
+func (c *controller) SetChargepointCableLock(_ bool) error {
+	return fmt.Errorf("SetChargepointCableLock not supported by Easee")
+}
+
+func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, error) {
+	if err := c.checkConnection(); err != nil {
+		return nil, err
+	}
+
+	return &chargepoint.CableReport{
+		CableLock:    c.cache.CableLocked(),
+		CableCurrent: c.cache.CableCurrent(),
+	}, nil
 }
 
 func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {

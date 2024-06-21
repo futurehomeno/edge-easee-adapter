@@ -39,6 +39,12 @@ type Cache interface {
 	GridType() chargepoint.GridType
 	// Phases return phases.
 	Phases() int
+	// CableLocked returns the cable locked state.
+	CableLocked() bool
+	// CableCurrent returns the cable max current.
+	CableCurrent() *int64
+	// CableAlwaysLocked returns state of cable always locked parameter.
+	CableAlwaysLocked() bool
 
 	SetPhaseMode(phaseMode int)
 	SetChargerState(state chargepoint.State)
@@ -54,6 +60,9 @@ type Cache interface {
 	SetOutputPhaseType(mode chargepoint.PhaseMode)
 	SetGridType(gridType chargepoint.GridType)
 	SetPhases(phases int)
+	SetCableLocked(locked bool)
+	SetCableCurrent(current int64)
+	SetCableAlwaysLocked(val bool)
 
 	WaitForMaxCurrent(current int64, duration time.Duration) bool
 	WaitForOfferedCurrent(current int64, duration time.Duration) bool
@@ -76,6 +85,9 @@ type cache struct {
 	outputPhase             chargepoint.PhaseMode
 	gridType                chargepoint.GridType
 	phase                   int
+	cableLocked             bool
+	cableCurrent            int64
+	cableAlwaysLocked       bool
 
 	currentListeners map[waitGroup][]chan<- int64
 }
@@ -182,6 +194,48 @@ func (c *cache) Phases() int {
 	defer c.mu.RUnlock()
 
 	return c.phase
+}
+
+func (c *cache) CableLocked() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.cableLocked
+}
+
+func (c *cache) CableCurrent() *int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return &c.cableCurrent
+}
+
+func (c *cache) CableAlwaysLocked() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.cableAlwaysLocked
+}
+
+func (c *cache) SetCableAlwaysLocked(val bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.cableAlwaysLocked = val
+}
+
+func (c *cache) SetCableLocked(locked bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.cableLocked = locked
+}
+
+func (c *cache) SetCableCurrent(current int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.cableCurrent = current
 }
 
 func (c *cache) SetPhaseMode(phaseMode int) {

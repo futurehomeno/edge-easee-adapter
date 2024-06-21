@@ -2,6 +2,7 @@ package routing
 
 import (
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/cliffhanger/app"
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
@@ -67,5 +68,6 @@ func New(
 		app.RouteApp(ServiceName, appLifecycle, cfgSrv, config.Factory, nil, application),
 		cliffAdapter.RouteAdapter(adapter),
 		thing.RouteCarCharger(adapter),
+		parameters.RouteService(adapter),
 	)
 }

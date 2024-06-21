@@ -9,6 +9,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	CableAlwaysLockedParameter = "cable_always_locked"
+)
+
 // Credentials stands for Easee API credentials.
 type Credentials struct {
 	AccessToken  string   `json:"accessToken"`
@@ -137,9 +141,11 @@ type ObservationID int
 
 const (
 	DetectedPowerGridType ObservationID = 21
+	LockCablePermanently  ObservationID = 30
 	PhaseMode             ObservationID = 38
 	MaxChargerCurrent     ObservationID = 47
 	DynamicChargerCurrent ObservationID = 48
+	CableLocked           ObservationID = 103
 	CableRating           ObservationID = 104
 	ChargerOPState        ObservationID = 109
 	OutputPhase           ObservationID = 110
@@ -180,6 +186,9 @@ func SupportedObservationIDs() []ObservationID {
 		InCurrentT4,
 		InCurrentT5,
 		CloudConnected,
+		CableLocked,
+		CableRating,
+		LockCablePermanently,
 	}
 }
 
@@ -288,7 +297,7 @@ func (s ChargerState) ToFimpState() chargepoint.State { //nolint:cyclop
 	case ChargerStateError:
 		return chargepoint.StateError
 	case ChargerStateReadyToCharge:
-		return chargepoint.StateRequesting
+		return chargepoint.StateSuspendedByEV
 	case ChargerStateAwaitingAuthentication:
 		return chargepoint.StateRequesting
 	case ChargerStateDeAuthenticating:
