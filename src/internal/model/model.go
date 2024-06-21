@@ -297,7 +297,7 @@ func (s ChargerState) ToFimpState() chargepoint.State { //nolint:cyclop
 	case ChargerStateError:
 		return chargepoint.StateError
 	case ChargerStateReadyToCharge:
-		return chargepoint.StateRequesting
+		return chargepoint.StateSuspendedByEV
 	case ChargerStateAwaitingAuthentication:
 		return chargepoint.StateRequesting
 	case ChargerStateDeAuthenticating:

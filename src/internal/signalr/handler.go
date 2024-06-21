@@ -202,9 +202,7 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 	h.cache.SetChargerState(chargerState.ToFimpState())
 	h.isStateOnline.Store(chargerState != model.ChargerStateOffline)
 
-	h.cache.SetHasOngoingChargingSession(!chargerState.IsSessionFinished())
-
-	if !h.cache.HasOngoingChargingSession() {
+	if chargerState.IsSessionFinished() {
 		h.cache.SetRequestedOfferedCurrent(0)
 	}
 
@@ -345,7 +343,7 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	outPhaseType := model.OutputPhaseType(val).ToFimpState()
 
 	// Charger sets outPhaseType parameter to "" if charger not charging, even if it has ongoing charging session.
-	if outPhaseType == "" && (h.cache.HasOngoingChargingSession() || h.cache.TotalPower() > 0) {
+	if outPhaseType == "" {
 		return nil
 	}
 

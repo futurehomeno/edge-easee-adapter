@@ -825,7 +825,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:parameters/ad:1", "cmd.sup_params.get_report", "parameters"),
 						Expectations: []*suite.Expectation{
-							suite.ExpectObject("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:parameters/ad:1", "evt.sup_params.report", "parameters", []parameters.ParameterSpecification{parameters.ParameterSpecification{
+							suite.ExpectObject("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:parameters/ad:1", "evt.sup_params.report", "parameters", []parameters.ParameterSpecification{{
 								ID:          "cable_always_locked",
 								Name:        "Cable always locked",
 								Description: "Maintains locked cable at all times.",
@@ -1156,18 +1156,4 @@ func ExpectInclusionReportWithChargepointProps(topic string, wanted map[string]a
 	}))
 
 	return e
-}
-
-type parameterValue struct {
-	ParameterId string `json:"parameter_id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	ValueType   string `json:"value_type"`
-	WidgetType  string `json:"widget_type"`
-	Options     []struct {
-		Label string `json:"label"`
-		Value bool   `json:"value"`
-	} `json:"options"`
-	DefaultValue bool `json:"default_value"`
-	ReadOnly     bool `json:"read_only"`
 }

@@ -100,8 +100,6 @@ func (c *controller) GetParameter(id string) (*parameters.Parameter, error) {
 		return nil, fmt.Errorf("parameter: %v not supported", id)
 	}
 
-	c.cache.CableAlwaysLocked()
-
 	return parameters.NewBoolParameter(id, c.cache.CableAlwaysLocked()), nil
 }
 

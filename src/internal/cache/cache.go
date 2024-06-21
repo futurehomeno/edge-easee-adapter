@@ -45,7 +45,6 @@ type Cache interface {
 	CableCurrent() *int64
 	// CableAlwaysLocked returns state of cable always locked parameter.
 	CableAlwaysLocked() bool
-	HasOngoingChargingSession() bool
 
 	SetPhaseMode(phaseMode int)
 	SetChargerState(state chargepoint.State)
@@ -64,7 +63,6 @@ type Cache interface {
 	SetCableLocked(locked bool)
 	SetCableCurrent(current int64)
 	SetCableAlwaysLocked(val bool)
-	SetHasOngoingChargingSession(val bool)
 
 	WaitForMaxCurrent(current int64, duration time.Duration) bool
 	WaitForOfferedCurrent(current int64, duration time.Duration) bool
@@ -73,24 +71,23 @@ type Cache interface {
 type cache struct {
 	mu sync.RWMutex
 
-	phaseMode                 int
-	chargerState              chargepoint.State
-	maxCurrent                int64
-	requestedOfferedCurrent   int64
-	offeredCurrent            int64
-	energySession             float64
-	totalPower                float64
-	lifetimeEnergy            float64
-	phase1Current             float64
-	phase2Current             float64
-	phase3Current             float64
-	outputPhase               chargepoint.PhaseMode
-	gridType                  chargepoint.GridType
-	phase                     int
-	cableLocked               bool
-	cableCurrent              int64
-	cableAlwaysLocked         bool
-	hasOngoingChargingSession bool
+	phaseMode               int
+	chargerState            chargepoint.State
+	maxCurrent              int64
+	requestedOfferedCurrent int64
+	offeredCurrent          int64
+	energySession           float64
+	totalPower              float64
+	lifetimeEnergy          float64
+	phase1Current           float64
+	phase2Current           float64
+	phase3Current           float64
+	outputPhase             chargepoint.PhaseMode
+	gridType                chargepoint.GridType
+	phase                   int
+	cableLocked             bool
+	cableCurrent            int64
+	cableAlwaysLocked       bool
 
 	currentListeners map[waitGroup][]chan<- int64
 }
@@ -218,20 +215,6 @@ func (c *cache) CableAlwaysLocked() bool {
 	defer c.mu.RUnlock()
 
 	return c.cableAlwaysLocked
-}
-
-func (c *cache) HasOngoingChargingSession() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	return c.hasOngoingChargingSession
-}
-
-func (c *cache) SetHasOngoingChargingSession(val bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	c.hasOngoingChargingSession = val
 }
 
 func (c *cache) SetCableAlwaysLocked(val bool) {
