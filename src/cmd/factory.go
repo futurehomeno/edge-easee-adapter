@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/event"
@@ -33,18 +34,20 @@ type serviceContainer struct {
 	lifecycle     *lifecycle.Lifecycle
 	mqtt          *fimpgo.MqttTransport
 
-	application     app.Application
-	manifestLoader  manifest.Loader
-	eventManager    event.Manager
-	adapter         adapter.Adapter
-	thingFactory    adapter.ThingFactory
-	adapterState    adapter.State
-	httpClient      *http.Client
-	easeeHTTPClient api.HTTPClient
-	easeeAPIClient  api.Client
-	authenticator   api.Authenticator
-	signalRClient   signalr.Client
-	signalRManager  signalr.Manager
+	application                     app.Application
+	manifestLoader                  manifest.Loader
+	eventManager                    event.Manager
+	adapter                         adapter.Adapter
+	thingFactory                    adapter.ThingFactory
+	adapterState                    adapter.State
+	httpClient                      *http.Client
+	easeeHTTPClient                 api.HTTPClient
+	easeeAPIClient                  api.Client
+	authenticator                   api.Authenticator
+	signalRClient                   signalr.Client
+	signalRManager                  signalr.Manager
+	inclusionReportSentEventHandler *event.Handler
+	eventListener                   event.Listener
 }
 
 func resetContainer() {
@@ -74,6 +77,27 @@ func getLifecycle() *lifecycle.Lifecycle {
 	}
 
 	return services.lifecycle
+}
+
+// getEventListener creates or returns existing event listener service.
+func getEventListener(cfg *config.Config) event.Listener {
+	if services.eventListener == nil {
+		services.eventListener = event.NewListener(
+			getEventManager(cfg),
+			getInclusionReportSentEventHandler(cfg),
+		)
+	}
+
+	return services.eventListener
+}
+
+// getInclusionReportSentEventHandler creates or returns existing schedule listener.
+func getInclusionReportSentEventHandler(cfg *config.Config) *event.Handler {
+	if services.inclusionReportSentEventHandler == nil {
+		services.inclusionReportSentEventHandler = parameters.NewInclusionReportSentEventHandler(getAdapter(cfg))
+	}
+
+	return services.inclusionReportSentEventHandler
 }
 
 // getMQTT creates or returns existing MQTT broker service.
