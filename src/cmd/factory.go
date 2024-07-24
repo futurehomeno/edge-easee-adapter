@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/event"
@@ -45,6 +46,7 @@ type serviceContainer struct {
 	authenticator   api.Authenticator
 	signalRClient   signalr.Client
 	signalRManager  signalr.Manager
+	eventListener   event.Listener
 }
 
 func resetContainer() {
@@ -74,6 +76,18 @@ func getLifecycle() *lifecycle.Lifecycle {
 	}
 
 	return services.lifecycle
+}
+
+// getEventListener creates or returns existing event listener service.
+func getEventListener(cfg *config.Config) event.Listener {
+	if services.eventListener == nil {
+		services.eventListener = event.NewListener(
+			getEventManager(cfg),
+			parameters.NewInclusionReportSentEventHandler(getAdapter(cfg)),
+		)
+	}
+
+	return services.eventListener
 }
 
 // getMQTT creates or returns existing MQTT broker service.

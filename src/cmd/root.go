@@ -45,6 +45,6 @@ func Build(cfg *config.Config) (root.App, error) {
 		).
 		WithRouting(newRouting(cfg)...).
 		WithTask(newTasks(cfg)...).
-		WithServices(getSignalRManager(cfg)).
+		WithServices(getSignalRManager(cfg), getEventListener(cfg)).
 		Build()
 }

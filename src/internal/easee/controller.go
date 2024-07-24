@@ -48,7 +48,7 @@ type Controller interface {
 	chargepoint.PhaseModeAwareController
 	chargepoint.AdjustableMaxCurrentController
 	chargepoint.AdjustableOfferedCurrentController
-	chargepoint.AdjustableCableLockController
+	chargepoint.CableLockAwareController
 	parameters.Controller
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
@@ -107,10 +107,6 @@ func (c *controller) GetParameterSpecifications() ([]*parameters.ParameterSpecif
 	return []*parameters.ParameterSpecification{
 		parameterSpecificationCableAlwaysLocked(),
 	}, nil
-}
-
-func (c *controller) SetChargepointCableLock(_ bool) error {
-	return fmt.Errorf("SetChargepointCableLock not supported by Easee")
 }
 
 func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, error) {

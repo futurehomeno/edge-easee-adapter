@@ -946,6 +946,72 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					},
 				},
 			},
+			{
+				Name: "Get supported parameters report after inclusion report",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeUnknown,
+							PhaseMode:             1,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeBoolean,
+								ID:        model.CableLocked,
+								Value:     "true",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeBoolean,
+								ID:        model.LockCablePermanently,
+								Value:     "false",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.StringMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.thing.get_inclusion_report", "easee", "1"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectObject("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:parameters/ad:1", "evt.sup_params.report", "parameters", []parameters.ParameterSpecification{{
+								ID:          "cable_always_locked",
+								Name:        "Cable always locked",
+								Description: "Maintains locked cable at all times.",
+								ValueType:   "bool",
+								WidgetType:  "select",
+								Options: parameters.SelectOptions{
+									parameters.SelectOption{
+										Label: "Yes",
+										Value: true,
+									},
+									parameters.SelectOption{
+										Label: "No",
+										Value: false,
+									},
+								},
+								DefaultValue: false,
+								ReadOnly:     false,
+							}}),
+						},
+					},
+				},
+			},
 		},
 	}
 
