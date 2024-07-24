@@ -34,20 +34,19 @@ type serviceContainer struct {
 	lifecycle     *lifecycle.Lifecycle
 	mqtt          *fimpgo.MqttTransport
 
-	application                     app.Application
-	manifestLoader                  manifest.Loader
-	eventManager                    event.Manager
-	adapter                         adapter.Adapter
-	thingFactory                    adapter.ThingFactory
-	adapterState                    adapter.State
-	httpClient                      *http.Client
-	easeeHTTPClient                 api.HTTPClient
-	easeeAPIClient                  api.Client
-	authenticator                   api.Authenticator
-	signalRClient                   signalr.Client
-	signalRManager                  signalr.Manager
-	inclusionReportSentEventHandler *event.Handler
-	eventListener                   event.Listener
+	application     app.Application
+	manifestLoader  manifest.Loader
+	eventManager    event.Manager
+	adapter         adapter.Adapter
+	thingFactory    adapter.ThingFactory
+	adapterState    adapter.State
+	httpClient      *http.Client
+	easeeHTTPClient api.HTTPClient
+	easeeAPIClient  api.Client
+	authenticator   api.Authenticator
+	signalRClient   signalr.Client
+	signalRManager  signalr.Manager
+	eventListener   event.Listener
 }
 
 func resetContainer() {
@@ -84,20 +83,11 @@ func getEventListener(cfg *config.Config) event.Listener {
 	if services.eventListener == nil {
 		services.eventListener = event.NewListener(
 			getEventManager(cfg),
-			getInclusionReportSentEventHandler(cfg),
+			parameters.NewInclusionReportSentEventHandler(getAdapter(cfg)),
 		)
 	}
 
 	return services.eventListener
-}
-
-// getInclusionReportSentEventHandler creates or returns existing schedule listener.
-func getInclusionReportSentEventHandler(cfg *config.Config) *event.Handler {
-	if services.inclusionReportSentEventHandler == nil {
-		services.inclusionReportSentEventHandler = parameters.NewInclusionReportSentEventHandler(getAdapter(cfg))
-	}
-
-	return services.inclusionReportSentEventHandler
 }
 
 // getMQTT creates or returns existing MQTT broker service.
