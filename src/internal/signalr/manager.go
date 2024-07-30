@@ -134,11 +134,11 @@ func (m *manager) Unregister(chargerID string) error {
 		return nil
 	}
 
+	delete(m.chargers, chargerID)
+
 	if err := m.client.UnsubscribeCharger(chargerID); err != nil {
 		return err
 	}
-
-	delete(m.chargers, chargerID)
 
 	if len(m.chargers) == 0 {
 		if err := m.client.Close(); err != nil {
