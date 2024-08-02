@@ -3,12 +3,15 @@ package signalr
 import (
 	"errors"
 	"math"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
+	log "github.com/sirupsen/logrus"
 	"github.com/thoas/go-funk"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
@@ -29,15 +32,20 @@ type observationsHandler struct {
 	handlers map[model.ObservationID]func(model.Observation) error
 	thing    adapter.Thing
 
-	isCloudOnline atomic.Bool
-	isStateOnline atomic.Bool
+	lock                  sync.RWMutex
+	timer                 *time.Timer
+	energyObservationChan chan model.Observation
+	isCloudOnline         atomic.Bool
+	isStateOnline         atomic.Bool
 }
 
 // NewObservationsHandler creates new observation handler.
 func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, error) {
 	handler := observationsHandler{
-		cache: cache,
-		thing: thing,
+		cache:                 cache,
+		thing:                 thing,
+		energyObservationChan: make(chan model.Observation, 10),
+		timer:                 time.NewTimer(1 * time.Minute),
 	}
 
 	handler.isCloudOnline.Store(true)
@@ -62,7 +70,44 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		model.LockCablePermanently:  handler.handleLockCablePermanently,
 	}
 
+	go handler.manageEnergyObservation()
+
 	return &handler, nil
+}
+
+func (h *observationsHandler) manageEnergyObservation() {
+	meterElecSrv, err := h.getMeterElecService()
+	if err != nil {
+		log.Error(err)
+	}
+
+	var prevValue model.Observation
+
+	select {
+	case val := <-h.energyObservationChan:
+		if val.Timestamp.Before(prevValue.Timestamp) {
+			return
+		}
+
+		v, err := val.Float64Value()
+		if err != nil {
+			log.WithError(err)
+		}
+
+		h.cache.SetLifetimeEnergy(v)
+
+	case <-h.timer.C:
+		_, err = meterElecSrv.SendMeterReport(numericmeter.UnitKWh, false)
+		if err != nil {
+			log.Error(err)
+		}
+
+		_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
+		if err != nil {
+			log.Error(err)
+		}
+	}
+
 }
 
 func (h *observationsHandler) IsOnline() bool {
@@ -247,17 +292,7 @@ func (h *observationsHandler) handleLifetimeEnergy(observation model.Observation
 
 	h.cache.SetLifetimeEnergy(val)
 
-	meterElecSrv, err := h.getMeterElecService()
-	if err != nil {
-		return err
-	}
-
-	_, err = meterElecSrv.SendMeterReport(numericmeter.UnitKWh, false)
-	if err != nil {
-		return err
-	}
-
-	_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
+	h.energyObservationChan <- observation
 
 	return err
 }
