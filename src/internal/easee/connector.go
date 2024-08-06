@@ -28,7 +28,6 @@ func NewConnector(manager signalr.Manager, httpClient api.Client, chargerID stri
 
 func (c *connector) Connect(thing adapter.Thing) {
 	handler, err := signalr.NewObservationsHandler(thing, c.cache)
-
 	if err != nil {
 		log.WithError(err).Error("failed to create signalRManager callbacks")
 

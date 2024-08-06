@@ -1,6 +1,7 @@
 package signalr
 
 import (
+	"context"
 	"errors"
 	"math"
 	"sync"
@@ -35,6 +36,8 @@ type observationsHandler struct {
 	lock                  sync.RWMutex
 	timer                 *time.Timer
 	energyObservationChan chan model.Observation
+	ctx                   context.Context
+	cancel                context.CancelFunc
 	isCloudOnline         atomic.Bool
 	isStateOnline         atomic.Bool
 }
@@ -45,9 +48,10 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		cache:                 cache,
 		thing:                 thing,
 		energyObservationChan: make(chan model.Observation, 10),
-		timer:                 time.NewTimer(1 * time.Minute),
+		timer:                 time.NewTimer(1 * time.Hour),
 	}
 
+	handler.ctx, handler.cancel = context.WithCancel(context.Background())
 	handler.isCloudOnline.Store(true)
 	handler.isStateOnline.Store(true)
 
@@ -83,31 +87,38 @@ func (h *observationsHandler) manageEnergyObservation() {
 
 	var prevValue model.Observation
 
-	select {
-	case val := <-h.energyObservationChan:
-		if val.Timestamp.Before(prevValue.Timestamp) {
+	for {
+		select {
+		case val := <-h.energyObservationChan:
+			h.lock.Lock()
+
+			if val.Timestamp.Before(prevValue.Timestamp) {
+				return
+			}
+
+			v, err := val.Float64Value()
+			if err != nil {
+				log.WithError(err)
+			}
+
+			h.cache.SetLifetimeEnergy(v)
+			h.lock.Unlock()
+
+		case <-h.timer.C:
+			_, err = meterElecSrv.SendMeterReport(numericmeter.UnitKWh, false)
+			if err != nil {
+				log.Error(err)
+			}
+
+			_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
+			if err != nil {
+				log.Error(err)
+			}
+
+		case <-h.ctx.Done():
 			return
 		}
-
-		v, err := val.Float64Value()
-		if err != nil {
-			log.WithError(err)
-		}
-
-		h.cache.SetLifetimeEnergy(v)
-
-	case <-h.timer.C:
-		_, err = meterElecSrv.SendMeterReport(numericmeter.UnitKWh, false)
-		if err != nil {
-			log.Error(err)
-		}
-
-		_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
-		if err != nil {
-			log.Error(err)
-		}
 	}
-
 }
 
 func (h *observationsHandler) IsOnline() bool {
