@@ -1,7 +1,6 @@
 package signalr
 
 import (
-	"context"
 	"errors"
 	"math"
 	"sync"
@@ -36,10 +35,14 @@ type observationsHandler struct {
 	lock                  sync.RWMutex
 	timer                 *time.Timer
 	energyObservationChan chan model.Observation
-	ctx                   context.Context
-	cancel                context.CancelFunc
 	isCloudOnline         atomic.Bool
 	isStateOnline         atomic.Bool
+	energy                energyObservation
+}
+
+type energyObservation struct {
+	value     float64
+	timeStamp time.Time
 }
 
 // NewObservationsHandler creates new observation handler.
@@ -48,10 +51,9 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		cache:                 cache,
 		thing:                 thing,
 		energyObservationChan: make(chan model.Observation, 10),
-		timer:                 time.NewTimer(1 * time.Hour),
+		timer:                 time.NewTimer(30 * time.Second),
 	}
 
-	handler.ctx, handler.cancel = context.WithCancel(context.Background())
 	handler.isCloudOnline.Store(true)
 	handler.isStateOnline.Store(true)
 
@@ -74,48 +76,44 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		model.LockCablePermanently:  handler.handleLockCablePermanently,
 	}
 
-	go handler.manageEnergyObservation()
-
 	return &handler, nil
 }
 
-func (h *observationsHandler) manageEnergyObservation() {
-	meterElecSrv, err := h.getMeterElecService()
-	if err != nil {
-		log.Error(err)
-	}
-
-	var prevValue model.Observation
+func (h *observationsHandler) manageEnergyObservation(meterElecSrv numericmeter.Service) {
 
 	for {
 		select {
 		case val := <-h.energyObservationChan:
 			h.lock.Lock()
-
-			if val.Timestamp.Before(prevValue.Timestamp) {
-				return
-			}
-
 			v, err := val.Float64Value()
 			if err != nil {
 				log.WithError(err)
 			}
 
-			h.cache.SetLifetimeEnergy(v)
+			h.energy = energyObservation{
+				value:     v,
+				timeStamp: val.Timestamp,
+			}
+
 			h.lock.Unlock()
 
 		case <-h.timer.C:
-			_, err = meterElecSrv.SendMeterReport(numericmeter.UnitKWh, false)
+			h.lock.RLock()
+			h.cache.SetLifetimeEnergy(h.energy.value)
+			h.lock.RUnlock()
+
+			_, err := meterElecSrv.SendMeterReport(numericmeter.UnitKWh, false)
 			if err != nil {
 				log.Error(err)
+				return
 			}
 
 			_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
 			if err != nil {
 				log.Error(err)
+				return
 			}
 
-		case <-h.ctx.Done():
 			return
 		}
 	}
@@ -296,12 +294,14 @@ func (h *observationsHandler) handleTotalPower(observation model.Observation) er
 }
 
 func (h *observationsHandler) handleLifetimeEnergy(observation model.Observation) error {
-	val, err := observation.Float64Value()
+	meterElecSrv, err := h.getMeterElecService()
 	if err != nil {
 		return err
 	}
 
-	h.cache.SetLifetimeEnergy(val)
+	if observation.Timestamp.Truncate(1*time.Hour) != h.energy.timeStamp {
+		go h.manageEnergyObservation(meterElecSrv)
+	}
 
 	h.energyObservationChan <- observation
 
