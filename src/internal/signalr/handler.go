@@ -299,7 +299,7 @@ func (h *observationsHandler) handleLifetimeEnergy(observation model.Observation
 		return err
 	}
 
-	if observation.Timestamp.Truncate(1*time.Hour) != h.energy.timeStamp {
+	if observation.Timestamp.Truncate(1*time.Hour) != h.energy.timeStamp.Truncate(1*time.Hour) {
 		go h.manageEnergyObservation(meterElecSrv)
 	}
 
