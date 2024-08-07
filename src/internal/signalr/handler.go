@@ -15,6 +15,7 @@ import (
 	"github.com/thoas/go-funk"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
@@ -28,30 +29,21 @@ type Handler interface {
 }
 
 type observationsHandler struct {
-	cache    cache.Cache
-	handlers map[model.ObservationID]func(model.Observation) error
-	thing    adapter.Thing
+	cache         cache.Cache
+	handlers      map[model.ObservationID]func(model.Observation) error
+	thing         adapter.Thing
+	energyHandler *energyHandler
 
-	lock                  sync.RWMutex
-	timer                 *time.Timer
-	energyObservationChan chan model.Observation
-	isCloudOnline         atomic.Bool
-	isStateOnline         atomic.Bool
-	energy                energyObservation
-}
-
-type energyObservation struct {
-	value     float64
-	timeStamp time.Time
+	isCloudOnline atomic.Bool
+	isStateOnline atomic.Bool
 }
 
 // NewObservationsHandler creates new observation handler.
-func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, error) {
+func NewObservationsHandler(thing adapter.Thing, cache cache.Cache, confSrv *config.Service) (Handler, error) {
 	handler := observationsHandler{
-		cache:                 cache,
-		thing:                 thing,
-		energyObservationChan: make(chan model.Observation, 10),
-		timer:                 time.NewTimer(30 * time.Second),
+		cache:         cache,
+		thing:         thing,
+		energyHandler: newEnergyHandler(cache, thing, confSrv),
 	}
 
 	handler.isCloudOnline.Store(true)
@@ -65,7 +57,7 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		model.ChargerOPState:        handler.handleChargerState,
 		model.OutputPhase:           handler.handleOutPhase,
 		model.TotalPower:            handler.handleTotalPower,
-		model.LifetimeEnergy:        handler.handleLifetimeEnergy,
+		model.LifetimeEnergy:        handler.energyHandler.handle,
 		model.EnergySession:         handler.handleEnergySession,
 		model.InCurrentT3:           handler.handleInCurrentT3,
 		model.InCurrentT4:           handler.handleInCurrentT4,
@@ -77,46 +69,6 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	}
 
 	return &handler, nil
-}
-
-func (h *observationsHandler) manageEnergyObservation(meterElecSrv numericmeter.Service) {
-
-	for {
-		select {
-		case val := <-h.energyObservationChan:
-			h.lock.Lock()
-			v, err := val.Float64Value()
-			if err != nil {
-				log.WithError(err)
-			}
-
-			h.energy = energyObservation{
-				value:     v,
-				timeStamp: val.Timestamp,
-			}
-
-			h.lock.Unlock()
-
-		case <-h.timer.C:
-			h.lock.RLock()
-			h.cache.SetLifetimeEnergy(h.energy.value)
-			h.lock.RUnlock()
-
-			_, err := meterElecSrv.SendMeterReport(numericmeter.UnitKWh, false)
-			if err != nil {
-				log.Error(err)
-				return
-			}
-
-			_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
-			if err != nil {
-				log.Error(err)
-				return
-			}
-
-			return
-		}
-	}
 }
 
 func (h *observationsHandler) IsOnline() bool {
@@ -143,7 +95,7 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 
 	h.cache.SetPhaseMode(val)
 
-	service, err := h.getChargepointService()
+	service, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -170,7 +122,7 @@ func (h *observationsHandler) handleMaxChargerCurrent(observation model.Observat
 	current := int64(math.Round(val))
 	h.cache.SetMaxCurrent(current)
 
-	chargepointSrv, err := h.getChargepointService()
+	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -200,7 +152,7 @@ func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Obse
 	current := int64(math.Round(val))
 	h.cache.SetOfferedCurrent(current)
 
-	chargepointSrv, err := h.getChargepointService()
+	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -218,7 +170,7 @@ func (h *observationsHandler) handleCableLocked(observation model.Observation) e
 
 	h.cache.SetCableLocked(val)
 
-	chargepointSrv, err := h.getChargepointService()
+	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -236,7 +188,7 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 
 	h.cache.SetCableCurrent(int64(val))
 
-	chargepointSrv, err := h.getChargepointService()
+	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -260,7 +212,7 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		h.cache.SetRequestedOfferedCurrent(0)
 	}
 
-	chargepointSrv, err := h.getChargepointService()
+	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -278,7 +230,7 @@ func (h *observationsHandler) handleTotalPower(observation model.Observation) er
 
 	h.cache.SetTotalPower(val * 1000)
 
-	meterElecSrv, err := h.getMeterElecService()
+	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -293,21 +245,6 @@ func (h *observationsHandler) handleTotalPower(observation model.Observation) er
 	return err
 }
 
-func (h *observationsHandler) handleLifetimeEnergy(observation model.Observation) error {
-	meterElecSrv, err := h.getMeterElecService()
-	if err != nil {
-		return err
-	}
-
-	if observation.Timestamp.Truncate(1*time.Hour) != h.energy.timeStamp.Truncate(1*time.Hour) {
-		go h.manageEnergyObservation(meterElecSrv)
-	}
-
-	h.energyObservationChan <- observation
-
-	return err
-}
-
 func (h *observationsHandler) handleEnergySession(observation model.Observation) error {
 	val, err := observation.Float64Value()
 	if err != nil {
@@ -316,7 +253,7 @@ func (h *observationsHandler) handleEnergySession(observation model.Observation)
 
 	h.cache.SetEnergySession(val)
 
-	chargepointSrv, err := h.getChargepointService()
+	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -334,7 +271,7 @@ func (h *observationsHandler) handleInCurrentT3(observation model.Observation) e
 
 	h.cache.SetPhase1Current(val)
 
-	meterElecSrv, err := h.getMeterElecService()
+	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -352,7 +289,7 @@ func (h *observationsHandler) handleInCurrentT4(observation model.Observation) e
 
 	h.cache.SetPhase2Current(val)
 
-	meterElecSrv, err := h.getMeterElecService()
+	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -370,7 +307,7 @@ func (h *observationsHandler) handleInCurrentT5(observation model.Observation) e
 
 	h.cache.SetPhase3Current(val)
 
-	meterElecSrv, err := h.getMeterElecService()
+	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -395,7 +332,7 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 
 	h.cache.SetOutputPhaseType(outPhaseType)
 
-	chargepointSrv, err := h.getChargepointService()
+	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -419,7 +356,7 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	h.cache.SetGridType(supportedGridType)
 	h.cache.SetPhases(supportedPhases)
 
-	service, err := h.getChargepointService()
+	service, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -447,7 +384,7 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 
 	h.cache.SetCableAlwaysLocked(val)
 
-	parameterSrv, err := h.getParametersService()
+	parameterSrv, err := getParametersService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -455,26 +392,6 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 	_, err = parameterSrv.SendParameterReport(model.CableAlwaysLockedParameter, val)
 
 	return err
-}
-
-func (h *observationsHandler) getChargepointService() (chargepoint.Service, error) {
-	for _, service := range h.thing.Services(chargepoint.Chargepoint) {
-		if service, ok := service.(chargepoint.Service); ok {
-			return service, nil
-		}
-	}
-
-	return nil, errors.New("there are no chargepoint services")
-}
-
-func (h *observationsHandler) getMeterElecService() (numericmeter.Service, error) {
-	for _, service := range h.thing.Services(numericmeter.MeterElec) {
-		if service, ok := service.(numericmeter.Service); ok {
-			return service, nil
-		}
-	}
-
-	return nil, errors.New("there are no meterelec services")
 }
 
 func (h *observationsHandler) ensureChargepointProps(srv chargepoint.Service, props map[string]interface{}) chargepoint.Service {
@@ -491,12 +408,127 @@ func (h *observationsHandler) ensureChargepointProps(srv chargepoint.Service, pr
 	return srv
 }
 
-func (h *observationsHandler) getParametersService() (parameters.Service, error) {
-	for _, service := range h.thing.Services(parameters.Parameters) {
+type energyHandler struct {
+	cache                 cache.Cache
+	thing                 adapter.Thing
+	lock                  sync.Mutex
+	confSrv               *config.Service
+	energyObservationChan chan model.Observation
+}
+
+func newEnergyHandler(cache cache.Cache, thing adapter.Thing, confSrv *config.Service) *energyHandler {
+	return &energyHandler{
+		cache:   cache,
+		thing:   thing,
+		confSrv: confSrv,
+		lock:    sync.Mutex{},
+	}
+}
+
+func (h *energyHandler) handle(observation model.Observation) error {
+	observationTime := observation.Timestamp.Truncate(time.Hour)
+	lastReadingTime := h.cache.LifetimeEnergy().Timestamp.Truncate(time.Hour)
+
+	if !observationTime.After(lastReadingTime) {
+		return nil
+	}
+
+	if h.energyObservationChan == nil {
+		h.lock.Lock()
+		h.energyObservationChan = make(chan model.Observation, 10)
+		h.lock.Unlock()
+
+		go h.manageEnergyObservation()
+	}
+
+	h.energyObservationChan <- observation
+
+	return nil
+}
+
+func (h *energyHandler) manageEnergyObservation() {
+	defer func() {
+		h.lock.Lock()
+		defer h.lock.Unlock()
+
+		h.energyObservationChan = nil
+	}()
+
+	timer := time.NewTimer(h.confSrv.GetEnergyLifetimeInterval())
+	defer timer.Stop()
+
+	energy := model.TimestampedValue[float64]{}
+
+	for {
+		select {
+		case val := <-h.energyObservationChan:
+			v, err := val.Float64Value()
+			if err != nil {
+				log.WithError(err)
+			}
+
+			if val.Timestamp.Before(energy.Timestamp) {
+				continue
+			}
+
+			energy.Value = v
+			energy.Timestamp = val.Timestamp
+
+		case <-timer.C:
+			h.cache.SetLifetimeEnergy(energy)
+
+			meterElecSrv, err := getMeterElecService(h.thing)
+			if err != nil {
+				log.WithField("thing-address", h.thing.Address()).WithError(err).Error("lifetime energy handler: failed to get meter elec service")
+
+				return
+			}
+
+			_, err = meterElecSrv.SendMeterReport(numericmeter.UnitKWh, false)
+			if err != nil {
+				log.WithField("thing-address", h.thing.Address()).WithError(err).Error("lifetime energy handler: failed to send meter report")
+
+				return
+			}
+
+			_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
+			if err != nil {
+				log.WithField("thing-address", h.thing.Address()).WithError(err).Error("lifetime energy handler: failed to send meter extend report")
+
+				return
+			}
+
+			return
+		}
+	}
+}
+
+func getParametersService(thing adapter.Thing) (parameters.Service, error) {
+	for _, service := range thing.Services(parameters.Parameters) {
 		if service, ok := service.(parameters.Service); ok {
 			return service, nil
 		}
 	}
 
 	return nil, errors.New("there are no parameters services")
+}
+
+func getChargepointService(thing adapter.Thing) (chargepoint.Service, error) {
+	for _, service := range thing.Services(chargepoint.Chargepoint) {
+		if service, ok := service.(chargepoint.Service); ok {
+			return service, nil
+		}
+	}
+
+	return nil, errors.New("there are no chargepoint services")
+}
+
+func getMeterElecService(thing adapter.Thing) (numericmeter.Service, error) {
+	for _, service := range thing.Services(numericmeter.MeterElec) {
+		if service, ok := service.(numericmeter.Service); ok {
+			return service, nil
+		}
+	}
+
+	return nil, errors.New("there are no meterelec services")
 }

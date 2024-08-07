@@ -22,6 +22,7 @@ type Config struct {
 	SignalR                      SignalR    `json:"signalR"`
 	Backoff                      BackoffCfg `json:"backoff"`
 	OfferedCurrentWaitTime       string     `json:"offered_current_wait_time"`
+	EnergyLifetimeInterval       string     `json:"energyLifetimeInterval"`
 }
 
 // New creates new instance of a configuration object.
@@ -129,6 +130,27 @@ func (cs *Service) SetEaseeBaseURL(url string) error {
 
 	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
 	cs.Storage.Model().EaseeBaseURL = url
+
+	return cs.Storage.Save()
+}
+
+// GetEnergyLifetimeInterval allows to safely access a configuration setting.
+func (cs *Service) GetEnergyLifetimeInterval() time.Duration {
+	duration, err := time.ParseDuration(cs.Storage.Model().EnergyLifetimeInterval)
+	if err != nil {
+		return 30 * time.Second
+	}
+
+	return duration
+}
+
+// SetEnergyLifetimeInterval allows to safely set and persist configuration settings.
+func (cs *Service) SetEnergyLifetimeInterval(interval time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().EnergyLifetimeInterval = interval.String()
 
 	return cs.Storage.Save()
 }
