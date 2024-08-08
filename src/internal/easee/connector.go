@@ -6,28 +6,31 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 type connector struct {
 	manager    signalr.Manager
 	httpClient api.Client
+	confSrv    *config.Service
 
 	chargerID string
 	cache     cache.Cache
 }
 
-func NewConnector(manager signalr.Manager, httpClient api.Client, chargerID string, cache cache.Cache) adapter.Connector {
+func NewConnector(manager signalr.Manager, httpClient api.Client, chargerID string, cache cache.Cache, confSrv *config.Service) adapter.Connector {
 	return &connector{
 		manager:    manager,
 		httpClient: httpClient,
 		chargerID:  chargerID,
 		cache:      cache,
+		confSrv:    confSrv,
 	}
 }
 
 func (c *connector) Connect(thing adapter.Thing) {
-	handler, err := signalr.NewObservationsHandler(thing, c.cache)
+	handler, err := signalr.NewObservationsHandler(thing, c.cache, c.confSrv)
 	if err != nil {
 		log.WithError(err).Error("failed to create signalRManager callbacks")
 

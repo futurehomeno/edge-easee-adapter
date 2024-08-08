@@ -36,7 +36,7 @@ var extendedReportMapping = map[numericmeter.Value]specFunc{
 		report[numericmeter.ValuePowerImport] = c.TotalPower()
 	},
 	numericmeter.ValueEnergyImport: func(report numericmeter.ValuesReport, c cache.Cache) {
-		report[numericmeter.ValueEnergyImport] = c.LifetimeEnergy()
+		report[numericmeter.ValueEnergyImport] = c.LifetimeEnergy().Value
 	},
 }
 
@@ -263,7 +263,7 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 	case numericmeter.UnitW:
 		return c.cache.TotalPower(), nil
 	case numericmeter.UnitKWh:
-		return c.cache.LifetimeEnergy(), nil
+		return c.cache.LifetimeEnergy().Value, nil
 	default:
 		return 0, fmt.Errorf("unsupported unit: %s", unit)
 	}

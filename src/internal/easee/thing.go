@@ -92,7 +92,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	return adapter.NewThing(publisher, thingState, &adapter.ThingConfig{
-		Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache),
+		Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService),
 		InclusionReport: t.inclusionReport(info, thingState, groups),
 	}, services...), nil
 }
