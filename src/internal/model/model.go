@@ -448,3 +448,8 @@ var easeeNetworkTypeMap = map[GridType]networkType{
 	GridTypeWarningTN3PhaseGNDFault:         {chargepoint.GridTypeTN, 3},
 	GridTypeWarningTN2PhaseGNDFault:         {chargepoint.GridTypeTN, 2},
 }
+
+type TimestampedValue[T any] struct {
+	Value     T
+	Timestamp time.Time
+}

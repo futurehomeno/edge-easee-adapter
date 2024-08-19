@@ -65,6 +65,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeDouble,
 								ID:        model.LifetimeEnergy,
+								Timestamp: time.Now(),
 								Value:     "12.34",
 							},
 						})
@@ -85,6 +86,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeDouble,
 								ID:        model.LifetimeEnergy,
+								Timestamp: time.Now().Add(time.Hour),
 								Value:     "13.45",
 							},
 						})
@@ -207,6 +209,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeDouble,
 								ID:        model.LifetimeEnergy,
+								Timestamp: time.Now(),
 								Value:     "12.34",
 							},
 						})
@@ -215,6 +218,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeDouble,
 								ID:        model.LifetimeEnergy,
+								Timestamp: time.Now().Add(time.Hour),
 								Value:     "11",
 							},
 						})
@@ -223,6 +227,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeDouble,
 								ID:        model.LifetimeEnergy,
+								Timestamp: time.Now().Add(2 * time.Hour),
 								Value:     "13.45",
 							},
 						})
@@ -329,6 +334,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeDouble,
 								ID:        model.LifetimeEnergy,
+								Timestamp: time.Now(),
 								Value:     "13.45",
 							},
 							{

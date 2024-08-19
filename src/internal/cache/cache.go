@@ -7,6 +7,8 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 // Cache is a cache for charger observations.
@@ -24,7 +26,7 @@ type Cache interface {
 	// TotalPower returns the total power.
 	TotalPower() float64
 	// LifetimeEnergy returns the lifetime energy.
-	LifetimeEnergy() float64
+	LifetimeEnergy() model.TimestampedValue[float64]
 	// EnergySession returns the current session energy value.
 	EnergySession() float64
 	// Phase1Current return current on phase 1.
@@ -52,7 +54,7 @@ type Cache interface {
 	SetRequestedOfferedCurrent(current int64)
 	SetOfferedCurrent(current int64)
 	SetTotalPower(power float64)
-	SetLifetimeEnergy(energy float64)
+	SetLifetimeEnergy(energy model.TimestampedValue[float64])
 	SetEnergySession(energy float64)
 	SetPhase1Current(current float64)
 	SetPhase2Current(current float64)
@@ -78,7 +80,7 @@ type cache struct {
 	offeredCurrent          int64
 	energySession           float64
 	totalPower              float64
-	lifetimeEnergy          float64
+	lifetimeEnergy          model.TimestampedValue[float64]
 	phase1Current           float64
 	phase2Current           float64
 	phase3Current           float64
@@ -147,7 +149,7 @@ func (c *cache) TotalPower() float64 {
 	return c.totalPower
 }
 
-func (c *cache) LifetimeEnergy() float64 {
+func (c *cache) LifetimeEnergy() model.TimestampedValue[float64] {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -307,11 +309,11 @@ func (c *cache) SetTotalPower(power float64) {
 	c.totalPower = power
 }
 
-func (c *cache) SetLifetimeEnergy(energy float64) {
+func (c *cache) SetLifetimeEnergy(energy model.TimestampedValue[float64]) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if energy < c.lifetimeEnergy {
+	if energy.Value < c.lifetimeEnergy.Value {
 		log.
 			WithField("old", c.lifetimeEnergy).
 			WithField("new", energy).
