@@ -15,7 +15,7 @@
   "easeeBaseURL2": "https://api.easee.com",
   "easeeBackoff": "4s",
   "pollingInterval": "30s",
-  "energyLifetimeInterval": "30s",
+  "energyLifetimeInterval": "15s",
   "currentWaitDuration": "3s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
