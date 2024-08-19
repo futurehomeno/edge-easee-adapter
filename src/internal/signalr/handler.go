@@ -445,7 +445,7 @@ func (h *energyHandler) handle(observation model.Observation) error {
 	return nil
 }
 
-func (h *energyHandler) manageEnergyObservation() {
+func (h *energyHandler) manageEnergyObservation() { //nolint:funlen
 	defer func() {
 		h.lock.Lock()
 		defer h.lock.Unlock()
