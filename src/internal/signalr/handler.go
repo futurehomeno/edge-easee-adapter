@@ -193,7 +193,7 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	_, err = chargepointSrv.SendCableLockReport(false)
+	_, err = chargepointSrv.SendCableLockReport(true)
 
 	return err
 }
@@ -389,7 +389,7 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 		return err
 	}
 
-	_, err = parameterSrv.SendParameterReport(model.CableAlwaysLockedParameter, val)
+	_, err = parameterSrv.SendParameterReport(model.CableAlwaysLockedParameter, true)
 
 	return err
 }

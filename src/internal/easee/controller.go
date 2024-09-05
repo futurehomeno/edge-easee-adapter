@@ -263,6 +263,10 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 	case numericmeter.UnitW:
 		return c.cache.TotalPower(), nil
 	case numericmeter.UnitKWh:
+		if c.cache.LifetimeEnergy().Timestamp.IsZero() {
+			return 0, fmt.Errorf("energy value not updated")
+		}
+
 		return c.cache.LifetimeEnergy().Value, nil
 	default:
 		return 0, fmt.Errorf("unsupported unit: %s", unit)
@@ -277,6 +281,10 @@ func (c *controller) MeterExtendedReport(values numericmeter.Values) (numericmet
 	ret := make(numericmeter.ValuesReport)
 
 	for _, value := range values {
+		if value == numericmeter.ValueEnergyImport && c.cache.LifetimeEnergy().Timestamp.IsZero() {
+			continue
+		}
+
 		if f, ok := extendedReportMapping[value]; ok {
 			f(ret, c.cache)
 		}
