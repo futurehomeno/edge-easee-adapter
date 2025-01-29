@@ -1,5 +1,4 @@
 {
-  "mqtt_server_uri": "tcp://localhost:11883",
   "mqtt_client_id_prefix": "easee",
   "work_dir": "../testdata/testing/configured",
   "log_level": "debug",

@@ -26,16 +26,21 @@ const (
 	evtDeviceMeterElecTopic   = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1"
 )
 
-func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
+func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
+	mqttAddr := test.SetupMQTTContainer(t)
 	testContainer := newTestContainer(t)
 
 	s := &suite.Suite{
+		Config: suite.Config{
+			MQTTServerURI: mqttAddr,
+		},
 		Cases: []*suite.Case{
 			{
 				Name: "Adapter is capable of reacting to incoming observations",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -107,6 +112,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -162,6 +168,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -184,6 +191,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -238,6 +246,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{
@@ -278,6 +287,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -300,6 +310,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -376,13 +387,13 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 }
 
 //nolint:unparam
-func serviceSetup(tc *testContainer, configSet string, mockClientFn func(c *mocks.APIClient), opts ...func(tc *testContainer)) suite.ServiceSetup {
+func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn func(c *mocks.APIClient), opts ...func(tc *testContainer)) suite.ServiceSetup {
 	return func(t *testing.T) (service suite.Service, _ []suite.Mock) {
 		t.Helper()
 
 		tearDown(configSet)(t)
 
-		config := configSetup(t, configSet)
+		config := configSetup(t, configSet, mqttAddr)
 		loggerSetup(t)
 
 		for _, o := range opts {
@@ -434,7 +445,7 @@ func cleanUpTestData(t *testing.T, configSet string) {
 	}
 
 	// recreate 'data' path
-	if err = os.Mkdir(dataPath, 0755); err != nil { //nolint:gofumpt
+	if err = os.Mkdir(dataPath, 0o755); err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
 
@@ -457,7 +468,7 @@ func cleanUpTestData(t *testing.T, configSet string) {
 	}
 }
 
-func configSetup(t *testing.T, configSet string) *config.Config {
+func configSetup(t *testing.T, configSet, mqttAddr string) *config.Config {
 	t.Helper()
 
 	cfgDir := path.Join("./../../testdata/testing/", configSet)
@@ -470,6 +481,7 @@ func configSetup(t *testing.T, configSet string) *config.Config {
 		t.Fatalf("failed to load configuration: %s", err)
 	}
 
+	service.Model().MQTTServerURI = mqttAddr
 	services.configService = service
 
 	return service.Model()

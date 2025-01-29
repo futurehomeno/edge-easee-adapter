@@ -1,0 +1,23 @@
+name: lint
+
+on:
+  pull_request:
+    types: [ opened,synchronize ]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+
+jobs:
+  go-lint:
+    timeout-minutes: 20
+    runs-on: fh-ubuntu-22.04
+    container:
+      image: docker:dind
+    steps:
+      - name: Go lint
+        uses: futurehomeno/github-actions/go-lint@main
+        with:
+          secrets: ${{ toJSON(secrets) }}
+          src_dir: service/src
