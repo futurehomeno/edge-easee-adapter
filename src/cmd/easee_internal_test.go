@@ -33,15 +33,20 @@ const (
 )
 
 func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
+	mqttAddr := test.SetupMQTTContainer(t)
 	testContainer := newTestContainer(t)
 
 	s := &suite.Suite{
+		Config: suite.Config{
+			MQTTServerURI: mqttAddr,
+		},
 		Cases: []*suite.Case{
 			{
 				Name: "Adapter is capable of reacting to incoming observations",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
@@ -115,6 +120,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
@@ -170,6 +176,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
@@ -192,6 +199,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
@@ -249,6 +257,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
@@ -289,6 +298,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
@@ -311,6 +321,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
@@ -386,6 +397,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
@@ -440,6 +452,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
@@ -486,6 +499,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
@@ -546,6 +560,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
@@ -601,6 +616,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
@@ -656,6 +672,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
@@ -697,6 +714,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
@@ -745,6 +763,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
@@ -793,6 +812,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
@@ -859,6 +879,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
@@ -909,6 +930,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
@@ -957,6 +979,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
@@ -1025,13 +1048,13 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 }
 
 //nolint:unparam
-func serviceSetup(tc *testContainer, configSet string, mockClientFn func(c *mocks.APIClient), opts ...func(tc *testContainer)) suite.ServiceSetup {
+func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn func(c *mocks.APIClient), opts ...func(tc *testContainer)) suite.ServiceSetup {
 	return func(t *testing.T) (service suite.Service, _ []suite.Mock) {
 		t.Helper()
 
 		tearDown(configSet)(t)
 
-		config := configSetup(t, configSet)
+		config := configSetup(t, configSet, mqttAddr)
 		loggerSetup(t)
 
 		for _, o := range opts {
@@ -1106,7 +1129,7 @@ func cleanUpTestData(t *testing.T, configSet string) {
 	}
 }
 
-func configSetup(t *testing.T, configSet string) *config.Config {
+func configSetup(t *testing.T, configSet, mqttAddr string) *config.Config {
 	t.Helper()
 
 	cfgDir := path.Join("./../../testdata/testing/", configSet)
@@ -1119,6 +1142,7 @@ func configSetup(t *testing.T, configSet string) *config.Config {
 		t.Fatalf("failed to load configuration: %s", err)
 	}
 
+	service.Model().MQTTServerURI = mqttAddr
 	services.configService = service
 
 	return service.Model()
