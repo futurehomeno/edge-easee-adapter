@@ -10,6 +10,7 @@ An edge-app adapter for Easee Home EV charger.
 
 ### Some of the useful messages:  
 
+
 #### Login
 Topic:  `/pt:j1/mt:cmd/rt:ad/rn:easee/ad:1`  
 Message:
