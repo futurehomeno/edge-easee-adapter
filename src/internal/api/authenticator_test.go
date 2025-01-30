@@ -277,7 +277,6 @@ func TestLogout(t *testing.T) {
 }
 
 func TestHandleFailedRefreshToken(t *testing.T) {
-
 	backoff := backoff.NewStateful(
 		5*time.Second,
 		1*time.Second,

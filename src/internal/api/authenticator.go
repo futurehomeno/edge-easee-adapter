@@ -15,15 +15,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/jwt"
 )
 
-type connectionStatus int
-
-const (
-	statusWorkingProperly    connectionStatus = iota // Auth working properly
-	statusWaitingToReconnect                         // Auth is interrupted, waiting before retry
-	statusReconnecting                               // Auth reconnecting after an interruption
-	statusConnectionFailed                           // Auth reconnect attempt if failed, indicating a broken connection
-)
-
 const (
 	notificationEaseeStatusOffline = "easee_status_offline"
 
@@ -54,11 +45,11 @@ type authenticator struct {
 
 func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification, mqtt *fimpgo.MqttTransport, serviceName string) Authenticator {
 	backoff := backoff.NewStateful(
-		cfgSvc.GetApiInitialBackoff(),
-		cfgSvc.GetApiRepeatedBackoff(),
-		cfgSvc.GetApiFinalBackoff(),
-		cfgSvc.GetApiInitialFailureCount(),
-		cfgSvc.GetApiRepeatedFailureCount(),
+		cfgSvc.GetAPIInitialBackoff(),
+		cfgSvc.GetAPIRepeatedBackoff(),
+		cfgSvc.GetAPIFinalBackoff(),
+		cfgSvc.GetAPIInitialFailureCount(),
+		cfgSvc.GetAPIRepeatedFailureCount(),
 	)
 
 	return &authenticator{
