@@ -1,6 +1,8 @@
 name: lint
 
 on:
+  push:
+    branches: [ main ]
   pull_request:
     types: [ opened,synchronize ]
 
@@ -11,13 +13,20 @@ permissions:
 
 jobs:
   go-lint:
-    timeout-minutes: 20
-    runs-on: fh-ubuntu-22.04
-    container:
-      image: docker:dind
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
     steps:
-      - name: Go lint
-        uses: futurehomeno/github-actions/go-lint@main
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
         with:
-          secrets: ${{ toJSON(secrets) }}
-          src_dir: service/src
+          go-version-file: 'src/go.mod'
+          cache-dependency-path: 'src/go.sum'
+      - name: Go lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: src
+          args: --timeout=5m
+          skip-cache: true
