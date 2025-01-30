@@ -19,9 +19,9 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
-const ( //nolint:gosec
-	accessToken  = "eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMjMsInJvbGUiOiJhZG1pbiIsImV4cCI6MTcwODI4MDAwMH0."
-	refreshToken = "eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMjMsInJvbGUiOiJhZG1pbiIsImV4cCI6MTcwODI4MDAwMH0."
+const (
+	accessToken  = "eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMjMsInJvbGUiOiJhZG1pbiIsImV4cCI6MTcwODI4MDAwMH0." //nolint:gosec
+	refreshToken = "eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMjMsInJvbGUiOiJhZG1pbiIsImV4cCI6MTcwODI4MDAwMH0." //nolint:gosec
 )
 
 func TestLogin(t *testing.T) {
@@ -277,7 +277,8 @@ func TestLogout(t *testing.T) {
 	}
 }
 
-func TestHandleFailedRefreshToken(t *testing.T) { //nolint:tparallel
+//nolint:paralleltest
+func TestHandleFailedRefreshToken(t *testing.T) {
 	backoff := backoff.NewStateful(
 		5*time.Second,
 		1*time.Second,
