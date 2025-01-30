@@ -1,20 +1,13 @@
 {
-	"address_index": 1,
-	"things": {
-		"XX12345": {
-			"id": "XX12345",
-			"address": "1",
-			"info": {
-				"chargerID": "XX12345",
-				"maxCurrent": 32
-			},
-			"state": {
-				"gridType": "",
-				"phases": 0,
-				"phaseMode": 0,
-				"supportedMaxCurrent": 32
-			},
-			"inclusion_checksum": 4159343272
-		}
-	}
+  "address_index": 1,
+  "things": {
+    "XX12345": {
+      "id": "XX12345",
+      "address": "1",
+      "info": {
+        "chargerID": "XX12345",
+        "maxCurrent": 32
+      }
+    }
+  }
 }
