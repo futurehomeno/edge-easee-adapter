@@ -125,8 +125,8 @@ func (cs *Service) GetBackoffCfg() BackoffCfg {
 	return cs.Storage.Model().Backoff
 }
 
-// GetApiBackoffCfg allows to safely access api backoff settings.
-func (cs *Service) GetApiBackoffCfg() APIBackoffCfg {
+// GetAPIBackoffCfg allows to safely access api backoff settings.
+func (cs *Service) GetAPIBackoffCfg() APIBackoffCfg {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 

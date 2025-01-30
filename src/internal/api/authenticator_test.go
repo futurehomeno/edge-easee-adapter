@@ -19,7 +19,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
-const (
+const ( //nolint:gosec
 	accessToken  = "eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMjMsInJvbGUiOiJhZG1pbiIsImV4cCI6MTcwODI4MDAwMH0."
 	refreshToken = "eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMjMsInJvbGUiOiJhZG1pbiIsImV4cCI6MTcwODI4MDAwMH0."
 )
@@ -116,7 +116,6 @@ func TestAccessToken(t *testing.T) {
 	now := time.Date(2025, 2, 17, 10, 0, 0, 0, time.UTC)
 
 	clockMock := clock.Mock(now)
-	defer clock.Restore()
 
 	testCases := []struct {
 		name          string
@@ -157,7 +156,7 @@ func TestAccessToken(t *testing.T) {
 			errorContains: "connection interrupted",
 		},
 		{
-			name: "should log out when not 200 code is returned from RefreshToken", ///todo repair
+			name: "should log out when not 200 code is returned from RefreshToken",
 			credentials: config.Credentials{
 				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
@@ -239,6 +238,8 @@ func TestAccessToken(t *testing.T) {
 			clockMock.Add(5 * time.Minute)
 		})
 	}
+
+	clock.Restore()
 }
 
 func TestLogout(t *testing.T) {
@@ -276,7 +277,7 @@ func TestLogout(t *testing.T) {
 	}
 }
 
-func TestHandleFailedRefreshToken(t *testing.T) {
+func TestHandleFailedRefreshToken(t *testing.T) { //nolint:tparallel
 	backoff := backoff.NewStateful(
 		5*time.Second,
 		1*time.Second,
