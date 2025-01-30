@@ -53,7 +53,13 @@ type authenticator struct {
 }
 
 func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification, mqtt *fimpgo.MqttTransport, serviceName string) Authenticator {
-	backoff := backoff.NewStateful(10, 10, 10, 10, 10)
+	backoff := backoff.NewStateful(
+		cfgSvc.GetApiInitialBackoff(),
+		cfgSvc.GetApiRepeatedBackoff(),
+		cfgSvc.GetApiFinalBackoff(),
+		cfgSvc.GetApiInitialFailureCount(),
+		cfgSvc.GetApiRepeatedFailureCount(),
+	)
 
 	return &authenticator{
 		cfgSvc:              cfgSvc,
@@ -84,11 +90,16 @@ func (a *authenticator) Login(userName, password string) error {
 		return fmt.Errorf("failed to extract expiration date from access token: %w", err)
 	}
 
-	if err = a.cfgSvc.SetCredentials(
-		creds.AccessToken, creds.RefreshToken, accessTokenExpDate, refreshTokenExpDate,
-	); err != nil {
+	if err = a.cfgSvc.SetCredentials(config.Credentials{
+		AccessToken:           creds.AccessToken,
+		RefreshToken:          creds.RefreshToken,
+		AccessTokenExpiresAt:  accessTokenExpDate,
+		RefreshTokenExpiresAt: refreshTokenExpDate,
+	}); err != nil {
 		return fmt.Errorf("failed to save credentials in storage: %w", err)
 	}
+
+	a.backoff.Reset()
 
 	return nil
 }
@@ -110,8 +121,8 @@ func (a *authenticator) AccessToken() (string, error) {
 		return "", a.triggerAppLogout()
 	}
 
-	if !a.backoff.Should() {
-		return "", errors.New("") //todo: error
+	if a.backoff.Should() {
+		return "", errors.New("too many requests, backoff is in use")
 	}
 
 	newCredentials, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
@@ -131,9 +142,14 @@ func (a *authenticator) AccessToken() (string, error) {
 		return "", fmt.Errorf("failed to extract expiration date from access token: %w", err)
 	}
 
-	err = a.cfgSvc.SetCredentials(
-		newCredentials.AccessToken, newCredentials.RefreshToken, accessTokenExpDate, refreshTokenExpDate,
-	)
+	newCreds := config.Credentials{
+		AccessToken:           newCredentials.AccessToken,
+		RefreshToken:          newCredentials.RefreshToken,
+		AccessTokenExpiresAt:  accessTokenExpDate,
+		RefreshTokenExpiresAt: refreshTokenExpDate,
+	}
+
+	err = a.cfgSvc.SetCredentials(newCreds)
 	if err != nil {
 		return "", fmt.Errorf("failed to save credentials in storage: %w", err)
 	}
@@ -158,7 +174,7 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 		return fmt.Errorf("received unauthorized error, re-login is required. %w", err)
 	}
 
-	return nil
+	return err
 }
 
 func (a *authenticator) handleConnectionFailed(err error) error {
