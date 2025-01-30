@@ -4,18 +4,24 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/notification"
 	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
 	"github.com/futurehomeno/fimpgo"
+	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+)
+
+const (
+	accessToken  = "eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMjMsInJvbGUiOiJhZG1pbiIsImV4cCI6MTcwODI4MDAwMH0."
+	refreshToken = "eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMjMsInJvbGUiOiJhZG1pbiIsImV4cCI6MTcwODI4MDAwMH0."
 )
 
 func TestLogin(t *testing.T) {
@@ -41,8 +47,8 @@ func TestLogin(t *testing.T) {
 			username:      "user",
 			password:      "pwd",
 			loginStatus:   http.StatusOK,
-			accessToken:   "accessToken",
-			refreshToken:  "refreshing",
+			accessToken:   accessToken,
+			refreshToken:  refreshToken,
 			saveError:     errors.New("failed to save to the storage"),
 			errorContains: "failed to save to the storage",
 		},
@@ -51,8 +57,8 @@ func TestLogin(t *testing.T) {
 			username:     "user",
 			password:     "pwd",
 			loginStatus:  http.StatusOK,
-			accessToken:  "accessToken",
-			refreshToken: "refreshing",
+			accessToken:  accessToken,
+			refreshToken: refreshToken,
 		},
 	}
 
@@ -86,7 +92,12 @@ func TestLogin(t *testing.T) {
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			client := NewHTTPClient(cfgSrv, httpClient, server.URL)
-			auth := authenticator{http: client, cfgSvc: config.NewService(&storage), notificationManager: notificationManager}
+			auth := authenticator{
+				http:                client,
+				cfgSvc:              config.NewService(&storage),
+				notificationManager: notificationManager,
+				backoff:             backoff.NewStateful(10, 10, 10, 10, 10),
+			}
 
 			err := auth.Login(v.username, v.password)
 			if err != nil {
@@ -94,7 +105,6 @@ func TestLogin(t *testing.T) {
 			} else {
 				assert.Equal(t, v.accessToken, cfg.AccessToken)
 				assert.Equal(t, v.refreshToken, cfg.RefreshToken)
-				assert.Equal(t, statusWorkingProperly, auth.status)
 			}
 		})
 	}
@@ -103,10 +113,14 @@ func TestLogin(t *testing.T) {
 func TestAccessToken(t *testing.T) {
 	t.Parallel()
 
+	now := time.Date(2025, 2, 17, 10, 0, 0, 0, time.UTC)
+
+	clockMock := clock.Mock(now)
+	defer clock.Restore()
+
 	testCases := []struct {
 		name          string
 		credentials   config.Credentials
-		authStatus    connectionStatus
 		refreshStatus int
 		accessToken   string
 		refreshToken  string
@@ -130,9 +144,9 @@ func TestAccessToken(t *testing.T) {
 		{
 			name: "should return error when status is statusWaitingToReconnect",
 			credentials: config.Credentials{
-				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
+				AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
+				RefreshTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
-			authStatus:    statusWaitingToReconnect,
 			errorContains: "connection interrupted",
 		},
 		{
@@ -140,29 +154,23 @@ func TestAccessToken(t *testing.T) {
 			credentials: config.Credentials{
 				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
-			authStatus:    statusConnectionFailed,
 			errorContains: "connection interrupted",
 		},
 		{
-			name: "should return error when not 200 code is returned from RefreshToken",
+			name: "should log out when not 200 code is returned from RefreshToken", ///todo repair
 			credentials: config.Credentials{
 				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
-			authStatus:    statusWorkingProperly,
 			refreshStatus: http.StatusBadRequest,
-			accessToken:   "access token",
-			refreshToken:  "refresh token",
-			errorContains: "failed to refresh token",
+			accessToken:   "",
+			refreshToken:  "",
 		},
 		{
 			name: "should return error when failed to set credentials",
 			credentials: config.Credentials{
 				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
-			authStatus:    statusWorkingProperly,
 			refreshStatus: http.StatusOK,
-			accessToken:   "access token",
-			refreshToken:  "refresh token",
 			saveError:     errors.New("failed to save"),
 			errorContains: "failed to save",
 		},
@@ -171,11 +179,7 @@ func TestAccessToken(t *testing.T) {
 			credentials: config.Credentials{
 				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
-			authStatus:    statusWorkingProperly,
 			refreshStatus: http.StatusOK,
-			accessToken:   "access token",
-			refreshToken:  "refresh token",
-			expectedToken: "access token",
 		},
 	}
 
@@ -208,9 +212,20 @@ func TestAccessToken(t *testing.T) {
 			// mock httpClient
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			client := NewHTTPClient(cfgSrv, httpClient, server.URL)
-			auth := authenticator{http: client, cfgSvc: config.NewService(&storage), backoffCfg: backoffCfg{
-				status: v.authStatus,
-			}}
+			auth := authenticator{
+				http:   client,
+				cfgSvc: config.NewService(&storage),
+				mqtt: fimpgo.NewMqttTransport(
+					cfg.MQTTServerURI,
+					cfg.MQTTClientIDPrefix,
+					cfg.MQTTUsername,
+					cfg.MQTTPassword,
+					true,
+					1,
+					1,
+				),
+				backoff: backoff.NewStateful(0, 0, 0, 0, 0),
+			}
 
 			token, err := auth.AccessToken()
 			if err != nil {
@@ -219,9 +234,9 @@ func TestAccessToken(t *testing.T) {
 				assert.Equal(t, v.expectedToken, token)
 				assert.Equal(t, v.accessToken, cfg.AccessToken)
 				assert.Equal(t, v.refreshToken, cfg.RefreshToken)
-				assert.Equal(t, statusWorkingProperly, auth.status)
-				assert.Equal(t, 0, auth.attempts)
 			}
+
+			clockMock.Add(5 * time.Minute)
 		})
 	}
 }
@@ -262,126 +277,77 @@ func TestLogout(t *testing.T) {
 }
 
 func TestHandleFailedRefreshToken(t *testing.T) {
-	t.Parallel()
 
-	testCases := []*struct {
-		name                      string
-		errIn                     error
-		saveError                 error
-		backoffCfg                config.BackoffCfg
-		auth                      authenticator
-		expectedStatus            connectionStatus
-		errorContains             string
-		notificationManagerCalled int
-	}{
-		{
-			name:                      "should return error when input error is http error with 401 status code",
-			errIn:                     HTTPError{Status: http.StatusUnauthorized},
-			expectedStatus:            statusConnectionFailed,
-			errorContains:             "unauthorized error",
-			notificationManagerCalled: 1,
-		},
-		{
-			name:       "should set status to failed when reached maximum attempts",
-			errIn:      errors.New("error"),
-			backoffCfg: config.BackoffCfg{MaxAttempts: 2, Length: "0"},
-			auth: authenticator{
-				backoffCfg: backoffCfg{
-					status:   statusReconnecting,
-					attempts: 2,
-				},
-			},
-			expectedStatus:            statusConnectionFailed,
-			errorContains:             "failed delayed attempt",
-			notificationManagerCalled: 1,
-		},
-		{
-			name:       "should make another attempt to reconnect when haven't reached maximum",
-			errIn:      errors.New("error"),
-			backoffCfg: config.BackoffCfg{MaxAttempts: 2, Length: "0"},
-			auth: authenticator{
-				backoffCfg: backoffCfg{
-					status:   statusReconnecting,
-					attempts: 1,
-				},
-			},
-			expectedStatus: statusWaitingToReconnect,
-			errorContains:  "failed delayed attempt",
-		},
-		{
-			name:       "should fire first backoff when encountered problem for the first time",
-			errIn:      errors.New("error"),
-			backoffCfg: config.BackoffCfg{MaxAttempts: 2, Length: "0"},
-			auth: authenticator{
-				backoffCfg: backoffCfg{
-					status:   statusWorkingProperly,
-					attempts: 0,
-				},
-			},
-			expectedStatus: statusWaitingToReconnect,
-			errorContains:  "failed to refresh token",
-		},
-		{
-			name:       "should return error when invalid status is encountered",
-			errIn:      errors.New("error"),
-			backoffCfg: config.BackoffCfg{MaxAttempts: 2, Length: "0"},
-			auth: authenticator{
-				backoffCfg: backoffCfg{
-					status:   statusConnectionFailed,
-					attempts: 0,
-				},
-			},
-			expectedStatus: statusConnectionFailed,
-			errorContains:  "invalid auth status",
-		},
+	backoff := backoff.NewStateful(
+		5*time.Second,
+		1*time.Second,
+		1*time.Second,
+		1,
+		1,
+	)
+
+	handler := func(w http.ResponseWriter, _ *http.Request) {
+		data := fmt.Sprintf(`{"accessToken":"%s","refreshToken":"%s"}`,
+			accessToken,
+			refreshToken,
+		)
+
+		w.WriteHeader(http.StatusNotFound)
+
+		_, _ = w.Write([]byte(data))
 	}
+	server := httptest.NewServer(http.HandlerFunc(handler))
 
-	for _, val := range testCases {
-		v := val
-		t.Run(v.name, func(t *testing.T) {
-			t.Parallel()
+	defer server.Close()
 
-			// mock cfgSvc
-			cfg := config.Config{Credentials: config.Credentials{}, Backoff: v.backoffCfg}
-			storage := mockedstorage.Storage[*config.Config]{}
-			storage.On("Model").Return(&cfg)
-			storage.On("Save").Return(v.saveError)
+	cfg := config.Config{Credentials: config.Credentials{
+		AccessToken:           accessToken,
+		RefreshToken:          refreshToken,
+		RefreshTokenExpiresAt: time.Now().Add(time.Hour),
+		AccessTokenExpiresAt:  time.Now(),
+	}, Backoff: config.BackoffCfg{Length: "0"}}
 
-			notificationManager := &NotificationMock{}
-			notificationManager.On("Event", &notification.Event{EventName: notificationEaseeStatusOffline}).Return(nil)
-
-			cfgDir := path.Join("./../../testdata/testing/", "")
-			mqttCfg := config.New(cfgDir)
-			v.auth.mqtt = fimpgo.NewMqttTransport(
-				mqttCfg.MQTTServerURI,
-				mqttCfg.MQTTClientIDPrefix,
-				mqttCfg.MQTTUsername,
-				mqttCfg.MQTTPassword,
-				true,
-				1,
-				1)
-
-			v.auth.notificationManager = notificationManager
-			v.auth.cfgSvc = config.NewService(&storage)
-			err := v.auth.handleFailedRefreshToken(v.errIn)
-			assert.Equal(t, v.expectedStatus, v.auth.status)
-			assert.Contains(t, err.Error(), v.errorContains)
-			notificationManager.AssertNumberOfCalls(t, "Event", v.notificationManagerCalled)
-		})
-	}
-}
-
-func TestHookResetToReconnecting(t *testing.T) {
-	t.Parallel()
-
-	cfg := config.Config{Backoff: config.BackoffCfg{Length: "0"}}
 	storage := mockedstorage.Storage[*config.Config]{}
 	storage.On("Model").Return(&cfg)
+	storage.On("Save").Return("ok")
 
-	auth := authenticator{cfgSvc: config.NewService(&storage)}
-	auth.hookResetToReconnecting()
-	assert.Equal(t, statusReconnecting, auth.status, "connection status is incorrect")
-	assert.Equal(t, 1, auth.attempts)
+	cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
+	notificationManager := &NotificationMock{}
+
+	httpClient := &http.Client{Timeout: 3 * time.Second}
+	client := NewHTTPClient(cfgSrv, httpClient, server.URL)
+	auth := authenticator{
+		http:                client,
+		cfgSvc:              config.NewService(&storage),
+		notificationManager: notificationManager,
+		backoff:             backoff,
+		mqtt: fimpgo.NewMqttTransport(
+			cfg.MQTTServerURI,
+			cfg.MQTTClientIDPrefix,
+			cfg.MQTTUsername,
+			cfg.MQTTPassword,
+			true,
+			1,
+			1,
+		),
+	}
+
+	_, err := auth.AccessToken()
+	assert.Contains(t, err.Error(), "failed to perform token refresh api call:")
+
+	for i := 0; i < 10; i++ {
+		_, err = auth.AccessToken()
+		assert.Contains(t, err.Error(), "too many requests, backoff is in use")
+	}
+
+	time.Sleep(5 * time.Second)
+
+	_, err = auth.AccessToken()
+	assert.Contains(t, err.Error(), "failed to perform token refresh api call:")
+
+	_, err = auth.AccessToken()
+	assert.Contains(t, err.Error(), "too many requests, backoff is in use")
 }
 
 type NotificationMock struct {

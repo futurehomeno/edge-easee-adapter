@@ -35,5 +35,12 @@
   "backoff": {
     "length": "5m",
     "maxAttempts": 3
+  },
+  "apiBackoff": {
+    "initialBackoff": "15m",
+    "repeatedBackoff": "1m",
+    "finalBackoff": "10m",
+    "initialFailureCount": 12,
+    "repeatedFailureCount": 15,
   }
 }
