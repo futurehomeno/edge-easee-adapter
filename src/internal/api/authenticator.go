@@ -2,17 +2,17 @@ package api
 
 import (
 	"fmt"
-	"math/rand"
 	"net/http"
 	"sync"
-	"time"
 
+	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/notification"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/jwt"
 )
 
 type connectionStatus int
@@ -43,27 +43,25 @@ type Authenticator interface {
 }
 
 type authenticator struct {
-	backoffCfg
 	mu                  sync.Mutex
 	cfgSvc              *config.Service
 	http                HTTPClient
 	notificationManager notification.Notification
 	mqtt                *fimpgo.MqttTransport
 	serviceName         string
-}
-
-type backoffCfg struct {
-	status   connectionStatus
-	attempts int
+	backoff             backoff.Stateful
 }
 
 func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification, mqtt *fimpgo.MqttTransport, serviceName string) Authenticator {
+	backoff := backoff.NewStateful(10, 10, 10, 10, 10)
+
 	return &authenticator{
 		cfgSvc:              cfgSvc,
 		http:                http,
 		notificationManager: notify,
 		mqtt:                mqtt,
 		serviceName:         serviceName,
+		backoff:             backoff,
 	}
 }
 
@@ -76,11 +74,21 @@ func (a *authenticator) Login(userName, password string) error {
 		return err
 	}
 
-	if err = a.cfgSvc.SetCredentials(creds.AccessToken, creds.RefreshToken, creds.ExpiresIn); err != nil {
-		return fmt.Errorf("failed to save credentials in storage: %w", err)
+	accessTokenExpDate, err := jwt.ExpirationDate(creds.AccessToken)
+	if err != nil {
+		return fmt.Errorf("failed to extract expiration date from access token: %w", err)
 	}
 
-	a.status = statusWorkingProperly
+	refreshTokenExpDate, err := jwt.ExpirationDate(creds.RefreshToken)
+	if err != nil {
+		return fmt.Errorf("failed to extract expiration date from access token: %w", err)
+	}
+
+	if err = a.cfgSvc.SetCredentials(
+		creds.AccessToken, creds.RefreshToken, accessTokenExpDate, refreshTokenExpDate,
+	); err != nil {
+		return fmt.Errorf("failed to save credentials in storage: %w", err)
+	}
 
 	return nil
 }
@@ -94,12 +102,16 @@ func (a *authenticator) AccessToken() (string, error) {
 		return "", errors.New("credentials are empty - login first")
 	}
 
-	if !credentials.Expired() {
+	if !credentials.AccessTokenExpired() {
 		return credentials.AccessToken, nil
 	}
 
-	if a.status == statusWaitingToReconnect || a.status == statusConnectionFailed {
-		return "", fmt.Errorf("connection interrupted, waiting for user to re-login. state: %d", a.status)
+	if credentials.RefreshTokenExpired() {
+		return "", a.triggerAppLogout()
+	}
+
+	if !a.backoff.Should() {
+		return "", errors.New("") //todo: error
 	}
 
 	newCredentials, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
@@ -107,11 +119,21 @@ func (a *authenticator) AccessToken() (string, error) {
 		return "", a.handleFailedRefreshToken(err)
 	}
 
-	// reset backoff stats
-	a.status = statusWorkingProperly
-	a.attempts = 0
+	a.backoff.Reset()
 
-	err = a.cfgSvc.SetCredentials(newCredentials.AccessToken, newCredentials.RefreshToken, newCredentials.ExpiresIn)
+	accessTokenExpDate, err := jwt.ExpirationDate(newCredentials.AccessToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract expiration date from access token: %w", err)
+	}
+
+	refreshTokenExpDate, err := jwt.ExpirationDate(newCredentials.RefreshToken)
+	if err != nil {
+		return "", fmt.Errorf("failed to extract expiration date from access token: %w", err)
+	}
+
+	err = a.cfgSvc.SetCredentials(
+		newCredentials.AccessToken, newCredentials.RefreshToken, accessTokenExpDate, refreshTokenExpDate,
+	)
 	if err != nil {
 		return "", fmt.Errorf("failed to save credentials in storage: %w", err)
 	}
@@ -124,9 +146,9 @@ func (a *authenticator) Logout() error {
 }
 
 // handleFailedRefreshToken sets a correct status when refresh operation has failed.
-// relies on mutex protection within a caller.
 func (a *authenticator) handleFailedRefreshToken(err error) error {
-	// we aren't able to refresh anymore. Requires user re-login
+	a.backoff.Fail()
+
 	var httpError HTTPError
 	if ok := errors.As(err, &httpError); ok && httpError.Status == http.StatusUnauthorized {
 		if err := a.handleConnectionFailed(err); err != nil {
@@ -136,35 +158,13 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 		return fmt.Errorf("received unauthorized error, re-login is required. %w", err)
 	}
 
-	switch a.status { //nolint
-	case statusReconnecting:
-		if a.attempts == a.cfgSvc.GetBackoffMaxAttempts() {
-			if err := a.handleConnectionFailed(err); err != nil {
-				return errors.Wrap(err, "failed to handle failed connection when reconnecting")
-			}
-
-			return fmt.Errorf("failed delayed attempt to refresh token. Re-login required. %w", err)
-		}
-
-		go a.hookResetToReconnecting()
-		a.status = statusWaitingToReconnect
-
-		return fmt.Errorf("failed delayed attempt to refresh token. Trying again. %w", err)
-	case statusWorkingProperly:
-		a.status = statusWaitingToReconnect
-		go a.hookResetToReconnecting()
-
-		return fmt.Errorf("failed to refresh token. Suspending for %v seconds. %w", a.cfgSvc.GetBackoffLength(), err)
-	default:
-		return fmt.Errorf("invalid auth status when refreshing token: %d. Error: %w", a.status, err)
-	}
+	return nil
 }
 
 func (a *authenticator) handleConnectionFailed(err error) error {
 	notifError := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
 	a.validateNotificationPush(notifError, notificationEaseeStatusOffline)
 
-	a.status = statusConnectionFailed
 	if logoutErr := a.triggerAppLogout(); logoutErr != nil {
 		return fmt.Errorf("unauthorized, re-login required; failed to clear credentials. %w , logout error: %w", err, logoutErr)
 	}
@@ -192,18 +192,6 @@ func (a *authenticator) triggerAppLogout() error {
 	}
 
 	return nil
-}
-
-// hookResetToReconnecting resets status to statusReconnecting after a delay.
-// must be called in a separate goroutine.
-func (a *authenticator) hookResetToReconnecting() {
-	time.Sleep(a.cfgSvc.GetBackoffLength() + time.Millisecond*time.Duration(rand.Intn(500)+500)) //nolint:gosec
-	a.mu.Lock()
-
-	defer a.mu.Unlock()
-
-	a.attempts++
-	a.status = statusReconnecting
 }
 
 func (a *authenticator) validateNotificationPush(err error, notificationName string) {

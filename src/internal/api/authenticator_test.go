@@ -121,8 +121,8 @@ func TestAccessToken(t *testing.T) {
 		{
 			name: "should return access token when it isn't expired",
 			credentials: config.Credentials{
-				ExpiresAt:   time.Now().Add(time.Hour),
-				AccessToken: "valid access token",
+				AccessTokenExpiresAt: time.Now().Add(time.Hour),
+				AccessToken:          "valid access token",
 			},
 			accessToken:   "valid access token",
 			expectedToken: "valid access token",
@@ -130,7 +130,7 @@ func TestAccessToken(t *testing.T) {
 		{
 			name: "should return error when status is statusWaitingToReconnect",
 			credentials: config.Credentials{
-				ExpiresAt: time.Now().Add(-time.Hour),
+				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
 			authStatus:    statusWaitingToReconnect,
 			errorContains: "connection interrupted",
@@ -138,7 +138,7 @@ func TestAccessToken(t *testing.T) {
 		{
 			name: "should return error when status is statusConnectionFailed",
 			credentials: config.Credentials{
-				ExpiresAt: time.Now().Add(-time.Hour),
+				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
 			authStatus:    statusConnectionFailed,
 			errorContains: "connection interrupted",
@@ -146,7 +146,7 @@ func TestAccessToken(t *testing.T) {
 		{
 			name: "should return error when not 200 code is returned from RefreshToken",
 			credentials: config.Credentials{
-				ExpiresAt: time.Now().Add(-time.Hour),
+				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
 			authStatus:    statusWorkingProperly,
 			refreshStatus: http.StatusBadRequest,
@@ -157,7 +157,7 @@ func TestAccessToken(t *testing.T) {
 		{
 			name: "should return error when failed to set credentials",
 			credentials: config.Credentials{
-				ExpiresAt: time.Now().Add(-time.Hour),
+				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
 			authStatus:    statusWorkingProperly,
 			refreshStatus: http.StatusOK,
@@ -169,7 +169,7 @@ func TestAccessToken(t *testing.T) {
 		{
 			name: "should save refreshed token when all validations passed",
 			credentials: config.Credentials{
-				ExpiresAt: time.Now().Add(-time.Hour),
+				AccessTokenExpiresAt: time.Now().Add(-time.Hour),
 			},
 			authStatus:    statusWorkingProperly,
 			refreshStatus: http.StatusOK,

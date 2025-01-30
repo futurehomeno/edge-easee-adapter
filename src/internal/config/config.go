@@ -47,9 +47,10 @@ func Factory() *Config {
 
 // Credentials represent Easee API credentials.
 type Credentials struct {
-	AccessToken  string    `json:"accessToken"`
-	RefreshToken string    `json:"refreshToken"`
-	ExpiresAt    time.Time `json:"expiresAt"`
+	AccessToken           string    `json:"accessToken"`
+	RefreshToken          string    `json:"refreshToken"`
+	AccessTokenExpiresAt  time.Time `json:"accessTokenExpiresAt"`
+	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt"`
 }
 
 // Empty checks if credentials are empty.
@@ -57,9 +58,14 @@ func (c Credentials) Empty() bool {
 	return c == Credentials{}
 }
 
-// Expired checks if credentials are expired.
-func (c Credentials) Expired() bool {
-	return clock.Now().After(c.ExpiresAt)
+// AccessTokenExpired checks if credentials are expired.
+func (c Credentials) AccessTokenExpired() bool {
+	return clock.Now().After(c.AccessTokenExpiresAt)
+}
+
+// RefreshTokenExpired checks if credentials are expired.
+func (c Credentials) RefreshTokenExpired() bool {
+	return clock.Now().After(c.RefreshTokenExpiresAt)
 }
 
 // SignalR represents SignalR configuration settings.
@@ -183,15 +189,16 @@ func (cs *Service) GetCredentials() Credentials {
 }
 
 // SetCredentials allows to safely set and persist configuration settings.
-func (cs *Service) SetCredentials(accessToken, refreshToken string, expirationInSeconds int) error {
+func (cs *Service) SetCredentials(accessToken, refreshToken string, accessTokenExpiresAt, refreshTokenExpiresAt time.Time) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
 	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
 	cs.Storage.Model().Credentials = Credentials{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		ExpiresAt:    clock.Now().Add(time.Duration(expirationInSeconds) * time.Second),
+		AccessToken:           accessToken,
+		RefreshToken:          refreshToken,
+		AccessTokenExpiresAt:  accessTokenExpiresAt,
+		RefreshTokenExpiresAt: refreshTokenExpiresAt,
 	}
 
 	return cs.Storage.Save()
