@@ -1,4 +1,4 @@
-package api_test //nolint:testpackage
+package api_test
 
 import (
 	"net/http"
@@ -251,7 +251,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 			RefreshTokenExpiresAt: time.Now().Add(time.Hour),
 			AccessTokenExpiresAt:  time.Now(),
 		},
-		AuthenticatorBackoff: config.NewBackoffCfgSetting(
+		AuthenticatorBackoff: config.GetBackoffCfgSetting(
 			config.BackoffCfg{
 				InitialBackoff:       1 * time.Second,
 				RepeatedBackoff:      1 * time.Second,
@@ -275,7 +275,8 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 			api.HTTPError{
 				Err: errors.Wrap(errors.New(""),
 					"failed to perform token refresh api call"),
-				Status: http.StatusNotFound},
+				Status: http.StatusNotFound,
+			},
 		)
 
 	mqtt := fimpgo.NewMqttTransport(

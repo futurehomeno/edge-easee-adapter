@@ -597,7 +597,7 @@ func (cs *Service) SetAuthenticatorBackoffCfg(cfg BackoffCfg) error {
 	return cs.Storage.Save()
 }
 
-func NewBackoffCfgSetting(cfg BackoffCfg) backoffCfg {
+func GetBackoffCfgSetting(cfg BackoffCfg) backoffCfg { //nolint used only for tests
 	return backoffCfg{
 		InitialBackoff:       cfg.InitialBackoff.String(),
 		RepeatedBackoff:      cfg.RepeatedBackoff.String(),
