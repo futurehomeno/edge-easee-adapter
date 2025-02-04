@@ -43,9 +43,9 @@ type HTTPClient interface {
 	UpdateMaxCurrent(accessToken, chargerID string, current float64) error
 	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
 	UpdateDynamicCurrent(accessToken, chargerID string, current float64) error
-	// Login logs the user in the Easee API and retrieves credentials.
+	// Login logs the user in the Easee API and retrieves credentialsCfg.
 	Login(userName, password string) (*model.Credentials, error)
-	// RefreshToken retrieves new credentials based on an access token and a refresh token.
+	// RefreshToken retrieves new credentialsCfg based on an access token and a refresh token.
 	RefreshToken(accessToken, refreshToken string) (*model.Credentials, error)
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(accessToken, chargerID string) error
@@ -135,7 +135,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 			return nil, err
 		}
 
-		return nil, HTTPError{err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode, Body: resp.Body}
+		return nil, HTTPError{Err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode, Body: resp.Body}
 	}
 
 	defer resp.Body.Close()

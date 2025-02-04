@@ -2,7 +2,7 @@ module github.com/futurehomeno/edge-easee-adapter
 
 go 1.22
 
-toolchain go1.23.2
+toolchain go1.23.4
 
 require (
 	github.com/futurehomeno/cliffhanger v0.59.0

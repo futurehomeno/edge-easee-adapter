@@ -14,16 +14,15 @@ type Config struct {
 	config.Default
 	Credentials
 
-	EaseeBaseURL                 string        `json:"easeeBaseURL2"`
-	PollingInterval              string        `json:"pollingInterval"`
-	CurrentWaitDuration          string        `json:"currentWaitDuration"`
-	SlowChargingCurrentInAmperes float64       `json:"slowChargingCurrentInAmperes"`
-	HTTPTimeout                  string        `json:"httpTimeout"`
-	SignalR                      SignalR       `json:"signalR"`
-	Backoff                      BackoffCfg    `json:"backoff"`
-	APIBackoff                   APIBackoffCfg `json:"apiBackoff"`
-	OfferedCurrentWaitTime       string        `json:"offered_current_wait_time"`
-	EnergyLifetimeInterval       string        `json:"energyLifetimeInterval"`
+	EaseeBaseURL                 string     `json:"easeeBaseURL2"`
+	PollingInterval              string     `json:"pollingInterval"`
+	CurrentWaitDuration          string     `json:"currentWaitDuration"`
+	SlowChargingCurrentInAmperes float64    `json:"slowChargingCurrentInAmperes"`
+	HTTPTimeout                  string     `json:"httpTimeout"`
+	SignalR                      SignalR    `json:"signalR"`
+	AuthenticatorBackoff         backoffCfg `json:"authenticatorBackoff"`
+	OfferedCurrentWaitTime       string     `json:"offered_current_wait_time"`
+	EnergyLifetimeInterval       string     `json:"energyLifetimeInterval"`
 }
 
 // New creates new instance of a configuration object.
@@ -92,21 +91,22 @@ type Service struct {
 	lock *sync.RWMutex
 }
 
-// BackoffCfg represents values used to configure
-// reconnecting hook when http errors occur.
-type BackoffCfg struct {
-	Length      string `json:"length"`
-	MaxAttempts int    `json:"maxAttempts"`
-}
-
-// APIBackoffCfg represents values used to configure
+// backoffCfg represents values used to configure
 // backoff.
-type APIBackoffCfg struct {
+type backoffCfg struct {
 	InitialBackoff       string `json:"initialBackoff"`
 	RepeatedBackoff      string `json:"repeatedBackoff"`
 	FinalBackoff         string `json:"finalBackoff"`
 	InitialFailureCount  uint32 `json:"initialFailureCount"`
 	RepeatedFailureCount uint32 `json:"repeatedFailureCount"`
+}
+
+type BackoffCfg struct {
+	InitialBackoff       time.Duration
+	RepeatedBackoff      time.Duration
+	FinalBackoff         time.Duration
+	InitialFailureCount  uint32
+	RepeatedFailureCount uint32
 }
 
 // NewService creates a new configuration service.
@@ -115,22 +115,6 @@ func NewService(storage storage.Storage[*Config]) *Service {
 		Storage: storage,
 		lock:    &sync.RWMutex{},
 	}
-}
-
-// GetBackoffCfg allows to safely access backoff settings.
-func (cs *Service) GetBackoffCfg() BackoffCfg {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Storage.Model().Backoff
-}
-
-// GetAPIBackoffCfg allows to safely access api backoff settings.
-func (cs *Service) GetAPIBackoffCfg() APIBackoffCfg {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Storage.Model().APIBackoff
 }
 
 // GetWorkDir allows to safely access a configuration setting.
@@ -543,47 +527,6 @@ func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 	return cs.Storage.Save()
 }
 
-// GetBackoffLength allows to safely access backoff duration.
-func (cs *Service) GetBackoffLength() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	length, err := time.ParseDuration(cs.Storage.Model().Backoff.Length)
-	if err != nil {
-		return 5 * time.Minute
-	}
-
-	return length
-}
-
-// SetBackoffLength allows to safely alter backoff length.
-func (cs *Service) SetBackoffLength(l time.Duration) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	cs.Storage.Model().Backoff.Length = l.String()
-
-	return cs.Storage.Save()
-}
-
-// GetBackoffMaxAttempts allows to safely access backoff max attempts.
-func (cs *Service) GetBackoffMaxAttempts() int {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Storage.Model().Backoff.MaxAttempts
-}
-
-// SetBackoffMaxAttempts allows to safely alter backoff max attempts.
-func (cs *Service) SetBackoffMaxAttempts(n int) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	cs.Storage.Model().Backoff.MaxAttempts = n
-
-	return cs.Storage.Save()
-}
-
 // GetOfferedCurrentWaitTime allows to safely access a configuration setting.
 func (cs *Service) GetOfferedCurrentWaitTime() time.Duration {
 	cs.lock.RLock()
@@ -608,110 +551,58 @@ func (cs *Service) SetOfferedCurrentWaitTime(duration time.Duration) error {
 	return cs.Storage.Save()
 }
 
-// GetAPIInitialBackoff allows to safely access a configuration setting.
-func (cs *Service) GetAPIInitialBackoff() time.Duration {
+// GetAuthenticatorBackoffCfg allows to safely access api backoff settings.
+func (cs *Service) GetAuthenticatorBackoffCfg() BackoffCfg {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	interval, err := time.ParseDuration(cs.Storage.Model().APIBackoff.InitialBackoff)
+	initial, err := time.ParseDuration(cs.Storage.Model().AuthenticatorBackoff.InitialBackoff)
 	if err != nil {
-		return 15 * time.Second
+		initial = 15 * time.Second
 	}
 
-	return interval
+	repeated, err := time.ParseDuration(cs.Storage.Model().AuthenticatorBackoff.RepeatedBackoff)
+	if err != nil {
+		repeated = time.Minute
+	}
+
+	final, err := time.ParseDuration(cs.Storage.Model().AuthenticatorBackoff.FinalBackoff)
+	if err != nil {
+		final = 10 * time.Minute
+	}
+
+	return BackoffCfg{
+		InitialBackoff:       initial,
+		RepeatedBackoff:      repeated,
+		FinalBackoff:         final,
+		InitialFailureCount:  cs.Storage.Model().AuthenticatorBackoff.InitialFailureCount,
+		RepeatedFailureCount: cs.Storage.Model().AuthenticatorBackoff.RepeatedFailureCount,
+	}
 }
 
-// SetAPIInitialBackoff allows to safely set and persist configuration settings.
-func (cs *Service) SetAPIInitialBackoff(interval time.Duration) error {
+// SetAuthenticatorBackoffCfg allows to safely alter repeated failure count.
+func (cs *Service) SetAuthenticatorBackoffCfg(cfg BackoffCfg) error {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().APIBackoff.InitialBackoff = interval.String()
-
-	return cs.Storage.Save()
-}
-
-// GetAPIRepeatedBackoff allows to safely access a configuration setting.
-func (cs *Service) GetAPIRepeatedBackoff() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	interval, err := time.ParseDuration(cs.Storage.Model().APIBackoff.RepeatedBackoff)
-	if err != nil {
-		return time.Minute
+	cs.Storage.Model().AuthenticatorBackoff = backoffCfg{
+		InitialBackoff:       cfg.InitialBackoff.String(),
+		RepeatedBackoff:      cfg.RepeatedBackoff.String(),
+		FinalBackoff:         cfg.FinalBackoff.String(),
+		InitialFailureCount:  cfg.InitialFailureCount,
+		RepeatedFailureCount: cfg.RepeatedFailureCount,
 	}
 
-	return interval
-}
-
-// SetAPIRepeatedBackoff allows to safely set and persist configuration settings.
-func (cs *Service) SetAPIRepeatedBackoff(interval time.Duration) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().APIBackoff.RepeatedBackoff = interval.String()
-
 	return cs.Storage.Save()
 }
 
-// GetAPIFinalBackoff allows to safely access a configuration setting.
-func (cs *Service) GetAPIFinalBackoff() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	interval, err := time.ParseDuration(cs.Storage.Model().APIBackoff.FinalBackoff)
-	if err != nil {
-		return 10 * time.Minute
+func NewBackoffCfgSetting(cfg BackoffCfg) backoffCfg {
+	return backoffCfg{
+		InitialBackoff:       cfg.InitialBackoff.String(),
+		RepeatedBackoff:      cfg.RepeatedBackoff.String(),
+		FinalBackoff:         cfg.FinalBackoff.String(),
+		InitialFailureCount:  cfg.InitialFailureCount,
+		RepeatedFailureCount: cfg.RepeatedFailureCount,
 	}
-
-	return interval
-}
-
-// SetAPIFinalBackoff allows to safely set and persist configuration settings.
-func (cs *Service) SetAPIFinalBackoff(interval time.Duration) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Storage.Model().APIBackoff.FinalBackoff = interval.String()
-
-	return cs.Storage.Save()
-}
-
-// GetAPIInitialFailureCount allows to safely access signalr initial failure count.
-func (cs *Service) GetAPIInitialFailureCount() uint32 {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Storage.Model().APIBackoff.InitialFailureCount
-}
-
-// SetAPIInitialFailureCount allows to safely alter signalr initial failure count.
-func (cs *Service) SetAPIInitialFailureCount(n uint32) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	cs.Storage.Model().APIBackoff.InitialFailureCount = n
-
-	return cs.Storage.Save()
-}
-
-// GetAPIRepeatedFailureCount allows to safely access repeated failure count.
-func (cs *Service) GetAPIRepeatedFailureCount() uint32 {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Storage.Model().APIBackoff.RepeatedFailureCount
-}
-
-// SetAPIRepeatedFailureCount allows to safely alter repeated failure count.
-func (cs *Service) SetAPIRepeatedFailureCount(n uint32) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	cs.Storage.Model().APIBackoff.RepeatedFailureCount = n
-
-	return cs.Storage.Save()
 }

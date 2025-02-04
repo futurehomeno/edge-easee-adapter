@@ -63,8 +63,6 @@ func handleCredentials(cfgSrv *config.Service) func() {
 		err = cfgSrv.SetCredentials(newCreds)
 		if err != nil {
 			log.WithError(err).Error("can't update credentials")
-
-			return
 		}
 	}
 }
