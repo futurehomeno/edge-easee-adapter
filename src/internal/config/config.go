@@ -596,13 +596,3 @@ func (cs *Service) SetAuthenticatorBackoffCfg(cfg BackoffCfg) error {
 
 	return cs.Storage.Save()
 }
-
-func GetBackoffCfgSetting(cfg BackoffCfg) backoffCfg { //nolint used only for tests
-	return backoffCfg{
-		InitialBackoff:       cfg.InitialBackoff.String(),
-		RepeatedBackoff:      cfg.RepeatedBackoff.String(),
-		FinalBackoff:         cfg.FinalBackoff.String(),
-		InitialFailureCount:  cfg.InitialFailureCount,
-		RepeatedFailureCount: cfg.RepeatedFailureCount,
-	}
-}

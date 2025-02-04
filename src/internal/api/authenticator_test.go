@@ -12,6 +12,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -251,20 +252,21 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 			RefreshTokenExpiresAt: time.Now().Add(time.Hour),
 			AccessTokenExpiresAt:  time.Now(),
 		},
-		AuthenticatorBackoff: config.GetBackoffCfgSetting(
-			config.BackoffCfg{
-				InitialBackoff:       1 * time.Second,
-				RepeatedBackoff:      1 * time.Second,
-				FinalBackoff:         1 * time.Second,
-				InitialFailureCount:  1,
-				RepeatedFailureCount: 1,
-			},
-		),
 	}
 
-	storage := mockedstorage.Storage[*config.Config]{}
+	storage := mockedstorage.NewStorage[*config.Config](t)
 	storage.On("Model").Return(&cfg)
-	storage.On("Save").Return("ok")
+	storage.On("Save").Return(nil)
+
+	configService := config.NewService(storage)
+	err := configService.SetAuthenticatorBackoffCfg(config.BackoffCfg{
+		InitialBackoff:       time.Second,
+		RepeatedBackoff:      time.Second,
+		FinalBackoff:         time.Second,
+		InitialFailureCount:  1,
+		RepeatedFailureCount: 1,
+	})
+	require.NoError(t, err)
 
 	notificationManager := &NotificationMock{}
 
@@ -289,9 +291,9 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 		1,
 	)
 
-	auth := api.NewAuthenticator(client, config.NewService(&storage), notificationManager, mqtt, routing.ServiceName)
+	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, routing.ServiceName)
 
-	_, err := auth.AccessToken()
+	_, err = auth.AccessToken()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to perform token refresh api call:")
 
