@@ -62,7 +62,7 @@ func handleCredentials(cfgSrv *config.Service) func() {
 
 		err = cfgSrv.SetCredentials(newCreds)
 		if err != nil {
-			log.WithError(err).Error("can't update credentials")
+			log.WithError(err).Error("auth token expiration BC task: can't update credentials")
 		}
 	}
 }
