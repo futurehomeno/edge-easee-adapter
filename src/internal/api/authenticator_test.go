@@ -86,9 +86,12 @@ func TestLogin(t *testing.T) {
 			auth := api.NewAuthenticator(httpClient, cfgSrv, notificationManager, nil, "test")
 
 			err := auth.Login(v.username, v.password)
-			if err != nil {
+
+			if v.errorContains != "" {
+				assert.NotNil(t, err)
 				assert.Contains(t, err.Error(), v.errorContains)
 			} else {
+				assert.Nil(t, err)
 				assert.Equal(t, v.accessToken, cfg.AccessToken)
 				assert.Equal(t, v.refreshToken, cfg.RefreshToken)
 			}
@@ -190,9 +193,11 @@ func TestAccessToken(t *testing.T) {
 			auth := api.NewAuthenticator(httpClient, cfgSrv, notificationManager, mqtt, "test")
 			token, err := auth.AccessToken()
 
-			if err != nil {
+			if v.errorContains != "" {
+				assert.NotNil(t, err)
 				assert.Contains(t, err.Error(), v.errorContains)
 			} else {
+				assert.Nil(t, err)
 				assert.Equal(t, v.expectedToken, token)
 				assert.Equal(t, v.accessToken, cfg.AccessToken)
 				assert.Equal(t, v.refreshToken, cfg.RefreshToken)
