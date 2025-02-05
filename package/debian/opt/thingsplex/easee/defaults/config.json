@@ -32,11 +32,7 @@
     "repeatedFailureCount": 6,
     "invokeTimeout": "10s"
   },
-  "backoff": {
-    "length": "5m",
-    "maxAttempts": 3
-  },
-  "apiBackoff": {
+  "authenticatorBackoff": {
     "initialBackoff": "15m",
     "repeatedBackoff": "1m",
     "finalBackoff": "10m",

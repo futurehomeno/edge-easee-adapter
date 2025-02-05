@@ -157,7 +157,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 			errorContains: "could not read token",
 		},
 		{
-			name:          "should form valid credentialsCfg",
+			name:          "should form valid credentials",
 			responseData:  `{"accessToken":"access","refreshToken":"refresh"}`,
 			statusCode:    http.StatusOK,
 			expectedCreds: model.Credentials{RefreshToken: "refresh", AccessToken: "access"},

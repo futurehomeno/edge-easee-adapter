@@ -6,7 +6,6 @@
   "configured_at": "9998-12-31T00:00:00+01:00",
   "accessToken": "test.access.token",
   "refreshToken": "test.refresh.token",
-  "expiresAt": "0001-01-01T00:00:00Z",
   "accessTokenExpiresAt": "9999-02-01T00:00:00Z",
   "refreshTokenExpiresAt": "9999-02-01T00:00:00Z",
   "easeeBaseURL2": "http://localhost:9998",
@@ -27,9 +26,5 @@
     "initialFailureCount": 3,
     "repeatedFailureCount": 6,
     "invokeTimeout": "10s"
-  },
-  "backoff": {
-    "length": "5m",
-    "maxAttempts": 3
   }
 }

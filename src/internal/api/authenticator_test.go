@@ -110,8 +110,8 @@ func TestAccessToken(t *testing.T) {
 		expectedToken     string
 	}{
 		{
-			name:          "should return error when credentialsCfg are empty",
-			errorContains: "credentialsCfg are empty",
+			name:          "should return error when credentials are empty",
+			errorContains: "credentials are empty",
 		},
 		{
 			name: "should return access token when it isn't expired",
@@ -190,11 +190,9 @@ func TestAccessToken(t *testing.T) {
 			auth := api.NewAuthenticator(httpClient, cfgSrv, notificationManager, mqtt, "test")
 			token, err := auth.AccessToken()
 
-			if v.errorContains != "" {
-				assert.NotNil(t, err)
+			if err != nil {
 				assert.Contains(t, err.Error(), v.errorContains)
 			} else {
-				assert.Nil(t, err)
 				assert.Equal(t, v.expectedToken, token)
 				assert.Equal(t, v.accessToken, cfg.AccessToken)
 				assert.Equal(t, v.refreshToken, cfg.RefreshToken)
@@ -226,7 +224,10 @@ func TestLogout(t *testing.T) {
 
 			cfg := config.Config{
 				Credentials: config.Credentials{
-					AccessToken: "token",
+					AccessToken:           "token",
+					RefreshToken:          "refresh token",
+					AccessTokenExpiresAt:  time.Now().Add(time.Hour),
+					RefreshTokenExpiresAt: time.Now().Add(time.Hour),
 				},
 			}
 

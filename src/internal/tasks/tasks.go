@@ -22,12 +22,12 @@ func New(
 	ad adapter.Adapter,
 ) []*task.Task {
 	return task.Combine[[]*task.Task](
-		app.TaskApp(application, appLifecycle),
-		adapter.TaskAdapter(ad, cfgSrv.GetPollingInterval()),
-		thing.TaskCarCharger(ad, cfgSrv.GetPollingInterval(), task.WhenAppIsConnected(appLifecycle)),
 		[]*task.Task{
 			task.New(handleCredentials(cfgSrv), 0),
 		},
+		app.TaskApp(application, appLifecycle),
+		adapter.TaskAdapter(ad, cfgSrv.GetPollingInterval()),
+		thing.TaskCarCharger(ad, cfgSrv.GetPollingInterval(), task.WhenAppIsConnected(appLifecycle)),
 	)
 }
 
@@ -40,14 +40,14 @@ func handleCredentials(cfgSrv *config.Service) func() {
 
 		accessTokenExpiresAt, err := jwt.ExpirationDate(creds.AccessToken)
 		if err != nil {
-			log.WithError(err).Error("can't get access token expires at")
+			log.WithError(err).Error("auth token expiration BC task: can't get access token expires at")
 
 			return
 		}
 
 		refreshTokenExpiresAt, err := jwt.ExpirationDate(creds.RefreshToken)
 		if err != nil {
-			log.WithError(err).Error("can't get refresh token expires at")
+			log.WithError(err).Error("auth token expiration BC task: can't get refresh token expires at")
 
 			return
 		}

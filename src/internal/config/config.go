@@ -91,8 +91,7 @@ type Service struct {
 	lock *sync.RWMutex
 }
 
-// backoffCfg represents values used to configure
-// backoff.
+// backoffCfg represents a file storage representation of BackoffCfg.
 type backoffCfg struct {
 	InitialBackoff       string `json:"initialBackoff"`
 	RepeatedBackoff      string `json:"repeatedBackoff"`
@@ -101,6 +100,7 @@ type backoffCfg struct {
 	RepeatedFailureCount uint32 `json:"repeatedFailureCount"`
 }
 
+// BackoffCfg represents values used to configure backoff.
 type BackoffCfg struct {
 	InitialBackoff       time.Duration
 	RepeatedBackoff      time.Duration

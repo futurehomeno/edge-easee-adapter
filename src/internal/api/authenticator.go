@@ -13,6 +13,7 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/jwt"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 const (
@@ -23,13 +24,13 @@ const (
 
 // Authenticator is the interface for the Easee authenticator.
 type Authenticator interface {
-	// Login logs in to the Easee API and persists credentialsCfg in config service.
+	// Login logs in to the Easee API and persists credentials in config service.
 	Login(userName, password string) error
 	// AccessToken is responsible for providing a valid access token for the Easee API.
 	// It will automatically refresh the token if it's expired.
 	// Returns an error if the application is not logged in.
 	AccessToken() (string, error)
-	// Logout used to remove credentialsCfg from the config
+	// Logout used to remove credentials from the config
 	Logout() error
 }
 
@@ -44,12 +45,13 @@ type authenticator struct {
 }
 
 func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification, mqtt *fimpgo.MqttTransport, serviceName string) Authenticator {
+	cfgBackoff := cfgSvc.GetAuthenticatorBackoffCfg()
 	backoff := backoff.NewStateful(
-		cfgSvc.GetAuthenticatorBackoffCfg().InitialBackoff,
-		cfgSvc.GetAuthenticatorBackoffCfg().RepeatedBackoff,
-		cfgSvc.GetAuthenticatorBackoffCfg().FinalBackoff,
-		cfgSvc.GetAuthenticatorBackoffCfg().InitialFailureCount,
-		cfgSvc.GetAuthenticatorBackoffCfg().RepeatedFailureCount,
+		cfgBackoff.InitialBackoff,
+		cfgBackoff.RepeatedBackoff,
+		cfgBackoff.FinalBackoff,
+		cfgBackoff.InitialFailureCount,
+		cfgBackoff.RepeatedFailureCount,
 	)
 
 	return &authenticator{
@@ -71,23 +73,9 @@ func (a *authenticator) Login(userName, password string) error {
 		return err
 	}
 
-	accessTokenExpDate, err := jwt.ExpirationDate(creds.AccessToken)
+	err = a.updateCredentials(creds)
 	if err != nil {
-		return fmt.Errorf("failed to extract expiration date from access token: %w", err)
-	}
-
-	refreshTokenExpDate, err := jwt.ExpirationDate(creds.RefreshToken)
-	if err != nil {
-		return fmt.Errorf("failed to extract expiration date from access token: %w", err)
-	}
-
-	if err = a.cfgSvc.SetCredentials(config.Credentials{
-		AccessToken:           creds.AccessToken,
-		RefreshToken:          creds.RefreshToken,
-		AccessTokenExpiresAt:  accessTokenExpDate,
-		RefreshTokenExpiresAt: refreshTokenExpDate,
-	}); err != nil {
-		return fmt.Errorf("failed to save credentialsCfg in storage: %w", err)
+		return err
 	}
 
 	a.backoff.Reset()
@@ -101,7 +89,7 @@ func (a *authenticator) AccessToken() (string, error) {
 
 	credentials := a.cfgSvc.GetCredentials()
 	if credentials.Empty() {
-		return "", errors.New("credentialsCfg are empty - login first")
+		return "", errors.New("credentials are empty - login first")
 	}
 
 	if !credentials.AccessTokenExpired() {
@@ -123,26 +111,9 @@ func (a *authenticator) AccessToken() (string, error) {
 
 	a.backoff.Reset()
 
-	accessTokenExpDate, err := jwt.ExpirationDate(newCredentials.AccessToken)
+	err = a.updateCredentials(newCredentials)
 	if err != nil {
-		return "", fmt.Errorf("failed to extract expiration date from access token: %w", err)
-	}
-
-	refreshTokenExpDate, err := jwt.ExpirationDate(newCredentials.RefreshToken)
-	if err != nil {
-		return "", fmt.Errorf("failed to extract expiration date from access token: %w", err)
-	}
-
-	newCreds := config.Credentials{
-		AccessToken:           newCredentials.AccessToken,
-		RefreshToken:          newCredentials.RefreshToken,
-		AccessTokenExpiresAt:  accessTokenExpDate,
-		RefreshTokenExpiresAt: refreshTokenExpDate,
-	}
-
-	err = a.cfgSvc.SetCredentials(newCreds)
-	if err != nil {
-		return "", fmt.Errorf("failed to save credentialsCfg in storage: %w", err)
+		return "", err
 	}
 
 	return newCredentials.AccessToken, nil
@@ -173,7 +144,7 @@ func (a *authenticator) handleConnectionFailed(err error) error {
 	a.validateNotificationPush(notifError, notificationEaseeStatusOffline)
 
 	if logoutErr := a.triggerAppLogout(); logoutErr != nil {
-		return fmt.Errorf("unauthorized, re-login required; failed to clear credentialsCfg. %w , logout error: %w", err, logoutErr)
+		return fmt.Errorf("unauthorized, re-login required; failed to clear credentials. %w , logout error: %w", err, logoutErr)
 	}
 
 	return nil
@@ -205,4 +176,30 @@ func (a *authenticator) validateNotificationPush(err error, notificationName str
 	if err != nil {
 		log.WithError(err).Errorf("Failed to send push notification: %s", notificationName)
 	}
+}
+
+func (a *authenticator) updateCredentials(credentials *model.Credentials) error {
+	accessTokenExpDate, err := jwt.ExpirationDate(credentials.AccessToken)
+	if err != nil {
+		return fmt.Errorf("failed to extract expiration date from access token: %w", err)
+	}
+
+	refreshTokenExpDate, err := jwt.ExpirationDate(credentials.RefreshToken)
+	if err != nil {
+		return fmt.Errorf("failed to extract expiration date from access token: %w", err)
+	}
+
+	newCreds := config.Credentials{
+		AccessToken:           credentials.AccessToken,
+		RefreshToken:          credentials.RefreshToken,
+		AccessTokenExpiresAt:  accessTokenExpDate,
+		RefreshTokenExpiresAt: refreshTokenExpDate,
+	}
+
+	err = a.cfgSvc.SetCredentials(newCreds)
+	if err != nil {
+		return fmt.Errorf("failed to save credentials in storage: %w", err)
+	}
+
+	return nil
 }
