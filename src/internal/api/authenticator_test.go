@@ -140,7 +140,7 @@ func TestAccessToken(t *testing.T) {
 			refreshToken: "",
 		},
 		{
-			name: "should return error when failed to set credentialsCfg",
+			name: "should return error when failed to set credentials",
 			credentialsCfg: config.Credentials{
 				AccessTokenExpiresAt:  time.Now().Add(-1 * time.Hour),
 				RefreshTokenExpiresAt: time.Now().Add(1 * time.Hour),
@@ -218,7 +218,7 @@ func TestLogout(t *testing.T) {
 			saveError: errors.New("error"),
 		},
 		{
-			name: "credentialsCfg should be empty",
+			name: "credentials should be empty",
 		},
 	}
 
