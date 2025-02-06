@@ -1,8 +1,6 @@
 package tasks
 
 import (
-	"time"
-
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/cliffhanger/app"
@@ -34,7 +32,7 @@ func New(
 func handleCredentials(cfgSrv *config.Service) func() {
 	return func() {
 		creds := cfgSrv.GetCredentials()
-		if creds.ExpiresAt.IsZero() {
+		if creds.RefreshTokenExpiresAt.IsZero() {
 			return
 		}
 
@@ -55,7 +53,6 @@ func handleCredentials(cfgSrv *config.Service) func() {
 		newCreds := config.Credentials{
 			AccessToken:           creds.AccessToken,
 			RefreshToken:          creds.RefreshToken,
-			ExpiresAt:             time.Time{},
 			AccessTokenExpiresAt:  accessTokenExpiresAt,
 			RefreshTokenExpiresAt: refreshTokenExpiresAt,
 		}

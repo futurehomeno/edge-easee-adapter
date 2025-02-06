@@ -49,8 +49,7 @@ func Factory() *Config {
 type Credentials struct {
 	AccessToken           string    `json:"accessToken"`
 	RefreshToken          string    `json:"refreshToken"`
-	ExpiresAt             time.Time `json:"expiresAt"` // deprecated, use accessTokenExpiresAt instead
-	AccessTokenExpiresAt  time.Time `json:"accessTokenExpiresAt"`
+	AccessTokenExpiresAt  time.Time `json:"expiresAt"`
 	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt"`
 }
 

@@ -11,7 +11,7 @@
   "configured_by": "",
   "accessToken": "",
   "refreshToken": "",
-  "accessTokenExpiresAt": "0001-01-01T00:00:00Z",
+  "expiresAt": "0001-01-01T00:00:00Z",
   "refreshTokenExpiresAt": "0001-01-01T00:00:00Z",
   "easeeBaseURL2": "https://api.easee.com",
   "easeeBackoff": "4s",
