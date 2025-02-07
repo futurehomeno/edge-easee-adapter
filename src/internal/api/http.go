@@ -135,7 +135,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 			return nil, err
 		}
 
-		return nil, HTTPError{err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode, Body: resp.Body}
+		return nil, HTTPError{Err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode, Body: resp.Body}
 	}
 
 	defer resp.Body.Close()

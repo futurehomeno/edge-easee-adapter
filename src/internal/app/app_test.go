@@ -102,9 +102,9 @@ func TestApplication_Uninstall(t *testing.T) {
 			name: "successful config, lifecycle and adapter reset",
 			cfg: &config.Config{
 				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
+					AccessToken:          "access-token",
+					RefreshToken:         "refresh-token",
+					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -130,9 +130,9 @@ func TestApplication_Uninstall(t *testing.T) {
 			name: "adapter error on destroying all things",
 			cfg: &config.Config{
 				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
+					AccessToken:          "access-token",
+					RefreshToken:         "refresh-token",
+					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -504,9 +504,9 @@ func TestApplication_Initialize(t *testing.T) {
 			name: "successful thing initialization",
 			cfg: &config.Config{
 				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
+					AccessToken:          "access-token",
+					RefreshToken:         "refresh-token",
+					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -577,9 +577,9 @@ func TestApplication_Initialize(t *testing.T) {
 			name: "successful thing initialization, but ping failed",
 			cfg: &config.Config{
 				Credentials: config.Credentials{
-					AccessToken:  "access-token",
-					RefreshToken: "refresh-token",
-					ExpiresAt:    time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
+					AccessToken:          "access-token",
+					RefreshToken:         "refresh-token",
+					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 00, 12, 00, time.UTC), //nolint:gofumpt
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {

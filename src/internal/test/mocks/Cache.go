@@ -6,6 +6,8 @@ import (
 	chargepoint "github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	mock "github.com/stretchr/testify/mock"
 
+	model "github.com/futurehomeno/edge-easee-adapter/internal/model"
+
 	time "time"
 )
 
@@ -100,29 +102,15 @@ func (_m *Cache) GridType() chargepoint.GridType {
 	return r0
 }
 
-// HasOngoingChargingSession provides a mock function with given fields:
-func (_m *Cache) HasOngoingChargingSession() bool {
-	ret := _m.Called()
-
-	var r0 bool
-	if rf, ok := ret.Get(0).(func() bool); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(bool)
-	}
-
-	return r0
-}
-
 // LifetimeEnergy provides a mock function with given fields:
-func (_m *Cache) LifetimeEnergy() float64 {
+func (_m *Cache) LifetimeEnergy() model.TimestampedValue[float64] {
 	ret := _m.Called()
 
-	var r0 float64
-	if rf, ok := ret.Get(0).(func() float64); ok {
+	var r0 model.TimestampedValue[float64]
+	if rf, ok := ret.Get(0).(func() model.TimestampedValue[float64]); ok {
 		r0 = rf()
 	} else {
-		r0 = ret.Get(0).(float64)
+		r0 = ret.Get(0).(model.TimestampedValue[float64])
 	}
 
 	return r0
@@ -284,13 +272,8 @@ func (_m *Cache) SetGridType(gridType chargepoint.GridType) {
 	_m.Called(gridType)
 }
 
-// SetHasOngoingChargingSession provides a mock function with given fields: val
-func (_m *Cache) SetHasOngoingChargingSession(val bool) {
-	_m.Called(val)
-}
-
 // SetLifetimeEnergy provides a mock function with given fields: energy
-func (_m *Cache) SetLifetimeEnergy(energy float64) {
+func (_m *Cache) SetLifetimeEnergy(energy model.TimestampedValue[float64]) {
 	_m.Called(energy)
 }
 

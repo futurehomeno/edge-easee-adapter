@@ -7,6 +7,7 @@ toolchain go1.23.4
 require (
 	github.com/futurehomeno/cliffhanger v0.59.0
 	github.com/futurehomeno/fimpgo v1.13.3
+	github.com/golang-jwt/jwt/v4 v4.5.1
 	github.com/google/go-cmp v0.6.0
 	github.com/michalkurzeja/go-clock v1.0.2
 	github.com/philippseith/signalr v0.6.0
