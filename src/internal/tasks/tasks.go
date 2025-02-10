@@ -27,6 +27,7 @@ func New(
 		adapter.TaskAdapter(ad, cfgSrv.GetPollingInterval()),
 		thing.TaskCarCharger(ad, cfgSrv.GetPollingInterval(), task.WhenAppIsConnected(appLifecycle)),
 	)
+
 }
 
 func handleCredentials(cfgSrv *config.Service) func() {

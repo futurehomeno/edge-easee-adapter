@@ -19,6 +19,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
@@ -47,6 +48,7 @@ type serviceContainer struct {
 	signalRClient   signalr.Client
 	signalRManager  signalr.Manager
 	eventListener   event.Listener
+	sessionStorage  db.SessionStorage
 }
 
 func resetContainer() {
@@ -88,6 +90,17 @@ func getEventListener(cfg *config.Config) event.Listener {
 	}
 
 	return services.eventListener
+}
+
+// getEventListener creates or returns existing event listener service.
+func getSessionStorage(cfg *config.Config) db.SessionStorage {
+	if services.sessionStorage == nil {
+		services.sessionStorage = db.NewSessionStorage(
+			cfg.WorkDir,
+		)
+	}
+
+	return services.sessionStorage
 }
 
 // getMQTT creates or returns existing MQTT broker service.
@@ -180,6 +193,7 @@ func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 			getEaseeAPIClient(cfg),
 			getConfigService(),
 			getSignalRManager(cfg),
+			getSessionStorage(cfg),
 		)
 	}
 

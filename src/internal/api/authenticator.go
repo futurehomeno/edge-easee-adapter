@@ -198,7 +198,7 @@ func (a *authenticator) updateCredentials(credentials *model.Credentials) error 
 
 	err = a.cfgSvc.SetCredentials(newCreds)
 	if err != nil {
-		return fmt.Errorf("failed to save credentials in storage: %w", err)
+		return fmt.Errorf("failed to save credentials in db: %w", err)
 	}
 
 	return nil

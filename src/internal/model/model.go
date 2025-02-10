@@ -56,35 +56,6 @@ type ChargerSiteInfo struct {
 	RatedCurrent float64 `json:"ratedCurrent"`
 }
 
-// ChargeSessions represents charge sessions.
-type ChargeSessions []*ChargeSession
-
-// Latest returns latest charge session.
-func (c ChargeSessions) Latest() *ChargeSession {
-	if len(c) < 1 {
-		return nil
-	}
-
-	return c[0]
-}
-
-// Previous returns previous charge session.
-func (c ChargeSessions) Previous() *ChargeSession {
-	if len(c) < 2 {
-		return nil
-	}
-
-	return c[1]
-}
-
-// ChargeSession represents charger session.
-type ChargeSession struct {
-	CarConnected    time.Time `json:"carConnected"`
-	CarDisconnected time.Time `json:"carDisconnected"`
-	KiloWattHours   float64   `json:"kiloWattHours"`
-	IsComplete      bool      `json:"isComplete"`
-}
-
 const (
 	// ChargingModeNormal represents a "normal" charging mode.
 	ChargingModeNormal = "normal"
@@ -136,6 +107,15 @@ func (o *Observation) BoolValue() (bool, error) {
 	return strconv.ParseBool(o.Value)
 }
 
+// StringValue returns a string representation of the Observation value.
+func (o *Observation) StringValue() (string, error) {
+	if o.DataType != ObservationDataTypeString {
+		return "", errors.New("observation data type is not string")
+	}
+
+	return o.Value, nil
+}
+
 // ObservationID represents an Observation ID in Easee API.
 type ObservationID int
 
@@ -152,9 +132,11 @@ const (
 	TotalPower            ObservationID = 120
 	EnergySession         ObservationID = 121
 	LifetimeEnergy        ObservationID = 124
+	ChargingSessionStop   ObservationID = 129
 	InCurrentT3           ObservationID = 183
 	InCurrentT4           ObservationID = 184
 	InCurrentT5           ObservationID = 185
+	ChargingSessionStart  ObservationID = 223
 	CloudConnected        ObservationID = 250
 )
 
@@ -452,4 +434,19 @@ var easeeNetworkTypeMap = map[GridType]networkType{
 type TimestampedValue[T any] struct {
 	Value     T
 	Timestamp time.Time
+}
+
+type StartChargingSession struct {
+	ID         int64     `json:"Id"`
+	MeterValue float64   `json:"MeterValue"`
+	Start      time.Time `json:"Start"`
+}
+
+type StopChargingSession struct {
+	ID              int64     `json:"Id"`
+	Energy          float64   `json:"EnergyKwh"`
+	MeterValueStart float64   `json:"MeterValueStart"`
+	MeterValueStop  float64   `json:"MeterValueStop"`
+	Start           time.Time `json:"Start"`
+	Stop            time.Time `json:"Stop"`
 }

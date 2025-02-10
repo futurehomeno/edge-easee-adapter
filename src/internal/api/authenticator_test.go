@@ -45,16 +45,16 @@ func TestLogin(t *testing.T) {
 			errorContains: "expected response code to be 200",
 		},
 		{
-			name:          "should return error when storage failed to save",
+			name:          "should return error when db failed to save",
 			username:      "user",
 			password:      "pwd",
 			accessToken:   accessToken,
 			refreshToken:  refreshToken,
-			saveError:     errors.New("failed to save to the storage"),
-			errorContains: "failed to save to the storage",
+			saveError:     errors.New("failed to save to the db"),
+			errorContains: "failed to save to the db",
 		},
 		{
-			name:         "should save tokens to the storage",
+			name:         "should save tokens to the db",
 			username:     "user",
 			password:     "pwd",
 			accessToken:  accessToken,
@@ -70,7 +70,7 @@ func TestLogin(t *testing.T) {
 			cfg := config.Config{}
 			storage := mockedstorage.Storage[*config.Config]{}
 			storage.On("Model").Return(&cfg)
-			storage.On("Save").Return(v.saveError)
+			storage.On("RegisterStopSession").Return(v.saveError)
 
 			cfgSrv := config.NewConfigServiceWithStorage(&storage)
 
@@ -167,7 +167,7 @@ func TestAccessToken(t *testing.T) {
 			}
 			storage := mockedstorage.Storage[*config.Config]{}
 			storage.On("Model").Return(&cfg)
-			storage.On("Save").Return(v.saveError)
+			storage.On("RegisterStopSession").Return(v.saveError)
 
 			cfgSrv := config.NewConfigServiceWithStorage(&storage)
 			notificationManager := &NotificationMock{}
@@ -238,12 +238,12 @@ func TestLogout(t *testing.T) {
 
 			storage := mockedstorage.Storage[*config.Config]{}
 			storage.On("Model").Return(&cfg)
-			storage.On("Save").Return(v.saveError)
+			storage.On("RegisterStopSession").Return(v.saveError)
 
 			auth := api.NewAuthenticator(nil, config.NewService(&storage), nil, nil, "test")
 			err := auth.Logout()
 
-			assert.Equal(t, v.saveError, err, "should return the same error from the Save()")
+			assert.Equal(t, v.saveError, err, "should return the same error from the RegisterStopSession()")
 			assert.Equal(t, config.Credentials{}, cfg.Credentials)
 		})
 	}
@@ -262,7 +262,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 
 	storage := mockedstorage.NewStorage[*config.Config](t)
 	storage.On("Model").Return(&cfg)
-	storage.On("Save").Return(nil)
+	storage.On("RegisterStopSession").Return(nil)
 
 	configService := config.NewService(storage)
 	err := configService.SetAuthenticatorBackoffCfg(config.BackoffCfg{

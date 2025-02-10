@@ -53,8 +53,6 @@ type HTTPClient interface {
 	ChargerConfig(accessToken, chargerID string) (*model.ChargerConfig, error)
 	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
 	ChargerSiteInfo(accessToken, chargerID string) (*model.ChargerSiteInfo, error)
-	// ChargerSessions retrieves at most two latest charging sessions including current if present.
-	ChargerSessions(accessToken, chargerID string) (model.ChargeSessions, error)
 	// Chargers returns all available chargers.
 	Chargers(accessToken string) ([]model.Charger, error)
 	// ChargerDetails returns product's name.
@@ -300,33 +298,6 @@ func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*model.Char
 	}
 
 	return state, nil
-}
-
-func (c *httpClient) ChargerSessions(accessToken, chargerID string) (model.ChargeSessions, error) {
-	u := c.buildURL(chargerSessionsURITemplate, chargerID)
-
-	req, err := newRequestBuilder(http.MethodGet, u).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		build()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create charger state request")
-	}
-
-	resp, err := c.performRequest(req, http.StatusOK)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not perform charger state api call")
-	}
-
-	defer resp.Body.Close()
-
-	sessions := model.ChargeSessions{}
-
-	err = c.readResponseBody(resp, &sessions)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not read charger state response body")
-	}
-
-	return sessions, nil
 }
 
 func (c *httpClient) Chargers(accessToken string) ([]model.Charger, error) {
