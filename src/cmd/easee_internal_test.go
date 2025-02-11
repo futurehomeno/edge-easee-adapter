@@ -1224,7 +1224,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{
 							waitForRunning(),
-							func(t *testing.T) {
+							func(_ *testing.T) {
 								time.Sleep(10 * time.Millisecond)
 							},
 						},
