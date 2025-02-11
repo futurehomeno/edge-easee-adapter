@@ -120,6 +120,6 @@ type SessionStorageSuite struct {
 	suite.Suite
 }
 
-func TestMeasurementsRepositorySuite(t *testing.T) { //nolint:paralleltest
+func TestSessionStorageSuite(t *testing.T) { //nolint:paralleltest
 	suite.Run(t, new(SessionStorageSuite))
 }
