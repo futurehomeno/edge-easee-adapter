@@ -1176,7 +1176,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
-				Name: "Get sessions report after observation, no previous session",
+				Name: "Get sessions report",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -1222,8 +1222,13 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
 				Nodes: []*suite.Node{
 					{
-						InitCallbacks: []suite.Callback{waitForRunning()},
-						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.current_session.get_report", "chargepoint"),
+						InitCallbacks: []suite.Callback{
+							waitForRunning(),
+							func(t *testing.T) {
+								time.Sleep(10 * time.Millisecond)
+							},
+						},
+						Command: suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.current_session.get_report", "chargepoint"),
 						Expectations: []*suite.Expectation{
 							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.current_session.report", "chargepoint", 0).
 								ExpectProperty("offered_current", "0").
