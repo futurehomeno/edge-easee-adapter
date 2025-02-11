@@ -21,6 +21,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
@@ -51,6 +52,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
+					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
@@ -126,6 +131,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
 							{
@@ -182,6 +191,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup("localhost:1111", nil)),
 				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
 				Nodes: []*suite.Node{
@@ -204,6 +217,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
+					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
@@ -265,6 +282,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
 							{
@@ -304,6 +325,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, nil)),
 				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
 				Nodes: []*suite.Node{
@@ -326,6 +351,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
+					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
@@ -408,6 +437,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
 							{
@@ -463,6 +496,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
 							{
@@ -509,6 +546,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							RatedCurrent: 32,
 						}, nil)
 						client.On("Ping").Return(nil)
+					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
@@ -571,6 +612,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
 							{
@@ -626,6 +671,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							RatedCurrent: 32,
 						}, nil)
 						client.On("Ping").Return(nil)
+					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
@@ -683,6 +732,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
 							{
@@ -724,6 +777,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							RatedCurrent: 32,
 						}, nil)
 						client.On("Ping").Return(nil)
+					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
@@ -774,6 +831,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
 							{
@@ -822,6 +883,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							RatedCurrent: 32,
 						}, nil)
 						client.On("Ping").Return(nil)
+					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
@@ -890,6 +955,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
 							{
@@ -941,6 +1010,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
 							{
@@ -989,6 +1062,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							RatedCurrent: 32,
 						}, nil)
 						client.On("Ping").Return(nil)
+					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
 						s.MockObservations(0, []model.Observation{
@@ -1041,6 +1118,122 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					},
 				},
 			},
+			{
+				Name: "Start session report after observation, no previous session",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeUnknown,
+							PhaseMode:             1,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+						s.On("RegisterStartSession", test.ChargerID, model.StartChargingSession{
+							ID:         435,
+							MeterValue: 1277.872637,
+							Start:      time.Date(2025, time.January, 22, 12, 51, 47, 0, time.UTC),
+						}).Return(nil)
+						s.On("GetLastChargingSessionsByChargerID", test.ChargerID, uint(2)).Return(db.ChargingSessions{&db.ChargingSession{
+							ID:    435,
+							Start: time.Date(2025, time.January, 22, 12, 51, 47, 0, time.UTC),
+						}}, nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeString,
+								ID:        model.ChargingSessionStart,
+								Value:     `{ "Auth": "", "AuthReason": 0, "Id": 435, "MeterValue": 1277.872637, "Start": "2025-01-22T12:51:47.000Z"}`,
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.current_session.report", "chargepoint", 0).
+								ExpectProperty("offered_current", "0").
+								ExpectProperty("started_at", "2025-01-22T12:51:47Z"),
+						},
+					},
+				},
+			},
+			{
+				Name: "Get sessions report after observation, no previous session",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeUnknown,
+							PhaseMode:             1,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					func(s *mocks.SessionStorage) {
+						s.On("Start").Return(nil)
+						s.On("Stop").Return(nil)
+						s.On("GetLastChargingSessionsByChargerID", test.ChargerID, uint(2)).Return(db.ChargingSessions{
+							&db.ChargingSession{
+								EnergyKwh: 0.411273,
+								ID:        435,
+								Start:     time.Date(2025, time.January, 22, 12, 51, 47, 0, time.UTC),
+								Stop:      time.Date(2025, time.January, 22, 13, 5, 38, 0, time.UTC),
+							},
+							&db.ChargingSession{
+								EnergyKwh: 0.45,
+								ID:        436,
+								Start:     time.Date(2025, time.January, 23, 12, 51, 47, 0, time.UTC),
+								Stop:      time.Date(2025, time.January, 23, 13, 5, 38, 0, time.UTC),
+							},
+						}, nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.current_session.get_report", "chargepoint"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.current_session.report", "chargepoint", 0).
+								ExpectProperty("offered_current", "0").
+								ExpectProperty("started_at", "2025-01-22T12:51:47Z").
+								ExpectProperty("previous_session", "0.45").
+								ExpectProperty("finished_at", "2025-01-22T13:05:38Z"),
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -1048,7 +1241,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 }
 
 //nolint:unparam
-func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn func(c *mocks.APIClient), opts ...func(tc *testContainer)) suite.ServiceSetup {
+func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn func(c *mocks.APIClient), mockSessionStorageFn func(s *mocks.SessionStorage), opts ...func(tc *testContainer)) suite.ServiceSetup {
 	return func(t *testing.T) (service suite.Service, _ []suite.Mock) {
 		t.Helper()
 
@@ -1066,7 +1259,11 @@ func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn fu
 		client := mocks.NewAPIClient(t)
 		mockClientFn(client)
 
+		sessionStorage := mocks.NewSessionStorage(t)
+		mockSessionStorageFn(sessionStorage)
+
 		services.easeeAPIClient = client
+		services.sessionStorage = sessionStorage
 
 		app, err := Build(config)
 		if err != nil {

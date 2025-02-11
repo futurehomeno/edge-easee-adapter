@@ -62,32 +62,6 @@ func (_m *HTTPClient) ChargerDetails(accessToken string, chargerID string) (mode
 	return r0, r1
 }
 
-// ChargerSessions provides a mock function with given fields: accessToken, chargerID
-func (_m *HTTPClient) ChargerSessions(accessToken string, chargerID string) (model.ChargeSessions, error) {
-	ret := _m.Called(accessToken, chargerID)
-
-	var r0 model.ChargeSessions
-	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (model.ChargeSessions, error)); ok {
-		return rf(accessToken, chargerID)
-	}
-	if rf, ok := ret.Get(0).(func(string, string) model.ChargeSessions); ok {
-		r0 = rf(accessToken, chargerID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(model.ChargeSessions)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(accessToken, chargerID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // ChargerSiteInfo provides a mock function with given fields: accessToken, chargerID
 func (_m *HTTPClient) ChargerSiteInfo(accessToken string, chargerID string) (*model.ChargerSiteInfo, error) {
 	ret := _m.Called(accessToken, chargerID)

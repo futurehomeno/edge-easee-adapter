@@ -416,7 +416,7 @@ func (h *observationsHandler) handleChargingSessionStop(observation model.Observ
 
 	var chargingSession model.StopChargingSession
 
-	err = json.Unmarshal([]byte(val), chargingSession)
+	err = json.Unmarshal([]byte(val), &chargingSession)
 	if err != nil {
 		return err
 	}
@@ -444,7 +444,7 @@ func (h *observationsHandler) handleChargingSessionStart(observation model.Obser
 
 	var chargingSession model.StartChargingSession
 
-	err = json.Unmarshal([]byte(val), chargingSession)
+	err = json.Unmarshal([]byte(val), &chargingSession)
 	if err != nil {
 		return err
 	}

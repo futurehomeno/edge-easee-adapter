@@ -171,6 +171,8 @@ func SupportedObservationIDs() []ObservationID {
 		CableLocked,
 		CableRating,
 		LockCablePermanently,
+		ChargingSessionStart,
+		ChargingSessionStop,
 	}
 }
 
