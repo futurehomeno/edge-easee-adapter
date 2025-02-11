@@ -54,7 +54,7 @@ func (s *sessionStorage) Reset() error {
 func (s *sessionStorage) RegisterStartSession(chargerID string, session model.StartChargingSession) error {
 	lastSession, err := s.GetLastChargingSessionsByChargerID(chargerID, 1)
 	if err != nil {
-		return errors.Wrap(err, "register start session: can't get last charging session:")
+		return errors.Wrap(err, "register start session: can't get last charging session")
 	}
 
 	if len(lastSession) != 0 && lastSession[0].Stop.IsZero() {
@@ -62,7 +62,7 @@ func (s *sessionStorage) RegisterStartSession(chargerID string, session model.St
 
 		err = s.db.Set(bucketName+chargerID, strconv.FormatInt(lastSession[0].ID, 10), lastSession[0])
 		if err != nil {
-			return errors.Wrap(err, "register start session: can't update previous charging session:")
+			return errors.Wrap(err, "register start session: can't update previous charging session")
 		}
 	}
 

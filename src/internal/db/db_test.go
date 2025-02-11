@@ -17,7 +17,7 @@ const chargerID = "chargerID"
 func (s *SessionStorageSuite) TestRegisterStopSession() {
 	sessionStorage := db.NewSessionStorage("../testdata/database")
 
-	timeStart := time.Date(1997, 17, 02, 18, 00, 0, 0, time.Local)
+	timeStart := time.Date(1997, 17, 0o2, 18, 0o0, 0, 0, time.Local)
 	timeStop := timeStart.Add(time.Hour)
 
 	err := sessionStorage.RegisterStopSession(chargerID, model.StopChargingSession{
@@ -51,7 +51,7 @@ func (s *SessionStorageSuite) TestRegisterStopSession() {
 func (s *SessionStorageSuite) TestRegisterStartSession() {
 	sessionStorage := db.NewSessionStorage("../testdata/database")
 
-	timeStart1 := time.Date(1997, 17, 02, 18, 00, 0, 0, time.Local)
+	timeStart1 := time.Date(1997, 17, 0o2, 18, 0o0, 0, 0, time.Local)
 	timeStart2 := timeStart1.Add(time.Hour)
 
 	err := sessionStorage.RegisterStartSession(chargerID, model.StartChargingSession{
@@ -120,6 +120,6 @@ type SessionStorageSuite struct {
 	suite.Suite
 }
 
-func TestMeasurementsRepositorySuite(t *testing.T) {
+func TestMeasurementsRepositorySuite(t *testing.T) { //nolint:paralleltest
 	suite.Run(t, new(SessionStorageSuite))
 }
