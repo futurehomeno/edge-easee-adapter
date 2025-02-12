@@ -101,7 +101,7 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string, sessionNumb
 		return key1 > key2
 	})
 
-	for i := uint(0); i < sessionNumber && int(i) < len(keys); i++ {
+	for i := 0; uint(i) < sessionNumber && i < len(keys); i++ {
 		var session *ChargingSession
 
 		ok, err := s.db.Get(bucketName(chargerID), keys[i], &session)
