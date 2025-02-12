@@ -29,7 +29,7 @@ type ChargingSessionStorage interface {
 	// RegisterSessionStop registers stop charging session for charger with chargerID.
 	RegisterSessionStop(chargerID string, session model.StopChargingSession) error
 	// LatestSessionsByChargerID returns sessionNumber last ChargingSessions for charger with chargerID.
-	LatestSessionsByChargerID(chargerID string, sessionNumber uint) (ChargingSessions, error)
+	LatestSessionsByChargerID(chargerID string, sessionNumber int) (ChargingSessions, error)
 }
 
 type sessionStorage struct {
@@ -82,7 +82,7 @@ func (s *sessionStorage) RegisterSessionStop(chargerID string, session model.Sto
 	})
 }
 
-func (s *sessionStorage) LatestSessionsByChargerID(chargerID string, sessionNumber uint) (ChargingSessions, error) {
+func (s *sessionStorage) LatestSessionsByChargerID(chargerID string, sessionNumber int) (ChargingSessions, error) {
 	var sessions ChargingSessions
 
 	keys, err := s.db.Keys(bucketName(chargerID))
@@ -101,7 +101,7 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string, sessionNumb
 		return key1 > key2
 	})
 
-	for i := 0; i < int(sessionNumber) && i < len(keys); i++ {
+	for i := 0; i < sessionNumber && i < len(keys); i++ {
 		var session *ChargingSession
 
 		ok, err := s.db.Get(bucketName(chargerID), keys[i], &session)

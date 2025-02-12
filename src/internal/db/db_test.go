@@ -35,7 +35,7 @@ func (s *SessionStorageSuite) TestRegisterStopSession() {
 
 	require.NoError(s.T(), err)
 
-	result, err := sessionStorage.LatestSessionsByChargerID(chargerID, uint(1))
+	result, err := sessionStorage.LatestSessionsByChargerID(chargerID, 1)
 
 	require.NoError(s.T(), err)
 
@@ -69,7 +69,7 @@ func (s *SessionStorageSuite) TestRegisterStartSession() {
 
 	require.NoError(s.T(), err)
 
-	result, err := sessionStorage.LatestSessionsByChargerID(chargerID, uint(1))
+	result, err := sessionStorage.LatestSessionsByChargerID(chargerID, 1)
 
 	require.NoError(s.T(), err)
 
@@ -89,7 +89,7 @@ func (s *SessionStorageSuite) TestRegisterStartSession() {
 
 	require.NoError(s.T(), err)
 
-	result, err = sessionStorage.LatestSessionsByChargerID(chargerID, uint(2))
+	result, err = sessionStorage.LatestSessionsByChargerID(chargerID, 2)
 
 	require.NoError(s.T(), err)
 
@@ -117,7 +117,7 @@ func (s *SessionStorageSuite) TestGetSessionNonExistChargerID() {
 
 	sessionStorage := db.NewSessionStorage(database)
 
-	result, err := sessionStorage.LatestSessionsByChargerID(chargerID, uint(1))
+	result, err := sessionStorage.LatestSessionsByChargerID(chargerID, 1)
 	require.NoError(s.T(), err)
 
 	assert.Empty(s.T(), result)
