@@ -118,7 +118,8 @@ func (s *SessionStorageSuite) TestGetSessionNonExistChargerID() {
 }
 
 func (s *SessionStorageSuite) SetupTest() {
-	_ = os.RemoveAll("../testdata/database")
+	err := os.RemoveAll("../testdata/database")
+	require.NoError(s.T(), err)
 }
 
 type SessionStorageSuite struct {
