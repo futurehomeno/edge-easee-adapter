@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -114,6 +115,10 @@ func (s *SessionStorageSuite) TestGetSessionNonExistChargerID() {
 
 	err = sessionStorage.Reset()
 	require.NoError(s.T(), err)
+}
+
+func (s *SessionStorageSuite) SetupTest() {
+	_ = os.RemoveAll("../testdata/database")
 }
 
 type SessionStorageSuite struct {
