@@ -107,8 +107,8 @@ func (o *Observation) BoolValue() (bool, error) {
 	return strconv.ParseBool(o.Value)
 }
 
-// StringValue returns a string representation of the Observation value.
-func (o *Observation) StringValue() (string, error) {
+// JSONValue returns a string representation of the Observation value.
+func (o *Observation) JSONValue() (string, error) {
 	if o.DataType != ObservationDataTypeString {
 		return "", errors.New("observation data type is not string")
 	}

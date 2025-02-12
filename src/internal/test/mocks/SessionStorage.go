@@ -15,7 +15,7 @@ type SessionStorage struct {
 }
 
 // GetLastChargingSessionsByChargerID provides a mock function with given fields: chargerID, sessionNumber
-func (_m *SessionStorage) GetLastChargingSessionsByChargerID(chargerID string, sessionNumber uint) (db.ChargingSessions, error) {
+func (_m *SessionStorage) LatestSessionsByChargerID(chargerID string, sessionNumber uint) (db.ChargingSessions, error) {
 	ret := _m.Called(chargerID, sessionNumber)
 
 	var r0 db.ChargingSessions
@@ -41,7 +41,7 @@ func (_m *SessionStorage) GetLastChargingSessionsByChargerID(chargerID string, s
 }
 
 // RegisterStartSession provides a mock function with given fields: chargerID, session
-func (_m *SessionStorage) RegisterStartSession(chargerID string, session model.StartChargingSession) error {
+func (_m *SessionStorage) RegisterSessionStart(chargerID string, session model.StartChargingSession) error {
 	ret := _m.Called(chargerID, session)
 
 	var r0 error
@@ -55,7 +55,7 @@ func (_m *SessionStorage) RegisterStartSession(chargerID string, session model.S
 }
 
 // RegisterStopSession provides a mock function with given fields: chargerID, session
-func (_m *SessionStorage) RegisterStopSession(chargerID string, session model.StopChargingSession) error {
+func (_m *SessionStorage) RegisterSessionStop(chargerID string, session model.StopChargingSession) error {
 	ret := _m.Called(chargerID, session)
 
 	var r0 error

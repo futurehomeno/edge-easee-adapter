@@ -7,35 +7,36 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/database"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 const (
-	bucketName = "charging-sessions:"
+	bucketNamePrefix = "charging-sessions:"
 )
 
-type SessionStorage interface {
+// ChargingSessionStorage is service used to store charging sessions.
+type ChargingSessionStorage interface {
+	// Start starts ChargingSessionStorage service.
 	Start() error
+	// Stop stops ChargingSessionStorage service.
 	Stop() error
+	// Reset ChargingSessionStorage service.
 	Reset() error
 
-	RegisterStopSession(chargerID string, session model.StopChargingSession) error
-	RegisterStartSession(chargerID string, session model.StartChargingSession) error
-	GetLastChargingSessionsByChargerID(chargerID string, sessionNumber uint) (ChargingSessions, error)
+	// RegisterSessionStart registers start charging session for charger with chargerID.
+	RegisterSessionStart(chargerID string, session model.StartChargingSession) error
+	// RegisterSessionStop registers stop charging session for charger with chargerID.
+	RegisterSessionStop(chargerID string, session model.StopChargingSession) error
+	// LatestSessionsByChargerID returns sessionNumber last ChargingSessions for charger with chargerID.
+	LatestSessionsByChargerID(chargerID string, sessionNumber uint) (ChargingSessions, error)
 }
 
 type sessionStorage struct {
 	db database.Database
 }
 
-func NewSessionStorage(workdir string) SessionStorage {
-	db, err := database.NewDatabase(workdir)
-	if err != nil {
-		log.WithError(err).Error("can't create db")
-	}
-
+func NewSessionStorage(db database.Database) ChargingSessionStorage {
 	return &sessionStorage{db}
 }
 
@@ -51,29 +52,29 @@ func (s *sessionStorage) Reset() error {
 	return s.db.Reset()
 }
 
-func (s *sessionStorage) RegisterStartSession(chargerID string, session model.StartChargingSession) error {
-	lastSession, err := s.GetLastChargingSessionsByChargerID(chargerID, 1)
+func (s *sessionStorage) RegisterSessionStart(chargerID string, session model.StartChargingSession) error {
+	lastSession, err := s.LatestSessionsByChargerID(chargerID, 1)
 	if err != nil {
 		return errors.Wrap(err, "register start session: can't get last charging session")
 	}
 
-	if len(lastSession) != 0 && lastSession[0].Stop.IsZero() {
-		lastSession[0].Stop = session.Start
+	if len(lastSession) != 0 && lastSession.Latest().Stop.IsZero() {
+		lastSession.Latest().Stop = session.Start
 
-		err = s.db.Set(bucketName+chargerID, strconv.FormatInt(lastSession[0].ID, 10), lastSession[0])
+		err = s.db.Set(bucketName(chargerID), IDString(lastSession.Latest().ID), lastSession.Latest())
 		if err != nil {
 			return errors.Wrap(err, "register start session: can't update previous charging session")
 		}
 	}
 
-	return s.db.Set(bucketName+chargerID, strconv.FormatInt(session.ID, 10), ChargingSession{
+	return s.db.Set(bucketName(chargerID), IDString(session.ID), ChargingSession{
 		ID:    session.ID,
 		Start: session.Start,
 	})
 }
 
-func (s *sessionStorage) RegisterStopSession(chargerID string, session model.StopChargingSession) error {
-	return s.db.Set(bucketName+chargerID, strconv.FormatInt(session.ID, 10), ChargingSession{
+func (s *sessionStorage) RegisterSessionStop(chargerID string, session model.StopChargingSession) error {
+	return s.db.Set(bucketName(chargerID), IDString(session.ID), ChargingSession{
 		EnergyKwh: session.Energy,
 		ID:        session.ID,
 		Start:     session.Start,
@@ -81,16 +82,16 @@ func (s *sessionStorage) RegisterStopSession(chargerID string, session model.Sto
 	})
 }
 
-func (s *sessionStorage) GetLastChargingSessionsByChargerID(chargerID string, sessionNumber uint) (ChargingSessions, error) {
+func (s *sessionStorage) LatestSessionsByChargerID(chargerID string, sessionNumber uint) (ChargingSessions, error) {
 	var sessions ChargingSessions
 
-	keys, err := s.db.Keys(bucketName + chargerID)
+	keys, err := s.db.Keys(bucketName(chargerID))
 	if err != nil {
-		return ChargingSessions{}, err
+		return nil, err
 	}
 
 	if len(keys) == 0 {
-		return ChargingSessions{}, nil
+		return nil, nil
 	}
 
 	sort.Slice(keys, func(i, j int) bool {
@@ -100,20 +101,16 @@ func (s *sessionStorage) GetLastChargingSessionsByChargerID(chargerID string, se
 		return key1 > key2
 	})
 
-	for i := uint(0); i < sessionNumber; i++ {
+	for i := uint(0); i < sessionNumber && int(i) < len(keys); i++ {
 		var session *ChargingSession
 
-		ok, err := s.db.Get(bucketName+chargerID, keys[i], &session)
+		ok, err := s.db.Get(bucketName(chargerID), keys[i], &session)
 		if !ok || err != nil {
-			return ChargingSessions{}, err
+			return nil, err
 		}
 
 		sessions = append(sessions, session)
 	}
-
-	sort.Slice(sessions, func(i, j int) bool {
-		return sessions[j].Stop.After(sessions[i].Stop)
-	})
 
 	return sessions, nil
 }
@@ -123,6 +120,10 @@ type ChargingSession struct {
 	ID        int64     `json:"ID"`
 	Start     time.Time `json:"Start"`
 	Stop      time.Time `json:"Stop"`
+}
+
+func IDString(id int64) string {
+	return strconv.FormatInt(id, 10)
 }
 
 type ChargingSessions []*ChargingSession
@@ -141,4 +142,8 @@ func (c ChargingSessions) Previous() *ChargingSession {
 	}
 
 	return c[1]
+}
+
+func bucketName(chargerID string) string {
+	return bucketNamePrefix + chargerID
 }

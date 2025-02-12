@@ -1,10 +1,10 @@
 package db_test
 
 import (
-	"os"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/database"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -16,12 +16,15 @@ import (
 const chargerID = "chargerID"
 
 func (s *SessionStorageSuite) TestRegisterStopSession() {
-	sessionStorage := db.NewSessionStorage("../testdata/database")
+	database, err := database.NewDatabase(s.T().TempDir())
+	require.NoError(s.T(), err)
 
-	timeStart := time.Date(1997, 17, 0o2, 18, 0o0, 0, 0, time.UTC)
+	sessionStorage := db.NewSessionStorage(database)
+
+	timeStart := time.Date(1997, 02, 17, 18, 0, 0, 0, time.UTC)
 	timeStop := timeStart.Add(time.Hour)
 
-	err := sessionStorage.RegisterStopSession(chargerID, model.StopChargingSession{
+	err = sessionStorage.RegisterSessionStop(chargerID, model.StopChargingSession{
 		ID:              1,
 		Energy:          10,
 		MeterValueStart: 0,
@@ -32,7 +35,7 @@ func (s *SessionStorageSuite) TestRegisterStopSession() {
 
 	require.NoError(s.T(), err)
 
-	result, err := sessionStorage.GetLastChargingSessionsByChargerID(chargerID, uint(1))
+	result, err := sessionStorage.LatestSessionsByChargerID(chargerID, uint(1))
 
 	require.NoError(s.T(), err)
 
@@ -50,12 +53,15 @@ func (s *SessionStorageSuite) TestRegisterStopSession() {
 }
 
 func (s *SessionStorageSuite) TestRegisterStartSession() {
-	sessionStorage := db.NewSessionStorage("../testdata/database")
+	database, err := database.NewDatabase(s.T().TempDir())
+	require.NoError(s.T(), err)
 
-	timeStart1 := time.Date(1997, 17, 0o2, 18, 0o0, 0, 0, time.UTC)
+	sessionStorage := db.NewSessionStorage(database)
+
+	timeStart1 := time.Date(1997, 02, 17, 18, 0, 0, 0, time.UTC)
 	timeStart2 := timeStart1.Add(time.Hour)
 
-	err := sessionStorage.RegisterStartSession(chargerID, model.StartChargingSession{
+	err = sessionStorage.RegisterSessionStart(chargerID, model.StartChargingSession{
 		ID:         1,
 		Start:      timeStart1,
 		MeterValue: 10,
@@ -63,7 +69,7 @@ func (s *SessionStorageSuite) TestRegisterStartSession() {
 
 	require.NoError(s.T(), err)
 
-	result, err := sessionStorage.GetLastChargingSessionsByChargerID(chargerID, uint(1))
+	result, err := sessionStorage.LatestSessionsByChargerID(chargerID, uint(1))
 
 	require.NoError(s.T(), err)
 
@@ -75,7 +81,7 @@ func (s *SessionStorageSuite) TestRegisterStartSession() {
 		Start:     timeStart1,
 	}, result[0])
 
-	err = sessionStorage.RegisterStartSession(chargerID, model.StartChargingSession{
+	err = sessionStorage.RegisterSessionStart(chargerID, model.StartChargingSession{
 		ID:         2,
 		Start:      timeStart2,
 		MeterValue: 10,
@@ -83,7 +89,7 @@ func (s *SessionStorageSuite) TestRegisterStartSession() {
 
 	require.NoError(s.T(), err)
 
-	result, err = sessionStorage.GetLastChargingSessionsByChargerID(chargerID, uint(2))
+	result, err = sessionStorage.LatestSessionsByChargerID(chargerID, uint(2))
 
 	require.NoError(s.T(), err)
 
@@ -106,9 +112,12 @@ func (s *SessionStorageSuite) TestRegisterStartSession() {
 }
 
 func (s *SessionStorageSuite) TestGetSessionNonExistChargerID() {
-	sessionStorage := db.NewSessionStorage("../testdata/database")
+	database, err := database.NewDatabase(s.T().TempDir())
+	require.NoError(s.T(), err)
 
-	result, err := sessionStorage.GetLastChargingSessionsByChargerID(chargerID, uint(1))
+	sessionStorage := db.NewSessionStorage(database)
+
+	result, err := sessionStorage.LatestSessionsByChargerID(chargerID, uint(1))
 	require.NoError(s.T(), err)
 
 	assert.Empty(s.T(), result)
@@ -117,15 +126,10 @@ func (s *SessionStorageSuite) TestGetSessionNonExistChargerID() {
 	require.NoError(s.T(), err)
 }
 
-func (s *SessionStorageSuite) SetupTest() {
-	err := os.RemoveAll("../testdata/database")
-	require.NoError(s.T(), err)
-}
-
 type SessionStorageSuite struct {
 	suite.Suite
 }
 
-func TestSessionStorageSuite(t *testing.T) { //nolint:paralleltest
+func TestSessionStorageSuite(t *testing.T) {
 	suite.Run(t, new(SessionStorageSuite))
 }

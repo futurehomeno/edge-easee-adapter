@@ -7,6 +7,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
+	"github.com/futurehomeno/cliffhanger/database"
 	"github.com/futurehomeno/cliffhanger/event"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
@@ -48,7 +49,7 @@ type serviceContainer struct {
 	signalRClient   signalr.Client
 	signalRManager  signalr.Manager
 	eventListener   event.Listener
-	sessionStorage  db.SessionStorage
+	sessionStorage  db.ChargingSessionStorage
 }
 
 func resetContainer() {
@@ -93,11 +94,16 @@ func getEventListener(cfg *config.Config) event.Listener {
 }
 
 // getEventListener creates or returns existing event listener service.
-func getSessionStorage(cfg *config.Config) db.SessionStorage {
+func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 	if services.sessionStorage == nil {
-		services.sessionStorage = db.NewSessionStorage(
-			cfg.WorkDir,
-		)
+		dataBase, err := database.NewDatabase(cfg.WorkDir)
+		if err != nil {
+			log.WithError(err).Error("can't create db")
+
+			return nil
+		}
+
+		services.sessionStorage = db.NewSessionStorage(dataBase)
 	}
 
 	return services.sessionStorage

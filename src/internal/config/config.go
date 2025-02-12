@@ -90,7 +90,7 @@ type Service struct {
 	lock *sync.RWMutex
 }
 
-// backoffCfg represents a file db representation of BackoffCfg.
+// backoffCfg represents a file storage representation of BackoffCfg.
 type backoffCfg struct {
 	InitialBackoff       string `json:"initialBackoff"`
 	RepeatedBackoff      string `json:"repeatedBackoff"`

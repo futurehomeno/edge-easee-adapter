@@ -18,7 +18,7 @@ type connector struct {
 
 	chargerID      string
 	cache          cache.Cache
-	sessionStorage db.SessionStorage
+	sessionStorage db.ChargingSessionStorage
 }
 
 func NewConnector(
@@ -27,7 +27,7 @@ func NewConnector(
 	chargerID string,
 	cache cache.Cache,
 	confSrv *config.Service,
-	sessionStorage db.SessionStorage,
+	sessionStorage db.ChargingSessionStorage,
 ) adapter.Connector {
 	return &connector{
 		manager:        manager,

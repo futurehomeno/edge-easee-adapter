@@ -47,7 +47,7 @@ type thingFactory struct {
 	client         api.Client
 	cfgService     *config.Service
 	signalRManager signalr.Manager
-	sessionStorage db.SessionStorage
+	sessionStorage db.ChargingSessionStorage
 }
 
 // NewThingFactory returns a new instance of adapter.ThingFactory.
@@ -55,7 +55,7 @@ func NewThingFactory(
 	client api.Client,
 	cfgService *config.Service,
 	signalRManager signalr.Manager,
-	sessionStorage db.SessionStorage,
+	sessionStorage db.ChargingSessionStorage,
 ) adapter.ThingFactory {
 	return &thingFactory{
 		client:         client,

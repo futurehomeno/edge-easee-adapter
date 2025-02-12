@@ -35,7 +35,7 @@ type observationsHandler struct {
 	handlers       map[model.ObservationID]func(model.Observation) error
 	thing          adapter.Thing
 	energyHandler  *energyHandler
-	sessionStorage db.SessionStorage
+	sessionStorage db.ChargingSessionStorage
 	chargerID      string
 
 	isCloudOnline atomic.Bool
@@ -47,7 +47,7 @@ func NewObservationsHandler(
 	thing adapter.Thing,
 	cache cache.Cache,
 	confSrv *config.Service,
-	sessionStorage db.SessionStorage,
+	sessionStorage db.ChargingSessionStorage,
 	chargerID string,
 ) (Handler, error) {
 	handler := observationsHandler{
@@ -409,7 +409,7 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 }
 
 func (h *observationsHandler) handleChargingSessionStop(observation model.Observation) error {
-	val, err := observation.StringValue()
+	val, err := observation.JSONValue()
 	if err != nil {
 		return err
 	}
@@ -426,7 +426,7 @@ func (h *observationsHandler) handleChargingSessionStop(observation model.Observ
 		return err
 	}
 
-	err = h.sessionStorage.RegisterStopSession(h.chargerID, chargingSession)
+	err = h.sessionStorage.RegisterSessionStop(h.chargerID, chargingSession)
 	if err != nil {
 		return err
 	}
@@ -437,7 +437,7 @@ func (h *observationsHandler) handleChargingSessionStop(observation model.Observ
 }
 
 func (h *observationsHandler) handleChargingSessionStart(observation model.Observation) error {
-	val, err := observation.StringValue()
+	val, err := observation.JSONValue()
 	if err != nil {
 		return err
 	}
@@ -449,7 +449,7 @@ func (h *observationsHandler) handleChargingSessionStart(observation model.Obser
 		return err
 	}
 
-	err = h.sessionStorage.RegisterStartSession(h.chargerID, chargingSession)
+	err = h.sessionStorage.RegisterSessionStart(h.chargerID, chargingSession)
 	if err != nil {
 		return err
 	}

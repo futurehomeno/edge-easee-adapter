@@ -61,7 +61,7 @@ func NewController(
 	chargerID string,
 	cache cache.Cache,
 	cfgService *config.Service,
-	sessionStorage db.SessionStorage,
+	sessionStorage db.ChargingSessionStorage,
 ) Controller {
 	return &controller{
 		client:         client,
@@ -79,7 +79,7 @@ type controller struct {
 	cache          cache.Cache
 	cfgService     *config.Service
 	chargerID      string
-	sessionStorage db.SessionStorage
+	sessionStorage db.ChargingSessionStorage
 }
 
 func (c *controller) SetParameter(p *parameters.Parameter) error {
@@ -220,7 +220,7 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		SessionEnergy: c.cache.EnergySession(),
 	}
 
-	sessions, err := c.sessionStorage.GetLastChargingSessionsByChargerID(c.chargerID, 2)
+	sessions, err := c.sessionStorage.LatestSessionsByChargerID(c.chargerID, 2)
 	if err != nil {
 		return nil, err
 	}
