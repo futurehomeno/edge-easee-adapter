@@ -16,7 +16,15 @@ type HTTPClient struct {
 func (_m *HTTPClient) ChargerConfig(accessToken string, chargerID string) (*api.ChargerConfig, error) {
 	ret := _m.Called(accessToken, chargerID)
 
+<<<<<<< HEAD
 	var r0 *api.ChargerConfig
+=======
+	if len(ret) == 0 {
+		panic("no return value specified for ChargerConfig")
+	}
+
+	var r0 *model.ChargerConfig
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 	var r1 error
 	if rf, ok := ret.Get(0).(func(string, string) (*api.ChargerConfig, error)); ok {
 		return rf(accessToken, chargerID)
@@ -42,7 +50,15 @@ func (_m *HTTPClient) ChargerConfig(accessToken string, chargerID string) (*api.
 func (_m *HTTPClient) ChargerDetails(accessToken string, chargerID string) (api.ChargerDetails, error) {
 	ret := _m.Called(accessToken, chargerID)
 
+<<<<<<< HEAD
 	var r0 api.ChargerDetails
+=======
+	if len(ret) == 0 {
+		panic("no return value specified for ChargerDetails")
+	}
+
+	var r0 model.ChargerDetails
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 	var r1 error
 	if rf, ok := ret.Get(0).(func(string, string) (api.ChargerDetails, error)); ok {
 		return rf(accessToken, chargerID)
@@ -62,6 +78,7 @@ func (_m *HTTPClient) ChargerDetails(accessToken string, chargerID string) (api.
 	return r0, r1
 }
 
+<<<<<<< HEAD
 // ChargerSessions provides a mock function with given fields: accessToken, chargerID
 func (_m *HTTPClient) ChargerSessions(accessToken string, chargerID string) (api.ChargeSessions, error) {
 	ret := _m.Called(accessToken, chargerID)
@@ -88,11 +105,21 @@ func (_m *HTTPClient) ChargerSessions(accessToken string, chargerID string) (api
 	return r0, r1
 }
 
+=======
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 // ChargerSiteInfo provides a mock function with given fields: accessToken, chargerID
 func (_m *HTTPClient) ChargerSiteInfo(accessToken string, chargerID string) (*api.ChargerSiteInfo, error) {
 	ret := _m.Called(accessToken, chargerID)
 
+<<<<<<< HEAD
 	var r0 *api.ChargerSiteInfo
+=======
+	if len(ret) == 0 {
+		panic("no return value specified for ChargerSiteInfo")
+	}
+
+	var r0 *model.ChargerSiteInfo
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 	var r1 error
 	if rf, ok := ret.Get(0).(func(string, string) (*api.ChargerSiteInfo, error)); ok {
 		return rf(accessToken, chargerID)
@@ -118,7 +145,15 @@ func (_m *HTTPClient) ChargerSiteInfo(accessToken string, chargerID string) (*ap
 func (_m *HTTPClient) Chargers(accessToken string) ([]api.Charger, error) {
 	ret := _m.Called(accessToken)
 
+<<<<<<< HEAD
 	var r0 []api.Charger
+=======
+	if len(ret) == 0 {
+		panic("no return value specified for Chargers")
+	}
+
+	var r0 []model.Charger
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 	var r1 error
 	if rf, ok := ret.Get(0).(func(string) ([]api.Charger, error)); ok {
 		return rf(accessToken)
@@ -144,7 +179,15 @@ func (_m *HTTPClient) Chargers(accessToken string) ([]api.Charger, error) {
 func (_m *HTTPClient) Login(userName string, password string) (*api.Credentials, error) {
 	ret := _m.Called(userName, password)
 
+<<<<<<< HEAD
 	var r0 *api.Credentials
+=======
+	if len(ret) == 0 {
+		panic("no return value specified for Login")
+	}
+
+	var r0 *model.Credentials
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 	var r1 error
 	if rf, ok := ret.Get(0).(func(string, string) (*api.Credentials, error)); ok {
 		return rf(userName, password)
@@ -170,6 +213,10 @@ func (_m *HTTPClient) Login(userName string, password string) (*api.Credentials,
 func (_m *HTTPClient) Ping(accessToken string) error {
 	ret := _m.Called(accessToken)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Ping")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string) error); ok {
 		r0 = rf(accessToken)
@@ -184,7 +231,15 @@ func (_m *HTTPClient) Ping(accessToken string) error {
 func (_m *HTTPClient) RefreshToken(accessToken string, refreshToken string) (*api.Credentials, error) {
 	ret := _m.Called(accessToken, refreshToken)
 
+<<<<<<< HEAD
 	var r0 *api.Credentials
+=======
+	if len(ret) == 0 {
+		panic("no return value specified for RefreshToken")
+	}
+
+	var r0 *model.Credentials
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 	var r1 error
 	if rf, ok := ret.Get(0).(func(string, string) (*api.Credentials, error)); ok {
 		return rf(accessToken, refreshToken)
@@ -206,9 +261,34 @@ func (_m *HTTPClient) RefreshToken(accessToken string, refreshToken string) (*ap
 	return r0, r1
 }
 
+<<<<<<< HEAD
+=======
+// SetCableAlwaysLocked provides a mock function with given fields: accessToken, chargerID, locked
+func (_m *HTTPClient) SetCableAlwaysLocked(accessToken string, chargerID string, locked bool) error {
+	ret := _m.Called(accessToken, chargerID, locked)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetCableAlwaysLocked")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string, bool) error); ok {
+		r0 = rf(accessToken, chargerID, locked)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 // StopCharging provides a mock function with given fields: accessToken, chargerID
 func (_m *HTTPClient) StopCharging(accessToken string, chargerID string) error {
 	ret := _m.Called(accessToken, chargerID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StopCharging")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string) error); ok {
@@ -224,6 +304,10 @@ func (_m *HTTPClient) StopCharging(accessToken string, chargerID string) error {
 func (_m *HTTPClient) UpdateDynamicCurrent(accessToken string, chargerID string, current float64) error {
 	ret := _m.Called(accessToken, chargerID, current)
 
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateDynamicCurrent")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string, float64) error); ok {
 		r0 = rf(accessToken, chargerID, current)
@@ -237,6 +321,10 @@ func (_m *HTTPClient) UpdateDynamicCurrent(accessToken string, chargerID string,
 // UpdateMaxCurrent provides a mock function with given fields: accessToken, chargerID, current
 func (_m *HTTPClient) UpdateMaxCurrent(accessToken string, chargerID string, current float64) error {
 	ret := _m.Called(accessToken, chargerID, current)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateMaxCurrent")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string, float64) error); ok {

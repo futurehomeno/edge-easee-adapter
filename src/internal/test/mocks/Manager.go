@@ -16,6 +16,10 @@ type Manager struct {
 func (_m *Manager) Connected(chargerID string) bool {
 	ret := _m.Called(chargerID)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Connected")
+	}
+
 	var r0 bool
 	if rf, ok := ret.Get(0).(func(string) bool); ok {
 		r0 = rf(chargerID)
@@ -31,9 +35,13 @@ func (_m *Manager) Register(chargerID string, handler signalr.Handler) {
 	_m.Called(chargerID, handler)
 }
 
-// Start provides a mock function with given fields:
+// Start provides a mock function with no fields
 func (_m *Manager) Start() error {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Start")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func() error); ok {
@@ -45,9 +53,13 @@ func (_m *Manager) Start() error {
 	return r0
 }
 
-// Stop provides a mock function with given fields:
+// Stop provides a mock function with no fields
 func (_m *Manager) Stop() error {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Stop")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func() error); ok {
@@ -62,6 +74,10 @@ func (_m *Manager) Stop() error {
 // Unregister provides a mock function with given fields: chargerID
 func (_m *Manager) Unregister(chargerID string) error {
 	ret := _m.Called(chargerID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Unregister")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string) error); ok {

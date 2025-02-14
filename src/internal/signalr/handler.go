@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 // Handler interface handles signalr observations.
@@ -63,6 +64,8 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		InCurrentT4:           handler.handleInCurrentT4,
 		InCurrentT5:           handler.handleInCurrentT5,
 		CloudConnected:        handler.handleCloudConnected,
+		ChargingSessionStop:   handler.handleChargingSessionStop,
+		ChargingSessionStart:  handler.handleChargingSessionStart,
 	}
 
 	return &handler, nil
@@ -225,6 +228,52 @@ func (o *observationsHandler) handleInCurrentT5(observation Observation) error {
 	o.cache.SetPhase3Current(val)
 
 	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase3}, false)
+
+	return err
+}
+
+func (h *observationsHandler) handleChargingSessionStop(observation model.Observation) error {
+	var chargingSession model.StopChargingSession
+
+	err := observation.JSONValue(&chargingSession)
+	if err != nil {
+		return err
+	}
+
+	chargepointSrv, err := getChargepointService(h.thing)
+	if err != nil {
+		return err
+	}
+
+	err = h.sessionStorage.RegisterSessionStop(h.chargerID, chargingSession)
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendCurrentSessionReport(false)
+
+	return err
+}
+
+func (h *observationsHandler) handleChargingSessionStart(observation model.Observation) error {
+	var chargingSession model.StartChargingSession
+
+	err := observation.JSONValue(&chargingSession)
+	if err != nil {
+		return err
+	}
+
+	err = h.sessionStorage.RegisterSessionStart(h.chargerID, chargingSession)
+	if err != nil {
+		return err
+	}
+
+	chargepointSrv, err := getChargepointService(h.thing)
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendCurrentSessionReport(false)
 
 	return err
 }

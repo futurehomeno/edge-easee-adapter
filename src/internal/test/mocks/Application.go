@@ -14,9 +14,13 @@ type Application struct {
 	mock.Mock
 }
 
-// Check provides a mock function with given fields:
+// Check provides a mock function with no fields
 func (_m *Application) Check() error {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Check")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func() error); ok {
@@ -32,6 +36,10 @@ func (_m *Application) Check() error {
 func (_m *Application) Configure(config interface{}) error {
 	ret := _m.Called(config)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Configure")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(interface{}) error); ok {
 		r0 = rf(config)
@@ -42,9 +50,13 @@ func (_m *Application) Configure(config interface{}) error {
 	return r0
 }
 
-// GetManifest provides a mock function with given fields:
+// GetManifest provides a mock function with no fields
 func (_m *Application) GetManifest() (*manifest.Manifest, error) {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetManifest")
+	}
 
 	var r0 *manifest.Manifest
 	var r1 error
@@ -68,9 +80,13 @@ func (_m *Application) GetManifest() (*manifest.Manifest, error) {
 	return r0, r1
 }
 
-// Initialize provides a mock function with given fields:
+// Initialize provides a mock function with no fields
 func (_m *Application) Initialize() error {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Initialize")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func() error); ok {
@@ -86,6 +102,10 @@ func (_m *Application) Initialize() error {
 func (_m *Application) Login(credentials *cliffhangerapp.LoginCredentials) error {
 	ret := _m.Called(credentials)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Login")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(*cliffhangerapp.LoginCredentials) error); ok {
 		r0 = rf(credentials)
@@ -96,9 +116,13 @@ func (_m *Application) Login(credentials *cliffhangerapp.LoginCredentials) error
 	return r0
 }
 
-// Logout provides a mock function with given fields:
+// Logout provides a mock function with no fields
 func (_m *Application) Logout() error {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Logout")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func() error); ok {
@@ -110,9 +134,13 @@ func (_m *Application) Logout() error {
 	return r0
 }
 
-// Uninstall provides a mock function with given fields:
+// Uninstall provides a mock function with no fields
 func (_m *Application) Uninstall() error {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Uninstall")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func() error); ok {

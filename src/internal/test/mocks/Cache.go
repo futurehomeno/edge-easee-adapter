@@ -14,9 +14,73 @@ type Cache struct {
 	mock.Mock
 }
 
+<<<<<<< HEAD
 // ChargerState provides a mock function with given fields:
+=======
+// CableAlwaysLocked provides a mock function with no fields
+func (_m *Cache) CableAlwaysLocked() bool {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for CableAlwaysLocked")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// CableCurrent provides a mock function with no fields
+func (_m *Cache) CableCurrent() *int64 {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for CableCurrent")
+	}
+
+	var r0 *int64
+	if rf, ok := ret.Get(0).(func() *int64); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*int64)
+		}
+	}
+
+	return r0
+}
+
+// CableLocked provides a mock function with no fields
+func (_m *Cache) CableLocked() bool {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for CableLocked")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// ChargerState provides a mock function with no fields
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 func (_m *Cache) ChargerState() chargepoint.State {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for ChargerState")
+	}
 
 	var r0 chargepoint.State
 	if rf, ok := ret.Get(0).(func() chargepoint.State); ok {
@@ -28,9 +92,13 @@ func (_m *Cache) ChargerState() chargepoint.State {
 	return r0
 }
 
-// EnergySession provides a mock function with given fields:
+// EnergySession provides a mock function with no fields
 func (_m *Cache) EnergySession() float64 {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for EnergySession")
+	}
 
 	var r0 float64
 	if rf, ok := ret.Get(0).(func() float64); ok {
@@ -42,12 +110,43 @@ func (_m *Cache) EnergySession() float64 {
 	return r0
 }
 
+<<<<<<< HEAD
 // LifetimeEnergy provides a mock function with given fields:
 func (_m *Cache) LifetimeEnergy() float64 {
 	ret := _m.Called()
 
 	var r0 float64
 	if rf, ok := ret.Get(0).(func() float64); ok {
+=======
+// GridType provides a mock function with no fields
+func (_m *Cache) GridType() chargepoint.GridType {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GridType")
+	}
+
+	var r0 chargepoint.GridType
+	if rf, ok := ret.Get(0).(func() chargepoint.GridType); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(chargepoint.GridType)
+	}
+
+	return r0
+}
+
+// LifetimeEnergy provides a mock function with no fields
+func (_m *Cache) LifetimeEnergy() model.TimestampedValue[float64] {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for LifetimeEnergy")
+	}
+
+	var r0 model.TimestampedValue[float64]
+	if rf, ok := ret.Get(0).(func() model.TimestampedValue[float64]); ok {
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 		r0 = rf()
 	} else {
 		r0 = ret.Get(0).(float64)
@@ -56,10 +155,14 @@ func (_m *Cache) LifetimeEnergy() float64 {
 	return r0
 }
 
-// MaxCurrent provides a mock function with given fields:
+// MaxCurrent provides a mock function with no fields
 func (_m *Cache) MaxCurrent() int64 {
 	ret := _m.Called()
 
+	if len(ret) == 0 {
+		panic("no return value specified for MaxCurrent")
+	}
+
 	var r0 int64
 	if rf, ok := ret.Get(0).(func() int64); ok {
 		r0 = rf()
@@ -70,10 +173,14 @@ func (_m *Cache) MaxCurrent() int64 {
 	return r0
 }
 
-// OfferedCurrent provides a mock function with given fields:
+// OfferedCurrent provides a mock function with no fields
 func (_m *Cache) OfferedCurrent() int64 {
 	ret := _m.Called()
 
+	if len(ret) == 0 {
+		panic("no return value specified for OfferedCurrent")
+	}
+
 	var r0 int64
 	if rf, ok := ret.Get(0).(func() int64); ok {
 		r0 = rf()
@@ -84,10 +191,36 @@ func (_m *Cache) OfferedCurrent() int64 {
 	return r0
 }
 
+<<<<<<< HEAD
 // Phase1Current provides a mock function with given fields:
+=======
+// OutputPhaseType provides a mock function with no fields
+func (_m *Cache) OutputPhaseType() chargepoint.PhaseMode {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for OutputPhaseType")
+	}
+
+	var r0 chargepoint.PhaseMode
+	if rf, ok := ret.Get(0).(func() chargepoint.PhaseMode); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(chargepoint.PhaseMode)
+	}
+
+	return r0
+}
+
+// Phase1Current provides a mock function with no fields
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 func (_m *Cache) Phase1Current() float64 {
 	ret := _m.Called()
 
+	if len(ret) == 0 {
+		panic("no return value specified for Phase1Current")
+	}
+
 	var r0 float64
 	if rf, ok := ret.Get(0).(func() float64); ok {
 		r0 = rf()
@@ -98,10 +231,14 @@ func (_m *Cache) Phase1Current() float64 {
 	return r0
 }
 
-// Phase2Current provides a mock function with given fields:
+// Phase2Current provides a mock function with no fields
 func (_m *Cache) Phase2Current() float64 {
 	ret := _m.Called()
 
+	if len(ret) == 0 {
+		panic("no return value specified for Phase2Current")
+	}
+
 	var r0 float64
 	if rf, ok := ret.Get(0).(func() float64); ok {
 		r0 = rf()
@@ -112,10 +249,14 @@ func (_m *Cache) Phase2Current() float64 {
 	return r0
 }
 
-// Phase3Current provides a mock function with given fields:
+// Phase3Current provides a mock function with no fields
 func (_m *Cache) Phase3Current() float64 {
 	ret := _m.Called()
 
+	if len(ret) == 0 {
+		panic("no return value specified for Phase3Current")
+	}
+
 	var r0 float64
 	if rf, ok := ret.Get(0).(func() float64); ok {
 		r0 = rf()
@@ -126,9 +267,53 @@ func (_m *Cache) Phase3Current() float64 {
 	return r0
 }
 
+<<<<<<< HEAD
 // RequestedOfferedCurrent provides a mock function with given fields:
+=======
+// PhaseMode provides a mock function with no fields
+func (_m *Cache) PhaseMode() int {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for PhaseMode")
+	}
+
+	var r0 int
+	if rf, ok := ret.Get(0).(func() int); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	return r0
+}
+
+// Phases provides a mock function with no fields
+func (_m *Cache) Phases() int {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Phases")
+	}
+
+	var r0 int
+	if rf, ok := ret.Get(0).(func() int); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	return r0
+}
+
+// RequestedOfferedCurrent provides a mock function with no fields
+>>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 func (_m *Cache) RequestedOfferedCurrent() int64 {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for RequestedOfferedCurrent")
+	}
 
 	var r0 int64
 	if rf, ok := ret.Get(0).(func() int64); ok {
@@ -190,9 +375,13 @@ func (_m *Cache) SetTotalPower(power float64) {
 	_m.Called(power)
 }
 
-// TotalPower provides a mock function with given fields:
+// TotalPower provides a mock function with no fields
 func (_m *Cache) TotalPower() float64 {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for TotalPower")
+	}
 
 	var r0 float64
 	if rf, ok := ret.Get(0).(func() float64); ok {
@@ -208,6 +397,10 @@ func (_m *Cache) TotalPower() float64 {
 func (_m *Cache) WaitForMaxCurrent(current int64, duration time.Duration) bool {
 	ret := _m.Called(current, duration)
 
+	if len(ret) == 0 {
+		panic("no return value specified for WaitForMaxCurrent")
+	}
+
 	var r0 bool
 	if rf, ok := ret.Get(0).(func(int64, time.Duration) bool); ok {
 		r0 = rf(current, duration)
@@ -221,6 +414,10 @@ func (_m *Cache) WaitForMaxCurrent(current int64, duration time.Duration) bool {
 // WaitForOfferedCurrent provides a mock function with given fields: current, duration
 func (_m *Cache) WaitForOfferedCurrent(current int64, duration time.Duration) bool {
 	ret := _m.Called(current, duration)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WaitForOfferedCurrent")
+	}
 
 	var r0 bool
 	if rf, ok := ret.Get(0).(func(int64, time.Duration) bool); ok {

@@ -6,28 +6,41 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 type connector struct {
 	manager    signalr.Manager
 	httpClient api.Client
+	confSrv    *config.Service
 
-	chargerID string
-	cache     cache.Cache
+	chargerID      string
+	cache          cache.Cache
+	sessionStorage db.ChargingSessionStorage
 }
 
-func NewConnector(manager signalr.Manager, httpClient api.Client, chargerID string, cache cache.Cache) adapter.Connector {
+func NewConnector(
+	manager signalr.Manager,
+	httpClient api.Client,
+	chargerID string,
+	cache cache.Cache,
+	confSrv *config.Service,
+	sessionStorage db.ChargingSessionStorage,
+) adapter.Connector {
 	return &connector{
-		manager:    manager,
-		httpClient: httpClient,
-		chargerID:  chargerID,
-		cache:      cache,
+		manager:        manager,
+		httpClient:     httpClient,
+		chargerID:      chargerID,
+		cache:          cache,
+		confSrv:        confSrv,
+		sessionStorage: sessionStorage,
 	}
 }
 
 func (c *connector) Connect(thing adapter.Thing) {
-	handler, err := signalr.NewObservationsHandler(thing, c.cache)
+	handler, err := signalr.NewObservationsHandler(thing, c.cache, c.confSrv, c.sessionStorage, c.chargerID)
 	if err != nil {
 		log.WithError(err).Error("failed to create signalRManager callbacks")
 

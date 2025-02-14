@@ -6,6 +6,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
+	"github.com/futurehomeno/cliffhanger/database"
 	"github.com/futurehomeno/cliffhanger/event"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
@@ -18,6 +19,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
@@ -35,16 +37,18 @@ type serviceContainer struct {
 
 	application     app.Application
 	manifestLoader  manifest.Loader
+	eventManager    event.Manager
 	adapter         adapter.Adapter
 	thingFactory    adapter.ThingFactory
 	adapterState    adapter.State
-	eventManager    event.Manager
 	httpClient      *http.Client
 	easeeHTTPClient api.HTTPClient
 	easeeAPIClient  api.Client
 	authenticator   api.Authenticator
 	signalRClient   signalr.Client
 	signalRManager  signalr.Manager
+	eventListener   event.Listener
+	sessionStorage  db.ChargingSessionStorage
 }
 
 func resetContainer() {
@@ -76,6 +80,34 @@ func getLifecycle() *lifecycle.Lifecycle {
 	return services.lifecycle
 }
 
+// getEventListener creates or returns existing event listener service.
+func getEventListener(cfg *config.Config) event.Listener {
+	if services.eventListener == nil {
+		services.eventListener = event.NewListener(
+			getEventManager(cfg),
+			parameters.NewInclusionReportSentEventHandler(getAdapter(cfg)),
+		)
+	}
+
+	return services.eventListener
+}
+
+// getEventListener creates or returns existing event listener service.
+func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
+	if services.sessionStorage == nil {
+		dataBase, err := database.NewDatabase(cfg.WorkDir)
+		if err != nil {
+			log.WithError(err).Error("can't create db")
+
+			return nil
+		}
+
+		services.sessionStorage = db.NewSessionStorage(dataBase)
+	}
+
+	return services.sessionStorage
+}
+
 // getMQTT creates or returns existing MQTT broker service.
 func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 	if services.mqtt == nil {
@@ -105,6 +137,7 @@ func getApplication(cfg *config.Config) app.Application {
 			getManifestLoader(),
 			getEaseeAPIClient(cfg),
 			getAuthenticator(cfg),
+			getSignalRClient(cfg),
 		)
 	}
 
@@ -136,6 +169,15 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 	return services.adapter
 }
 
+// getEventManager creates or returns existing event manager service.
+func getEventManager(_ *config.Config) event.Manager {
+	if services.eventManager == nil {
+		services.eventManager = event.NewManager()
+	}
+
+	return services.eventManager
+}
+
 // getAdapterState creates or returns existing adapter state service.
 func getAdapterState() adapter.State {
 	if services.adapterState == nil {
@@ -150,15 +192,6 @@ func getAdapterState() adapter.State {
 	return services.adapterState
 }
 
-// getEventManager creates or returns existing event manager service.
-func getEventManager(_ *config.Config) event.Manager {
-	if services.eventManager == nil {
-		services.eventManager = event.NewManager()
-	}
-
-	return services.eventManager
-}
-
 // getThingFactory creates or returns existing thing factory service.
 func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 	if services.thingFactory == nil {
@@ -166,6 +199,7 @@ func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 			getEaseeAPIClient(cfg),
 			getConfigService(),
 			getSignalRManager(cfg),
+			getSessionStorage(cfg),
 		)
 	}
 
