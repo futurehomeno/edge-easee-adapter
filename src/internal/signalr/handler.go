@@ -1,7 +1,6 @@
 package signalr
 
 import (
-	"encoding/json"
 	"errors"
 	"math"
 	"sync"
@@ -409,14 +408,9 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 }
 
 func (h *observationsHandler) handleChargingSessionStop(observation model.Observation) error {
-	val, err := observation.JSONValue()
-	if err != nil {
-		return err
-	}
-
 	var chargingSession model.StopChargingSession
 
-	err = json.Unmarshal([]byte(val), &chargingSession)
+	err := observation.JSONValue(&chargingSession)
 	if err != nil {
 		return err
 	}
@@ -437,14 +431,9 @@ func (h *observationsHandler) handleChargingSessionStop(observation model.Observ
 }
 
 func (h *observationsHandler) handleChargingSessionStart(observation model.Observation) error {
-	val, err := observation.JSONValue()
-	if err != nil {
-		return err
-	}
-
 	var chargingSession model.StartChargingSession
 
-	err = json.Unmarshal([]byte(val), &chargingSession)
+	err := observation.JSONValue(&chargingSession)
 	if err != nil {
 		return err
 	}

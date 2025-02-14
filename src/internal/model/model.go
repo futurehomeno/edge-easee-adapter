@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
@@ -108,12 +109,12 @@ func (o *Observation) BoolValue() (bool, error) {
 }
 
 // JSONValue returns a string representation of the Observation value.
-func (o *Observation) JSONValue() (string, error) {
+func (o *Observation) JSONValue(v any) error {
 	if o.DataType != ObservationDataTypeString {
-		return "", errors.New("observation data type is not string")
+		return errors.New("observation data type is not string")
 	}
 
-	return o.Value, nil
+	return json.Unmarshal([]byte(o.Value), v)
 }
 
 // ObservationID represents an Observation ID in Easee API.
