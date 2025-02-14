@@ -7,6 +7,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
+	"github.com/futurehomeno/cliffhanger/database"
 	"github.com/futurehomeno/cliffhanger/event"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
@@ -19,6 +20,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
@@ -47,6 +49,7 @@ type serviceContainer struct {
 	signalRClient   signalr.Client
 	signalRManager  signalr.Manager
 	eventListener   event.Listener
+	sessionStorage  db.ChargingSessionStorage
 }
 
 func resetContainer() {
@@ -90,6 +93,22 @@ func getEventListener(cfg *config.Config) event.Listener {
 	return services.eventListener
 }
 
+// getEventListener creates or returns existing event listener service.
+func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
+	if services.sessionStorage == nil {
+		dataBase, err := database.NewDatabase(cfg.WorkDir)
+		if err != nil {
+			log.WithError(err).Error("can't create db")
+
+			return nil
+		}
+
+		services.sessionStorage = db.NewSessionStorage(dataBase)
+	}
+
+	return services.sessionStorage
+}
+
 // getMQTT creates or returns existing MQTT broker service.
 func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 	if services.mqtt == nil {
@@ -119,6 +138,7 @@ func getApplication(cfg *config.Config) app.Application {
 			getManifestLoader(),
 			getEaseeAPIClient(cfg),
 			getAuthenticator(cfg),
+			getSignalRClient(cfg),
 		)
 	}
 
@@ -180,6 +200,7 @@ func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 			getEaseeAPIClient(cfg),
 			getConfigService(),
 			getSignalRManager(cfg),
+			getSessionStorage(cfg),
 		)
 	}
 

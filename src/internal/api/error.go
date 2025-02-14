@@ -7,7 +7,7 @@ import (
 
 // HTTPError provides a way to pass more meaningful information regarding http errors without breaking interfaces.
 type HTTPError struct {
-	err    error
+	Err    error
 	Status int
 	Body   io.ReadCloser
 }
@@ -21,5 +21,5 @@ func (e HTTPError) Error() string {
 		}
 	}
 
-	return fmt.Sprintf("%s, status code: %d, body: %s", e.err, e.Status, body)
+	return fmt.Sprintf("%s, status code: %d, body: %s", e.Err, e.Status, body)
 }

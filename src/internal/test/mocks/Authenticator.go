@@ -9,9 +9,13 @@ type Authenticator struct {
 	mock.Mock
 }
 
-// AccessToken provides a mock function with given fields:
+// AccessToken provides a mock function with no fields
 func (_m *Authenticator) AccessToken() (string, error) {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for AccessToken")
+	}
 
 	var r0 string
 	var r1 error
@@ -37,6 +41,10 @@ func (_m *Authenticator) AccessToken() (string, error) {
 func (_m *Authenticator) Login(userName string, password string) error {
 	ret := _m.Called(userName, password)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Login")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string) error); ok {
 		r0 = rf(userName, password)
@@ -47,9 +55,13 @@ func (_m *Authenticator) Login(userName string, password string) error {
 	return r0
 }
 
-// Logout provides a mock function with given fields:
+// Logout provides a mock function with no fields
 func (_m *Authenticator) Logout() error {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Logout")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func() error); ok {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
@@ -29,21 +30,31 @@ type Handler interface {
 }
 
 type observationsHandler struct {
-	cache         cache.Cache
-	handlers      map[model.ObservationID]func(model.Observation) error
-	thing         adapter.Thing
-	energyHandler *energyHandler
+	cache          cache.Cache
+	handlers       map[model.ObservationID]func(model.Observation) error
+	thing          adapter.Thing
+	energyHandler  *energyHandler
+	sessionStorage db.ChargingSessionStorage
+	chargerID      string
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
 }
 
 // NewObservationsHandler creates new observation handler.
-func NewObservationsHandler(thing adapter.Thing, cache cache.Cache, confSrv *config.Service) (Handler, error) {
+func NewObservationsHandler(
+	thing adapter.Thing,
+	cache cache.Cache,
+	confSrv *config.Service,
+	sessionStorage db.ChargingSessionStorage,
+	chargerID string,
+) (Handler, error) {
 	handler := observationsHandler{
-		cache:         cache,
-		thing:         thing,
-		energyHandler: newEnergyHandler(cache, thing, confSrv),
+		cache:          cache,
+		thing:          thing,
+		energyHandler:  newEnergyHandler(cache, thing, confSrv),
+		sessionStorage: sessionStorage,
+		chargerID:      chargerID,
 	}
 
 	handler.isCloudOnline.Store(true)
@@ -66,6 +77,8 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache, confSrv *con
 		model.CableLocked:           handler.handleCableLocked,
 		model.CableRating:           handler.handleCableRating,
 		model.LockCablePermanently:  handler.handleLockCablePermanently,
+		model.ChargingSessionStop:   handler.handleChargingSessionStop,
+		model.ChargingSessionStart:  handler.handleChargingSessionStart,
 	}
 
 	return &handler, nil
@@ -390,6 +403,52 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 	}
 
 	_, err = parameterSrv.SendParameterReport(model.CableAlwaysLockedParameter, true)
+
+	return err
+}
+
+func (h *observationsHandler) handleChargingSessionStop(observation model.Observation) error {
+	var chargingSession model.StopChargingSession
+
+	err := observation.JSONValue(&chargingSession)
+	if err != nil {
+		return err
+	}
+
+	chargepointSrv, err := getChargepointService(h.thing)
+	if err != nil {
+		return err
+	}
+
+	err = h.sessionStorage.RegisterSessionStop(h.chargerID, chargingSession)
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendCurrentSessionReport(false)
+
+	return err
+}
+
+func (h *observationsHandler) handleChargingSessionStart(observation model.Observation) error {
+	var chargingSession model.StartChargingSession
+
+	err := observation.JSONValue(&chargingSession)
+	if err != nil {
+		return err
+	}
+
+	err = h.sessionStorage.RegisterSessionStart(h.chargerID, chargingSession)
+	if err != nil {
+		return err
+	}
+
+	chargepointSrv, err := getChargepointService(h.thing)
+	if err != nil {
+		return err
+	}
+
+	_, err = chargepointSrv.SendCurrentSessionReport(false)
 
 	return err
 }

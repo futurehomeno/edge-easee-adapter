@@ -64,32 +64,6 @@ func (_m *APIClient) ChargerConfig(chargerID string) (*api.ChargerConfig, error)
 	return r0, r1
 }
 
-// ChargerSessions provides a mock function with given fields: chargerID
-func (_m *APIClient) ChargerSessions(chargerID string) (api.ChargeSessions, error) {
-	ret := _m.Called(chargerID)
-
-	var r0 api.ChargeSessions
-	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (api.ChargeSessions, error)); ok {
-		return rf(chargerID)
-	}
-	if rf, ok := ret.Get(0).(func(string) api.ChargeSessions); ok {
-		r0 = rf(chargerID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(api.ChargeSessions)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(chargerID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // ChargerSiteInfo provides a mock function with given fields: chargerID
 func (_m *APIClient) ChargerSiteInfo(chargerID string) (*api.ChargerSiteInfo, error) {
 	ret := _m.Called(chargerID)

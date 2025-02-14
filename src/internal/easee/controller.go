@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
-	"time"
 
-	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
@@ -16,6 +14,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
@@ -62,24 +61,25 @@ func NewController(
 	chargerID string,
 	cache cache.Cache,
 	cfgService *config.Service,
+	sessionStorage db.ChargingSessionStorage,
 ) Controller {
 	return &controller{
-		client:                  client,
-		manager:                 manager,
-		cache:                   cache,
-		cfgService:              cfgService,
-		chargerID:               chargerID,
-		chargeSessionsRefresher: newChargeSessionsRefresher(client, chargerID, cfgService.GetPollingInterval()),
+		client:         client,
+		manager:        manager,
+		cache:          cache,
+		cfgService:     cfgService,
+		chargerID:      chargerID,
+		sessionStorage: sessionStorage,
 	}
 }
 
 type controller struct {
-	client                  api.Client
-	manager                 signalr.Manager
-	cache                   cache.Cache
-	cfgService              *config.Service
-	chargerID               string
-	chargeSessionsRefresher cliffCache.Refresher[model.ChargeSessions]
+	client         api.Client
+	manager        signalr.Manager
+	cache          cache.Cache
+	cfgService     *config.Service
+	chargerID      string
+	sessionStorage db.ChargingSessionStorage
 }
 
 func (c *controller) SetParameter(p *parameters.Parameter) error {
@@ -216,26 +216,26 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		return nil, err
 	}
 
-	sessions, err := c.retrieveChargeSessions()
-	if err != nil {
-		return nil, err
-	}
-
 	ret := chargepoint.SessionReport{
 		SessionEnergy: c.cache.EnergySession(),
 	}
 
-	if latest := sessions.Latest(); latest != nil {
-		ret.StartedAt = latest.CarConnected
-		ret.FinishedAt = latest.CarDisconnected
+	sessions, err := c.sessionStorage.LatestSessionsByChargerID(c.chargerID)
+	if err != nil {
+		return nil, err
+	}
 
-		if !latest.IsComplete {
+	if latest := sessions.Latest(); latest != nil {
+		ret.StartedAt = latest.Start
+		ret.FinishedAt = latest.Stop
+
+		if !latest.Stop.IsZero() {
 			ret.OfferedCurrent = min(c.cache.OfferedCurrent(), c.cache.MaxCurrent())
 		}
 	}
 
 	if prev := sessions.Previous(); prev != nil {
-		ret.PreviousSessionEnergy = prev.KiloWattHours
+		ret.PreviousSessionEnergy = prev.Energy
 	}
 
 	return &ret, nil
@@ -340,28 +340,4 @@ func (c *controller) checkConnection() error {
 	}
 
 	return nil
-}
-
-// retrieveChargeSessions retrieves charge sessions from refresher cache.
-func (c *controller) retrieveChargeSessions() (model.ChargeSessions, error) {
-	sessions, err := c.chargeSessionsRefresher.Refresh()
-	if err != nil {
-		return nil, fmt.Errorf("controller: failed to refresh charge sessions: %w", err)
-	}
-
-	return sessions, nil
-}
-
-// newChargeSessionsRefresher creates new instance of a charge sessions refresher cache.
-func newChargeSessionsRefresher(client api.Client, id string, interval time.Duration) cliffCache.Refresher[model.ChargeSessions] {
-	refresh := func() (model.ChargeSessions, error) {
-		sessions, err := client.ChargerSessions(id)
-		if err != nil {
-			return nil, fmt.Errorf("controller: failed to get charges history: %w", err)
-		}
-
-		return sessions, nil
-	}
-
-	return cliffCache.NewRefresher(refresh, interval)
 }

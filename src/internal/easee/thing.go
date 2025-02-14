@@ -16,6 +16,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
@@ -46,14 +47,21 @@ type thingFactory struct {
 	client         api.Client
 	cfgService     *config.Service
 	signalRManager signalr.Manager
+	sessionStorage db.ChargingSessionStorage
 }
 
 // NewThingFactory returns a new instance of adapter.ThingFactory.
-func NewThingFactory(client api.Client, cfgService *config.Service, signalRManager signalr.Manager) adapter.ThingFactory {
+func NewThingFactory(
+	client api.Client,
+	cfgService *config.Service,
+	signalRManager signalr.Manager,
+	sessionStorage db.ChargingSessionStorage,
+) adapter.ThingFactory {
 	return &thingFactory{
 		client:         client,
 		cfgService:     cfgService,
 		signalRManager: signalRManager,
+		sessionStorage: sessionStorage,
 	}
 }
 
@@ -65,7 +73,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	thingCache := cache.NewCache()
-	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService)
+	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage)
 
 	state := &State{}
 	if err := thingState.State(state); err != nil {
@@ -92,7 +100,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	return adapter.NewThing(publisher, thingState, &adapter.ThingConfig{
-		Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService),
+		Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage),
 		InclusionReport: t.inclusionReport(info, thingState, groups),
 	}, services...), nil
 }
