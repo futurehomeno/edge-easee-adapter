@@ -18,8 +18,6 @@ type Client interface {
 	ChargerConfig(chargerID string) (*model.ChargerConfig, error)
 	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
 	ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, error)
-	// ChargerSessions retrieves at most two latest charging sessions including current if present.
-	ChargerSessions(chargerID string) (model.ChargeSessions, error)
 	// Chargers returns all available chargers.
 	Chargers() ([]model.Charger, error)
 	ChargerDetails(chargerID string) (model.ChargerDetails, error)
@@ -83,15 +81,6 @@ func (a *apiClient) ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, e
 	}
 
 	return a.httpClient.ChargerSiteInfo(token, chargerID)
-}
-
-func (a *apiClient) ChargerSessions(chargerID string) (model.ChargeSessions, error) {
-	token, err := a.auth.AccessToken()
-	if err != nil {
-		return nil, a.tokenError(err)
-	}
-
-	return a.httpClient.ChargerSessions(token, chargerID)
 }
 
 func (a *apiClient) ChargerConfig(chargerID string) (*model.ChargerConfig, error) {

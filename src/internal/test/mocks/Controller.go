@@ -18,9 +18,13 @@ type Controller struct {
 	mock.Mock
 }
 
-// ChargepointCableLockReport provides a mock function with given fields:
+// ChargepointCableLockReport provides a mock function with no fields
 func (_m *Controller) ChargepointCableLockReport() (*chargepoint.CableReport, error) {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for ChargepointCableLockReport")
+	}
 
 	var r0 *chargepoint.CableReport
 	var r1 error
@@ -44,9 +48,13 @@ func (_m *Controller) ChargepointCableLockReport() (*chargepoint.CableReport, er
 	return r0, r1
 }
 
-// ChargepointCurrentSessionReport provides a mock function with given fields:
+// ChargepointCurrentSessionReport provides a mock function with no fields
 func (_m *Controller) ChargepointCurrentSessionReport() (*chargepoint.SessionReport, error) {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for ChargepointCurrentSessionReport")
+	}
 
 	var r0 *chargepoint.SessionReport
 	var r1 error
@@ -70,9 +78,13 @@ func (_m *Controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRep
 	return r0, r1
 }
 
-// ChargepointMaxCurrentReport provides a mock function with given fields:
+// ChargepointMaxCurrentReport provides a mock function with no fields
 func (_m *Controller) ChargepointMaxCurrentReport() (int64, error) {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for ChargepointMaxCurrentReport")
+	}
 
 	var r0 int64
 	var r1 error
@@ -94,9 +106,13 @@ func (_m *Controller) ChargepointMaxCurrentReport() (int64, error) {
 	return r0, r1
 }
 
-// ChargepointPhaseModeReport provides a mock function with given fields:
+// ChargepointPhaseModeReport provides a mock function with no fields
 func (_m *Controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for ChargepointPhaseModeReport")
+	}
 
 	var r0 chargepoint.PhaseMode
 	var r1 error
@@ -118,9 +134,13 @@ func (_m *Controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error
 	return r0, r1
 }
 
-// ChargepointStateReport provides a mock function with given fields:
+// ChargepointStateReport provides a mock function with no fields
 func (_m *Controller) ChargepointStateReport() (chargepoint.State, error) {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for ChargepointStateReport")
+	}
 
 	var r0 chargepoint.State
 	var r1 error
@@ -146,6 +166,10 @@ func (_m *Controller) ChargepointStateReport() (chargepoint.State, error) {
 func (_m *Controller) GetParameter(id string) (*parameters.Parameter, error) {
 	ret := _m.Called(id)
 
+	if len(ret) == 0 {
+		panic("no return value specified for GetParameter")
+	}
+
 	var r0 *parameters.Parameter
 	var r1 error
 	if rf, ok := ret.Get(0).(func(string) (*parameters.Parameter, error)); ok {
@@ -168,9 +192,13 @@ func (_m *Controller) GetParameter(id string) (*parameters.Parameter, error) {
 	return r0, r1
 }
 
-// GetParameterSpecifications provides a mock function with given fields:
+// GetParameterSpecifications provides a mock function with no fields
 func (_m *Controller) GetParameterSpecifications() ([]*parameters.ParameterSpecification, error) {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetParameterSpecifications")
+	}
 
 	var r0 []*parameters.ParameterSpecification
 	var r1 error
@@ -198,6 +226,10 @@ func (_m *Controller) GetParameterSpecifications() ([]*parameters.ParameterSpeci
 func (_m *Controller) MeterExtendedReport(values numericmeter.Values) (numericmeter.ValuesReport, error) {
 	ret := _m.Called(values)
 
+	if len(ret) == 0 {
+		panic("no return value specified for MeterExtendedReport")
+	}
+
 	var r0 numericmeter.ValuesReport
 	var r1 error
 	if rf, ok := ret.Get(0).(func(numericmeter.Values) (numericmeter.ValuesReport, error)); ok {
@@ -224,6 +256,10 @@ func (_m *Controller) MeterExtendedReport(values numericmeter.Values) (numericme
 func (_m *Controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 	ret := _m.Called(unit)
 
+	if len(ret) == 0 {
+		panic("no return value specified for MeterReport")
+	}
+
 	var r0 float64
 	var r1 error
 	if rf, ok := ret.Get(0).(func(numericmeter.Unit) (float64, error)); ok {
@@ -248,6 +284,10 @@ func (_m *Controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 func (_m *Controller) SetChargepointMaxCurrent(_a0 int64) error {
 	ret := _m.Called(_a0)
 
+	if len(ret) == 0 {
+		panic("no return value specified for SetChargepointMaxCurrent")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(int64) error); ok {
 		r0 = rf(_a0)
@@ -261,6 +301,10 @@ func (_m *Controller) SetChargepointMaxCurrent(_a0 int64) error {
 // SetChargepointOfferedCurrent provides a mock function with given fields: _a0
 func (_m *Controller) SetChargepointOfferedCurrent(_a0 int64) error {
 	ret := _m.Called(_a0)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetChargepointOfferedCurrent")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(int64) error); ok {
@@ -276,6 +320,10 @@ func (_m *Controller) SetChargepointOfferedCurrent(_a0 int64) error {
 func (_m *Controller) SetParameter(p *parameters.Parameter) error {
 	ret := _m.Called(p)
 
+	if len(ret) == 0 {
+		panic("no return value specified for SetParameter")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(*parameters.Parameter) error); ok {
 		r0 = rf(p)
@@ -290,6 +338,10 @@ func (_m *Controller) SetParameter(p *parameters.Parameter) error {
 func (_m *Controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
 	ret := _m.Called(settings)
 
+	if len(ret) == 0 {
+		panic("no return value specified for StartChargepointCharging")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(*chargepoint.ChargingSettings) error); ok {
 		r0 = rf(settings)
@@ -300,9 +352,13 @@ func (_m *Controller) StartChargepointCharging(settings *chargepoint.ChargingSet
 	return r0
 }
 
-// StopChargepointCharging provides a mock function with given fields:
+// StopChargepointCharging provides a mock function with no fields
 func (_m *Controller) StopChargepointCharging() error {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for StopChargepointCharging")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func() error); ok {
@@ -317,6 +373,10 @@ func (_m *Controller) StopChargepointCharging() error {
 // UpdateState provides a mock function with given fields: chargerID, state
 func (_m *Controller) UpdateState(chargerID string, state *easee.State) error {
 	ret := _m.Called(chargerID, state)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateState")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, *easee.State) error); ok {

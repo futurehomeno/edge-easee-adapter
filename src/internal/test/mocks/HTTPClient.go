@@ -16,6 +16,10 @@ type HTTPClient struct {
 func (_m *HTTPClient) ChargerConfig(accessToken string, chargerID string) (*model.ChargerConfig, error) {
 	ret := _m.Called(accessToken, chargerID)
 
+	if len(ret) == 0 {
+		panic("no return value specified for ChargerConfig")
+	}
+
 	var r0 *model.ChargerConfig
 	var r1 error
 	if rf, ok := ret.Get(0).(func(string, string) (*model.ChargerConfig, error)); ok {
@@ -42,6 +46,10 @@ func (_m *HTTPClient) ChargerConfig(accessToken string, chargerID string) (*mode
 func (_m *HTTPClient) ChargerDetails(accessToken string, chargerID string) (model.ChargerDetails, error) {
 	ret := _m.Called(accessToken, chargerID)
 
+	if len(ret) == 0 {
+		panic("no return value specified for ChargerDetails")
+	}
+
 	var r0 model.ChargerDetails
 	var r1 error
 	if rf, ok := ret.Get(0).(func(string, string) (model.ChargerDetails, error)); ok {
@@ -62,35 +70,13 @@ func (_m *HTTPClient) ChargerDetails(accessToken string, chargerID string) (mode
 	return r0, r1
 }
 
-// ChargerSessions provides a mock function with given fields: accessToken, chargerID
-func (_m *HTTPClient) ChargerSessions(accessToken string, chargerID string) (model.ChargeSessions, error) {
-	ret := _m.Called(accessToken, chargerID)
-
-	var r0 model.ChargeSessions
-	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (model.ChargeSessions, error)); ok {
-		return rf(accessToken, chargerID)
-	}
-	if rf, ok := ret.Get(0).(func(string, string) model.ChargeSessions); ok {
-		r0 = rf(accessToken, chargerID)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(model.ChargeSessions)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(accessToken, chargerID)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // ChargerSiteInfo provides a mock function with given fields: accessToken, chargerID
 func (_m *HTTPClient) ChargerSiteInfo(accessToken string, chargerID string) (*model.ChargerSiteInfo, error) {
 	ret := _m.Called(accessToken, chargerID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ChargerSiteInfo")
+	}
 
 	var r0 *model.ChargerSiteInfo
 	var r1 error
@@ -118,6 +104,10 @@ func (_m *HTTPClient) ChargerSiteInfo(accessToken string, chargerID string) (*mo
 func (_m *HTTPClient) Chargers(accessToken string) ([]model.Charger, error) {
 	ret := _m.Called(accessToken)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Chargers")
+	}
+
 	var r0 []model.Charger
 	var r1 error
 	if rf, ok := ret.Get(0).(func(string) ([]model.Charger, error)); ok {
@@ -143,6 +133,10 @@ func (_m *HTTPClient) Chargers(accessToken string) ([]model.Charger, error) {
 // Login provides a mock function with given fields: userName, password
 func (_m *HTTPClient) Login(userName string, password string) (*model.Credentials, error) {
 	ret := _m.Called(userName, password)
+
+	if len(ret) == 0 {
+		panic("no return value specified for Login")
+	}
 
 	var r0 *model.Credentials
 	var r1 error
@@ -170,6 +164,10 @@ func (_m *HTTPClient) Login(userName string, password string) (*model.Credential
 func (_m *HTTPClient) Ping(accessToken string) error {
 	ret := _m.Called(accessToken)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Ping")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string) error); ok {
 		r0 = rf(accessToken)
@@ -183,6 +181,10 @@ func (_m *HTTPClient) Ping(accessToken string) error {
 // RefreshToken provides a mock function with given fields: accessToken, refreshToken
 func (_m *HTTPClient) RefreshToken(accessToken string, refreshToken string) (*model.Credentials, error) {
 	ret := _m.Called(accessToken, refreshToken)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RefreshToken")
+	}
 
 	var r0 *model.Credentials
 	var r1 error
@@ -210,6 +212,10 @@ func (_m *HTTPClient) RefreshToken(accessToken string, refreshToken string) (*mo
 func (_m *HTTPClient) SetCableAlwaysLocked(accessToken string, chargerID string, locked bool) error {
 	ret := _m.Called(accessToken, chargerID, locked)
 
+	if len(ret) == 0 {
+		panic("no return value specified for SetCableAlwaysLocked")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string, bool) error); ok {
 		r0 = rf(accessToken, chargerID, locked)
@@ -223,6 +229,10 @@ func (_m *HTTPClient) SetCableAlwaysLocked(accessToken string, chargerID string,
 // StopCharging provides a mock function with given fields: accessToken, chargerID
 func (_m *HTTPClient) StopCharging(accessToken string, chargerID string) error {
 	ret := _m.Called(accessToken, chargerID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for StopCharging")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string) error); ok {
@@ -238,6 +248,10 @@ func (_m *HTTPClient) StopCharging(accessToken string, chargerID string) error {
 func (_m *HTTPClient) UpdateDynamicCurrent(accessToken string, chargerID string, current float64) error {
 	ret := _m.Called(accessToken, chargerID, current)
 
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateDynamicCurrent")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string, float64) error); ok {
 		r0 = rf(accessToken, chargerID, current)
@@ -251,6 +265,10 @@ func (_m *HTTPClient) UpdateDynamicCurrent(accessToken string, chargerID string,
 // UpdateMaxCurrent provides a mock function with given fields: accessToken, chargerID, current
 func (_m *HTTPClient) UpdateMaxCurrent(accessToken string, chargerID string, current float64) error {
 	ret := _m.Called(accessToken, chargerID, current)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateMaxCurrent")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(string, string, float64) error); ok {
