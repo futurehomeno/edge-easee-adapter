@@ -94,6 +94,7 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 	}
 
 	keys := make([]int, 0, len(stringKeys))
+
 	for _, k := range stringKeys {
 		key, _ := strconv.Atoi(k)
 		keys = append(keys, key)
