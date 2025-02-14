@@ -220,7 +220,7 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		SessionEnergy: c.cache.EnergySession(),
 	}
 
-	sessions, err := c.sessionStorage.LatestSessionsByChargerID(c.chargerID, 2)
+	sessions, err := c.sessionStorage.LatestSessionsByChargerID(c.chargerID)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	}
 
 	if prev := sessions.Previous(); prev != nil {
-		ret.PreviousSessionEnergy = prev.EnergyKwh
+		ret.PreviousSessionEnergy = prev.Energy
 	}
 
 	return &ret, nil

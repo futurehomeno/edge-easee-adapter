@@ -19,6 +19,7 @@ import (
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/google/go-cmp/cmp"
+	"github.com/pkg/errors"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
@@ -1195,8 +1196,9 @@ func tearDown(configSet string) suite.Callback {
 func cleanUpTestData(t *testing.T, configSet string) {
 	t.Helper()
 
-	dataPath := path.Join("../../testdata/testing/", configSet, "/data/")
-	defaultsPath := path.Join("../../testdata/testing/", configSet, "/defaults/")
+	workDir := path.Join("../../testdata/testing/", configSet)
+	dataPath := path.Join(workDir, "/data/")
+	defaultsPath := path.Join(workDir, "/defaults/")
 
 	// clean up 'data' path
 	err := os.RemoveAll(dataPath)
@@ -1224,6 +1226,11 @@ func cleanUpTestData(t *testing.T, configSet string) {
 
 	_, err = io.Copy(fout, fin)
 	if err != nil {
+		t.Fatalf("failed to clean up after previous tests: %s", err)
+	}
+
+	err = os.Remove(path.Join(workDir, "data.db"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
 }

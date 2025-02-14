@@ -28,8 +28,8 @@ type ChargingSessionStorage interface {
 	RegisterSessionStart(chargerID string, session model.StartChargingSession) error
 	// RegisterSessionStop registers stop charging session for charger with chargerID.
 	RegisterSessionStop(chargerID string, session model.StopChargingSession) error
-	// LatestSessionsByChargerID returns sessionNumber last ChargingSessions for charger with chargerID.
-	LatestSessionsByChargerID(chargerID string, sessionNumber int) (ChargingSessions, error)
+	// LatestSessionsByChargerID returns latest and previous charging sessions by chargerID.
+	LatestSessionsByChargerID(chargerID string) (ChargingSessions, error)
 }
 
 type sessionStorage struct {
@@ -53,77 +53,90 @@ func (s *sessionStorage) Reset() error {
 }
 
 func (s *sessionStorage) RegisterSessionStart(chargerID string, session model.StartChargingSession) error {
-	lastSession, err := s.LatestSessionsByChargerID(chargerID, 1)
+	sessions, err := s.LatestSessionsByChargerID(chargerID)
 	if err != nil {
 		return errors.Wrap(err, "register start session: can't get last charging session")
 	}
 
-	if len(lastSession) != 0 && lastSession.Latest().Stop.IsZero() {
-		lastSession.Latest().Stop = session.Start
+	bucket := s.bucketName(chargerID)
+	latest := sessions.Latest()
 
-		err = s.db.Set(bucketName(chargerID), IDString(lastSession.Latest().ID), lastSession.Latest())
+	if latest != nil && latest.Stop.IsZero() {
+		latest.Stop = session.Start
+
+		err = s.db.Set(bucket, latest.IDString(), latest)
 		if err != nil {
 			return errors.Wrap(err, "register start session: can't update previous charging session")
 		}
 	}
 
-	return s.db.Set(bucketName(chargerID), IDString(session.ID), ChargingSession{
+	return s.db.Set(bucket, session.IDString(), ChargingSession{
 		ID:    session.ID,
 		Start: session.Start,
 	})
 }
 
 func (s *sessionStorage) RegisterSessionStop(chargerID string, session model.StopChargingSession) error {
-	return s.db.Set(bucketName(chargerID), IDString(session.ID), ChargingSession{
-		EnergyKwh: session.Energy,
-		ID:        session.ID,
-		Start:     session.Start,
-		Stop:      session.Stop,
+	return s.db.Set(s.bucketName(chargerID), session.IDString(), ChargingSession{
+		ID:     session.ID,
+		Start:  session.Start,
+		Stop:   session.Stop,
+		Energy: session.Energy,
 	})
 }
 
-func (s *sessionStorage) LatestSessionsByChargerID(chargerID string, sessionNumber int) (ChargingSessions, error) {
-	var sessions ChargingSessions
+func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSessions, error) {
+	bucket := s.bucketName(chargerID)
 
-	keys, err := s.db.Keys(bucketName(chargerID))
+	stringKeys, err := s.db.Keys(bucket)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(keys) == 0 {
-		return nil, nil
+	keys := make([]int, 0, len(stringKeys))
+	for _, k := range stringKeys {
+		key, _ := strconv.Atoi(k)
+		keys = append(keys, key)
 	}
 
+	// Sort keys (session IDs) in descending order.
 	sort.Slice(keys, func(i, j int) bool {
-		key1, _ := strconv.Atoi(keys[i])
-		key2, _ := strconv.Atoi(keys[j])
-
-		return key1 > key2
+		return keys[i] > keys[j]
 	})
 
-	for i := 0; i < sessionNumber && i < len(keys); i++ {
+	sessions := make(ChargingSessions, 0, 2) // latest and previous
+
+	for _, k := range keys {
 		var session *ChargingSession
 
-		ok, err := s.db.Get(bucketName(chargerID), keys[i], &session)
+		ok, err := s.db.Get(bucket, strconv.Itoa(k), &session)
 		if !ok || err != nil {
 			return nil, err
 		}
 
 		sessions = append(sessions, session)
+
+		if len(sessions) == 2 {
+			break
+		}
 	}
 
 	return sessions, nil
 }
 
-type ChargingSession struct {
-	EnergyKwh float64   `json:"EnergyKwh"`
-	ID        int64     `json:"ID"`
-	Start     time.Time `json:"Start"`
-	Stop      time.Time `json:"Stop"`
+func (s *sessionStorage) bucketName(chargerID string) string {
+	return bucketNamePrefix + chargerID
 }
 
-func IDString(id int64) string {
-	return strconv.FormatInt(id, 10)
+type ChargingSession struct {
+	ID     int64     `json:"id"`
+	Start  time.Time `json:"start"`
+	Stop   time.Time `json:"stop"`
+	Energy float64   `json:"energy"`
+}
+
+func (s *ChargingSession) IDString() string {
+	return strconv.FormatInt(s.ID, 10)
 }
 
 type ChargingSessions []*ChargingSession
@@ -142,8 +155,4 @@ func (c ChargingSessions) Previous() *ChargingSession {
 	}
 
 	return c[1]
-}
-
-func bucketName(chargerID string) string {
-	return bucketNamePrefix + chargerID
 }

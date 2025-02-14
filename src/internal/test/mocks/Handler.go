@@ -16,6 +16,10 @@ type Handler struct {
 func (_m *Handler) HandleObservation(observation model.Observation) error {
 	ret := _m.Called(observation)
 
+	if len(ret) == 0 {
+		panic("no return value specified for HandleObservation")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(model.Observation) error); ok {
 		r0 = rf(observation)
@@ -26,9 +30,13 @@ func (_m *Handler) HandleObservation(observation model.Observation) error {
 	return r0
 }
 
-// IsOnline provides a mock function with given fields:
+// IsOnline provides a mock function with no fields
 func (_m *Handler) IsOnline() bool {
 	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsOnline")
+	}
 
 	var r0 bool
 	if rf, ok := ret.Get(0).(func() bool); ok {
