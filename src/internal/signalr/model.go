@@ -1,6 +1,8 @@
 package signalr
 
-import "github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+import (
+	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+)
 
 // ObservationID represents an Observation ID in Easee API.
 type ObservationID int

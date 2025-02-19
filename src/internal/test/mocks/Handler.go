@@ -3,7 +3,7 @@
 package mocks
 
 import (
-	model "github.com/futurehomeno/edge-easee-adapter/internal/model"
+	signalr "github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -13,7 +13,7 @@ type Handler struct {
 }
 
 // HandleObservation provides a mock function with given fields: observation
-func (_m *Handler) HandleObservation(observation model.Observation) error {
+func (_m *Handler) HandleObservation(observation signalr.Observation) error {
 	ret := _m.Called(observation)
 
 	if len(ret) == 0 {
@@ -21,7 +21,7 @@ func (_m *Handler) HandleObservation(observation model.Observation) error {
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(model.Observation) error); ok {
+	if rf, ok := ret.Get(0).(func(signalr.Observation) error); ok {
 		r0 = rf(observation)
 	} else {
 		r0 = ret.Error(0)

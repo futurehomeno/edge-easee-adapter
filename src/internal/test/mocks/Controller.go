@@ -16,41 +16,7 @@ type Controller struct {
 	mock.Mock
 }
 
-<<<<<<< HEAD
-// ChargepointCurrentSessionReport provides a mock function with given fields:
-=======
-// ChargepointCableLockReport provides a mock function with no fields
-func (_m *Controller) ChargepointCableLockReport() (*chargepoint.CableReport, error) {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for ChargepointCableLockReport")
-	}
-
-	var r0 *chargepoint.CableReport
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (*chargepoint.CableReport, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() *chargepoint.CableReport); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*chargepoint.CableReport)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // ChargepointCurrentSessionReport provides a mock function with no fields
->>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 func (_m *Controller) ChargepointCurrentSessionReport() (*chargepoint.SessionReport, error) {
 	ret := _m.Called()
 
@@ -80,67 +46,7 @@ func (_m *Controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRep
 	return r0, r1
 }
 
-<<<<<<< HEAD
-// ChargepointStateReport provides a mock function with given fields:
-=======
-// ChargepointMaxCurrentReport provides a mock function with no fields
-func (_m *Controller) ChargepointMaxCurrentReport() (int64, error) {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for ChargepointMaxCurrentReport")
-	}
-
-	var r0 int64
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (int64, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() int64); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(int64)
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// ChargepointPhaseModeReport provides a mock function with no fields
-func (_m *Controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for ChargepointPhaseModeReport")
-	}
-
-	var r0 chargepoint.PhaseMode
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (chargepoint.PhaseMode, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() chargepoint.PhaseMode); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(chargepoint.PhaseMode)
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
 // ChargepointStateReport provides a mock function with no fields
->>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 func (_m *Controller) ChargepointStateReport() (chargepoint.State, error) {
 	ret := _m.Called()
 
@@ -168,69 +74,6 @@ func (_m *Controller) ChargepointStateReport() (chargepoint.State, error) {
 	return r0, r1
 }
 
-<<<<<<< HEAD
-=======
-// GetParameter provides a mock function with given fields: id
-func (_m *Controller) GetParameter(id string) (*parameters.Parameter, error) {
-	ret := _m.Called(id)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetParameter")
-	}
-
-	var r0 *parameters.Parameter
-	var r1 error
-	if rf, ok := ret.Get(0).(func(string) (*parameters.Parameter, error)); ok {
-		return rf(id)
-	}
-	if rf, ok := ret.Get(0).(func(string) *parameters.Parameter); ok {
-		r0 = rf(id)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*parameters.Parameter)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(string) error); ok {
-		r1 = rf(id)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// GetParameterSpecifications provides a mock function with no fields
-func (_m *Controller) GetParameterSpecifications() ([]*parameters.ParameterSpecification, error) {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetParameterSpecifications")
-	}
-
-	var r0 []*parameters.ParameterSpecification
-	var r1 error
-	if rf, ok := ret.Get(0).(func() ([]*parameters.ParameterSpecification, error)); ok {
-		return rf()
-	}
-	if rf, ok := ret.Get(0).(func() []*parameters.ParameterSpecification); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*parameters.ParameterSpecification)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
->>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 // MeterExtendedReport provides a mock function with given fields: values
 func (_m *Controller) MeterExtendedReport(values numericmeter.Values) (numericmeter.ValuesReport, error) {
 	ret := _m.Called(values)
@@ -289,63 +132,6 @@ func (_m *Controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 	return r0, r1
 }
 
-<<<<<<< HEAD
-=======
-// SetChargepointMaxCurrent provides a mock function with given fields: _a0
-func (_m *Controller) SetChargepointMaxCurrent(_a0 int64) error {
-	ret := _m.Called(_a0)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetChargepointMaxCurrent")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(int64) error); ok {
-		r0 = rf(_a0)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// SetChargepointOfferedCurrent provides a mock function with given fields: _a0
-func (_m *Controller) SetChargepointOfferedCurrent(_a0 int64) error {
-	ret := _m.Called(_a0)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetChargepointOfferedCurrent")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(int64) error); ok {
-		r0 = rf(_a0)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// SetParameter provides a mock function with given fields: p
-func (_m *Controller) SetParameter(p *parameters.Parameter) error {
-	ret := _m.Called(p)
-
-	if len(ret) == 0 {
-		panic("no return value specified for SetParameter")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(*parameters.Parameter) error); ok {
-		r0 = rf(p)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
->>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
 // StartChargepointCharging provides a mock function with given fields: settings
 func (_m *Controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
 	ret := _m.Called(settings)

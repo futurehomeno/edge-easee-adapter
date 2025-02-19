@@ -16,7 +16,6 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
@@ -391,11 +390,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					"configured",
 					mqttAddr,
 					func(client *mocks.APIClient) {
-						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
-							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{
+							DetectedPowerGridType: api.GridTypeUnknown,
 						}, nil)
-						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{
 							RatedCurrent: 32,
 						}, nil)
 						client.On("Ping").Return(nil)
@@ -406,7 +404,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
-								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
 							},
 							{
 								ChargerID: test.ChargerID,
@@ -435,11 +433,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					"configured",
 					mqttAddr,
 					func(client *mocks.APIClient) {
-						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
-							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{
+							DetectedPowerGridType: api.GridTypeUnknown,
 						}, nil)
-						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{
 							RatedCurrent: 32,
 						}, nil)
 						client.On("Ping").Return(nil)
@@ -450,7 +447,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
-								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
 							},
 							{
 								ChargerID: test.ChargerID,

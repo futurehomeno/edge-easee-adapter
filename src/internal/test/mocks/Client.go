@@ -48,25 +48,16 @@ func (_m *Client) Connected() bool {
 	return r0
 }
 
-<<<<<<< HEAD
-// ObservationC provides a mock function with given fields:
-func (_m *Client) ObservationC() <-chan signalr.Observation {
-	ret := _m.Called()
-
-	var r0 <-chan signalr.Observation
-	if rf, ok := ret.Get(0).(func() <-chan signalr.Observation); ok {
-=======
 // ObservationC provides a mock function with no fields
-func (_m *Client) ObservationC() <-chan model.Observation {
+func (_m *Client) ObservationC() <-chan signalr.Observation {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObservationC")
 	}
 
-	var r0 <-chan model.Observation
-	if rf, ok := ret.Get(0).(func() <-chan model.Observation); ok {
->>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
+	var r0 <-chan signalr.Observation
+	if rf, ok := ret.Get(0).(func() <-chan signalr.Observation); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
@@ -82,25 +73,16 @@ func (_m *Client) Start() {
 	_m.Called()
 }
 
-<<<<<<< HEAD
-// StateC provides a mock function with given fields:
-func (_m *Client) StateC() <-chan signalr.ClientState {
-	ret := _m.Called()
-
-	var r0 <-chan signalr.ClientState
-	if rf, ok := ret.Get(0).(func() <-chan signalr.ClientState); ok {
-=======
 // StateC provides a mock function with no fields
-func (_m *Client) StateC() <-chan model.ClientState {
+func (_m *Client) StateC() <-chan signalr.ClientState {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for StateC")
 	}
 
-	var r0 <-chan model.ClientState
-	if rf, ok := ret.Get(0).(func() <-chan model.ClientState); ok {
->>>>>>> 0f5e7f3 (DEV-4696 Easee rate limit reached 429 error (#52))
+	var r0 <-chan signalr.ClientState
+	if rf, ok := ret.Get(0).(func() <-chan signalr.ClientState); ok {
 		r0 = rf()
 	} else {
 		if ret.Get(0) != nil {
