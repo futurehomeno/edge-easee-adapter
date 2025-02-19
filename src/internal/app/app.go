@@ -13,7 +13,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
-	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
 // Application is an interface representing a service responsible for preparing an application manifest and configuring app.
