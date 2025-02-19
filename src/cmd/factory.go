@@ -79,7 +79,7 @@ func getLifecycle() *lifecycle.Lifecycle {
 	return services.lifecycle
 }
 
-// getEventListener creates or returns existing event listener service.
+// getSessionStorage creates or returns existing session storage.
 func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 	if services.sessionStorage == nil {
 		dataBase, err := database.NewDatabase(cfg.WorkDir)
