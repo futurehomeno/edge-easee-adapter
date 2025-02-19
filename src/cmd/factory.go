@@ -6,6 +6,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
+	"github.com/futurehomeno/cliffhanger/event"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
 	"github.com/futurehomeno/cliffhanger/notification"
@@ -37,6 +38,7 @@ type serviceContainer struct {
 	adapter         adapter.Adapter
 	thingFactory    adapter.ThingFactory
 	adapterState    adapter.State
+	eventManager    event.Manager
 	httpClient      *http.Client
 	easeeHTTPClient api.HTTPClient
 	easeeAPIClient  api.Client
@@ -123,6 +125,7 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 	if services.adapter == nil {
 		services.adapter = adapter.NewAdapter(
 			getMQTT(cfg),
+			getEventManager(cfg),
 			getThingFactory(cfg),
 			getAdapterState(),
 			routing.ServiceName,
@@ -145,6 +148,15 @@ func getAdapterState() adapter.State {
 	}
 
 	return services.adapterState
+}
+
+// getEventManager creates or returns existing event manager service.
+func getEventManager(_ *config.Config) event.Manager {
+	if services.eventManager == nil {
+		services.eventManager = event.NewManager()
+	}
+
+	return services.eventManager
 }
 
 // getThingFactory creates or returns existing thing factory service.
