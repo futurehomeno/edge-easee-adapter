@@ -238,7 +238,7 @@ func (o *observationsHandler) handleInCurrentT5(observation Observation) error {
 	return err
 }
 
-func (h *observationsHandler) handleChargingSessionStop(observation Observation) error {
+func (o *observationsHandler) handleChargingSessionStop(observation Observation) error {
 	var chargingSession model.StopChargingSession
 
 	err := observation.JSONValue(&chargingSession)
@@ -246,17 +246,17 @@ func (h *observationsHandler) handleChargingSessionStop(observation Observation)
 		return err
 	}
 
-	err = h.sessionStorage.RegisterSessionStop(h.chargerID, chargingSession)
+	err = o.sessionStorage.RegisterSessionStop(o.chargerID, chargingSession)
 	if err != nil {
 		return err
 	}
 
-	_, err = h.chargepoint.SendCurrentSessionReport(false)
+	_, err = o.chargepoint.SendCurrentSessionReport(false)
 
 	return err
 }
 
-func (h *observationsHandler) handleChargingSessionStart(observation Observation) error {
+func (o *observationsHandler) handleChargingSessionStart(observation Observation) error {
 	var chargingSession model.StartChargingSession
 
 	err := observation.JSONValue(&chargingSession)
@@ -264,12 +264,12 @@ func (h *observationsHandler) handleChargingSessionStart(observation Observation
 		return err
 	}
 
-	err = h.sessionStorage.RegisterSessionStart(h.chargerID, chargingSession)
+	err = o.sessionStorage.RegisterSessionStart(o.chargerID, chargingSession)
 	if err != nil {
 		return err
 	}
 
-	_, err = h.chargepoint.SendCurrentSessionReport(false)
+	_, err = o.chargepoint.SendCurrentSessionReport(false)
 
 	return err
 }
