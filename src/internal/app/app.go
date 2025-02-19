@@ -44,13 +44,12 @@ func New(
 }
 
 type application struct {
-	ad            adapter.Adapter
-	cfgService    *config.Service
-	lifecycle     *lifecycle.Lifecycle
-	mfLoader      manifest.Loader
-	client        api.Client
-	auth          api.Authenticator
-	signalRClient signalr.Client
+	ad         adapter.Adapter
+	cfgService *config.Service
+	lifecycle  *lifecycle.Lifecycle
+	mfLoader   manifest.Loader
+	client     api.Client
+	auth       api.Authenticator
 }
 
 func (a *application) GetManifest() (*manifest.Manifest, error) {
