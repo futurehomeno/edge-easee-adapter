@@ -90,7 +90,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 
 	return thing.NewCarCharger(publisher, thingState, &thing.CarChargerConfig{
 		ThingConfig: &adapter.ThingConfig{
-			Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage),
+			Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.sessionStorage),
 			InclusionReport: t.inclusionReport(info, thingState, groups),
 		},
 		ChargepointConfig: &chargepoint.Config{

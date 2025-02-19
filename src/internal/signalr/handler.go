@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
@@ -23,17 +24,20 @@ type Handler interface {
 }
 
 type observationsHandler struct {
-	chargepoint chargepoint.Service
-	meterElec   numericmeter.Service
-	cache       cache.Cache
-	callbacks   map[ObservationID]func(Observation) error
+	chargepoint    chargepoint.Service
+	meterElec      numericmeter.Service
+	cache          cache.Cache
+	sessionStorage db.ChargingSessionStorage
+	callbacks      map[ObservationID]func(Observation) error
+
+	chargerID string
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
 }
 
 // NewObservationsHandler creates new observation handler.
-func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, error) {
+func NewObservationsHandler(thing adapter.Thing, cache cache.Cache, sessionStorage db.ChargingSessionStorage, chargerID string) (Handler, error) {
 	chargepoint, err := getChargepointService(thing)
 	if err != nil {
 		return nil, err
@@ -45,9 +49,11 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	}
 
 	handler := observationsHandler{
-		chargepoint: chargepoint,
-		meterElec:   meterElec,
-		cache:       cache,
+		chargepoint:    chargepoint,
+		meterElec:      meterElec,
+		sessionStorage: sessionStorage,
+		cache:          cache,
+		chargerID:      chargerID,
 	}
 
 	handler.isCloudOnline.Store(true)
@@ -232,15 +238,10 @@ func (o *observationsHandler) handleInCurrentT5(observation Observation) error {
 	return err
 }
 
-func (h *observationsHandler) handleChargingSessionStop(observation model.Observation) error {
+func (h *observationsHandler) handleChargingSessionStop(observation Observation) error {
 	var chargingSession model.StopChargingSession
 
 	err := observation.JSONValue(&chargingSession)
-	if err != nil {
-		return err
-	}
-
-	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
@@ -250,12 +251,12 @@ func (h *observationsHandler) handleChargingSessionStop(observation model.Observ
 		return err
 	}
 
-	_, err = chargepointSrv.SendCurrentSessionReport(false)
+	_, err = h.chargepoint.SendCurrentSessionReport(false)
 
 	return err
 }
 
-func (h *observationsHandler) handleChargingSessionStart(observation model.Observation) error {
+func (h *observationsHandler) handleChargingSessionStart(observation Observation) error {
 	var chargingSession model.StartChargingSession
 
 	err := observation.JSONValue(&chargingSession)
@@ -268,12 +269,7 @@ func (h *observationsHandler) handleChargingSessionStart(observation model.Obser
 		return err
 	}
 
-	chargepointSrv, err := getChargepointService(h.thing)
-	if err != nil {
-		return err
-	}
-
-	_, err = chargepointSrv.SendCurrentSessionReport(false)
+	_, err = h.chargepoint.SendCurrentSessionReport(false)
 
 	return err
 }

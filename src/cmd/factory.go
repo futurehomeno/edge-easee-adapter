@@ -47,7 +47,6 @@ type serviceContainer struct {
 	authenticator   api.Authenticator
 	signalRClient   signalr.Client
 	signalRManager  signalr.Manager
-	eventListener   event.Listener
 	sessionStorage  db.ChargingSessionStorage
 }
 
@@ -78,18 +77,6 @@ func getLifecycle() *lifecycle.Lifecycle {
 	}
 
 	return services.lifecycle
-}
-
-// getEventListener creates or returns existing event listener service.
-func getEventListener(cfg *config.Config) event.Listener {
-	if services.eventListener == nil {
-		services.eventListener = event.NewListener(
-			getEventManager(cfg),
-			parameters.NewInclusionReportSentEventHandler(getAdapter(cfg)),
-		)
-	}
-
-	return services.eventListener
 }
 
 // getEventListener creates or returns existing event listener service.

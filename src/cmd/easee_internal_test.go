@@ -12,13 +12,11 @@ import (
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/test/suite"
-	"github.com/futurehomeno/fimpgo"
-	"github.com/futurehomeno/fimpgo/fimptype"
-	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
@@ -403,17 +401,17 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []model.Observation{
+						s.MockObservations(0, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  model.ObservationDataTypeInteger,
-								ID:        model.ChargerOPState,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
 								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  model.ObservationDataTypeString,
-								ID:        model.ChargingSessionStart,
+								DataType:  signalr.ObservationDataTypeString,
+								ID:        signalr.ChargingSessionStart,
 								Value:     `{ "Auth": "", "AuthReason": 0, "Id": 435, "MeterValue": 1277.872637, "Start": "2025-01-22T12:51:47.000Z"}`,
 							},
 						})
@@ -447,17 +445,17 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						client.On("Ping").Return(nil)
 					},
 					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
-						s.MockObservations(0, []model.Observation{
+						s.MockObservations(0, []signalr.Observation{
 							{
 								ChargerID: test.ChargerID,
-								DataType:  model.ObservationDataTypeInteger,
-								ID:        model.ChargerOPState,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
 								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
 							},
 							{
 								ChargerID: test.ChargerID,
-								DataType:  model.ObservationDataTypeString,
-								ID:        model.ChargingSessionStop,
+								DataType:  signalr.ObservationDataTypeString,
+								ID:        signalr.ChargingSessionStop,
 								Value: `{
 										  "Auth": "",
 										  "AuthReason": 0,

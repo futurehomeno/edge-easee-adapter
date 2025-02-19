@@ -1,6 +1,7 @@
 package signalr
 
 import (
+	"encoding/json"
 	"errors"
 	"strconv"
 	"time"
@@ -40,4 +41,13 @@ func (o *Observation) BoolValue() (bool, error) {
 	}
 
 	return strconv.ParseBool(o.Value)
+}
+
+// JSONValue returns a string representation of the Observation value.
+func (o *Observation) JSONValue(v any) error {
+	if o.DataType != ObservationDataTypeString {
+		return errors.New("observation data type is not string")
+	}
+
+	return json.Unmarshal([]byte(o.Value), v)
 }
