@@ -124,7 +124,6 @@ func getApplication(cfg *config.Config) app.Application {
 			getManifestLoader(),
 			getEaseeAPIClient(cfg),
 			getAuthenticator(cfg),
-			getSignalRClient(cfg),
 		)
 	}
 

@@ -32,16 +32,14 @@ func New(
 	mfLoader manifest.Loader,
 	client api.Client,
 	auth api.Authenticator,
-	signalRClient signalr.Client,
 ) Application {
 	return &application{
-		ad:            ad,
-		mfLoader:      mfLoader,
-		lifecycle:     lc,
-		cfgService:    cfgService,
-		client:        client,
-		auth:          auth,
-		signalRClient: signalRClient,
+		ad:         ad,
+		mfLoader:   mfLoader,
+		lifecycle:  lc,
+		cfgService: cfgService,
+		client:     client,
+		auth:       auth,
 	}
 }
 
@@ -156,10 +154,6 @@ func (a *application) Initialize() error {
 }
 
 func (a *application) Logout() error {
-	if err := a.signalRClient.Close(); err != nil {
-		log.WithError(err).Warn("logout: failed to disconnect signalR client")
-	}
-
 	if err := a.auth.Logout(); err != nil {
 		a.lifecycle.SetAppState(lifecycle.AppStateError, nil)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
@@ -202,10 +196,6 @@ func (a *application) registerChargers() error {
 
 	if err := a.ad.EnsureThings(seeds); err != nil {
 		return errors.Wrap(err, "application: failed to ensure things")
-	}
-
-	if len(chargers) > 0 {
-		a.signalRClient.Start()
 	}
 
 	return nil

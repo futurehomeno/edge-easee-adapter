@@ -61,7 +61,7 @@ func TestApplication_GetManifest(t *testing.T) {
 				tt.mockLoader(loaderMock)
 			}
 
-			a := app.New(nil, nil, nil, loaderMock, nil, nil, nil)
+			a := app.New(nil, nil, nil, loaderMock, nil, nil)
 
 			got, err := a.GetManifest()
 
@@ -80,7 +80,7 @@ func TestApplication_GetManifest(t *testing.T) {
 func TestApplication_Configure_NOOP(t *testing.T) {
 	t.Parallel()
 
-	a := app.New(nil, nil, nil, nil, nil, nil, nil)
+	a := app.New(nil, nil, nil, nil, nil, nil)
 	err := a.Configure("anything")
 
 	assert.NoError(t, err)
@@ -168,7 +168,7 @@ func TestApplication_Uninstall(t *testing.T) {
 			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
-			application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil)
+			application := app.New(adapterMock, cfgService, lc, nil, nil, nil)
 
 			err := application.Uninstall()
 
@@ -204,7 +204,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 		mockAdapter         func(a *mockedadapter.Adapter)
 		mockClient          func(c *mocks.APIClient)
 		mockAuthenticator   func(a *mocks.Authenticator)
-		mockSignalRClient   func(c *mocks.Client)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 	}{
@@ -249,9 +248,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 						},
 					},
 				}).Return(nil)
-			},
-			mockSignalRClient: func(c *mocks.Client) {
-				c.On("Start")
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
@@ -329,9 +325,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 						},
 					},
 				}).Return(nil)
-			},
-			mockSignalRClient: func(c *mocks.Client) {
-				c.On("Start")
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
@@ -414,12 +407,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				tt.mockAuthenticator(authMock)
 			}
 
-			signalRClientMock := mocks.NewClient(t)
-			if tt.mockSignalRClient != nil {
-				tt.mockSignalRClient(signalRClientMock)
-			}
-
-			application := app.New(adapterMock, nil, lc, nil, clientMock, authMock, signalRClientMock)
+			application := app.New(adapterMock, nil, lc, nil, clientMock, authMock)
 
 			err := application.Login(tt.loginData)
 
@@ -445,7 +433,6 @@ func TestApplication_Logout(t *testing.T) {
 		authLogoutError     error
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
-		mockSignalRClient   func(c *mocks.Client)
 	}{
 		{
 			name: "successful config, lifecycle and adapter reset",
@@ -459,9 +446,6 @@ func TestApplication_Logout(t *testing.T) {
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
-			},
-			mockSignalRClient: func(c *mocks.Client) {
-				c.On("Close").Return(nil)
 			},
 		},
 		{
@@ -477,10 +461,6 @@ func TestApplication_Logout(t *testing.T) {
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 			},
-			mockSignalRClient: func(c *mocks.Client) {
-				c.On("Close").Return(nil)
-			},
-
 			wantErr: true,
 		},
 	}
@@ -499,12 +479,7 @@ func TestApplication_Logout(t *testing.T) {
 			authMock := &mocks.Authenticator{}
 			authMock.On("Logout").Return(tt.authLogoutError)
 
-			signalRClientMock := mocks.NewClient(t)
-			if tt.mockSignalRClient != nil {
-				tt.mockSignalRClient(signalRClientMock)
-			}
-
-			application := app.New(nil, nil, lc, nil, clientMock, authMock, signalRClientMock)
+			application := app.New(nil, nil, lc, nil, clientMock, authMock)
 			err := application.Logout()
 
 			assert.Equal(t, tt.wantErr, err != nil, "failed error expectation")
@@ -656,7 +631,7 @@ func TestApplication_Initialize(t *testing.T) {
 			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
-			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil, nil)
+			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil)
 
 			err := application.Initialize()
 
