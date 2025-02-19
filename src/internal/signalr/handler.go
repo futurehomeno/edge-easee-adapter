@@ -10,6 +10,8 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 // Handler interface handles signalr observations.
@@ -22,17 +24,20 @@ type Handler interface {
 }
 
 type observationsHandler struct {
-	chargepoint chargepoint.Service
-	meterElec   numericmeter.Service
-	cache       cache.Cache
-	callbacks   map[ObservationID]func(Observation) error
+	chargepoint    chargepoint.Service
+	meterElec      numericmeter.Service
+	cache          cache.Cache
+	sessionStorage db.ChargingSessionStorage
+	callbacks      map[ObservationID]func(Observation) error
+
+	chargerID string
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
 }
 
 // NewObservationsHandler creates new observation handler.
-func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, error) {
+func NewObservationsHandler(thing adapter.Thing, cache cache.Cache, sessionStorage db.ChargingSessionStorage, chargerID string) (Handler, error) {
 	chargepoint, err := getChargepointService(thing)
 	if err != nil {
 		return nil, err
@@ -44,9 +49,11 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 	}
 
 	handler := observationsHandler{
-		chargepoint: chargepoint,
-		meterElec:   meterElec,
-		cache:       cache,
+		chargepoint:    chargepoint,
+		meterElec:      meterElec,
+		sessionStorage: sessionStorage,
+		cache:          cache,
+		chargerID:      chargerID,
 	}
 
 	handler.isCloudOnline.Store(true)
@@ -63,6 +70,8 @@ func NewObservationsHandler(thing adapter.Thing, cache cache.Cache) (Handler, er
 		InCurrentT4:           handler.handleInCurrentT4,
 		InCurrentT5:           handler.handleInCurrentT5,
 		CloudConnected:        handler.handleCloudConnected,
+		ChargingSessionStop:   handler.handleChargingSessionStop,
+		ChargingSessionStart:  handler.handleChargingSessionStart,
 	}
 
 	return &handler, nil
@@ -225,6 +234,42 @@ func (o *observationsHandler) handleInCurrentT5(observation Observation) error {
 	o.cache.SetPhase3Current(val)
 
 	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase3}, false)
+
+	return err
+}
+
+func (o *observationsHandler) handleChargingSessionStop(observation Observation) error {
+	var chargingSession model.StopChargingSession
+
+	err := observation.JSONValue(&chargingSession)
+	if err != nil {
+		return err
+	}
+
+	err = o.sessionStorage.RegisterSessionStop(o.chargerID, chargingSession)
+	if err != nil {
+		return err
+	}
+
+	_, err = o.chargepoint.SendCurrentSessionReport(false)
+
+	return err
+}
+
+func (o *observationsHandler) handleChargingSessionStart(observation Observation) error {
+	var chargingSession model.StartChargingSession
+
+	err := observation.JSONValue(&chargingSession)
+	if err != nil {
+		return err
+	}
+
+	err = o.sessionStorage.RegisterSessionStart(o.chargerID, chargingSession)
+	if err != nil {
+		return err
+	}
+
+	_, err = o.chargepoint.SendCurrentSessionReport(false)
 
 	return err
 }

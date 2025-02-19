@@ -15,10 +15,8 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
-var (
-	// DefaultSignalRAddr is the default address for the test signalR server
-	DefaultSignalRAddr = "localhost:9999"
-)
+// DefaultSignalRAddr is the default address for the test signalR server.
+var DefaultSignalRAddr = "localhost:9999"
 
 // SignalRServer is a test signalR server.
 type SignalRServer struct {
@@ -130,12 +128,12 @@ func (h *signalRHub) SubscribeWithCurrentState(chargerID string, sendInitialObse
 	}
 }
 
-// OnConnected is called when the hub is connected
+// OnConnected is called when the hub is connected.
 func (h *signalRHub) OnConnected(connID string) {
 	log.Infof("signalR test server: new client connected: connID %s", connID)
 }
 
-// OnDisconnected is called when the hub is disconnected
+// OnDisconnected is called when the hub is disconnected.
 func (h *signalRHub) OnDisconnected(connID string) {
 	log.Infof("signalR test server: client disconnected: connID %s", connID)
 }

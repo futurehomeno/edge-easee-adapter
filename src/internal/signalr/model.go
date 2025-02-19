@@ -1,6 +1,8 @@
 package signalr
 
-import "github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+import (
+	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+)
 
 // ObservationID represents an Observation ID in Easee API.
 type ObservationID int
@@ -17,6 +19,8 @@ const (
 	InCurrentT4           ObservationID = 184
 	InCurrentT5           ObservationID = 185
 	CloudConnected        ObservationID = 250
+	ChargingSessionStart  ObservationID = 223
+	ChargingSessionStop   ObservationID = 129
 )
 
 // Supported returns true if the ObservationID is supported by our system.
@@ -44,6 +48,8 @@ func SupportedObservationIDs() []ObservationID {
 		InCurrentT4,
 		InCurrentT5,
 		CloudConnected,
+		ChargingSessionStart,
+		ChargingSessionStop,
 	}
 }
 

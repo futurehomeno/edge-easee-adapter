@@ -1,0 +1,32 @@
+#name: lint
+#
+#on:
+#  push:
+#    branches: [ main ]
+#  pull_request:
+#    types: [ opened,synchronize ]
+#
+#permissions:
+#  contents: read
+#  pull-requests: read
+#  checks: write
+#
+#jobs:
+#  go-lint:
+#    timeout-minutes: 10
+#    runs-on: ubuntu-latest
+#    steps:
+#      - name: Checkout code
+#        uses: actions/checkout@v4
+#      - name: Install Go
+#        uses: actions/setup-go@v5
+#        with:
+#          go-version-file: 'src/go.mod'
+#          cache-dependency-path: 'src/go.sum'
+#      - name: Go lint
+#        uses: golangci/golangci-lint-action@v6
+#        with:
+#          version: v1.63.4
+#          working-directory: src
+#          args: --timeout=5m
+#          skip-cache: true

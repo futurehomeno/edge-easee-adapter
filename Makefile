@@ -1,4 +1,4 @@
-version="2.3.1"
+version="2.3.2"
 version_file=package/debian/opt/thingsplex/$(app_name)/VERSION
 working_dir=$(shell pwd)
 app_name=easee
@@ -66,7 +66,16 @@ lint:
 	cd src; golangci-lint run; cd ..
 
 test:
-	cd src; go test ./... ; cd ..
+	@echo "\033[92;1mRemoving an old coverage report...\033[0m"
+	rm -f test_coverage.out || true
+
+	@echo "\033[92;1mRunning tests...\033[0m"
+	cd src && go test -p 1 -count 1 -v -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
+
+	@echo "\033[92;1mPreparing a new coverage report...\033[0m"
+	cd src && cat profile_full.cov | grep -v .pb.go | grep -v mock | grep -v test > test_coverage.out
+	mv src/test_coverage.out .
+	rm -f src/profile_full.cov
 
 mocks:
 	cd ./src && mockery --dir ./internal --all --output ./internal/test/mocks --disable-version-string

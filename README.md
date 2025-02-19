@@ -1,5 +1,4 @@
 # Edge Easee adapter
-[![Build Status](https://app.travis-ci.com/futurehomeno/edge-easee-adapter.svg?token=BT5GpzawZfLuMbxzdzfx&branch=main)](https://app.travis-ci.com/futurehomeno/edge-easee-adapter)
 [![Coverage Status](https://coveralls.io/repos/github/futurehomeno/edge-easee-adapter/badge.svg?branch=main&t=irAXge)](https://coveralls.io/github/futurehomeno/edge-easee-adapter?branch=main)
 
 An edge-app adapter for Easee Home EV charger.
@@ -7,21 +6,6 @@ An edge-app adapter for Easee Home EV charger.
 ## Development utilities
 * Easee charger documentation (https://developer.easee.cloud/docs)
 * Easee API documentation (https://developer.easee.cloud/reference)
-
-## Local testing
-Prerequisites:  
- - https://mosquitto.org/download/ package to communicate with mqtt
-
-Run the following commands to start the service locally:
-```shell
-docker-compose down
-docker-compose up --build -d
-```
-
-Once it's started, you can send messages to the MQTT using the following command
-```shell
-mosquitto_pub -h localhost -p 11883 -t <topic> -f /path/to/message.json
-```
 
 ### Some of the useful messages:  
 

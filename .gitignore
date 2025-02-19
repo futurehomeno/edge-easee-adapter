@@ -11,3 +11,5 @@ testdata/data/*
 !testdata/data/.gitkeep
 src/scratch
 edge-easee-adapter
+/src/profile_full.cov
+test_coverage.out

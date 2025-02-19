@@ -1,6 +1,6 @@
-run:
-  skip-dirs:
-    - test
+#run:
+#  exclude-dirs:
+#    - test
 issues:
   fix: false
   exclude-rules:
@@ -37,8 +37,6 @@ linters:
     - godot
     - godox
     - gosec
-    - exhaustive
-    - exportloopref
     - forbidigo
     - forcetypeassert
     - funlen
@@ -81,17 +79,12 @@ linters:
     - exhaustivestruct # Too restrictive as partial struct initialization is a common and valid scenario.
     - gochecknoglobals # Too restrictive and controversial.
     - gochecknoinits # Too restrictive and controversial.
-    - gomnd # Too restrictive and generating configuration-related false positives.
     - prealloc # Too restrictive and generating a lot of false positives.
-    - golint # Deprecated.
-    - interfacer # Deprecated.
-    - maligned # Deprecated.
-    - scopelint # Deprecated.
   fast: false
 linters-settings:
   lll:
     line-length: 160
-  gci:
-    local-prefixes: github.com/futurehomeno/edge-easee-adapter
+#  gci:
+#    local-prefixes: github.com/futurehomeno/edge-easee-adapter
   goimports:
     local-prefixes: github.com/futurehomeno/edge-easee-adapter

@@ -12,6 +12,7 @@ import (
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/test/suite"
+	"github.com/pkg/errors"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -26,16 +27,21 @@ const (
 	evtDeviceMeterElecTopic   = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1"
 )
 
-func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
+func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
+	mqttAddr := test.SetupMQTTContainer(t)
 	testContainer := newTestContainer(t)
 
 	s := &suite.Suite{
+		Config: suite.Config{
+			MQTTServerURI: mqttAddr,
+		},
 		Cases: []*suite.Case{
 			{
 				Name: "Adapter is capable of reacting to incoming observations",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -59,6 +65,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
+								Timestamp: time.Now(),
 								Value:     "12.34",
 							},
 						})
@@ -79,6 +86,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
+								Timestamp: time.Now().Add(time.Hour),
 								Value:     "13.45",
 							},
 						})
@@ -107,6 +115,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -162,6 +171,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -184,6 +194,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -238,6 +249,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{
@@ -278,6 +290,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -300,6 +313,7 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
+					mqttAddr,
 					func(client *mocks.APIClient) {
 						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{}, nil)
@@ -369,6 +383,108 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 					},
 				},
 			},
+			{
+				Name: "Start session report after observation, no previous session",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{
+							DetectedPowerGridType: api.GridTypeUnknown,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeString,
+								ID:        signalr.ChargingSessionStart,
+								Value:     `{ "Auth": "", "AuthReason": 0, "Id": 435, "MeterValue": 1277.872637, "Start": "2025-01-22T12:51:47.000Z"}`,
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.current_session.report", "chargepoint", 0).
+								ExpectProperty("offered_current", "0").
+								ExpectProperty("started_at", "2025-01-22T12:51:47Z"),
+						},
+					},
+				},
+			},
+			{
+				Name: "Get sessions report",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mocks.APIClient) {
+						client.On("ChargerConfig", "XX12345").Return(&api.ChargerConfig{
+							DetectedPowerGridType: api.GridTypeUnknown,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&api.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []signalr.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeInteger,
+								ID:        signalr.ChargerOPState,
+								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeString,
+								ID:        signalr.ChargingSessionStop,
+								Value: `{
+										  "Auth": "",
+										  "AuthReason": 0,
+										  "EnergyKwh": 0.411273,
+										  "Id": 435,
+										  "MeterValueStart": 1277.872637,
+										  "MeterValueStop": 1278.28391,
+										  "Start": "2025-01-22T12:51:47.000Z",
+										  "Stop": "2025-01-22T13:05:38.000Z"
+										}`,
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{
+							waitForRunning(),
+							func(_ *testing.T) {
+								time.Sleep(10 * time.Millisecond)
+							},
+						},
+						Command: suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.current_session.get_report", "chargepoint"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.current_session.report", "chargepoint", 0).
+								ExpectProperty("offered_current", "0").
+								ExpectProperty("started_at", "2025-01-22T12:51:47Z").
+								ExpectProperty("finished_at", "2025-01-22T13:05:38Z"),
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -376,13 +492,13 @@ func TestEaseeEdgeApp(t *testing.T) { //nolint:paralleltest
 }
 
 //nolint:unparam
-func serviceSetup(tc *testContainer, configSet string, mockClientFn func(c *mocks.APIClient), opts ...func(tc *testContainer)) suite.ServiceSetup {
+func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn func(c *mocks.APIClient), opts ...func(tc *testContainer)) suite.ServiceSetup {
 	return func(t *testing.T) (service suite.Service, _ []suite.Mock) {
 		t.Helper()
 
 		tearDown(configSet)(t)
 
-		config := configSetup(t, configSet)
+		config := configSetup(t, configSet, mqttAddr)
 		loggerSetup(t)
 
 		for _, o := range opts {
@@ -424,8 +540,9 @@ func tearDown(configSet string) suite.Callback {
 func cleanUpTestData(t *testing.T, configSet string) {
 	t.Helper()
 
-	dataPath := path.Join("../../testdata/testing/", configSet, "/data/")
-	defaultsPath := path.Join("../../testdata/testing/", configSet, "/defaults/")
+	workDir := path.Join("../../testdata/testing/", configSet)
+	dataPath := path.Join(workDir, "/data/")
+	defaultsPath := path.Join(workDir, "/defaults/")
 
 	// clean up 'data' path
 	err := os.RemoveAll(dataPath)
@@ -434,7 +551,7 @@ func cleanUpTestData(t *testing.T, configSet string) {
 	}
 
 	// recreate 'data' path
-	if err = os.Mkdir(dataPath, 0755); err != nil { //nolint:gofumpt
+	if err = os.Mkdir(dataPath, 0o755); err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
 
@@ -455,9 +572,14 @@ func cleanUpTestData(t *testing.T, configSet string) {
 	if err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
+
+	err = os.Remove(path.Join(workDir, "data.db"))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed to clean up after previous tests: %s", err)
+	}
 }
 
-func configSetup(t *testing.T, configSet string) *config.Config {
+func configSetup(t *testing.T, configSet, mqttAddr string) *config.Config {
 	t.Helper()
 
 	cfgDir := path.Join("./../../testdata/testing/", configSet)
@@ -470,6 +592,7 @@ func configSetup(t *testing.T, configSet string) *config.Config {
 		t.Fatalf("failed to load configuration: %s", err)
 	}
 
+	service.Model().MQTTServerURI = mqttAddr
 	services.configService = service
 
 	return service.Model()
