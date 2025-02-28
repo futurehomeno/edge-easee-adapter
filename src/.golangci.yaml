@@ -1,5 +1,5 @@
 run:
-  exclude-dirs:
+  skip-dirs:
     - test
 issues:
   fix: false
@@ -83,7 +83,5 @@ linters:
 linters-settings:
   lll:
     line-length: 160
-  gci:
-    local-prefixes: github.com/futurehomeno/edge-easee-adapter
   goimports:
     local-prefixes: github.com/futurehomeno/edge-easee-adapter
