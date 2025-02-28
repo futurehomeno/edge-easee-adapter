@@ -36,7 +36,7 @@
     "initialBackoff": "1m",
     "repeatedBackoff": "5m",
     "finalBackoff": "10m",
-    "initialFailureCount": 12,
-    "repeatedFailureCount": 15
+    "initialFailureCount": 5,
+    "repeatedFailureCount": 10
   }
 }
