@@ -1,5 +1,4 @@
-run:
-  skip-dirs:
+skip-dirs:
     - test
 issues:
   fix: false
