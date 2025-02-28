@@ -33,8 +33,8 @@
     "invokeTimeout": "10s"
   },
   "authenticatorBackoff": {
-    "initialBackoff": "15m",
-    "repeatedBackoff": "1m",
+    "initialBackoff": "1m",
+    "repeatedBackoff": "5m",
     "finalBackoff": "10m",
     "initialFailureCount": 12,
     "repeatedFailureCount": 15
