@@ -85,6 +85,3 @@ linters-settings:
       - standard
       - default
       - prefix("github.com/futurehomeno/edge-easee-adapter")
-  goimports:
-    sections:
-      - prefix("github.com/futurehomeno/edge-easee-adapter")
