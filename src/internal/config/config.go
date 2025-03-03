@@ -557,12 +557,12 @@ func (cs *Service) GetAuthenticatorBackoffCfg() BackoffCfg {
 
 	initial, err := time.ParseDuration(cs.Storage.Model().AuthenticatorBackoff.InitialBackoff)
 	if err != nil {
-		initial = 15 * time.Second
+		initial = 1 * time.Minute
 	}
 
 	repeated, err := time.ParseDuration(cs.Storage.Model().AuthenticatorBackoff.RepeatedBackoff)
 	if err != nil {
-		repeated = time.Minute
+		repeated = 5 * time.Minute
 	}
 
 	final, err := time.ParseDuration(cs.Storage.Model().AuthenticatorBackoff.FinalBackoff)
