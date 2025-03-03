@@ -104,7 +104,7 @@ func TestApplication_Uninstall(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:          "access-token",
 					RefreshToken:         "refresh-token",
-					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC),
+					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -132,7 +132,7 @@ func TestApplication_Uninstall(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:          "access-token",
 					RefreshToken:         "refresh-token",
-					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC),
+					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -192,7 +192,7 @@ func TestApplication_Uninstall(t *testing.T) {
 }
 
 func TestApplication_Login(t *testing.T) { //nolint:paralleltest
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC))
 	t.Cleanup(func() {
 		clock.Restore()
 	})
@@ -531,7 +531,7 @@ func TestApplication_Initialize(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:          "access-token",
 					RefreshToken:         "refresh-token",
-					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC),
+					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
@@ -604,7 +604,7 @@ func TestApplication_Initialize(t *testing.T) {
 				Credentials: config.Credentials{
 					AccessToken:          "access-token",
 					RefreshToken:         "refresh-token",
-					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC),
+					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
