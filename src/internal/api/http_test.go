@@ -11,13 +11,12 @@ import (
 	"time"
 
 	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
-	"github.com/michalkurzeja/go-clock"
-	"github.com/stretchr/testify/assert"
-
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
+	"github.com/michalkurzeja/go-clock"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestClient_Login(t *testing.T) {

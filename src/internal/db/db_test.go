@@ -5,12 +5,11 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/database"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-
-	"github.com/futurehomeno/edge-easee-adapter/internal/db"
-	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 type SessionStorageSuite struct {

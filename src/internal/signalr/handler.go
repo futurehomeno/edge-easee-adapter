@@ -11,13 +11,12 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
-	log "github.com/sirupsen/logrus"
-	"github.com/thoas/go-funk"
-
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
+	log "github.com/sirupsen/logrus"
+	"github.com/thoas/go-funk"
 )
 
 // Handler interface handles signalr observations.

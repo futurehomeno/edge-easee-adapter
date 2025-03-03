@@ -7,18 +7,17 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/notification"
 	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
+	"github.com/futurehomeno/edge-easee-adapter/internal/api"
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
+	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-
-	"github.com/futurehomeno/edge-easee-adapter/internal/api"
-	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/model"
-	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
-	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
 )
 
 const (

@@ -81,6 +81,10 @@ linters-settings:
   lll:
     line-length: 160
   gci:
-    local-prefixes: github.com/futurehomeno/edge-easee-adapter
+    sections:
+      - standard
+      - default
+      - prefix("github.com/futurehomeno/edge-easee-adapter")
   goimports:
-    local-prefixes: github.com/futurehomeno/edge-easee-adapter
+    sections:
+      - prefix("github.com/futurehomeno/edge-easee-adapter")

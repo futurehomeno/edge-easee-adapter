@@ -9,11 +9,10 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
-	"github.com/philippseith/signalr"
-	log "github.com/sirupsen/logrus"
-
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
+	"github.com/philippseith/signalr"
+	log "github.com/sirupsen/logrus"
 )
 
 const (

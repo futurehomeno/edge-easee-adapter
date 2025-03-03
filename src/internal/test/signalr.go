@@ -8,11 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	libsignalr "github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-
-	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 // DefaultSignalRAddr is the default address for the test signalR server.

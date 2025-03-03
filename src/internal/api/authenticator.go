@@ -7,13 +7,12 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/notification"
-	"github.com/futurehomeno/fimpgo"
-	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
-
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/jwt"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
+	"github.com/futurehomeno/fimpgo"
+	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
