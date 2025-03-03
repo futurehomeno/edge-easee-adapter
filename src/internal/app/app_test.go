@@ -1,6 +1,5 @@
 package app_test
 
-//nolint:gci
 import (
 	"testing"
 	"time"
