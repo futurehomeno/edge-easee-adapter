@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/database"
-	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/pkg/errors"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 const (

@@ -6,9 +6,10 @@ import (
 	"github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/task"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/jwt"
-	log "github.com/sirupsen/logrus"
 )
 
 // New returns a set of background tasks of an application.

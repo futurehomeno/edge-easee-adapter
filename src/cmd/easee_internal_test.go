@@ -16,14 +16,15 @@ import (
 	"github.com/futurehomeno/cliffhanger/prime"
 	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/test/suite"
-	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/model"
-	"github.com/futurehomeno/edge-easee-adapter/internal/test"
-	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
 )
 
 const (

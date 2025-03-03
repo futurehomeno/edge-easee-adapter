@@ -4,8 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/jwt"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/jwt"
 )
 
 func TestExpirationDate(t *testing.T) {

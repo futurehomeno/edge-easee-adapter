@@ -8,6 +8,7 @@ import (
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/router"
+
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 

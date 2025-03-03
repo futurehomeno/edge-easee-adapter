@@ -6,8 +6,9 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
-	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 // Cache is a cache for charger observations.

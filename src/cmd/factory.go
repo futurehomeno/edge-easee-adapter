@@ -14,6 +14,9 @@ import (
 	"github.com/futurehomeno/cliffhanger/notification"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/task"
+	"github.com/futurehomeno/fimpgo"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -22,8 +25,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/tasks"
-	"github.com/futurehomeno/fimpgo"
-	log "github.com/sirupsen/logrus"
 )
 
 // services is a container for services that are common dependencies.

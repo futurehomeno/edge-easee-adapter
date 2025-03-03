@@ -3,9 +3,10 @@ package signalr
 import (
 	"encoding/json"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 type receiver struct {

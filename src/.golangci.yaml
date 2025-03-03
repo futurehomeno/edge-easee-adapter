@@ -81,7 +81,8 @@ linters-settings:
   lll:
     line-length: 160
   gci:
+    custom-order: true
     sections:
       - standard
       - default
-      - prefix("github.com/futurehomeno/edge-easee-adapter")
+      - prefix(github.com/futurehomeno/edge-easee-adapter)

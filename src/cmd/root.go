@@ -4,9 +4,10 @@ import (
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	"github.com/futurehomeno/cliffhanger/root"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
-	log "github.com/sirupsen/logrus"
 )
 
 // Execute is an entry point to the edge application.
