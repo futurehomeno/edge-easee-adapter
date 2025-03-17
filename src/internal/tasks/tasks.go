@@ -32,7 +32,7 @@ func New(
 func handleCredentials(cfgSrv *config.Service) func() {
 	return func() {
 		creds := cfgSrv.GetCredentials()
-		if creds.RefreshTokenExpiresAt.IsZero() {
+		if !creds.RefreshTokenExpiresAt.IsZero() {
 			return
 		}
 
