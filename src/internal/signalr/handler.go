@@ -539,7 +539,7 @@ func (h *energyHandler) manageEnergyObservation() { //nolint:funlen
 
 			meterElecSrv, err := getMeterElecService(h.thing)
 			if err != nil {
-				log.WithField("thing-address", h.thing.Address()).
+				log.WithField("thing_address", h.thing.Address()).
 					WithError(err).
 					Error("lifetime energy handler: failed to get meter elec service")
 
@@ -548,7 +548,7 @@ func (h *energyHandler) manageEnergyObservation() { //nolint:funlen
 
 			_, err = meterElecSrv.SendMeterReport(numericmeter.UnitKWh, false)
 			if err != nil {
-				log.WithField("thing-address", h.thing.Address()).
+				log.WithField("thing_address", h.thing.Address()).
 					WithError(err).
 					Error("lifetime energy handler: failed to send meter report")
 
@@ -557,7 +557,7 @@ func (h *energyHandler) manageEnergyObservation() { //nolint:funlen
 
 			_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueEnergyImport}, false)
 			if err != nil {
-				log.WithField("thing-address", h.thing.Address()).
+				log.WithField("thing_address", h.thing.Address()).
 					WithError(err).
 					Error("lifetime energy handler: failed to send meter extend report")
 

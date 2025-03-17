@@ -49,8 +49,8 @@ func Factory() *Config {
 type Credentials struct {
 	AccessToken           string    `json:"accessToken"`
 	RefreshToken          string    `json:"refreshToken"`
-	AccessTokenExpiresAt  time.Time `json:"expiresAt"`
-	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt"`
+	AccessTokenExpiresAt  time.Time `json:"expiresAt,omitempty"`
+	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt,omitempty"`
 }
 
 // Empty checks if credentials are empty.

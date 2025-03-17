@@ -11,6 +11,7 @@ import (
 
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"github.com/thoas/go-funk"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -96,12 +97,18 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 		return nil, errors.Wrap(err, "failed to create login request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusOK)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "login request failed")
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logFailedResponse(resp)
+
+		return nil, c.handleFailedResponse(resp, "login request failed: unexpected status code")
+	}
 
 	credentials := &model.Credentials{}
 
@@ -127,16 +134,18 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 		return nil, errors.Wrap(err, "failed to create token refresh request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusOK)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		if resp == nil {
-			return nil, err
-		}
-
-		return nil, HTTPError{Err: errors.Wrap(err, "failed to perform token refresh api call"), Status: resp.StatusCode, Body: resp.Body}
+		return nil, errors.Wrap(err, "token refresh request failed")
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logFailedResponse(resp)
+
+		return nil, c.handleFailedResponse(resp, "token refresh request failed: unexpected status code")
+	}
 
 	loginData := &model.Credentials{}
 
@@ -160,12 +169,18 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 		return errors.Wrap(err, "failed to create max current request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusAccepted)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "update max current request failed")
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		c.logFailedResponse(resp)
+
+		return c.handleFailedResponse(resp, "update max current request failed: unexpected status code")
+	}
 
 	return nil
 }
@@ -186,14 +201,20 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 		return errors.Wrap(err, "failed to create dynamic current request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusAccepted)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "update dynamic current request failed")
 	}
 
-	c.registerMaxCurrentChange(chargerID)
-
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		c.logFailedResponse(resp)
+
+		return c.handleFailedResponse(resp, "update dynamic current request failed: unexpected status code")
+	}
+
+	c.registerMaxCurrentChange(chargerID)
 
 	return nil
 }
@@ -214,12 +235,18 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 		return errors.Wrap(err, "failed to create stop charging request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusAccepted)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "stop charging request failed")
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		c.logFailedResponse(resp)
+
+		return c.handleFailedResponse(resp, "stop charging request failed: unexpected status code")
+	}
 
 	return nil
 }
@@ -236,12 +263,18 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 		return errors.Wrap(err, "failed to create cable lock request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusAccepted)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "could not perform cable lock api call")
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		c.logFailedResponse(resp)
+
+		return c.handleFailedResponse(resp, "cable lock request failed: unexpected status code")
+	}
 
 	return nil
 }
@@ -256,12 +289,18 @@ func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*model.Charge
 		return nil, errors.Wrap(err, "failed to create charger state request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusOK)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "could not perform charger state api call")
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logFailedResponse(resp)
+
+		return nil, c.handleFailedResponse(resp, "charger state request failed: unexpected status code")
+	}
 
 	state := &model.ChargerConfig{}
 
@@ -280,21 +319,27 @@ func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*model.Char
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		build()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create charger state request")
+		return nil, errors.Wrap(err, "failed to create charger site info request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusOK)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "could not perform charger state api call")
+		return nil, errors.Wrap(err, "could not perform charger site info api call")
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logFailedResponse(resp)
+
+		return nil, c.handleFailedResponse(resp, "charger site info request failed: unexpected status code")
+	}
 
 	state := &model.ChargerSiteInfo{}
 
 	err = c.readResponseBody(resp, state)
 	if err != nil {
-		return nil, errors.Wrap(err, "could not read charger state response body")
+		return nil, errors.Wrap(err, "could not read charger site info response body")
 	}
 
 	return state, nil
@@ -308,12 +353,18 @@ func (c *httpClient) Chargers(accessToken string) ([]model.Charger, error) {
 		return nil, errors.Wrap(err, "failed to create chargers request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusOK)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to fetch chargers from api")
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logFailedResponse(resp)
+
+		return nil, c.handleFailedResponse(resp, "chargers request failed: unexpected status code")
+	}
 
 	var chargers []model.Charger
 
@@ -334,12 +385,18 @@ func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (model
 		return model.ChargerDetails{}, errors.Wrap(err, "failed to create charger details state request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusOK)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return model.ChargerDetails{}, errors.Wrap(err, "could not perform charger details api call")
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logFailedResponse(resp)
+
+		return model.ChargerDetails{}, c.handleFailedResponse(resp, "charger details request failed: unexpected status code")
+	}
 
 	chargerDetails := model.ChargerDetails{}
 
@@ -359,12 +416,18 @@ func (c *httpClient) Ping(accessToken string) error {
 		return errors.Wrap(err, "failed to create ping request")
 	}
 
-	resp, err := c.performRequest(req, http.StatusOK)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "failed to perform ping request")
 	}
 
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logFailedResponse(resp)
+
+		return c.handleFailedResponse(resp, "ping request failed: unexpected status code")
+	}
 
 	return nil
 }
@@ -373,24 +436,31 @@ func (c *httpClient) buildURL(path string, args ...interface{}) string {
 	return c.baseURL + fmt.Sprintf(path, args...)
 }
 
-func (c *httpClient) performRequest(req *http.Request, wantResponseCode int) (*http.Response, error) {
-	resp, err := c.httpClient.Do(req)
+func (c *httpClient) handleFailedResponse(resp *http.Response, message string) error {
+	e := HTTPError{Message: message}
+
+	if resp != nil {
+		e.StatusCode = resp.StatusCode
+	}
+
+	return e
+}
+
+func (c *httpClient) logFailedResponse(resp *http.Response) {
+	if resp == nil {
+		return
+	}
+
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "could not perform http call")
+		log.WithError(err).
+			Errorf("%s %s %s: failed to read response body", resp.Request.Method, resp.Request.URL.String(), resp.Status)
+
+		return
 	}
 
-	if resp.StatusCode != wantResponseCode {
-		var response string
-		if data, err := io.ReadAll(resp.Body); err != nil {
-			response = fmt.Sprintf("unable to read response body: %v", err)
-		} else {
-			response = string(data)
-		}
-
-		return resp, errors.Errorf("expected response code to be %d, but got %d instead. %s", wantResponseCode, resp.StatusCode, response)
-	}
-
-	return resp, nil
+	log.WithField("body", string(body)).
+		Errorf("%s %s resulted in %s", resp.Request.Method, resp.Request.URL.String(), resp.Status)
 }
 
 func (c *httpClient) readResponseBody(r *http.Response, body interface{}) error {
