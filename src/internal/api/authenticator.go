@@ -38,11 +38,14 @@ type Authenticator interface {
 	AccessToken() (string, error)
 	// Logout used to remove credentials from the config
 	Logout() error
+	// EnsureBackwardsCompatibility is used to ensure that the application is compatible with the current version of credentials layout.
+	// In other words, it populates RefreshTokenExpiresAt if possible.
+	EnsureBackwardsCompatibility() error
 }
 
 type authenticator struct {
 	mu                  sync.Mutex
-	cfgSvc              *config.Service
+	cfg                 *config.Service
 	http                HTTPClient
 	notificationManager Notifier
 	mqtt                *fimpgo.MqttTransport
@@ -50,24 +53,71 @@ type authenticator struct {
 	backoff             backoff.Stateful
 }
 
+// NewAuthenticator creates a new instance of the Authenticator.
 func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify Notifier, mqtt *fimpgo.MqttTransport, serviceName string) Authenticator {
-	cfgBackoff := cfgSvc.GetAuthenticatorBackoffCfg()
-	backoff := backoff.NewStateful(
-		cfgBackoff.InitialBackoff,
-		cfgBackoff.RepeatedBackoff,
-		cfgBackoff.FinalBackoff,
-		cfgBackoff.InitialFailureCount,
-		cfgBackoff.RepeatedFailureCount,
+	backoffCfg := cfgSvc.GetAuthenticatorBackoffCfg()
+
+	statefulBackoff := backoff.NewStateful(
+		backoffCfg.InitialBackoff,
+		backoffCfg.RepeatedBackoff,
+		backoffCfg.FinalBackoff,
+		backoffCfg.InitialFailureCount,
+		backoffCfg.RepeatedFailureCount,
 	)
 
-	return &authenticator{
-		cfgSvc:              cfgSvc,
+	a := &authenticator{
+		cfg:                 cfgSvc,
 		http:                http,
 		notificationManager: notify,
 		mqtt:                mqtt,
 		serviceName:         serviceName,
-		backoff:             backoff,
+		backoff:             statefulBackoff,
 	}
+
+	// Lock the mutex to ensure that the authenticator is not used before it's fully initialized.
+	// A call to EnsureBackwardsCompatibility releases the lock.
+	a.mu.Lock()
+
+	return a
+}
+
+func (a *authenticator) EnsureBackwardsCompatibility() error {
+	log.Debug("authenticator: ensuring backwards compatibility...")
+
+	// Check the constructor for details.
+	if a.mu.TryLock() {
+		log.Warnf("authenticator: ensuring backwards compatibility: a lock was in an unlocked state")
+	}
+
+	defer a.mu.Unlock()
+
+	creds := a.cfg.GetCredentials()
+
+	if creds.Empty() || !creds.RefreshTokenExpiresAt.IsZero() {
+		return nil
+	}
+
+	// We're refreshing the field to make sure we have a correct time set there.
+	accessTokenExpiresAt, err := jwt.ExpirationDate(creds.AccessToken)
+	if err != nil {
+		return fmt.Errorf("cant't get access token expiration time: %w", err)
+	}
+
+	refreshTokenExpiresAt, err := jwt.ExpirationDate(creds.RefreshToken)
+	if err != nil {
+		return fmt.Errorf("cant't get refresh token expiration time: %w", err)
+	}
+
+	log.WithField("access_token_expires_at", accessTokenExpiresAt.Format(time.RFC3339)).
+		WithField("refresh_token_expires_at", refreshTokenExpiresAt.Format(time.RFC3339)).
+		Info("authenticator: ensuring backwards compatibility: updating token expiration times")
+
+	return a.cfg.SetCredentials(config.Credentials{
+		AccessToken:           creds.AccessToken,
+		RefreshToken:          creds.RefreshToken,
+		AccessTokenExpiresAt:  accessTokenExpiresAt,
+		RefreshTokenExpiresAt: refreshTokenExpiresAt,
+	})
 }
 
 func (a *authenticator) Login(userName, password string) error {
@@ -93,7 +143,7 @@ func (a *authenticator) AccessToken() (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	credentials := a.cfgSvc.GetCredentials()
+	credentials := a.cfg.GetCredentials()
 	if credentials.Empty() {
 		return "", errors.New("credentials are empty: login first")
 	}
@@ -132,7 +182,7 @@ func (a *authenticator) Logout() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	return a.cfgSvc.ClearCredentials()
+	return a.cfg.ClearCredentials()
 }
 
 func (a *authenticator) handleRefreshFailure(err error, credentials config.Credentials) error {
@@ -195,7 +245,7 @@ func (a *authenticator) updateCredentials(credentials *model.Credentials) error 
 		RefreshTokenExpiresAt: refreshTokenExpDate,
 	}
 
-	err = a.cfgSvc.SetCredentials(newCreds)
+	err = a.cfg.SetCredentials(newCreds)
 	if err != nil {
 		return fmt.Errorf("failed to save credentials in storage: %w", err)
 	}

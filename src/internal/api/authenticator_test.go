@@ -86,6 +86,7 @@ func TestLogin(t *testing.T) {
 			}, v.loginError)
 
 			auth := api.NewAuthenticator(httpClient, cfgSrv, notificationManager, nil, "test")
+			require.NoError(t, auth.EnsureBackwardsCompatibility())
 
 			err := auth.Login(v.username, v.password)
 
@@ -124,8 +125,9 @@ func TestAccessToken(t *testing.T) {
 		{
 			name: "should return access token when it isn't expired",
 			credentialsCfg: config.Credentials{
-				AccessTokenExpiresAt: time.Now().Add(time.Hour),
-				AccessToken:          "valid access token",
+				AccessTokenExpiresAt:  time.Now().Add(time.Hour),
+				RefreshTokenExpiresAt: time.Now().Add(2 * time.Hour),
+				AccessToken:           "valid access token",
 			},
 			accessToken:   "valid access token",
 			expectedToken: "valid access token",
@@ -196,6 +198,8 @@ func TestAccessToken(t *testing.T) {
 			}
 
 			auth := api.NewAuthenticator(httpClient, cfgSrv, notificationManager, mqtt, "test")
+			require.NoError(t, auth.EnsureBackwardsCompatibility())
+
 			token, err := auth.AccessToken()
 
 			if v.errorContains != "" {
@@ -253,6 +257,8 @@ func TestLogout(t *testing.T) {
 			storage.On("Save").Return(v.saveError)
 
 			auth := api.NewAuthenticator(nil, config.NewService(&storage), nil, nil, "test")
+			require.NoError(t, auth.EnsureBackwardsCompatibility())
+
 			err := auth.Logout()
 
 			assert.Equal(t, v.saveError, err, "should return the same error from the Save()")
@@ -309,6 +315,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 	)
 
 	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, routing.ServiceName)
+	require.NoError(t, auth.EnsureBackwardsCompatibility())
 
 	_, err = auth.AccessToken()
 	assert.Error(t, err)

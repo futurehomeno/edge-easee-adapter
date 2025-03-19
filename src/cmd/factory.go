@@ -290,5 +290,6 @@ func newTasks(cfg *config.Config) []*task.Task {
 		getLifecycle(),
 		getApplication(cfg),
 		getAdapter(cfg),
+		getAuthenticator(cfg),
 	)
 }
