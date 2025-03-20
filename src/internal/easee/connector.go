@@ -62,7 +62,7 @@ func (c *connector) Connectivity() *adapter.ConnectivityDetails {
 		ConnectionType:   adapter.ConnectionTypeIndirect,
 	}
 
-	if c.manager.Connected(c.chargerID) {
+	if connected, _ := c.manager.Connected(c.chargerID); connected {
 		ret.ConnectionStatus = adapter.ConnectionStatusUp
 	}
 
@@ -76,7 +76,7 @@ func (c *connector) Ping() *adapter.PingDetails {
 		}
 	}
 
-	if !c.manager.Connected(c.chargerID) {
+	if connected, _ := c.manager.Connected(c.chargerID); !connected {
 		return &adapter.PingDetails{
 			Status: adapter.PingResultFailed,
 		}
