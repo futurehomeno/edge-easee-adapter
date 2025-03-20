@@ -12,13 +12,23 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
+// DisconnectionReason is a reason for the disconnection of a charger.
+type DisconnectionReason string
+
+const (
+	ChargerNotRegistered DisconnectionReason = "charger is not registered in a manager"
+	ChargerNotSubscribed DisconnectionReason = "charger is not subscribed for SignalR observations"
+	ChargerOffline       DisconnectionReason = "charger is offline"
+)
+
 // Manager is the interface for the Easee signalR manager.
 // It manages the signalR connection and the chargers that are connected to it.
 type Manager interface {
 	root.Service
 
 	// Connected check if SignalR client is connected.
-	Connected(chargerID string) bool
+	// If the connection is not active, it returns false and a reason for the disconnection.
+	Connected(chargerID string) (bool, DisconnectionReason)
 	// Register registers a charger to be managed.
 	Register(chargerID string, handler Handler)
 	// Unregister unregisters a charger from being managed.
@@ -46,17 +56,6 @@ func NewManager(cfg *config.Service, client Client) Manager {
 		client:   client,
 		chargers: make(map[string]*charger),
 	}
-}
-
-func (m *manager) Connected(chargerID string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	if charger, ok := m.chargers[chargerID]; ok {
-		return charger.isSubscribed && charger.handler.IsOnline()
-	}
-
-	return false
 }
 
 func (m *manager) Start() error {
@@ -147,6 +146,26 @@ func (m *manager) Unregister(chargerID string) error {
 	}
 
 	return nil
+}
+
+func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	charger, ok := m.chargers[chargerID]
+	if !ok {
+		return false, ChargerNotRegistered
+	}
+
+	if !charger.isSubscribed {
+		return false, ChargerNotSubscribed
+	}
+
+	if !charger.handler.IsOnline() {
+		return false, ChargerOffline
+	}
+
+	return true, ""
 }
 
 func (m *manager) run() {

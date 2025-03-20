@@ -13,7 +13,7 @@ type Manager struct {
 }
 
 // Connected provides a mock function with given fields: chargerID
-func (_m *Manager) Connected(chargerID string) bool {
+func (_m *Manager) Connected(chargerID string) (bool, signalr.DisconnectionReason) {
 	ret := _m.Called(chargerID)
 
 	if len(ret) == 0 {
@@ -21,13 +21,23 @@ func (_m *Manager) Connected(chargerID string) bool {
 	}
 
 	var r0 bool
+	var r1 signalr.DisconnectionReason
+	if rf, ok := ret.Get(0).(func(string) (bool, signalr.DisconnectionReason)); ok {
+		return rf(chargerID)
+	}
 	if rf, ok := ret.Get(0).(func(string) bool); ok {
 		r0 = rf(chargerID)
 	} else {
 		r0 = ret.Get(0).(bool)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(string) signalr.DisconnectionReason); ok {
+		r1 = rf(chargerID)
+	} else {
+		r1 = ret.Get(1).(signalr.DisconnectionReason)
+	}
+
+	return r0, r1
 }
 
 // Register provides a mock function with given fields: chargerID, handler

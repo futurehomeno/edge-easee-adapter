@@ -165,7 +165,7 @@ func TestApplication_Uninstall(t *testing.T) {
 
 			defer adapterMock.AssertExpectations(t)
 
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			storage := fakes.NewConfigStorage(t, tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
 			application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil)
@@ -653,7 +653,7 @@ func TestApplication_Initialize(t *testing.T) {
 				clientMock.AssertExpectations(t)
 			}()
 
-			storage := fakes.NewConfigStorage(tt.cfg, config.Factory)
+			storage := fakes.NewConfigStorage(t, tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
 			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil, nil)

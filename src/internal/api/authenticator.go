@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/notification"
@@ -22,6 +23,11 @@ const (
 	logoutAddress = "pt:j1/mt:cmd/rt:ad/rn:easee/ad:1"
 )
 
+// Notifier is a service responsible for sending push notifications.
+type Notifier interface {
+	Event(event *notification.Event) error
+}
+
 // Authenticator is the interface for the Easee authenticator.
 type Authenticator interface {
 	// Login logs in to the Easee API and persists credentials in config service.
@@ -36,32 +42,38 @@ type Authenticator interface {
 
 type authenticator struct {
 	mu                  sync.Mutex
-	cfgSvc              *config.Service
+	cfg                 *config.Service
 	http                HTTPClient
-	notificationManager notification.Notification
+	notificationManager Notifier
 	mqtt                *fimpgo.MqttTransport
 	serviceName         string
 	backoff             backoff.Stateful
+
+	bcEnsured bool
 }
 
-func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify notification.Notification, mqtt *fimpgo.MqttTransport, serviceName string) Authenticator {
-	cfgBackoff := cfgSvc.GetAuthenticatorBackoffCfg()
-	backoff := backoff.NewStateful(
-		cfgBackoff.InitialBackoff,
-		cfgBackoff.RepeatedBackoff,
-		cfgBackoff.FinalBackoff,
-		cfgBackoff.InitialFailureCount,
-		cfgBackoff.RepeatedFailureCount,
+// NewAuthenticator creates a new instance of the Authenticator.
+func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify Notifier, mqtt *fimpgo.MqttTransport, serviceName string) Authenticator {
+	backoffCfg := cfgSvc.GetAuthenticatorBackoffCfg()
+
+	statefulBackoff := backoff.NewStateful(
+		backoffCfg.InitialBackoff,
+		backoffCfg.RepeatedBackoff,
+		backoffCfg.FinalBackoff,
+		backoffCfg.InitialFailureCount,
+		backoffCfg.RepeatedFailureCount,
 	)
 
-	return &authenticator{
-		cfgSvc:              cfgSvc,
+	a := &authenticator{
+		cfg:                 cfgSvc,
 		http:                http,
 		notificationManager: notify,
 		mqtt:                mqtt,
 		serviceName:         serviceName,
-		backoff:             backoff,
+		backoff:             statefulBackoff,
 	}
+
+	return a
 }
 
 func (a *authenticator) Login(userName, password string) error {
@@ -87,9 +99,17 @@ func (a *authenticator) AccessToken() (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	credentials := a.cfgSvc.GetCredentials()
+	if !a.bcEnsured {
+		if err := a.ensureBackwardsCompatibility(); err != nil {
+			return "", fmt.Errorf("failed to ensure backwards compatibility: %w", err)
+		}
+
+		a.bcEnsured = true
+	}
+
+	credentials := a.cfg.GetCredentials()
 	if credentials.Empty() {
-		return "", errors.New("credentials are empty - login first")
+		return "", errors.New("credentials are empty: login first")
 	}
 
 	if !credentials.AccessTokenExpired() {
@@ -97,16 +117,19 @@ func (a *authenticator) AccessToken() (string, error) {
 	}
 
 	if credentials.RefreshTokenExpired() {
-		return "", errors.Wrap(a.triggerAppLogout(), "refresh token expired, re-login required")
+		return "", errors.Wrap(a.triggerAppLogout(credentials), "refresh token expired")
 	}
 
+	log.WithField("expired_at", credentials.AccessTokenExpiresAt.Format(time.RFC3339)).
+		Debug("authenticator: access token expired, refreshing...")
+
 	if a.backoff.Should() {
-		return "", errors.New("too many requests, backoff is in use")
+		return "", errors.New("too many requests: backoff is in use")
 	}
 
 	newCredentials, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
 	if err != nil {
-		return "", a.handleFailedRefreshToken(err)
+		return "", a.handleRefreshFailure(err, credentials)
 	}
 
 	a.backoff.Reset()
@@ -120,62 +143,58 @@ func (a *authenticator) AccessToken() (string, error) {
 }
 
 func (a *authenticator) Logout() error {
-	return a.cfgSvc.ClearCredentials()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return a.cfg.ClearCredentials()
 }
 
-// handleFailedRefreshToken sets a correct status when refresh operation has failed.
-func (a *authenticator) handleFailedRefreshToken(err error) error {
+func (a *authenticator) handleRefreshFailure(err error, credentials config.Credentials) error {
 	a.backoff.Fail()
 
 	var httpError HTTPError
-	if ok := errors.As(err, &httpError); ok && httpError.Status == http.StatusUnauthorized {
-		if err := a.handleConnectionFailed(err); err != nil {
-			return errors.Wrap(err, "failed to handle failed connection on unauthorized")
+	if ok := errors.As(err, &httpError); ok && httpError.StatusCode == http.StatusUnauthorized {
+		if err := a.triggerAppLogout(credentials); err != nil {
+			return fmt.Errorf("refresh token expired: %w", err)
 		}
 
-		return fmt.Errorf("received unauthorized error, re-login is required. %w", err)
+		return fmt.Errorf("received unauthorized error: re-login is required: %w", err)
 	}
 
-	return fmt.Errorf("failed to refresh the auth token, try again later. %w", err)
+	return fmt.Errorf("failed to refresh the auth token: try again later: %w", err)
 }
 
-func (a *authenticator) handleConnectionFailed(err error) error {
-	notifError := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
-	a.validateNotificationPush(notifError, notificationEaseeStatusOffline)
+func (a *authenticator) triggerAppLogout(credentials config.Credentials) error {
+	log.WithField("expired_at", credentials.RefreshTokenExpiresAt.Format(time.RFC3339)).
+		Warn("authenticator: refresh token expired, triggering app logout")
 
-	if logoutErr := a.triggerAppLogout(); logoutErr != nil {
-		return fmt.Errorf("unauthorized, re-login required; failed to clear credentials. %w , logout error: %w", err, logoutErr)
+	err := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
+	if err != nil {
+		return fmt.Errorf("failed to send push notification: %w", err)
+	}
+
+	if err = a.sendAppLogoutMessage(); err != nil {
+		return fmt.Errorf("failed to send app logout message: %w", err)
+	}
+
+	if err = a.cfg.ClearCredentials(); err != nil {
+		return fmt.Errorf("failed to clear credentials: %w", err)
+	}
+
+	return errors.New("re-login required")
+}
+
+// TODO: Migrate it to use cliffhanger's event manager.
+//
+//nolint:godox
+func (a *authenticator) sendAppLogoutMessage() error {
+	message := fimpgo.NewNullMessage("cmd.auth.logout", a.serviceName, nil, nil, nil)
+
+	if err := a.mqtt.PublishToTopic(logoutAddress, message); err != nil {
+		return fmt.Errorf("failed to publish a message to mqtt: address: %s, message: %v, err: %w", logoutAddress, message, err)
 	}
 
 	return nil
-}
-
-// triggerAppLogout sends a mqtt message with request to log out a user
-// as we don't have a way of internal communication and invoking of the cliffhanger code
-// sending an external message is the only way to achieve that without duplicating logic across different places.
-func (a *authenticator) triggerAppLogout() error {
-	address, err := fimpgo.NewAddressFromString(logoutAddress)
-	if err != nil {
-		return errors.Wrap(err, fmt.Sprintf("failed to create address from %s", logoutAddress))
-	}
-
-	message := fimpgo.NewNullMessage(
-		"cmd.auth.logout",
-		a.serviceName,
-		nil, nil, nil,
-	)
-
-	if err := a.mqtt.Publish(address, message); err != nil {
-		return errors.Wrap(err, fmt.Sprintf("failed to publish a message to mqtt. Address: %s, message: %v", logoutAddress, message))
-	}
-
-	return nil
-}
-
-func (a *authenticator) validateNotificationPush(err error, notificationName string) {
-	if err != nil {
-		log.WithError(err).Errorf("Failed to send push notification: %s", notificationName)
-	}
 }
 
 func (a *authenticator) updateCredentials(credentials *model.Credentials) error {
@@ -196,10 +215,42 @@ func (a *authenticator) updateCredentials(credentials *model.Credentials) error 
 		RefreshTokenExpiresAt: refreshTokenExpDate,
 	}
 
-	err = a.cfgSvc.SetCredentials(newCreds)
+	err = a.cfg.SetCredentials(newCreds)
 	if err != nil {
 		return fmt.Errorf("failed to save credentials in storage: %w", err)
 	}
 
 	return nil
+}
+
+func (a *authenticator) ensureBackwardsCompatibility() error {
+	log.Debug("authenticator: ensuring backwards compatibility...")
+
+	creds := a.cfg.GetCredentials()
+
+	if creds.Empty() || !creds.RefreshTokenExpiresAt.IsZero() {
+		return nil
+	}
+
+	// We're refreshing the field to make sure we have a correct time set there.
+	accessTokenExpiresAt, err := jwt.ExpirationDate(creds.AccessToken)
+	if err != nil {
+		return fmt.Errorf("cant't get access token expiration time: %w", err)
+	}
+
+	refreshTokenExpiresAt, err := jwt.ExpirationDate(creds.RefreshToken)
+	if err != nil {
+		return fmt.Errorf("cant't get refresh token expiration time: %w", err)
+	}
+
+	log.WithField("access_token_expires_at", accessTokenExpiresAt.Format(time.RFC3339)).
+		WithField("refresh_token_expires_at", refreshTokenExpiresAt.Format(time.RFC3339)).
+		Info("authenticator: ensuring backwards compatibility: updating token expiration times")
+
+	return a.cfg.SetCredentials(config.Credentials{
+		AccessToken:           creds.AccessToken,
+		RefreshToken:          creds.RefreshToken,
+		AccessTokenExpiresAt:  accessTokenExpiresAt,
+		RefreshTokenExpiresAt: refreshTokenExpiresAt,
+	})
 }

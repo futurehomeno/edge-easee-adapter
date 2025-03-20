@@ -148,7 +148,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 		{
 			name:          "should fail due to 401 error",
 			statusCode:    http.StatusUnauthorized,
-			errorContains: "but got 401",
+			errorContains: "status code: 401",
 		},
 		{
 			name:          "should fail when invalid body",

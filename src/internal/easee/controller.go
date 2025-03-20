@@ -335,8 +335,9 @@ func (c *controller) updateChargerSiteState(chargerID string, state *State) erro
 }
 
 func (c *controller) checkConnection() error {
-	if !c.manager.Connected(c.chargerID) {
-		return errors.New("signalR connection is inactive, cannot determine actual state")
+	connected, reason := c.manager.Connected(c.chargerID)
+	if !connected {
+		return fmt.Errorf("charger %s is not connected: %s", c.chargerID, reason)
 	}
 
 	return nil

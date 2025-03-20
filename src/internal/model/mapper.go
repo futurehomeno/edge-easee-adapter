@@ -6,6 +6,10 @@ import (
 )
 
 func SupportedPhaseModes(gridType chargepoint.GridType, phaseMode, phases int) []chargepoint.PhaseMode {
+	if gridType == "" || phaseMode == 0 || phases == 0 {
+		return nil
+	}
+
 	gridTypeMap, ok := phaseModeMatrix[gridType]
 	if !ok {
 		log.Errorf("phase modes mapper: unknown grid type: %s", gridType)
