@@ -117,7 +117,7 @@ func (a *authenticator) AccessToken() (string, error) {
 	}
 
 	if credentials.RefreshTokenExpired() {
-		return "", errors.Wrap(a.triggerAppLogout(credentials), "refresh token expired: re-login required")
+		return "", errors.Wrap(a.triggerAppLogout(credentials), "refresh token expired")
 	}
 
 	log.WithField("expired_at", credentials.AccessTokenExpiresAt.Format(time.RFC3339)).
@@ -155,7 +155,7 @@ func (a *authenticator) handleRefreshFailure(err error, credentials config.Crede
 	var httpError HTTPError
 	if ok := errors.As(err, &httpError); ok && httpError.StatusCode == http.StatusUnauthorized {
 		if err := a.triggerAppLogout(credentials); err != nil {
-			return fmt.Errorf("failed to trigger app logout on expired refresh token: %w", err)
+			return fmt.Errorf("refresh token expired: %w", err)
 		}
 
 		return fmt.Errorf("received unauthorized error: re-login is required: %w", err)
@@ -166,7 +166,7 @@ func (a *authenticator) handleRefreshFailure(err error, credentials config.Crede
 
 func (a *authenticator) triggerAppLogout(credentials config.Credentials) error {
 	log.WithField("expired_at", credentials.RefreshTokenExpiresAt.Format(time.RFC3339)).
-		Info("authenticator: refresh token expired, triggering app logout")
+		Warn("authenticator: refresh token expired, triggering app logout")
 
 	err := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
 	if err != nil {
@@ -177,7 +177,11 @@ func (a *authenticator) triggerAppLogout(credentials config.Credentials) error {
 		return fmt.Errorf("failed to send app logout message: %w", err)
 	}
 
-	return nil
+	if err = a.cfg.ClearCredentials(); err != nil {
+		return fmt.Errorf("failed to clear credentials: %w", err)
+	}
+
+	return errors.New("re-login required")
 }
 
 // TODO: Migrate it to use cliffhanger's event manager.
