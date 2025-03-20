@@ -21,6 +21,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
 )
 
+//nolint:godox
 // TODO: refactor it as e2e tests.
 
 const (
@@ -86,7 +87,6 @@ func TestLogin(t *testing.T) {
 			}, v.loginError)
 
 			auth := api.NewAuthenticator(httpClient, cfgSrv, notificationManager, nil, "test")
-			require.NoError(t, auth.EnsureBackwardsCompatibility())
 
 			err := auth.Login(v.username, v.password)
 
@@ -198,7 +198,6 @@ func TestAccessToken(t *testing.T) {
 			}
 
 			auth := api.NewAuthenticator(httpClient, cfgSrv, notificationManager, mqtt, "test")
-			require.NoError(t, auth.EnsureBackwardsCompatibility())
 
 			token, err := auth.AccessToken()
 
@@ -257,7 +256,6 @@ func TestLogout(t *testing.T) {
 			storage.On("Save").Return(v.saveError)
 
 			auth := api.NewAuthenticator(nil, config.NewService(&storage), nil, nil, "test")
-			require.NoError(t, auth.EnsureBackwardsCompatibility())
 
 			err := auth.Logout()
 
@@ -315,7 +313,6 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 	)
 
 	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, routing.ServiceName)
-	require.NoError(t, auth.EnsureBackwardsCompatibility())
 
 	_, err = auth.AccessToken()
 	assert.Error(t, err)

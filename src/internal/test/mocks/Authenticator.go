@@ -37,24 +37,6 @@ func (_m *Authenticator) AccessToken() (string, error) {
 	return r0, r1
 }
 
-// EnsureBackwardsCompatibility provides a mock function with no fields
-func (_m *Authenticator) EnsureBackwardsCompatibility() error {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for EnsureBackwardsCompatibility")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
 // Login provides a mock function with given fields: userName, password
 func (_m *Authenticator) Login(userName string, password string) error {
 	ret := _m.Called(userName, password)
