@@ -96,7 +96,11 @@ func (o *observationsHandler) handleMaxChargerCurrent(observation Observation) e
 	}
 
 	current := int64(math.Round(val))
-	o.cache.SetMaxCurrent(current)
+
+	ok := o.cache.SetMaxCurrent(current, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	_, err = o.chargepoint.SendMaxCurrentReport(false)
 	if err != nil {
@@ -124,7 +128,11 @@ func (o *observationsHandler) handleDynamicChargerCurrent(observation Observatio
 	}
 
 	current := int64(math.Round(val))
-	o.cache.SetOfferedCurrent(current)
+
+	ok := o.cache.SetOfferedCurrent(current, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	_, err = o.chargepoint.SendCurrentSessionReport(false)
 
@@ -137,11 +145,16 @@ func (o *observationsHandler) handleChargerState(observation Observation) error 
 		return err
 	}
 
-	chargerState := ChargerState(val)
-	o.cache.SetChargerState(chargerState.ToFimpState())
-	o.isStateOnline.Store(chargerState != ChargerStateOffline)
+	state := ChargerState(val)
 
-	if chargerState.IsSessionFinished() {
+	ok := o.cache.SetChargerState(state.ToFimpState(), observation.Timestamp)
+	if !ok {
+		return nil
+	}
+
+	o.isStateOnline.Store(state != ChargerStateOffline)
+
+	if state.IsSessionFinished() {
 		o.cache.SetRequestedOfferedCurrent(0)
 	}
 
@@ -156,7 +169,10 @@ func (o *observationsHandler) handleTotalPower(observation Observation) error {
 		return err
 	}
 
-	o.cache.SetTotalPower(val * 1000)
+	ok := o.cache.SetTotalPower(val*1000, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	_, err = o.meterElec.SendMeterReport(numericmeter.UnitW, false)
 	if err != nil {
@@ -174,7 +190,10 @@ func (o *observationsHandler) handleLifetimeEnergy(observation Observation) erro
 		return err
 	}
 
-	o.cache.SetLifetimeEnergy(val)
+	ok := o.cache.SetLifetimeEnergy(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	_, err = o.meterElec.SendMeterReport(numericmeter.UnitKWh, false)
 	if err != nil {
@@ -192,7 +211,10 @@ func (o *observationsHandler) handleEnergySession(observation Observation) error
 		return err
 	}
 
-	o.cache.SetEnergySession(val)
+	ok := o.cache.SetEnergySession(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	_, err = o.chargepoint.SendCurrentSessionReport(false)
 
@@ -205,7 +227,10 @@ func (o *observationsHandler) handleInCurrentT3(observation Observation) error {
 		return err
 	}
 
-	o.cache.SetPhase1Current(val)
+	ok := o.cache.SetPhase1Current(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase1}, false)
 
@@ -218,7 +243,10 @@ func (o *observationsHandler) handleInCurrentT4(observation Observation) error {
 		return err
 	}
 
-	o.cache.SetPhase2Current(val)
+	ok := o.cache.SetPhase2Current(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase2}, false)
 
@@ -231,7 +259,10 @@ func (o *observationsHandler) handleInCurrentT5(observation Observation) error {
 		return err
 	}
 
-	o.cache.SetPhase3Current(val)
+	ok := o.cache.SetPhase3Current(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	_, err = o.meterElec.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase3}, false)
 

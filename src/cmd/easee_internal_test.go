@@ -53,12 +53,14 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
+								Timestamp: time.Now(),
 								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.TotalPower,
+								Timestamp: time.Now(),
 								Value:     "0",
 							},
 							{
@@ -74,12 +76,14 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
+								Timestamp: time.Now(),
 								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.TotalPower,
+								Timestamp: time.Now(),
 								Value:     "1",
 							},
 							{
@@ -88,6 +92,21 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ID:        signalr.LifetimeEnergy,
 								Timestamp: time.Now().Add(time.Hour),
 								Value:     "13.45",
+							},
+							{
+								// This observation should be skipped, as it's outdated.
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.LifetimeEnergy,
+								Timestamp: time.Now().Add(30 * time.Minute),
+								Value:     "14.44",
+							},
+							{
+								// This observation should be skipped, as it doesn't have a valid timestamp.
+								ChargerID: test.ChargerID,
+								DataType:  signalr.ObservationDataTypeDouble,
+								ID:        signalr.LifetimeEnergy,
+								Value:     "15.55",
 							},
 						})
 					})),
@@ -105,6 +124,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							suite.ExpectString(evtDeviceChargepointTopic, "evt.state.report", "chargepoint", "charging"),
 							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 1000).ExpectProperty("unit", "W"),
 							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 13.45).ExpectProperty("unit", "kWh"),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 14.44).ExpectProperty("unit", "kWh").
+								Never(),
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 15.55).
+								Never(),
 						},
 					},
 				},
@@ -127,12 +150,14 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
+								Timestamp: time.Now(),
 								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.TotalPower,
+								Timestamp: time.Now(),
 								Value:     "0",
 							},
 						})
@@ -141,6 +166,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.TotalPower,
+								Timestamp: time.Now(),
 								Value:     "1.23",
 							},
 						})
@@ -149,6 +175,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
+								Timestamp: time.Now(),
 								Value:     strconv.Itoa(int(signalr.ChargerStateReadyToCharge)),
 							},
 						})
@@ -206,12 +233,14 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
+								Timestamp: time.Now(),
 								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
+								Timestamp: time.Now(),
 								Value:     "12.34",
 							},
 						})
@@ -220,6 +249,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
+								Timestamp: time.Now(),
 								Value:     "11",
 							},
 						})
@@ -228,6 +258,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
+								Timestamp: time.Now(),
 								Value:     "13.45",
 							},
 						})
@@ -263,12 +294,14 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
+								Timestamp: time.Now(),
 								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.MaxChargerCurrent,
+								Timestamp: time.Now(),
 								Value:     "32",
 							},
 						})
@@ -325,36 +358,42 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
+								Timestamp: time.Now(),
 								Value:     strconv.Itoa(int(signalr.ChargerStateCharging)),
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.TotalPower,
+								Timestamp: time.Now(),
 								Value:     "12",
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.LifetimeEnergy,
+								Timestamp: time.Now(),
 								Value:     "13.45",
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.InCurrentT3,
+								Timestamp: time.Now(),
 								Value:     "1",
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.InCurrentT4,
+								Timestamp: time.Now(),
 								Value:     "2",
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeDouble,
 								ID:        signalr.InCurrentT5,
+								Timestamp: time.Now(),
 								Value:     "12.3",
 							},
 						})
@@ -404,12 +443,14 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
+								Timestamp: time.Now(),
 								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeString,
 								ID:        signalr.ChargingSessionStart,
+								Timestamp: time.Now(),
 								Value:     `{ "Auth": "", "AuthReason": 0, "Id": 435, "MeterValue": 1277.872637, "Start": "2025-01-22T12:51:47.000Z"}`,
 							},
 						})
@@ -447,12 +488,14 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeInteger,
 								ID:        signalr.ChargerOPState,
+								Timestamp: time.Now(),
 								Value:     strconv.Itoa(int(signalr.ChargerStateAwaitingStart)),
 							},
 							{
 								ChargerID: test.ChargerID,
 								DataType:  signalr.ObservationDataTypeString,
 								ID:        signalr.ChargingSessionStop,
+								Timestamp: time.Now(),
 								Value: `{
 										  "Auth": "",
 										  "AuthReason": 0,

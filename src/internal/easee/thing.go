@@ -70,7 +70,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		return nil, fmt.Errorf("factory: failed to retrieve information: %w", err)
 	}
 
-	thingCache := cache.NewCache()
+	thingCache := cache.NewCache(info.ChargerID)
 	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage)
 
 	state := &State{}

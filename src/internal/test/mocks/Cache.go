@@ -177,53 +177,63 @@ func (_m *Cache) RequestedOfferedCurrent() int64 {
 }
 
 // SetChargerState provides a mock function with given fields: state
-func (_m *Cache) SetChargerState(state chargepoint.State) {
+func (_m *Cache) SetChargerState(state chargepoint.State, timestamp time.Time) bool {
 	_m.Called(state)
+	return false
 }
 
 // SetEnergySession provides a mock function with given fields: energy
-func (_m *Cache) SetEnergySession(energy float64) {
+func (_m *Cache) SetEnergySession(energy float64, timestamp time.Time) bool {
 	_m.Called(energy)
+	return false
 }
 
 // SetLifetimeEnergy provides a mock function with given fields: energy
-func (_m *Cache) SetLifetimeEnergy(energy float64) {
+func (_m *Cache) SetLifetimeEnergy(energy float64, timestamp time.Time) bool {
 	_m.Called(energy)
+	return false
 }
 
 // SetMaxCurrent provides a mock function with given fields: current
-func (_m *Cache) SetMaxCurrent(current int64) {
+func (_m *Cache) SetMaxCurrent(current int64, timestamp time.Time) bool {
 	_m.Called(current)
+	return false
 }
 
 // SetOfferedCurrent provides a mock function with given fields: current
-func (_m *Cache) SetOfferedCurrent(current int64) {
+func (_m *Cache) SetOfferedCurrent(current int64, timestamp time.Time) bool {
 	_m.Called(current)
+	return false
 }
 
 // SetPhase1Current provides a mock function with given fields: current
-func (_m *Cache) SetPhase1Current(current float64) {
+func (_m *Cache) SetPhase1Current(current float64, timestamp time.Time) bool {
 	_m.Called(current)
+	return false
 }
 
 // SetPhase2Current provides a mock function with given fields: current
-func (_m *Cache) SetPhase2Current(current float64) {
+func (_m *Cache) SetPhase2Current(current float64, timestamp time.Time) bool {
 	_m.Called(current)
+	return false
 }
 
 // SetPhase3Current provides a mock function with given fields: current
-func (_m *Cache) SetPhase3Current(current float64) {
+func (_m *Cache) SetPhase3Current(current float64, timestamp time.Time) bool {
 	_m.Called(current)
+	return false
 }
 
 // SetRequestedOfferedCurrent provides a mock function with given fields: current
 func (_m *Cache) SetRequestedOfferedCurrent(current int64) {
 	_m.Called(current)
+	return
 }
 
 // SetTotalPower provides a mock function with given fields: power
-func (_m *Cache) SetTotalPower(power float64) {
+func (_m *Cache) SetTotalPower(power float64, timestamp time.Time) bool {
 	_m.Called(power)
+	return false
 }
 
 // TotalPower provides a mock function with no fields
