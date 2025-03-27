@@ -52,26 +52,25 @@ type cache struct {
 
 	chargerID string
 
-	chargerState              chargepoint.State
-	chargerStateAt            time.Time
-	maxCurrent                int64
-	maxCurrentAt              time.Time
-	requestedOfferedCurrent   int64
-	requestedOfferedCurrentAt time.Time
-	offeredCurrent            int64
-	offeredCurrentAt          time.Time
-	energySession             float64
-	energySessionAt           time.Time
-	totalPower                float64
-	totalPowerAt              time.Time
-	lifetimeEnergy            float64
-	lifetimeEnergyAt          time.Time
-	phase1Current             float64
-	phase1CurrentAt           time.Time
-	phase2Current             float64
-	phase2CurrentAt           time.Time
-	phase3Current             float64
-	phase3CurrentAt           time.Time
+	chargerState            chargepoint.State
+	chargerStateAt          time.Time
+	maxCurrent              int64
+	maxCurrentAt            time.Time
+	requestedOfferedCurrent int64
+	offeredCurrent          int64
+	offeredCurrentAt        time.Time
+	energySession           float64
+	energySessionAt         time.Time
+	totalPower              float64
+	totalPowerAt            time.Time
+	lifetimeEnergy          float64
+	lifetimeEnergyAt        time.Time
+	phase1Current           float64
+	phase1CurrentAt         time.Time
+	phase2Current           float64
+	phase2CurrentAt         time.Time
+	phase3Current           float64
+	phase3CurrentAt         time.Time
 
 	currentListeners map[waitGroup][]chan<- int64
 }
@@ -402,9 +401,9 @@ func (c *cache) waitForCurrent(group waitGroup, current int64, duration time.Dur
 	}
 }
 
-func (c *cache) logOutdatedObservation(operation string, old, new time.Time) {
+func (c *cache) logOutdatedObservation(operation string, oldTimestamp, newTimestamp time.Time) {
 	log.WithField("charger_id", c.chargerID).
-		WithField("old", old.Format(time.RFC3339)).
-		WithField("new", new.Format(time.RFC3339)).
+		WithField("old", oldTimestamp.Format(time.RFC3339)).
+		WithField("new", newTimestamp.Format(time.RFC3339)).
 		Debugf("cache: setting %s skipped: outdated observation", operation)
 }
