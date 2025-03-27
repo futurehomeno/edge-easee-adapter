@@ -1,6 +1,3 @@
-#run:
-#  exclude-dirs:
-#    - test
 issues:
   fix: false
   exclude-rules:
@@ -46,7 +43,6 @@ linters:
     - gomoddirectives
     - gomodguard
     - goprintffuncname
-    - ifshort
     - importas
     - makezero
     - misspell
@@ -84,7 +80,9 @@ linters:
 linters-settings:
   lll:
     line-length: 160
-#  gci:
-#    local-prefixes: github.com/futurehomeno/edge-easee-adapter
-  goimports:
-    local-prefixes: github.com/futurehomeno/edge-easee-adapter
+  gci:
+    custom-order: true
+    sections:
+      - standard
+      - default
+      - prefix(github.com/futurehomeno/edge-easee-adapter)
