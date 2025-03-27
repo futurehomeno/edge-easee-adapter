@@ -136,7 +136,7 @@ func (a *authenticator) handleFailedRefreshToken(err error) error {
 		return fmt.Errorf("received unauthorized error, re-login is required. %w", err)
 	}
 
-	switch a.status { //nolint
+	switch a.status {
 	case statusReconnecting:
 		if a.attempts == a.cfgSvc.GetBackoffMaxAttempts() {
 			if err := a.handleConnectionFailed(err); err != nil {
