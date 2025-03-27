@@ -93,6 +93,8 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								Timestamp: time.Now().Add(time.Hour),
 								Value:     "13.45",
 							},
+						})
+						s.MockObservations(300*time.Millisecond, []signalr.Observation{
 							{
 								// This observation should be skipped, as it's outdated.
 								ChargerID: test.ChargerID,
@@ -101,6 +103,8 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								Timestamp: time.Now().Add(30 * time.Minute),
 								Value:     "14.44",
 							},
+						})
+						s.MockObservations(300*time.Millisecond, []signalr.Observation{
 							{
 								// This observation should be skipped, as it doesn't have a valid timestamp.
 								ChargerID: test.ChargerID,
