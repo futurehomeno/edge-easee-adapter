@@ -14,57 +14,56 @@ import (
 // Cache is a cache for charger observations.
 type Cache interface {
 	// PhaseMode returns the charger phase mode.
-	PhaseMode() int
+	PhaseMode() (int, time.Time)
 	// ChargerState returns the charger state.
-	ChargerState() chargepoint.State
+	ChargerState() (chargepoint.State, time.Time)
 	// MaxCurrent returns the charger max current set by the user.
-	MaxCurrent() int64
+	MaxCurrent() (int64, time.Time)
 	// RequestedOfferedCurrent returns the offered current requested by controller.
-	RequestedOfferedCurrent() int64
+	RequestedOfferedCurrent() (int64, time.Time)
 	// OfferedCurrent returns the current accepted by evse.
-	OfferedCurrent() int64
+	OfferedCurrent() (int64, time.Time)
 	// TotalPower returns the total power.
-	TotalPower() float64
+	TotalPower() (float64, time.Time)
 	// LifetimeEnergy returns the lifetime energy.
-	LifetimeEnergy() model.TimestampedValue[float64]
+	LifetimeEnergy() (float64, time.Time)
 	// EnergySession returns the current session energy value.
-	EnergySession() float64
+	EnergySession() (float64, time.Time)
 	// Phase1Current return current on phase 1.
-	Phase1Current() float64
+	Phase1Current() (float64, time.Time)
 	// Phase2Current return current on phase 2.
-	Phase2Current() float64
+	Phase2Current() (float64, time.Time)
 	// Phase3Current return current on phase 3.
-	Phase3Current() float64
+	Phase3Current() (float64, time.Time)
 	// OutputPhaseType return output phase type.
-	OutputPhaseType() chargepoint.PhaseMode
+	OutputPhaseType() (chargepoint.PhaseMode, time.Time)
 	// GridType return GridType.
-	GridType() chargepoint.GridType
+	GridType() (chargepoint.GridType, time.Time)
 	// Phases return phases.
-	Phases() int
+	Phases() (int, time.Time)
 	// CableLocked returns the cable locked state.
-	CableLocked() bool
+	CableLocked() (bool, time.Time)
 	// CableCurrent returns the cable max current.
-	CableCurrent() *int64
+	CableCurrent() (*int64, time.Time)
 	// CableAlwaysLocked returns state of cable always locked parameter.
-	CableAlwaysLocked() bool
+	CableAlwaysLocked() (bool, time.Time)
 
-	SetPhaseMode(phaseMode int)
-	SetChargerState(state chargepoint.State)
-	SetMaxCurrent(current int64)
-	SetRequestedOfferedCurrent(current int64)
-	SetOfferedCurrent(current int64)
-	SetTotalPower(power float64)
-	SetLifetimeEnergy(energy model.TimestampedValue[float64])
-	SetEnergySession(energy float64)
-	SetPhase1Current(current float64)
-	SetPhase2Current(current float64)
-	SetPhase3Current(current float64)
-	SetOutputPhaseType(mode chargepoint.PhaseMode)
-	SetGridType(gridType chargepoint.GridType)
-	SetPhases(phases int)
-	SetCableLocked(locked bool)
-	SetCableCurrent(current int64)
-	SetCableAlwaysLocked(val bool)
+	SetPhaseMode(mode int, timestamp time.Time) bool
+	SetChargerState(state chargepoint.State, timestamp time.Time) bool
+	SetMaxCurrent(current int64, timestamp time.Time) bool
+	SetRequestedOfferedCurrent(current int64, timestamp time.Time) bool
+	SetOfferedCurrent(current int64, timestamp time.Time) bool
+	SetTotalPower(power float64, timestamp time.Time) bool
+	SetLifetimeEnergy(energy float64, timestamp time.Time) bool
+	SetOutputPhaseType(mode chargepoint.PhaseMode, timestamp time.Time) bool
+	SetInstallationParameters(gridType chargepoint.GridType, phases int, timestamp time.Time) bool
+	SetCableLocked(locked bool, timestamp time.Time) bool
+	SetCableCurrent(current int64, timestamp time.Time) bool
+	SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool
+	SetEnergySession(energy float64, timestamp time.Time) bool
+	SetPhase1Current(current float64, timestamp time.Time) bool
+	SetPhase2Current(current float64, timestamp time.Time) bool
+	SetPhase3Current(current float64, timestamp time.Time) bool
 
 	WaitForMaxCurrent(current int64, duration time.Duration) bool
 	WaitForOfferedCurrent(current int64, duration time.Duration) bool
@@ -73,199 +72,277 @@ type Cache interface {
 type cache struct {
 	mu sync.RWMutex
 
-	phaseMode               int
-	chargerState            chargepoint.State
-	maxCurrent              int64
-	requestedOfferedCurrent int64
-	offeredCurrent          int64
-	energySession           float64
-	totalPower              float64
+	chargerID string
+
+	requestedOfferedCurrent model.TimestampedValue[int64]
+	chargerState            model.TimestampedValue[chargepoint.State]
+	phaseMode               model.TimestampedValue[int]
+	maxCurrent              model.TimestampedValue[int64]
+	offeredCurrent          model.TimestampedValue[int64]
+	energySession           model.TimestampedValue[float64]
+	totalPower              model.TimestampedValue[float64]
 	lifetimeEnergy          model.TimestampedValue[float64]
-	phase1Current           float64
-	phase2Current           float64
-	phase3Current           float64
-	outputPhase             chargepoint.PhaseMode
-	gridType                chargepoint.GridType
-	phase                   int
-	cableLocked             bool
-	cableCurrent            int64
-	cableAlwaysLocked       bool
+	phase1Current           model.TimestampedValue[float64]
+	phase2Current           model.TimestampedValue[float64]
+	phase3Current           model.TimestampedValue[float64]
+	outputPhase             model.TimestampedValue[chargepoint.PhaseMode]
+	gridType                model.TimestampedValue[chargepoint.GridType]
+	phases                  model.TimestampedValue[int]
+	cableLocked             model.TimestampedValue[bool]
+	cableCurrent            model.TimestampedValue[*int64]
+	cableAlwaysLocked       model.TimestampedValue[bool]
 
 	currentListeners map[waitGroup][]chan<- int64
 }
 
-func NewCache() Cache {
+func NewCache(chargerID string) Cache {
 	return &cache{
+		chargerID:        chargerID,
 		currentListeners: make(map[waitGroup][]chan<- int64),
 	}
 }
 
-func (c *cache) PhaseMode() int {
+func (c *cache) PhaseMode() (int, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.phaseMode
+	return c.phaseMode.Value, c.phaseMode.Timestamp
 }
 
-func (c *cache) OutputPhaseType() chargepoint.PhaseMode {
+func (c *cache) OutputPhaseType() (chargepoint.PhaseMode, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.outputPhase
+	return c.outputPhase.Value, c.outputPhase.Timestamp
 }
 
-func (c *cache) ChargerState() chargepoint.State {
+func (c *cache) ChargerState() (chargepoint.State, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.chargerState
+	return c.chargerState.Value, c.chargerState.Timestamp
 }
 
-func (c *cache) MaxCurrent() int64 {
+func (c *cache) MaxCurrent() (int64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.maxCurrent
+	return c.maxCurrent.Value, c.maxCurrent.Timestamp
 }
 
-func (c *cache) RequestedOfferedCurrent() int64 {
+func (c *cache) RequestedOfferedCurrent() (int64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.requestedOfferedCurrent
+	return c.requestedOfferedCurrent.Value, c.requestedOfferedCurrent.Timestamp
 }
 
-func (c *cache) OfferedCurrent() int64 {
+func (c *cache) OfferedCurrent() (int64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.offeredCurrent
+	return c.offeredCurrent.Value, c.offeredCurrent.Timestamp
 }
 
-func (c *cache) TotalPower() float64 {
+func (c *cache) TotalPower() (float64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.totalPower
+	return c.totalPower.Value, c.totalPower.Timestamp
 }
 
-func (c *cache) LifetimeEnergy() model.TimestampedValue[float64] {
+func (c *cache) LifetimeEnergy() (float64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.lifetimeEnergy
+	return c.lifetimeEnergy.Value, c.lifetimeEnergy.Timestamp
 }
 
-func (c *cache) EnergySession() float64 {
+func (c *cache) EnergySession() (float64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.energySession
+	return c.energySession.Value, c.energySession.Timestamp
 }
 
-func (c *cache) Phase1Current() float64 {
+func (c *cache) Phase1Current() (float64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.phase1Current
+	return c.phase1Current.Value, c.phase1Current.Timestamp
 }
 
-func (c *cache) Phase2Current() float64 {
+func (c *cache) Phase2Current() (float64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.phase2Current
+	return c.phase2Current.Value, c.phase2Current.Timestamp
 }
 
-func (c *cache) Phase3Current() float64 {
+func (c *cache) Phase3Current() (float64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.phase3Current
+	return c.phase3Current.Value, c.phase3Current.Timestamp
 }
 
-func (c *cache) GridType() chargepoint.GridType {
+func (c *cache) GridType() (chargepoint.GridType, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.gridType
+	return c.gridType.Value, c.gridType.Timestamp
 }
 
-func (c *cache) Phases() int {
+func (c *cache) Phases() (int, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.phase
+	return c.phases.Value, c.phases.Timestamp
 }
 
-func (c *cache) CableLocked() bool {
+func (c *cache) CableLocked() (bool, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.cableLocked
+	return c.cableLocked.Value, c.cableLocked.Timestamp
 }
 
-func (c *cache) CableCurrent() *int64 {
+func (c *cache) CableCurrent() (*int64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return &c.cableCurrent
+	return c.cableCurrent.Value, c.cableCurrent.Timestamp
 }
 
-func (c *cache) CableAlwaysLocked() bool {
+func (c *cache) CableAlwaysLocked() (bool, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.cableAlwaysLocked
+	return c.cableAlwaysLocked.Value, c.cableAlwaysLocked.Timestamp
 }
 
-func (c *cache) SetCableAlwaysLocked(val bool) {
+func (c *cache) SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.cableAlwaysLocked = val
+	if timestamp.Before(c.cableAlwaysLocked.Timestamp) {
+		c.logOutdatedObservation("cable always locked", c.cableAlwaysLocked.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.cableAlwaysLocked = model.TimestampedValue[bool]{
+		Value:     alwaysLocked,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetCableLocked(locked bool) {
+func (c *cache) SetCableLocked(locked bool, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.cableLocked = locked
+	if timestamp.Before(c.cableLocked.Timestamp) {
+		c.logOutdatedObservation("cable locked", c.cableLocked.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.cableLocked = model.TimestampedValue[bool]{
+		Value:     locked,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetCableCurrent(current int64) {
+func (c *cache) SetCableCurrent(current int64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.cableCurrent = current
+	if timestamp.Before(c.cableCurrent.Timestamp) {
+		c.logOutdatedObservation("cable current", c.cableCurrent.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.cableCurrent = model.TimestampedValue[*int64]{
+		Value:     &current,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetPhaseMode(phaseMode int) {
+func (c *cache) SetPhaseMode(phaseMode int, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.phaseMode = phaseMode
+	if timestamp.Before(c.phaseMode.Timestamp) {
+		c.logOutdatedObservation("phase mode", c.phaseMode.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.phaseMode = model.TimestampedValue[int]{
+		Value:     phaseMode,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetOutputPhaseType(mode chargepoint.PhaseMode) {
+func (c *cache) SetOutputPhaseType(mode chargepoint.PhaseMode, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.outputPhase = mode
+	if timestamp.Before(c.outputPhase.Timestamp) {
+		c.logOutdatedObservation("output phase", c.outputPhase.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.outputPhase = model.TimestampedValue[chargepoint.PhaseMode]{
+		Value:     mode,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetEnergySession(energy float64) {
+func (c *cache) SetEnergySession(energy float64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.energySession = energy
+	if timestamp.Before(c.energySession.Timestamp) {
+		c.logOutdatedObservation("session energy", c.energySession.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.energySession = model.TimestampedValue[float64]{
+		Value:     energy,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetMaxCurrent(current int64) {
+func (c *cache) SetMaxCurrent(current int64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.maxCurrent = current
+	if timestamp.Before(c.maxCurrent.Timestamp) {
+		c.logOutdatedObservation("max current", c.maxCurrent.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.maxCurrent = model.TimestampedValue[int64]{
+		Value:     current,
+		Timestamp: timestamp,
+	}
 
 	if listeners, ok := c.currentListeners[waitGroupMaxCurrent]; ok {
 		for _, c := range listeners {
@@ -276,20 +353,42 @@ func (c *cache) SetMaxCurrent(current int64) {
 			}
 		}
 	}
+
+	return true
 }
 
-func (c *cache) SetRequestedOfferedCurrent(current int64) {
+func (c *cache) SetRequestedOfferedCurrent(current int64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.requestedOfferedCurrent = current
+	if timestamp.Before(c.requestedOfferedCurrent.Timestamp) {
+		c.logOutdatedObservation("requested offered current", c.requestedOfferedCurrent.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.requestedOfferedCurrent = model.TimestampedValue[int64]{
+		Value:     current,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetOfferedCurrent(current int64) {
+func (c *cache) SetOfferedCurrent(current int64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.offeredCurrent = current
+	if timestamp.Before(c.offeredCurrent.Timestamp) {
+		c.logOutdatedObservation("offered current", c.offeredCurrent.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.offeredCurrent = model.TimestampedValue[int64]{
+		Value:     current,
+		Timestamp: timestamp,
+	}
 
 	if listeners, ok := c.currentListeners[waitGroupOfferedCurrent]; ok {
 		for _, c := range listeners {
@@ -300,71 +399,154 @@ func (c *cache) SetOfferedCurrent(current int64) {
 			}
 		}
 	}
+
+	return true
 }
 
-func (c *cache) SetTotalPower(power float64) {
+func (c *cache) SetTotalPower(power float64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.totalPower = power
-}
+	if timestamp.Before(c.totalPower.Timestamp) {
+		c.logOutdatedObservation("total power", c.totalPower.Timestamp, timestamp)
 
-func (c *cache) SetLifetimeEnergy(energy model.TimestampedValue[float64]) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if energy.Value < c.lifetimeEnergy.Value {
-		log.
-			WithField("old", c.lifetimeEnergy).
-			WithField("new", energy).
-			Warn("lifetime energy decreased!")
-
-		return
+		return false
 	}
 
-	c.lifetimeEnergy = energy
+	c.totalPower = model.TimestampedValue[float64]{
+		Value:     power,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetChargerState(state chargepoint.State) {
+func (c *cache) SetLifetimeEnergy(energy float64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.chargerState = state
+	if timestamp.Before(c.lifetimeEnergy.Timestamp) {
+		c.logOutdatedObservation("lifetime energy", c.lifetimeEnergy.Timestamp, timestamp)
+
+		return false
+	}
+
+	if energy < c.lifetimeEnergy.Value {
+		log.
+			WithField("charger_id", c.chargerID).
+			WithField("old", c.lifetimeEnergy).
+			WithField("new", energy).
+			Warn("cache: setting lifetime energy skipped: received observation with decreased value")
+
+		return false
+	}
+
+	c.lifetimeEnergy = model.TimestampedValue[float64]{
+		Value:     energy,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetPhase1Current(current float64) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+func (c *cache) SetChargerState(state chargepoint.State, timestamp time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	c.phase1Current = current
+	if timestamp.Before(c.chargerState.Timestamp) {
+		c.logOutdatedObservation("charger state", c.chargerState.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.chargerState = model.TimestampedValue[chargepoint.State]{
+		Value:     state,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetPhase2Current(current float64) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+func (c *cache) SetPhase1Current(current float64, timestamp time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	c.phase2Current = current
+	if timestamp.Before(c.phase1Current.Timestamp) {
+		c.logOutdatedObservation("phase 1 current", c.phase1Current.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.phase1Current = model.TimestampedValue[float64]{
+		Value:     current,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetPhase3Current(current float64) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+func (c *cache) SetPhase2Current(current float64, timestamp time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	c.phase3Current = current
+	if timestamp.Before(c.phase2Current.Timestamp) {
+		c.logOutdatedObservation("phase 2 current", c.phase2Current.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.phase2Current = model.TimestampedValue[float64]{
+		Value:     current,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetGridType(gridType chargepoint.GridType) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+func (c *cache) SetPhase3Current(current float64, timestamp time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	c.gridType = gridType
+	if timestamp.Before(c.phase3Current.Timestamp) {
+		c.logOutdatedObservation("phase 3 current", c.phase3Current.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.phase3Current = model.TimestampedValue[float64]{
+		Value:     current,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
-func (c *cache) SetPhases(phases int) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+func (c *cache) SetInstallationParameters(gridType chargepoint.GridType, phases int, timestamp time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	c.phase = phases
+	if timestamp.Before(c.gridType.Timestamp) {
+		c.logOutdatedObservation("grid type", c.gridType.Timestamp, timestamp)
+
+		return false
+	}
+
+	if timestamp.Before(c.phases.Timestamp) {
+		c.logOutdatedObservation("phases", c.phases.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.gridType = model.TimestampedValue[chargepoint.GridType]{
+		Value:     gridType,
+		Timestamp: timestamp,
+	}
+	c.phases = model.TimestampedValue[int]{
+		Value:     phases,
+		Timestamp: timestamp,
+	}
+
+	return true
 }
 
 type waitGroup int
@@ -389,9 +571,9 @@ func (c *cache) waitForCurrent(group waitGroup, current int64, duration time.Dur
 
 	switch group {
 	case waitGroupMaxCurrent:
-		value = c.maxCurrent
+		value = c.maxCurrent.Value
 	case waitGroupOfferedCurrent:
-		value = c.offeredCurrent
+		value = c.offeredCurrent.Value
 	default:
 		log.Warnf("invalid waitGroup: %v", group)
 		c.mu.Unlock()
@@ -433,4 +615,11 @@ func (c *cache) waitForCurrent(group waitGroup, current int64, duration time.Dur
 			return false
 		}
 	}
+}
+
+func (c *cache) logOutdatedObservation(operation string, oldTimestamp, newTimestamp time.Time) {
+	log.WithField("charger_id", c.chargerID).
+		WithField("old", oldTimestamp.Format(time.RFC3339)).
+		WithField("new", newTimestamp.Format(time.RFC3339)).
+		Debugf("cache: setting %s skipped: outdated observation", operation)
 }

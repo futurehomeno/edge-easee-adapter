@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
@@ -23,19 +24,28 @@ const maxCurrentValue = 32
 
 var extendedReportMapping = map[numericmeter.Value]specFunc{
 	numericmeter.ValueCurrentPhase1: func(report numericmeter.ValuesReport, c cache.Cache) {
-		report[numericmeter.ValueCurrentPhase1] = c.Phase1Current()
+		current, _ := c.Phase1Current()
+		report[numericmeter.ValueCurrentPhase1] = current
 	},
 	numericmeter.ValueCurrentPhase2: func(report numericmeter.ValuesReport, c cache.Cache) {
-		report[numericmeter.ValueCurrentPhase2] = c.Phase2Current()
+		current, _ := c.Phase2Current()
+		report[numericmeter.ValueCurrentPhase2] = current
 	},
 	numericmeter.ValueCurrentPhase3: func(report numericmeter.ValuesReport, c cache.Cache) {
-		report[numericmeter.ValueCurrentPhase3] = c.Phase3Current()
+		current, _ := c.Phase3Current()
+		report[numericmeter.ValueCurrentPhase3] = current
 	},
 	numericmeter.ValuePowerImport: func(report numericmeter.ValuesReport, c cache.Cache) {
-		report[numericmeter.ValuePowerImport] = c.TotalPower()
+		power, _ := c.TotalPower()
+		report[numericmeter.ValuePowerImport] = power
 	},
 	numericmeter.ValueEnergyImport: func(report numericmeter.ValuesReport, c cache.Cache) {
-		report[numericmeter.ValueEnergyImport] = c.LifetimeEnergy().Value
+		energy, timestamp := c.LifetimeEnergy()
+		if timestamp.IsZero() {
+			return
+		}
+
+		report[numericmeter.ValueEnergyImport] = energy
 	},
 }
 
@@ -100,7 +110,9 @@ func (c *controller) GetParameter(id string) (*parameters.Parameter, error) {
 		return nil, fmt.Errorf("parameter: %v not supported", id)
 	}
 
-	return parameters.NewBoolParameter(id, c.cache.CableAlwaysLocked()), nil
+	alwaysLocked, _ := c.cache.CableAlwaysLocked()
+
+	return parameters.NewBoolParameter(id, alwaysLocked), nil
 }
 
 func (c *controller) GetParameterSpecifications() ([]*parameters.ParameterSpecification, error) {
@@ -114,9 +126,12 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 		return nil, err
 	}
 
+	locked, _ := c.cache.CableLocked()
+	current, _ := c.cache.CableCurrent()
+
 	return &chargepoint.CableReport{
-		CableLock:    c.cache.CableLocked(),
-		CableCurrent: c.cache.CableCurrent(),
+		CableLock:    locked,
+		CableCurrent: current,
 	}, nil
 }
 
@@ -125,7 +140,8 @@ func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error)
 		return "", err
 	}
 
-	if outputPhase := c.cache.OutputPhaseType(); outputPhase != "" {
+	outputPhase, _ := c.cache.OutputPhaseType()
+	if outputPhase != "" {
 		return outputPhase, nil
 	}
 
@@ -167,7 +183,9 @@ func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
 		return 0, err
 	}
 
-	return c.cache.MaxCurrent(), nil
+	current, _ := c.cache.MaxCurrent()
+
+	return current, nil
 }
 
 func (c *controller) SetChargepointOfferedCurrent(current int64) error {
@@ -176,7 +194,7 @@ func (c *controller) SetChargepointOfferedCurrent(current int64) error {
 		return err
 	}
 
-	c.cache.SetRequestedOfferedCurrent(current)
+	c.cache.SetRequestedOfferedCurrent(current, time.Now())
 
 	c.cache.WaitForOfferedCurrent(current, c.cfgService.GetCurrentWaitDuration())
 
@@ -184,9 +202,10 @@ func (c *controller) SetChargepointOfferedCurrent(current int64) error {
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
-	startCurrent := float64(c.cache.MaxCurrent())
+	maxCurrent, _ := c.cache.MaxCurrent()
+	startCurrent := float64(maxCurrent)
 
-	if offered := c.cache.RequestedOfferedCurrent(); offered > 0 {
+	if offered, _ := c.cache.RequestedOfferedCurrent(); offered > 0 {
 		startCurrent = float64(offered)
 	}
 
@@ -216,8 +235,10 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		return nil, err
 	}
 
+	energy, _ := c.cache.EnergySession()
+
 	ret := chargepoint.SessionReport{
-		SessionEnergy: c.cache.EnergySession(),
+		SessionEnergy: energy,
 	}
 
 	sessions, err := c.sessionStorage.LatestSessionsByChargerID(c.chargerID)
@@ -230,7 +251,10 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		ret.FinishedAt = latest.Stop
 
 		if !latest.Stop.IsZero() {
-			ret.OfferedCurrent = min(c.cache.OfferedCurrent(), c.cache.MaxCurrent())
+			offeredCurrent, _ := c.cache.OfferedCurrent()
+			maxCurrent, _ := c.cache.MaxCurrent()
+
+			ret.OfferedCurrent = min(offeredCurrent, maxCurrent)
 		}
 	}
 
@@ -247,11 +271,13 @@ func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
 	}
 
 	// If a charger reports power usage, assume a charging state.
-	if power := c.cache.TotalPower(); power > 0 {
+	if power, _ := c.cache.TotalPower(); power > 0 {
 		return chargepoint.StateCharging, nil
 	}
 
-	return c.cache.ChargerState(), nil
+	state, _ := c.cache.ChargerState()
+
+	return state, nil
 }
 
 func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
@@ -261,13 +287,17 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 
 	switch unit { //nolint:exhaustive
 	case numericmeter.UnitW:
-		return c.cache.TotalPower(), nil
+		power, _ := c.cache.TotalPower()
+
+		return power, nil
 	case numericmeter.UnitKWh:
-		if c.cache.LifetimeEnergy().Timestamp.IsZero() {
+		energy, timestamp := c.cache.LifetimeEnergy()
+
+		if timestamp.IsZero() {
 			return 0, fmt.Errorf("energy value not updated")
 		}
 
-		return c.cache.LifetimeEnergy().Value, nil
+		return energy, nil
 	default:
 		return 0, fmt.Errorf("unsupported unit: %s", unit)
 	}
@@ -278,13 +308,9 @@ func (c *controller) MeterExtendedReport(values numericmeter.Values) (numericmet
 		return nil, err
 	}
 
-	ret := make(numericmeter.ValuesReport)
+	ret := make(numericmeter.ValuesReport, len(values))
 
 	for _, value := range values {
-		if value == numericmeter.ValueEnergyImport && c.cache.LifetimeEnergy().Timestamp.IsZero() {
-			continue
-		}
-
 		if f, ok := extendedReportMapping[value]; ok {
 			f(ret, c.cache)
 		}

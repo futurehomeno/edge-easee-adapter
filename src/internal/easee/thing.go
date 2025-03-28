@@ -72,7 +72,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		return nil, fmt.Errorf("factory: failed to retrieve information: %w", err)
 	}
 
-	thingCache := cache.NewCache()
+	thingCache := cache.NewCache(info.ChargerID)
 	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage)
 
 	state := &State{}
@@ -88,9 +88,9 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		log.WithError(err).Warnf("factory: failed to set state: %v", err)
 	}
 
-	thingCache.SetGridType(state.GridType)
-	thingCache.SetPhases(state.Phases)
-	thingCache.SetPhaseMode(state.PhaseMode)
+	// using zero time, because we have no idea about the exact time those parameters were set
+	thingCache.SetInstallationParameters(state.GridType, state.Phases, time.Time{})
+	thingCache.SetPhaseMode(state.PhaseMode, time.Time{})
 
 	groups := []string{"ch_0"}
 	services := []adapter.Service{
