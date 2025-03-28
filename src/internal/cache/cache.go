@@ -32,16 +32,16 @@ type Cache interface {
 	// Phase3Current return current on phase 3.
 	Phase3Current() float64
 
-	SetChargerState(state chargepoint.State)
-	SetMaxCurrent(current int64)
+	SetChargerState(state chargepoint.State, timestamp time.Time) bool
+	SetMaxCurrent(current int64, timestamp time.Time) bool
 	SetRequestedOfferedCurrent(current int64)
-	SetOfferedCurrent(current int64)
-	SetTotalPower(power float64)
-	SetLifetimeEnergy(energy float64)
-	SetEnergySession(energy float64)
-	SetPhase1Current(current float64)
-	SetPhase2Current(current float64)
-	SetPhase3Current(current float64)
+	SetOfferedCurrent(current int64, timestamp time.Time) bool
+	SetTotalPower(power float64, timestamp time.Time) bool
+	SetLifetimeEnergy(energy float64, timestamp time.Time) bool
+	SetEnergySession(energy float64, timestamp time.Time) bool
+	SetPhase1Current(current float64, timestamp time.Time) bool
+	SetPhase2Current(current float64, timestamp time.Time) bool
+	SetPhase3Current(current float64, timestamp time.Time) bool
 
 	WaitForMaxCurrent(current int64, duration time.Duration) bool
 	WaitForOfferedCurrent(current int64, duration time.Duration) bool
@@ -50,22 +50,34 @@ type Cache interface {
 type cache struct {
 	mu sync.RWMutex
 
+	chargerID string
+
 	chargerState            chargepoint.State
+	chargerStateAt          time.Time
 	maxCurrent              int64
+	maxCurrentAt            time.Time
 	requestedOfferedCurrent int64
 	offeredCurrent          int64
+	offeredCurrentAt        time.Time
 	energySession           float64
+	energySessionAt         time.Time
 	totalPower              float64
+	totalPowerAt            time.Time
 	lifetimeEnergy          float64
+	lifetimeEnergyAt        time.Time
 	phase1Current           float64
+	phase1CurrentAt         time.Time
 	phase2Current           float64
+	phase2CurrentAt         time.Time
 	phase3Current           float64
+	phase3CurrentAt         time.Time
 
 	currentListeners map[waitGroup][]chan<- int64
 }
 
-func NewCache() Cache {
+func NewCache(chargerID string) Cache {
 	return &cache{
+		chargerID:        chargerID,
 		currentListeners: make(map[waitGroup][]chan<- int64),
 	}
 }
@@ -140,18 +152,34 @@ func (c *cache) Phase3Current() float64 {
 	return c.phase3Current
 }
 
-func (c *cache) SetEnergySession(energy float64) {
+func (c *cache) SetEnergySession(energy float64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if timestamp.Before(c.energySessionAt) {
+		c.logOutdatedObservation("session energy", c.energySessionAt, timestamp)
+
+		return false
+	}
 
 	c.energySession = energy
+	c.energySessionAt = timestamp
+
+	return true
 }
 
-func (c *cache) SetMaxCurrent(current int64) {
+func (c *cache) SetMaxCurrent(current int64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if timestamp.Before(c.maxCurrentAt) {
+		c.logOutdatedObservation("max current", c.maxCurrentAt, timestamp)
+
+		return false
+	}
+
 	c.maxCurrent = current
+	c.maxCurrentAt = timestamp
 
 	if listeners, ok := c.currentListeners[waitGroupMaxCurrent]; ok {
 		for _, c := range listeners {
@@ -162,6 +190,8 @@ func (c *cache) SetMaxCurrent(current int64) {
 			}
 		}
 	}
+
+	return true
 }
 
 func (c *cache) SetRequestedOfferedCurrent(current int64) {
@@ -171,11 +201,18 @@ func (c *cache) SetRequestedOfferedCurrent(current int64) {
 	c.requestedOfferedCurrent = current
 }
 
-func (c *cache) SetOfferedCurrent(current int64) {
+func (c *cache) SetOfferedCurrent(current int64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if timestamp.Before(c.offeredCurrentAt) {
+		c.logOutdatedObservation("offered current", c.offeredCurrentAt, timestamp)
+
+		return false
+	}
+
 	c.offeredCurrent = current
+	c.offeredCurrentAt = timestamp
 
 	if listeners, ok := c.currentListeners[waitGroupOfferedCurrent]; ok {
 		for _, c := range listeners {
@@ -186,57 +223,114 @@ func (c *cache) SetOfferedCurrent(current int64) {
 			}
 		}
 	}
+
+	return true
 }
 
-func (c *cache) SetTotalPower(power float64) {
+func (c *cache) SetTotalPower(power float64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if timestamp.Before(c.totalPowerAt) {
+		c.logOutdatedObservation("total power", c.totalPowerAt, timestamp)
+
+		return false
+	}
 
 	c.totalPower = power
+	c.totalPowerAt = timestamp
+
+	return true
 }
 
-func (c *cache) SetLifetimeEnergy(energy float64) {
+func (c *cache) SetLifetimeEnergy(energy float64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	if timestamp.Before(c.lifetimeEnergyAt) {
+		c.logOutdatedObservation("lifetime energy", c.lifetimeEnergyAt, timestamp)
+
+		return false
+	}
 
 	if energy < c.lifetimeEnergy {
 		log.
+			WithField("charger_id", c.chargerID).
 			WithField("old", c.lifetimeEnergy).
 			WithField("new", energy).
-			Warn("lifetime energy decreased!")
+			Warn("cache: setting lifetime energy skipped: received observation with decreased value")
 
-		return
+		return false
 	}
 
 	c.lifetimeEnergy = energy
+	c.lifetimeEnergyAt = timestamp
+
+	return true
 }
 
-func (c *cache) SetChargerState(state chargepoint.State) {
+func (c *cache) SetChargerState(state chargepoint.State, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if timestamp.Before(c.chargerStateAt) {
+		c.logOutdatedObservation("charger state", c.chargerStateAt, timestamp)
+
+		return false
+	}
+
 	c.chargerState = state
+	c.chargerStateAt = timestamp
+
+	return true
 }
 
-func (c *cache) SetPhase1Current(current float64) {
+func (c *cache) SetPhase1Current(current float64, timestamp time.Time) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
+	if timestamp.Before(c.phase1CurrentAt) {
+		c.logOutdatedObservation("phase 1 current", c.phase1CurrentAt, timestamp)
+
+		return false
+	}
 
 	c.phase1Current = current
+	c.phase1CurrentAt = timestamp
+
+	return true
 }
 
-func (c *cache) SetPhase2Current(current float64) {
+func (c *cache) SetPhase2Current(current float64, timestamp time.Time) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
+
+	if timestamp.Before(c.phase2CurrentAt) {
+		c.logOutdatedObservation("phase 2 current", c.phase2CurrentAt, timestamp)
+
+		return false
+	}
 
 	c.phase2Current = current
+	c.phase2CurrentAt = timestamp
+
+	return true
 }
 
-func (c *cache) SetPhase3Current(current float64) {
+func (c *cache) SetPhase3Current(current float64, timestamp time.Time) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	if timestamp.Before(c.phase3CurrentAt) {
+		c.logOutdatedObservation("phase 3 current", c.phase3CurrentAt, timestamp)
+
+		return false
+	}
+
 	c.phase3Current = current
+	c.phase3CurrentAt = timestamp
+
+	return true
 }
 
 type waitGroup int
@@ -305,4 +399,11 @@ func (c *cache) waitForCurrent(group waitGroup, current int64, duration time.Dur
 			return false
 		}
 	}
+}
+
+func (c *cache) logOutdatedObservation(operation string, oldTimestamp, newTimestamp time.Time) {
+	log.WithField("charger_id", c.chargerID).
+		WithField("old", oldTimestamp.Format(time.RFC3339)).
+		WithField("new", newTimestamp.Format(time.RFC3339)).
+		Debugf("cache: setting %s skipped: outdated observation", operation)
 }

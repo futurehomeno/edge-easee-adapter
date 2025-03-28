@@ -66,11 +66,11 @@ func NewController(
 }
 
 type controller struct {
-	client                  api.Client
-	manager                 signalr.Manager
-	cache                   cache.Cache
-	cfgService              *config.Service
-	chargerID               string
+	client         api.Client
+	manager        signalr.Manager
+	cache          cache.Cache
+	cfgService     *config.Service
+	chargerID      string
 	sessionStorage db.ChargingSessionStorage
 }
 
