@@ -58,7 +58,7 @@ type Cache interface {
 	SetOutputPhaseType(mode chargepoint.PhaseMode, timestamp time.Time) bool
 	SetInstallationParameters(gridType chargepoint.GridType, phases int, timestamp time.Time) bool
 	SetCableLocked(locked bool, timestamp time.Time) bool
-	SetCableCurrent(current int64, timestamp time.Time) bool
+	SetCableCurrent(current *int64, timestamp time.Time) bool
 	SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool
 	SetEnergySession(energy float64, timestamp time.Time) bool
 	SetPhase1Current(current float64, timestamp time.Time) bool
@@ -257,7 +257,7 @@ func (c *cache) SetCableLocked(locked bool, timestamp time.Time) bool {
 	return true
 }
 
-func (c *cache) SetCableCurrent(current int64, timestamp time.Time) bool {
+func (c *cache) SetCableCurrent(current *int64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -268,7 +268,7 @@ func (c *cache) SetCableCurrent(current int64, timestamp time.Time) bool {
 	}
 
 	c.cableCurrent = model.TimestampedValue[*int64]{
-		Value:     &current,
+		Value:     current,
 		Timestamp: timestamp,
 	}
 
