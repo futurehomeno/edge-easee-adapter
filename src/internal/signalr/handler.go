@@ -102,19 +102,29 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 		return err
 	}
 
-	if val == h.cache.PhaseMode() {
+	phaseMode, _ := h.cache.PhaseMode()
+
+	if val == phaseMode {
 		return nil
 	}
 
-	h.cache.SetPhaseMode(val)
+	ok := h.cache.SetPhaseMode(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	service, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
 
+	gridType, _ := h.cache.GridType()
+	phases, _ := h.cache.Phases()
+	phaseMode, _ = h.cache.PhaseMode()
+	supportedModes := model.SupportedPhaseModes(gridType, phaseMode, phases)
+
 	service = h.ensureChargepointProps(service, map[string]interface{}{
-		chargepoint.PropertySupportedPhaseModes: model.SupportedPhaseModes(h.cache.GridType(), h.cache.PhaseMode(), h.cache.Phases()),
+		chargepoint.PropertySupportedPhaseModes: supportedModes,
 	})
 
 	if err := h.thing.Update(adapter.ThingUpdateRemoveService(service), adapter.ThingUpdateAddService(service)); err != nil {
@@ -132,8 +142,10 @@ func (h *observationsHandler) handleMaxChargerCurrent(observation model.Observat
 		return err
 	}
 
-	current := int64(math.Round(val))
-	h.cache.SetMaxCurrent(current)
+	ok := h.cache.SetMaxCurrent(int64(math.Round(val)), observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
@@ -162,8 +174,10 @@ func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Obse
 		return err
 	}
 
-	current := int64(math.Round(val))
-	h.cache.SetOfferedCurrent(current)
+	ok := h.cache.SetOfferedCurrent(int64(math.Round(val)), observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
@@ -181,7 +195,10 @@ func (h *observationsHandler) handleCableLocked(observation model.Observation) e
 		return err
 	}
 
-	h.cache.SetCableLocked(val)
+	ok := h.cache.SetCableLocked(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
@@ -199,7 +216,16 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	h.cache.SetCableCurrent(int64(val))
+	var current *int64
+	if val >= 0 {
+		current = new(int64)
+		*current = int64(val)
+	}
+
+	ok := h.cache.SetCableCurrent(current, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
@@ -217,12 +243,17 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		return err
 	}
 
-	chargerState := model.ChargerState(val)
-	h.cache.SetChargerState(chargerState.ToFimpState())
-	h.isStateOnline.Store(chargerState != model.ChargerStateOffline)
+	state := model.ChargerState(val)
 
-	if chargerState.IsSessionFinished() {
-		h.cache.SetRequestedOfferedCurrent(0)
+	ok := h.cache.SetChargerState(state.ToFimpState(), observation.Timestamp)
+	if !ok {
+		return nil
+	}
+
+	h.isStateOnline.Store(state != model.ChargerStateOffline)
+
+	if state.IsSessionFinished() {
+		h.cache.SetRequestedOfferedCurrent(0, time.Now())
 	}
 
 	chargepointSrv, err := getChargepointService(h.thing)
@@ -241,7 +272,10 @@ func (h *observationsHandler) handleTotalPower(observation model.Observation) er
 		return err
 	}
 
-	h.cache.SetTotalPower(val * 1000)
+	ok := h.cache.SetTotalPower(val*1000, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
@@ -264,7 +298,10 @@ func (h *observationsHandler) handleEnergySession(observation model.Observation)
 		return err
 	}
 
-	h.cache.SetEnergySession(val)
+	ok := h.cache.SetEnergySession(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
@@ -282,7 +319,10 @@ func (h *observationsHandler) handleInCurrentT3(observation model.Observation) e
 		return err
 	}
 
-	h.cache.SetPhase1Current(val)
+	ok := h.cache.SetPhase1Current(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
@@ -300,7 +340,10 @@ func (h *observationsHandler) handleInCurrentT4(observation model.Observation) e
 		return err
 	}
 
-	h.cache.SetPhase2Current(val)
+	ok := h.cache.SetPhase2Current(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
@@ -318,7 +361,10 @@ func (h *observationsHandler) handleInCurrentT5(observation model.Observation) e
 		return err
 	}
 
-	h.cache.SetPhase3Current(val)
+	ok := h.cache.SetPhase3Current(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
@@ -343,7 +389,10 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return nil
 	}
 
-	h.cache.SetOutputPhaseType(outPhaseType)
+	ok := h.cache.SetOutputPhaseType(outPhaseType, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
@@ -361,23 +410,32 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		return err
 	}
 
+	gridType, _ := h.cache.GridType()
+	phases, _ := h.cache.Phases()
+
 	supportedGridType, supportedPhases := model.GridType(val).ToFimpGridType()
-	if supportedGridType == h.cache.GridType() && supportedPhases == h.cache.Phases() {
+	if supportedGridType == gridType && supportedPhases == phases {
 		return nil
 	}
 
-	h.cache.SetGridType(supportedGridType)
-	h.cache.SetPhases(supportedPhases)
+	ok := h.cache.SetInstallationParameters(supportedGridType, supportedPhases, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	service, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
 
+	phaseMode, _ := h.cache.PhaseMode()
+
+	supportedModes := model.SupportedPhaseModes(supportedGridType, phaseMode, supportedPhases)
+
 	service = h.ensureChargepointProps(service, map[string]interface{}{
 		chargepoint.PropertyGridType:            supportedGridType,
 		chargepoint.PropertyPhases:              supportedPhases,
-		chargepoint.PropertySupportedPhaseModes: model.SupportedPhaseModes(h.cache.GridType(), h.cache.PhaseMode(), h.cache.Phases()),
+		chargepoint.PropertySupportedPhaseModes: supportedModes,
 	})
 
 	if err := h.thing.Update(adapter.ThingUpdateRemoveService(service), adapter.ThingUpdateAddService(service)); err != nil {
@@ -395,7 +453,10 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 		return err
 	}
 
-	h.cache.SetCableAlwaysLocked(val)
+	ok := h.cache.SetCableAlwaysLocked(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
 
 	parameterSrv, err := getParametersService(h.thing)
 	if err != nil {
@@ -485,7 +546,8 @@ func newEnergyHandler(cache cache.Cache, thing adapter.Thing, confSrv *config.Se
 
 func (h *energyHandler) handle(observation model.Observation) error {
 	observationTime := observation.Timestamp.Truncate(time.Hour)
-	lastReadingTime := h.cache.LifetimeEnergy().Timestamp.Truncate(time.Hour)
+	_, lastReadingTime := h.cache.LifetimeEnergy()
+	lastReadingTime = lastReadingTime.Truncate(time.Hour)
 
 	if !observationTime.After(lastReadingTime) {
 		return nil
@@ -515,7 +577,10 @@ func (h *energyHandler) manageEnergyObservation() { //nolint:funlen
 	timer := time.NewTimer(h.confSrv.GetEnergyLifetimeInterval())
 	defer timer.Stop()
 
-	energy := model.TimestampedValue[float64]{}
+	var (
+		energy   float64
+		energyAt time.Time
+	)
 
 	for {
 		select {
@@ -527,15 +592,15 @@ func (h *energyHandler) manageEnergyObservation() { //nolint:funlen
 				continue
 			}
 
-			if val.Timestamp.Before(energy.Timestamp) {
+			if val.Timestamp.Before(energyAt) {
 				continue
 			}
 
-			energy.Value = v
-			energy.Timestamp = val.Timestamp
+			energy = v
+			energyAt = val.Timestamp
 
 		case <-timer.C:
-			h.cache.SetLifetimeEnergy(energy)
+			h.cache.SetLifetimeEnergy(energy, energyAt)
 
 			meterElecSrv, err := getMeterElecService(h.thing)
 			if err != nil {
