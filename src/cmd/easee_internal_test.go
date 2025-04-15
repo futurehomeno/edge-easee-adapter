@@ -1144,6 +1144,13 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ID:        model.ChargingSessionStart,
 								Value:     `{ "Auth": "", "AuthReason": 0, "Id": 435, "MeterValue": 1277.872637, "Start": "2025-01-22T12:51:47.000Z"}`,
 							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeDouble,
+								Timestamp: time.Now(),
+								ID:        model.DynamicChargerCurrent,
+								Value:     "7",
+							},
 						})
 					})),
 				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
@@ -1152,7 +1159,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{waitForRunning()},
 						Expectations: []*suite.Expectation{
 							suite.ExpectFloat("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.current_session.report", "chargepoint", 0).
-								ExpectProperty("offered_current", "0").
+								ExpectProperty("offered_current", "7").
 								ExpectProperty("started_at", "2025-01-22T12:51:47Z"),
 						},
 					},

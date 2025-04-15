@@ -129,6 +129,11 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 	locked, _ := c.cache.CableLocked()
 	current, _ := c.cache.CableCurrent()
 
+	if current != nil && *current < 0 {
+		locked = false
+		current = nil
+	}
+
 	return &chargepoint.CableReport{
 		CableLock:    locked,
 		CableCurrent: current,
@@ -250,11 +255,16 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		ret.StartedAt = latest.Start
 		ret.FinishedAt = latest.Stop
 
-		if !latest.Stop.IsZero() {
+		// if session is not finished
+		if latest.Stop.IsZero() {
 			offeredCurrent, _ := c.cache.OfferedCurrent()
 			maxCurrent, _ := c.cache.MaxCurrent()
 
-			ret.OfferedCurrent = min(offeredCurrent, maxCurrent)
+			if maxCurrent > 0 {
+				offeredCurrent = min(offeredCurrent, maxCurrent)
+			}
+
+			ret.OfferedCurrent = offeredCurrent
 		}
 	}
 
