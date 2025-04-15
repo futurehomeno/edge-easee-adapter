@@ -216,13 +216,9 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	var current *int64
-	if val >= 0 {
-		current = new(int64)
-		*current = int64(val)
-	}
+	current := int64(val)
 
-	ok := h.cache.SetCableCurrent(current, observation.Timestamp)
+	ok := h.cache.SetCableCurrent(&current, observation.Timestamp)
 	if !ok {
 		return nil
 	}
