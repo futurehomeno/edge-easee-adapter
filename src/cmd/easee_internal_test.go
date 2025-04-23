@@ -1265,7 +1265,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						},
 						Expectations: []*suite.Expectation{
 							suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", false).
-								ExpectProperty("cable_current", "18"),
+								ExpectProperty("cable_current", "0"), // always 0 when cable unlocked.
 						},
 					},
 				},
@@ -1310,7 +1310,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", false).
 								ExpectProperty("cable_current", "-1").Never(),
 							suite.ExpectBool("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.cable_lock.report", "chargepoint", false).
-								ExpectProperty("cable_current", "0").Never(),
+								ExpectProperty("cable_current", "0"),
 						},
 					},
 				},
@@ -1328,7 +1328,7 @@ func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn fu
 
 		tearDown(configSet)(t)
 
-		config := configSetup(t, configSet, mqttAddr)
+		cfg := configSetup(t, configSet, mqttAddr)
 		loggerSetup(t)
 
 		for _, o := range opts {
@@ -1342,7 +1342,7 @@ func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn fu
 
 		services.easeeAPIClient = client
 
-		app, err := Build(config)
+		app, err := Build(cfg)
 		if err != nil {
 			t.Fatalf("failed to build app: %s", err)
 		}
