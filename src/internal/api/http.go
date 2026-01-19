@@ -280,24 +280,23 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 }
 
 func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*model.ChargerConfig, error) {
-	var siteInfo *model.ChargerConfig
-	ret, err := c.getResponse(&siteInfo, chargerConfigURITemplate, accessToken, chargerID)
+	var siteInfo model.ChargerConfig
+	rsp, err := c.getResponse(&siteInfo, c.buildURL(chargerConfigURITemplate, chargerID), accessToken)
 	if err != nil {
 		return nil, err
 	}
 
-	var ok bool
-	siteInfo, ok = ret.(*model.ChargerConfig)
+	ret, ok := rsp.(*model.ChargerConfig)
 	if !ok {
-		return nil, errors.New("failed to cast response to charger config")
+		return nil, fmt.Errorf("failed to cast response to charger config (%T)", ret)
 	}
 
-	return siteInfo, nil
+	return ret, nil
 }
 
 func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*model.ChargerSiteInfo, error) {
 	var siteInfo *model.ChargerSiteInfo
-	ret, err := c.getResponse(&siteInfo, chargerSiteURITemplate, accessToken, chargerID)
+	ret, err := c.getResponse(&siteInfo, c.buildURL(chargerSiteURITemplate, chargerID), accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -313,23 +312,22 @@ func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*model.Char
 
 func (c *httpClient) Chargers(accessToken string) ([]model.Charger, error) {
 	var chargers []model.Charger
-	ret, err := c.getResponse(&chargers, chargersURI, accessToken, "")
+	rsp, err := c.getResponse(&chargers, c.buildURL(chargersURI), accessToken)
 	if err != nil {
 		return nil, err
 	}
 
-	var ok bool
-	chargers, ok = ret.([]model.Charger)
+	ret, ok := rsp.(*[]model.Charger)
 	if !ok {
 		return nil, errors.New("failed to cast response to chargers slice")
 	}
 
-	return chargers, nil
+	return *ret, nil
 }
 
 func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (model.ChargerDetails, error) {
 	var details model.ChargerDetails
-	ret, err := c.getResponse(&details, chargerDetailsURITemplate, accessToken, chargerID)
+	ret, err := c.getResponse(&details, c.buildURL(chargerDetailsURITemplate, chargerID), accessToken)
 	if err != nil {
 		return model.ChargerDetails{}, err
 	}
@@ -367,7 +365,7 @@ func (c *httpClient) Ping(accessToken string) error {
 	return nil
 }
 
-func (c *httpClient) buildURL(path string, args ...interface{}) string {
+func (c *httpClient) buildURL(path string, args ...any) string {
 	return c.baseURL + fmt.Sprintf(path, args...)
 }
 
@@ -398,7 +396,7 @@ func (c *httpClient) logFailedResponse(resp *http.Response) {
 		Errorf("%s %s resulted in %s", resp.Request.Method, resp.Request.URL.String(), resp.Status)
 }
 
-func (c *httpClient) readResponseBody(r *http.Response, body interface{}) error {
+func (c *httpClient) readResponseBody(r *http.Response, body any) error {
 	err := json.NewDecoder(r.Body).Decode(body)
 	if err != nil {
 		return errors.Wrap(err, "could not decode response body")
@@ -438,10 +436,8 @@ func (c *httpClient) registerMaxCurrentChange(chargerID string) {
 	c.lastMaxCurrentSet[chargerID] = clock.Now()
 }
 
-func (c *httpClient) getResponse(state any, url, accessToken, chargerID string) (any, error) {
-	u := c.buildURL(url, chargerID)
-
-	req, err := newRequestBuilder(http.MethodGet, u).
+func (c *httpClient) getResponse(state any, url, accessToken string) (any, error) {
+	req, err := newRequestBuilder(http.MethodGet, url).
 		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
 		build()
 	if err != nil {
