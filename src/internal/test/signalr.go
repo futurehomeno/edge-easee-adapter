@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ type SignalRServer struct {
 	router  *http.ServeMux
 	hub     *signalRHub
 
-	running            bool
+	running            atomic.Bool
 	mockedObservations []observationBatch
 }
 
@@ -53,20 +54,39 @@ func NewSignalRServer(t *testing.T, address string) *SignalRServer {
 }
 
 func (s *SignalRServer) Start() {
-	if s.running {
+	if s.running.Load() {
 		return
 	}
 
 	log.Infof("signalR test server: starting on addr %s", s.http.Addr)
+	s.running.Store(true)
+	wg := sync.WaitGroup{}
+	wg.Add(2)
 
-	go s.scheduleObservations()
-	go s.runHTTPServer() //nolint:staticcheck
+	go func() {
+		wg.Done()
+		if err := s.runHTTPServer(); err != nil {
+			log.Errorf("http server stopped with error: %v", err)
+		}
 
-	s.running = true
+		s.running.Store(false)
+	}()
+
+	go func() {
+		wg.Done()
+		s.scheduleObservations()
+	}()
+
+	wg.Wait()
+	time.Sleep(50 * time.Millisecond)
+
+	if !s.running.Load() {
+		s.t.Fatalf("failed to start signalR test server")
+	}
 }
 
 func (s *SignalRServer) Close() {
-	if !s.running {
+	if !s.running.Load() {
 		return
 	}
 
@@ -75,7 +95,7 @@ func (s *SignalRServer) Close() {
 	err := s.http.Shutdown(context.Background())
 	require.NoError(s.t, err)
 
-	s.running = false
+	s.running.Store(false)
 }
 
 func (s *SignalRServer) MockObservations(delay time.Duration, o []model.Observation) {
@@ -93,10 +113,12 @@ func (s *SignalRServer) scheduleObservations() {
 	}
 }
 
-func (s *SignalRServer) runHTTPServer() {
+func (s *SignalRServer) runHTTPServer() error {
 	if err := s.http.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-		s.t.Fatal("signalR test server: http server error", err) //nolint:staticcheck
+		return err
 	}
+
+	return nil
 }
 
 type signalRHub struct {
