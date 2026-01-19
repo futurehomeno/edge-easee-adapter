@@ -37,7 +37,7 @@ jobs:
     - name: Upload .deb artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ecollector-armhf
+        name: easee-armhf
         path: package/build/*.deb
   
   linter:
@@ -124,6 +124,6 @@ jobs:
         tag_name: ${{ github.ref_name }}
         name: Release ${{ github.ref_name }}
         body_path: changes.md
-        files: artifacts/ecollector-armhf/*.deb
+        files: artifacts/easee-armhf/*.deb
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -12,8 +12,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 )
 
-var Version string
-
 type BudzikFormatter struct {
 	TimestampFormat string
 	LevelDesc       []string
@@ -22,8 +20,13 @@ type BudzikFormatter struct {
 func (f *BudzikFormatter) Format(entry *log.Entry) ([]byte, error) {
 	timestamp := entry.Time.Format(f.TimestampFormat)
 
-	ret := fmt.Appendf(nil, "%s %s %s", timestamp, f.LevelDesc[entry.Level], entry.Message)
+	level := "D"
 
+	if int(entry.Level) >= 0 && int(entry.Level) < len(f.LevelDesc) {
+		level = f.LevelDesc[int(entry.Level)]
+	}
+
+	ret := fmt.Appendf(nil, "%s %s %s", timestamp, level, entry.Message)
 	for k, v := range entry.Data {
 		ret = fmt.Appendf(ret, " %s=%v", k, v)
 	}
@@ -46,8 +49,8 @@ func Execute(version string) {
 
 	log.SetFormatter(NewBudzikFormatter()) // remove when implemented in
 
-	log.Infof("\t--- Start Easee v.%s ---", Version)
-	defer log.Infof("\t+++ Stop Easee v.%s +++", Version)
+	log.Infof("\t--- Start Easee v.%s ---", version)
+	defer log.Infof("\t+++ Stop Easee v.%s +++", version)
 
 	edgeApp, err := Build(cfg)
 	if err != nil {
