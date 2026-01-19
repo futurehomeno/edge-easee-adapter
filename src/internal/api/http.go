@@ -140,21 +140,31 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 	}
 
 	defer func() { _ = resp.Body.Close() }()
+	var reason string
 
-	if resp.StatusCode != http.StatusOK {
-		c.logFailedResponse(resp)
+	switch resp.StatusCode {
+	case http.StatusOK:
+		loginData := &model.Credentials{}
 
-		return nil, c.handleFailedResponse(resp, "token refresh request failed: unexpected status code")
+		err = c.readResponseBody(resp, loginData)
+		if err != nil {
+			return nil, errors.Wrap(err, "could not read token refresh response body")
+		}
+
+		return loginData, nil
+
+	case http.StatusUnauthorized:
+		reason = "unauthorized"
+
+	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		reason = "timeout"
+
+	default:
+		reason = "unexpected"
 	}
 
-	loginData := &model.Credentials{}
-
-	err = c.readResponseBody(resp, loginData)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not read token refresh response body")
-	}
-
-	return loginData, nil
+	c.logFailedResponse(resp)
+	return nil, fmt.Errorf("%s status code=%d", reason, resp.StatusCode)
 }
 
 func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current float64) error {
