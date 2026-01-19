@@ -6,7 +6,7 @@
   "work_dir": "/opt/thingsplex/easee",
   "log_file": "/var/log/thingsplex/easee/easee.log",
   "log_level": "debug",
-  "log_format": "text",
+  "log_format": "budzik",
   "configured_at": "",
   "configured_by": "",
   "accessToken": "",

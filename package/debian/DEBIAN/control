@@ -1,8 +1,9 @@
 Package: easee
-Version: 2.5.10
-Replaces: easee
 Section: non-free/misc
-Priority: optional
+Version: 2.5.11
 Architecture: armhf
-Maintainer: Futurehome AS <support@futurehome.no>
-Description: Futurehome Easee EV charger adapter.
+Priority: optional
+Depends: influxdb (>= 1.7)
+Replaces: easee
+Maintainer: Futurehome AS <dev@futurehome.no>
+Description: Futurehome Easee EV charger adapter
