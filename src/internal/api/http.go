@@ -102,7 +102,7 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 		return nil, errors.Wrap(err, "login request failed")
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		c.logFailedResponse(resp)
@@ -139,7 +139,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 		return nil, errors.Wrap(err, "token refresh request failed")
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		c.logFailedResponse(resp)
@@ -174,7 +174,7 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 		return errors.Wrap(err, "update max current request failed")
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted {
 		c.logFailedResponse(resp)
@@ -206,7 +206,7 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 		return errors.Wrap(err, "update dynamic current request failed")
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted {
 		c.logFailedResponse(resp)
@@ -240,7 +240,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 		return errors.Wrap(err, "stop charging request failed")
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted {
 		c.logFailedResponse(resp)
@@ -268,7 +268,7 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 		return errors.Wrap(err, "could not perform cable lock api call")
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusAccepted {
 		c.logFailedResponse(resp)
@@ -280,132 +280,67 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 }
 
 func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*model.ChargerConfig, error) {
-	u := c.buildURL(chargerConfigURITemplate, chargerID)
-
-	req, err := newRequestBuilder(http.MethodGet, u).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		build()
+	var siteInfo *model.ChargerConfig
+	ret, err := c.getResponse(&siteInfo, chargerConfigURITemplate, accessToken, chargerID)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create charger state request")
+		return nil, err
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not perform charger state api call")
+	var ok bool
+	siteInfo, ok = ret.(*model.ChargerConfig)
+	if !ok {
+		return nil, errors.New("failed to cast response to charger config")
 	}
 
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logFailedResponse(resp)
-
-		return nil, c.handleFailedResponse(resp, "charger state request failed: unexpected status code")
-	}
-
-	state := &model.ChargerConfig{}
-
-	err = c.readResponseBody(resp, state)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not read charger state response body")
-	}
-
-	return state, nil
+	return siteInfo, nil
 }
 
 func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*model.ChargerSiteInfo, error) {
-	u := c.buildURL(chargerSiteURITemplate, chargerID)
-
-	req, err := newRequestBuilder(http.MethodGet, u).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		build()
+	var siteInfo *model.ChargerSiteInfo
+	ret, err := c.getResponse(&siteInfo, chargerSiteURITemplate, accessToken, chargerID)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create charger site info request")
+		return nil, err
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not perform charger site info api call")
+	var ok bool
+	siteInfo, ok = ret.(*model.ChargerSiteInfo)
+	if !ok {
+		return nil, errors.New("failed to cast response to charger site info")
 	}
 
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logFailedResponse(resp)
-
-		return nil, c.handleFailedResponse(resp, "charger site info request failed: unexpected status code")
-	}
-
-	state := &model.ChargerSiteInfo{}
-
-	err = c.readResponseBody(resp, state)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not read charger site info response body")
-	}
-
-	return state, nil
+	return siteInfo, nil
 }
 
 func (c *httpClient) Chargers(accessToken string) ([]model.Charger, error) {
-	req, err := newRequestBuilder(http.MethodGet, c.buildURL(chargersURI)).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		build()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to create chargers request")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch chargers from api")
-	}
-
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logFailedResponse(resp)
-
-		return nil, c.handleFailedResponse(resp, "chargers request failed: unexpected status code")
-	}
-
 	var chargers []model.Charger
+	ret, err := c.getResponse(&chargers, chargersURI, accessToken, "")
+	if err != nil {
+		return nil, err
+	}
 
-	if err := c.readResponseBody(resp, &chargers); err != nil {
-		return nil, errors.Wrap(err, "failed to read request body")
+	var ok bool
+	chargers, ok = ret.([]model.Charger)
+	if !ok {
+		return nil, errors.New("failed to cast response to chargers slice")
 	}
 
 	return chargers, nil
 }
 
 func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (model.ChargerDetails, error) {
-	u := c.buildURL(chargerDetailsURITemplate, chargerID)
-
-	req, err := newRequestBuilder(http.MethodGet, u).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		build()
+	var details model.ChargerDetails
+	ret, err := c.getResponse(&details, chargerDetailsURITemplate, accessToken, chargerID)
 	if err != nil {
-		return model.ChargerDetails{}, errors.Wrap(err, "failed to create charger details state request")
+		return model.ChargerDetails{}, err
 	}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return model.ChargerDetails{}, errors.Wrap(err, "could not perform charger details api call")
+	var ok bool
+	details, ok = ret.(model.ChargerDetails)
+	if !ok {
+		return model.ChargerDetails{}, errors.New("failed to cast response to charger details")
 	}
 
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		c.logFailedResponse(resp)
-
-		return model.ChargerDetails{}, c.handleFailedResponse(resp, "charger details request failed: unexpected status code")
-	}
-
-	chargerDetails := model.ChargerDetails{}
-
-	err = c.readResponseBody(resp, &chargerDetails)
-	if err != nil {
-		return model.ChargerDetails{}, errors.Wrap(err, "could not read charger details response body")
-	}
-
-	return chargerDetails, nil
+	return details, nil
 }
 
 func (c *httpClient) Ping(accessToken string) error {
@@ -421,7 +356,7 @@ func (c *httpClient) Ping(accessToken string) error {
 		return errors.Wrap(err, "failed to perform ping request")
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		c.logFailedResponse(resp)
@@ -501,4 +436,38 @@ func (c *httpClient) registerMaxCurrentChange(chargerID string) {
 	defer c.lock.Unlock()
 
 	c.lastMaxCurrentSet[chargerID] = clock.Now()
+}
+
+func (c *httpClient) getResponse(state any, url, accessToken, chargerID string) (any, error) {
+	u := c.buildURL(url, chargerID)
+
+	req, err := newRequestBuilder(http.MethodGet, u).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		build()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create request")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not perform api call")
+	}
+
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.WithError(err).Error("failed to close response body")
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		c.logFailedResponse(resp)
+		return nil, c.handleFailedResponse(resp, "unexpected status code")
+	}
+
+	err = c.readResponseBody(resp, state)
+	if err != nil {
+		return nil, errors.Wrap(err, "could not read response body")
+	}
+
+	return state, nil
 }

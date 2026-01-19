@@ -45,7 +45,11 @@ func NewBudzikFormatter() *BudzikFormatter {
 func Execute(version string) {
 	cfg := getConfigService().Model()
 
-	bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
+	if err := bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat); err != nil {
+		//nolint:forbidigo
+		fmt.Printf("Failed init logger err: %v", err)
+		return
+	}
 
 	log.SetFormatter(NewBudzikFormatter()) // remove when implemented in
 
