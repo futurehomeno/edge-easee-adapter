@@ -154,7 +154,7 @@ func (a *authenticator) AccessToken() (string, error) {
 
 	a.backoff.Reset()
 
-	if a.updateCredentials(newCred) != nil {
+	if err := a.updateCredentials(newCred); err != nil {
 		log.Error("[auth] update credentials err: " + err.Error())
 	}
 
