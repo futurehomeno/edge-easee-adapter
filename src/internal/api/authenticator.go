@@ -48,6 +48,7 @@ type authenticator struct {
 	mqtt                *fimpgo.MqttTransport
 	serviceName         string
 	backoff             backoff.Stateful
+	username            string
 
 	bcEnsured bool
 }
@@ -91,7 +92,7 @@ func (a *authenticator) Login(userName, password string) error {
 	}
 
 	a.backoff.Reset()
-
+	a.username = userName
 	return nil
 }
 
@@ -145,6 +146,14 @@ func (a *authenticator) AccessToken() (string, error) {
 func (a *authenticator) Logout() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
+	msgContent := fmt.Sprintf("User %s logged out from Easee integration", a.username)
+	notifEvt := &notification.Event{EventName: "custom", MessageContent: msgContent}
+
+	err := a.notificationManager.Event(notifEvt)
+	if err != nil {
+		log.Error("event err: " + err.Error())
+	}
 
 	return a.cfg.ClearCredentials()
 }
