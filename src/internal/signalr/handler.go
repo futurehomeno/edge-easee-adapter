@@ -37,6 +37,7 @@ type observationsHandler struct {
 	energyHandler  *energyHandler
 	sessionStorage db.ChargingSessionStorage
 	chargerID      string
+	storedObs      map[model.ObservationID]model.Observation
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
@@ -56,6 +57,7 @@ func NewObservationsHandler(
 		energyHandler:  newEnergyHandler(cache, thing, confSrv),
 		sessionStorage: sessionStorage,
 		chargerID:      chargerID,
+		storedObs:      make(map[model.ObservationID]model.Observation),
 	}
 
 	handler.isCloudOnline.Store(true)
@@ -90,6 +92,11 @@ func (h *observationsHandler) IsOnline() bool {
 }
 
 func (h *observationsHandler) HandleObservation(observation model.Observation) error {
+	if prev, ok := h.storedObs[observation.ID]; !ok || prev != observation {
+		log.Infof("%s (prev=%v)", observation.Str(), prev.Value)
+		h.storedObs[observation.ID] = observation
+	}
+
 	if handler, ok := h.handlers[observation.ID]; ok {
 		return handler(observation)
 	}
@@ -162,6 +169,10 @@ func (h *observationsHandler) handleCloudConnected(observation model.Observation
 	val, err := observation.BoolValue()
 	if err != nil {
 		return err
+	}
+
+	if !val {
+		log.Warnf("Charger=%s disconnected from cloud", h.chargerID)
 	}
 
 	h.isCloudOnline.Store(val)
@@ -429,7 +440,7 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 
 	supportedModes := model.SupportedPhaseModes(supportedGridType, phaseMode, supportedPhases)
 
-	service = h.ensureChargepointProps(service, map[string]interface{}{
+	service = h.ensureChargepointProps(service, map[string]any{
 		chargepoint.PropertyGridType:            supportedGridType,
 		chargepoint.PropertyPhases:              supportedPhases,
 		chargepoint.PropertySupportedPhaseModes: supportedModes,

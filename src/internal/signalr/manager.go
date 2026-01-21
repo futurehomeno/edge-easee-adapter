@@ -302,8 +302,6 @@ func (m *manager) handleObservation(observation model.Observation) error {
 
 	if err := chargerHandler.handler.HandleObservation(observation); err != nil {
 		return fmt.Errorf("obs='%s' err: %w", observation.ID.Str(), err)
-	} else {
-		log.Debugf("%s", observation.ID.Str())
 	}
 
 	return nil
