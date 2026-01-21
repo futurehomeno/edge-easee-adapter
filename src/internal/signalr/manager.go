@@ -289,7 +289,7 @@ func (m *manager) handleClientState(state model.ClientState) {
 
 func (m *manager) handleObservation(observation model.Observation) error {
 	if !observation.ID.Supported() {
-		return fmt.Errorf("unsupported obs='%s'", observation.Str())
+		return nil
 	}
 
 	m.mu.RLock()
@@ -302,6 +302,8 @@ func (m *manager) handleObservation(observation model.Observation) error {
 
 	if err := chargerHandler.handler.HandleObservation(observation); err != nil {
 		return fmt.Errorf("obs='%s' err: %w", observation.ID.Str(), err)
+	} else {
+		log.Debugf("%s", observation.ID.Str())
 	}
 
 	return nil

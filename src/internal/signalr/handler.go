@@ -2,6 +2,7 @@ package signalr
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -93,7 +94,7 @@ func (h *observationsHandler) HandleObservation(observation model.Observation) e
 		return handler(observation)
 	}
 
-	return nil
+	return fmt.Errorf("not supported")
 }
 
 func (h *observationsHandler) handlePhaseMode(observation model.Observation) error {
