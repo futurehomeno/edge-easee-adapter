@@ -48,7 +48,6 @@ type authenticator struct {
 	mqtt                *fimpgo.MqttTransport
 	serviceName         string
 	backoff             backoff.Stateful
-	username            string
 
 	bcEnsured bool
 }
@@ -88,11 +87,11 @@ func (a *authenticator) Login(userName, password string) error {
 
 	err = a.updateCredentials(creds)
 	if err != nil {
-		return err
+		log.Errorf("[auth] Credentials store err: %v", err.Error())
 	}
 
 	a.backoff.Reset()
-	a.username = userName
+	log.Debugf("[auth] User=%s logged in", userName)
 	return nil
 }
 
@@ -118,7 +117,8 @@ func (a *authenticator) AccessToken() (string, error) {
 	}
 
 	if credentials.RefreshTokenExpired() {
-		return "", errors.Wrap(a.triggerAppLogout(credentials), "refresh token expired")
+		log.WithField("expired_at", credentials.RefreshTokenExpiresAt.Format(time.RFC3339)).Warn("[auth] refresh token expired")
+		return "", errors.Wrap(a.triggerAppLogout(), "refresh token expired")
 	}
 
 	log.WithField("at", credentials.AccessTokenExpiresAt.Format(time.RFC3339)).
@@ -135,7 +135,8 @@ func (a *authenticator) AccessToken() (string, error) {
 		newCred, err = a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
 		if err != nil {
 			if strings.Contains(err.Error(), "unauthorized") {
-				if err := a.triggerAppLogout(credentials); err != nil {
+				log.WithField("expired_at", credentials.RefreshTokenExpiresAt.Format(time.RFC3339)).Warn("[auth] Unauthorized")
+				if err := a.triggerAppLogout(); err != nil {
 					return "", err
 				}
 			} else if strings.Contains(err.Error(), "timeout") {
@@ -164,23 +165,10 @@ func (a *authenticator) AccessToken() (string, error) {
 func (a *authenticator) Logout() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-
-	msgContent := fmt.Sprintf("User %s logged out from Easee integration", a.username)
-	notifEvt := &notification.Event{EventName: "custom", MessageContent: msgContent}
-
-	err := a.notificationManager.Event(notifEvt)
-	if err != nil {
-		log.Error("event err: " + err.Error())
-	}
-
 	return a.cfg.ClearCredentials()
 }
 
-func (a *authenticator) triggerAppLogout(credentials config.Credentials) error {
-	log.WithField("expired_at", credentials.RefreshTokenExpiresAt.Format(time.RFC3339)).
-		Warn("[auth] refresh token expired, triggering app logout")
-
-	//FIX-IT
+func (a *authenticator) triggerAppLogout() error {
 	err := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
 	if err != nil {
 		return fmt.Errorf("failed to send push notification: %w", err)
