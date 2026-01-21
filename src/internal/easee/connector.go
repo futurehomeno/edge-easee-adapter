@@ -62,10 +62,14 @@ func (c *connector) Connectivity() *adapter.ConnectivityDetails {
 		ConnectionType:   adapter.ConnectionTypeIndirect,
 	}
 
-	if connected, _ := c.manager.Connected(c.chargerID); connected {
-		ret.ConnectionStatus = adapter.ConnectionStatusUp
+	connected, reason := c.manager.Connected(c.chargerID)
+
+	if !connected {
+		log.Errorf("Charger %s not connected reason=%s", c.chargerID, reason)
+		return &ret
 	}
 
+	ret.ConnectionStatus = adapter.ConnectionStatusUp
 	return &ret
 }
 
@@ -76,7 +80,8 @@ func (c *connector) Ping() *adapter.PingDetails {
 		}
 	}
 
-	if connected, _ := c.manager.Connected(c.chargerID); !connected {
+	if connected, reason := c.manager.Connected(c.chargerID); !connected {
+		log.Errorf("Charger %s not connected to SignalR manager reason=%s", c.chargerID, reason)
 		return &adapter.PingDetails{
 			Status: adapter.PingResultFailed,
 		}

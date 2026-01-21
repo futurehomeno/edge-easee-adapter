@@ -3,8 +3,11 @@ package model
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"time"
+
+	"slices"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	log "github.com/sirupsen/logrus"
@@ -81,6 +84,11 @@ type Observation struct {
 	Value     string              `json:"value"`
 }
 
+func (o *Observation) Str() string {
+	return fmt.Sprintf("%s [%s] %s (%s) = %s",
+		o.Timestamp.Format(time.RFC3339), o.ChargerID, o.ID.Str(), o.DataType.Str(), o.Value)
+}
+
 // IntValue returns an integer representation of the Observation value.
 func (o *Observation) IntValue() (int, error) {
 	if o.DataType != ObservationDataTypeInteger {
@@ -141,15 +149,52 @@ const (
 	CloudConnected        ObservationID = 250
 )
 
+func (o ObservationID) Str() string {
+	switch o {
+	case DetectedPowerGridType:
+		return "detected_power_grid_type"
+	case LockCablePermanently:
+		return "lock_cable_permanently"
+	case PhaseMode:
+		return "phase_mode"
+	case MaxChargerCurrent:
+		return "max_charger_current"
+	case DynamicChargerCurrent:
+		return "dynamic_charger_current"
+	case CableLocked:
+		return "cable_locked"
+	case CableRating:
+		return "cable_rating"
+	case ChargerOPState:
+		return "charger_op_state"
+	case OutputPhase:
+		return "output_phase"
+	case TotalPower:
+		return "total_power"
+	case EnergySession:
+		return "energy_session"
+	case LifetimeEnergy:
+		return "lifetime_energy"
+	case ChargingSessionStop:
+		return "charging_session_stop"
+	case InCurrentT3:
+		return "in_current_t3"
+	case InCurrentT4:
+		return "in_current_t4"
+	case InCurrentT5:
+		return "in_current_t5"
+	case ChargingSessionStart:
+		return "charging_session_start"
+	case CloudConnected:
+		return "cloud_connected"
+	default:
+		return fmt.Sprintf("unknown=%d", o)
+	}
+}
+
 // Supported returns true if the ObservationID is supported by our system.
 func (o ObservationID) Supported() bool {
-	for _, id := range SupportedObservationIDs() {
-		if o == id {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(SupportedObservationIDs(), o)
 }
 
 // SupportedObservationIDs returns all observation IDs supported by our system.
@@ -189,6 +234,27 @@ const (
 	ObservationDataTypeString
 	ObservationDataTypeStatistics
 )
+
+func (o ObservationDataType) Str() string {
+	switch o {
+	case ObservationDataTypeBinary:
+		return "binary"
+	case ObservationDataTypeBoolean:
+		return "boolean"
+	case ObservationDataTypeDouble:
+		return "double"
+	case ObservationDataTypeInteger:
+		return "integer"
+	case ObservationDataTypePosition:
+		return "position"
+	case ObservationDataTypeString:
+		return "string"
+	case ObservationDataTypeStatistics:
+		return "statistics"
+	default:
+		return fmt.Sprintf("unknown=%d", o)
+	}
+}
 
 // ChargerState represents an observation charger state.
 type ChargerState int
