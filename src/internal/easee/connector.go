@@ -65,7 +65,7 @@ func (c *connector) Connectivity() *adapter.ConnectivityDetails {
 	connected, reason := c.manager.Connected(c.chargerID)
 
 	if !connected {
-		log.Errorf("Charger %s not connected reason=%s", c.chargerID, reason)
+		log.Warnf("Charger %s not connected reason=%s", c.chargerID, reason)
 		return &ret
 	}
 
