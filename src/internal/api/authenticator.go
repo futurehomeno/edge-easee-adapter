@@ -207,7 +207,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, reason
 			if err != nil {
 				log.Error("[auth] Store credentials err: " + err.Error())
 			} else {
-				log.WithField("expires_at", ret.AccessTokenExpiresAt.Format(time.RFC3339)).Infof("[auth] New AccessToken dur=%s", -time.Since(ret.AccessTokenExpiresAt))
+				log.Infof("[auth] New AccessToken expires_at=%s (%s)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt))
 			}
 
 			return &ret, nil
