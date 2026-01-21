@@ -199,7 +199,7 @@ func TestAccessToken(t *testing.T) {
 
 			auth := api.NewAuthenticator(httpClient, cfgSrv, notificationManager, mqtt, "test")
 
-			token, err := auth.AccessToken("")
+			token, err := auth.AccessToken()
 
 			if v.errorContains != "" {
 				assert.NotNil(t, err)
@@ -314,29 +314,29 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 
 	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, routing.ServiceName)
 
-	_, err = auth.AccessToken("")
+	_, err = auth.AccessToken()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to perform token refresh api call")
 
 	// alow 2 retries without backoff
 	for range 2 {
-		_, err = auth.AccessToken("")
+		_, err = auth.AccessToken()
 		assert.Error(t, err)
 	}
 
 	// block more requests with backoff
 	for range 8 {
-		_, err = auth.AccessToken("")
+		_, err = auth.AccessToken()
 		assert.Contains(t, err.Error(), "too many requests: backoff")
 	}
 
 	time.Sleep(1 * time.Second)
 
-	_, err = auth.AccessToken("")
+	_, err = auth.AccessToken()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to perform token refresh api call")
 
-	_, err = auth.AccessToken("")
+	_, err = auth.AccessToken()
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "too many requests: backoff")
 }
