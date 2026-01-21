@@ -149,6 +149,7 @@ const (
 	CloudConnected        ObservationID = 250
 )
 
+//nolint:cyclop
 func (o ObservationID) Str() string {
 	switch o {
 	case DetectedPowerGridType:
