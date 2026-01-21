@@ -204,7 +204,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 	charger, ok := m.chargers[chargerID]
 	if !ok {
-		return fmt.Errorf("Unknown charger")
+		return fmt.Errorf("unknown charger")
 	}
 
 	if err := m.client.SubscribeCharger(chargerID); err != nil {

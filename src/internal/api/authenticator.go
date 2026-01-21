@@ -120,11 +120,7 @@ func (a *authenticator) AccessToken() (string, error) {
 		return "", errors.Wrap(a.triggerAppLogout(), errStr)
 	}
 
-	if a.backoff.Should() {
-		return "", errors.New("too many requests: backoff")
-	}
-
-	newCredentials, err := a.updateCredentials(credentials, 2, 2*time.Second)
+	newCredentials, err := a.updateCredentials(credentials, 3, 2*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("[auth] update credentials err: %w", err)
 	}
@@ -196,8 +192,12 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 }
 
 func (a *authenticator) updateCredentials(credentials config.Credentials, retries int, timeout time.Duration) (*config.Credentials, error) {
+	if a.backoff.Should() {
+		return nil, errors.New("too many requests: backoff")
+	}
+
 	for range retries {
-		log.Info("[auth] Refreshing AccessToken")
+		log.Info("[auth] Refresh AccessToken")
 		newCred, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
 		if err == nil {
 			ret, err := a.storeCredentials(newCred)
@@ -214,9 +214,10 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 		switch {
 		case strings.Contains(err.Error(), "unauthorized"):
 			if err := a.triggerAppLogout(); err != nil {
-				log.Error("[auth] triggerAppLogout err: " + err.Error())
+				log.Error("[auth] TriggerAppLogout err: " + err.Error())
 			}
 
+			a.backoff.Fail()
 			return nil, errors.New("refreshToken expired")
 
 		case strings.Contains(err.Error(), "timeout"):
@@ -224,10 +225,12 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			time.Sleep(timeout)
 
 		default:
+			a.backoff.Fail()
 			return nil, err
 		}
 	}
 
+	a.backoff.Fail()
 	return nil, errors.New("failed to refresh AccessToken")
 }
 

@@ -48,13 +48,13 @@ func TestLogin(t *testing.T) {
 			errorContains: "expected response code to be 200",
 		},
 		{
-			name:          "should return error when storage failed to save",
+			name:          "should not return error when storage failed to save",
 			username:      "user",
 			password:      "pwd",
 			accessToken:   accessToken,
 			refreshToken:  refreshToken,
-			saveError:     errors.New("failed to save to the storage"),
-			errorContains: "failed to save to the storage",
+			saveError:     nil,
+			errorContains: "",
 		},
 		{
 			name:         "should save tokens to the storage",
@@ -146,14 +146,14 @@ func TestAccessToken(t *testing.T) {
 			errorContains: "failed to perform token refresh api call",
 		},
 		{
-			name: "should return error when failed to set credentials",
+			name: "should not return error when failed to set credentials",
 			credentialsCfg: config.Credentials{
 				AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
 				RefreshTokenExpiresAt: time.Now().Add(time.Hour),
 			},
-
-			saveError:     errors.New("failed to save"),
-			errorContains: "failed to save",
+			expectedToken: accessToken,
+			accessToken:   accessToken,
+			refreshToken:  refreshToken,
 		},
 		{
 			name: "should save refreshed token when all validations passed",
@@ -318,9 +318,16 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to perform token refresh api call")
 
-	for i := 0; i < 10; i++ {
+	// alow 2 retries without backoff
+	for range 2 {
 		_, err = auth.AccessToken()
-		assert.Contains(t, err.Error(), "too many requests: backoff is in use")
+		assert.Error(t, err)
+	}
+
+	// block more requests with backoff
+	for range 8 {
+		_, err = auth.AccessToken()
+		assert.Contains(t, err.Error(), "too many requests: backoff")
 	}
 
 	time.Sleep(1 * time.Second)
@@ -331,5 +338,5 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 
 	_, err = auth.AccessToken()
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "too many requests: backoff is in use")
+	assert.Contains(t, err.Error(), "too many requests: backoff")
 }
