@@ -35,7 +35,7 @@ type Authenticator interface {
 	// AccessToken is responsible for providing a valid access token for the Easee API.
 	// It will automatically refresh the token if it's expired.
 	// Returns an error if the application is not logged in.
-	AccessToken() (string, error)
+	AccessToken(useReason string) (string, error)
 	// Logout used to remove credentials from the config
 	Logout() error
 }
@@ -94,7 +94,7 @@ func (a *authenticator) Login(userName, password string) error {
 	return nil
 }
 
-func (a *authenticator) AccessToken() (string, error) {
+func (a *authenticator) AccessToken(useReason string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -120,7 +120,7 @@ func (a *authenticator) AccessToken() (string, error) {
 		return "", errors.Wrap(a.triggerAppLogout(), errStr)
 	}
 
-	newCredentials, err := a.updateCredentials(credentials, 3, 2*time.Second)
+	newCredentials, err := a.updateCredentials(credentials, useReason, 3, 2*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("[auth] update credentials err: %w", err)
 	}
@@ -191,13 +191,14 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 	return ret, nil
 }
 
-func (a *authenticator) updateCredentials(credentials config.Credentials, retries int, timeout time.Duration) (*config.Credentials, error) {
+func (a *authenticator) updateCredentials(credentials config.Credentials, reason string, retries int, timeout time.Duration) (*config.Credentials, error) {
 	if a.backoff.Should() {
 		return nil, errors.New("too many requests: backoff")
 	}
 
 	for range retries {
-		log.Info("[auth] Refresh AccessToken")
+		log.Infof("[auth] Refresh AccessToken reason=%s RefreshToken expires_at=%s (%s)",
+			reason, credentials.RefreshTokenExpiresAt.Format(time.RFC3339), -time.Since(credentials.RefreshTokenExpiresAt))
 		newCred, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
 		if err == nil {
 			ret, err := a.storeCredentials(newCred)
@@ -205,7 +206,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			if err != nil {
 				log.Error("[auth] Store credentials err: " + err.Error())
 			} else {
-				log.WithField("expires_at", ret.AccessTokenExpiresAt.Format(time.RFC3339)).Info("[auth] New AccessToken")
+				log.WithField("expires_at", ret.AccessTokenExpiresAt.Format(time.RFC3339)).Infof("[auth] New AccessToken dur=%s", -time.Since(ret.AccessTokenExpiresAt))
 			}
 
 			return &ret, nil

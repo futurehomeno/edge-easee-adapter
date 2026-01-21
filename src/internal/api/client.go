@@ -39,7 +39,7 @@ func NewAPIClient(http HTTPClient, auth Authenticator) Client {
 }
 
 func (a *apiClient) UpdateMaxCurrent(chargerID string, current float64) error {
-	token, err := a.auth.AccessToken()
+	token, err := a.auth.AccessToken("update_max_current")
 	if err != nil {
 		return a.tokenError(err)
 	}
@@ -48,7 +48,7 @@ func (a *apiClient) UpdateMaxCurrent(chargerID string, current float64) error {
 }
 
 func (a *apiClient) SetCableAlwaysLocked(chargerID string, locked bool) error {
-	token, err := a.auth.AccessToken()
+	token, err := a.auth.AccessToken("set_cable_always_locked")
 	if err != nil {
 		return a.tokenError(err)
 	}
@@ -57,7 +57,7 @@ func (a *apiClient) SetCableAlwaysLocked(chargerID string, locked bool) error {
 }
 
 func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) error {
-	token, err := a.auth.AccessToken()
+	token, err := a.auth.AccessToken("update_dynamic_current")
 	if err != nil {
 		return a.tokenError(err)
 	}
@@ -66,7 +66,7 @@ func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) erro
 }
 
 func (a *apiClient) StopCharging(chargerID string) error {
-	token, err := a.auth.AccessToken()
+	token, err := a.auth.AccessToken("stop_charging")
 	if err != nil {
 		return a.tokenError(err)
 	}
@@ -75,7 +75,7 @@ func (a *apiClient) StopCharging(chargerID string) error {
 }
 
 func (a *apiClient) ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, error) {
-	token, err := a.auth.AccessToken()
+	token, err := a.auth.AccessToken("charger_site_info")
 	if err != nil {
 		return nil, a.tokenError(err)
 	}
@@ -84,7 +84,7 @@ func (a *apiClient) ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, e
 }
 
 func (a *apiClient) ChargerConfig(chargerID string) (*model.ChargerConfig, error) {
-	token, err := a.auth.AccessToken()
+	token, err := a.auth.AccessToken("charger_config")
 	if err != nil {
 		return nil, a.tokenError(err)
 	}
@@ -93,7 +93,7 @@ func (a *apiClient) ChargerConfig(chargerID string) (*model.ChargerConfig, error
 }
 
 func (a *apiClient) Chargers() ([]model.Charger, error) {
-	token, err := a.auth.AccessToken()
+	token, err := a.auth.AccessToken("chargers_list")
 	if err != nil {
 		return nil, a.tokenError(err)
 	}
@@ -102,7 +102,7 @@ func (a *apiClient) Chargers() ([]model.Charger, error) {
 }
 
 func (a *apiClient) ChargerDetails(chargerID string) (model.ChargerDetails, error) {
-	token, err := a.auth.AccessToken()
+	token, err := a.auth.AccessToken("charger_details")
 	if err != nil {
 		return model.ChargerDetails{}, a.tokenError(err)
 	}
@@ -111,7 +111,7 @@ func (a *apiClient) ChargerDetails(chargerID string) (model.ChargerDetails, erro
 }
 
 func (a *apiClient) Ping() error {
-	token, err := a.auth.AccessToken()
+	token, err := a.auth.AccessToken("ping")
 	if err != nil {
 		return a.tokenError(err)
 	}
