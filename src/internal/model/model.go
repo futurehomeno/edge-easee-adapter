@@ -85,7 +85,7 @@ type Observation struct {
 }
 
 func (o *Observation) Str() string {
-	return fmt.Sprintf("%s [%s] %s = %s",
+	return fmt.Sprintf("%s [%s] %s=%s",
 		o.Timestamp.Format(time.RFC3339), o.ChargerID, o.ID.Str(), o.Value)
 }
 
