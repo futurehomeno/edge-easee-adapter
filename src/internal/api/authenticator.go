@@ -35,7 +35,7 @@ type Authenticator interface {
 	// AccessToken is responsible for providing a valid access token for the Easee API.
 	// It will automatically refresh the token if it's expired.
 	// Returns an error if the application is not logged in.
-	AccessToken(useReason string) (string, error)
+	AccessToken() (string, error)
 	// Logout used to remove credentials from the config
 	Logout() error
 }
@@ -95,7 +95,11 @@ func (a *authenticator) Login(userName, password string) error {
 	return nil
 }
 
-func (a *authenticator) AccessToken(useReason string) (string, error) {
+func (a *authenticator) AccessToken() (string, error) {
+	return a.AccessTokenWithReason("unknown")
+}
+
+func (a *authenticator) AccessTokenWithReason(useReason string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
