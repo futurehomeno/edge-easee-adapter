@@ -75,7 +75,7 @@ jobs:
 
     - name: Install mockery (v2, Go 1.25 compatible)
       run: |
-        go install github.com/vektra/mockery/v2@latest
+        go install github.com/vektra/mockery/v2@2.53.5
         echo "$HOME/go/bin" >> $GITHUB_PATH
 
     - name: Generate mocks
