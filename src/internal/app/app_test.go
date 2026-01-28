@@ -20,7 +20,9 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
-	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
+	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
+	mockedsignalr "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/signalr"
+	mocksignalr "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/signalr"
 )
 
 //nolint:godox
@@ -202,9 +204,9 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 		loginData           *cliffApp.LoginCredentials
 		setLifecycle        func(lc *lifecycle.Lifecycle)
 		mockAdapter         func(a *mockedadapter.Adapter)
-		mockClient          func(c *mocks.APIClient)
-		mockAuthenticator   func(a *mocks.Authenticator)
-		mockSignalRClient   func(c *mocks.Client)
+		mockClient          func(c *mockapi.Client)
+		mockAuthenticator   func(a *mockapi.Authenticator)
+		mockSignalRClient   func(c *mocksignalr.Client)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 	}{
@@ -220,10 +222,10 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockAuthenticator: func(a *mocks.Authenticator) {
+			mockAuthenticator: func(a *mockapi.Authenticator) {
 				a.On("Login", "test-user", "test-password").Return(nil)
 			},
-			mockClient: func(c *mocks.APIClient) {
+			mockClient: func(c *mockapi.Client) {
 				c.On("Chargers").Return([]model.Charger{
 					{ID: "123"},
 					{ID: "456"},
@@ -250,7 +252,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					},
 				}).Return(nil)
 			},
-			mockSignalRClient: func(c *mocks.Client) {
+			mockSignalRClient: func(c *mocksignalr.Client) {
 				c.On("Start")
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -272,12 +274,12 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				lc.SetConnectionState(lifecycle.ConnStateConnected)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
 			},
-			mockAuthenticator: func(a *mocks.Authenticator) {
+			mockAuthenticator: func(a *mockapi.Authenticator) {
 				a.
 					On("Login", "test-user", "test-password").
 					Return(errors.New("oops"))
 			},
-			mockClient: func(c *mocks.APIClient) {
+			mockClient: func(c *mockapi.Client) {
 				c.On("Ping").Return(nil)
 			},
 			wantErr: true,
@@ -300,10 +302,10 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockAuthenticator: func(a *mocks.Authenticator) {
+			mockAuthenticator: func(a *mockapi.Authenticator) {
 				a.On("Login", "test-user", "test-password").Return(nil)
 			},
-			mockClient: func(c *mocks.APIClient) {
+			mockClient: func(c *mockapi.Client) {
 				c.On("Chargers").Return([]model.Charger{
 					{ID: "123"},
 					{ID: "456"},
@@ -330,7 +332,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					},
 				}).Return(nil)
 			},
-			mockSignalRClient: func(c *mocks.Client) {
+			mockSignalRClient: func(c *mocksignalr.Client) {
 				c.On("Start")
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -352,10 +354,10 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
-			mockAuthenticator: func(a *mocks.Authenticator) {
+			mockAuthenticator: func(a *mockapi.Authenticator) {
 				a.On("Login", "test-user", "test-password").Return(nil)
 			},
-			mockClient: func(c *mocks.APIClient) {
+			mockClient: func(c *mockapi.Client) {
 				c.On("Chargers").Return([]model.Charger{
 					{ID: "123"},
 					{ID: "456"},
@@ -404,17 +406,17 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				tt.mockAdapter(adapterMock)
 			}
 
-			clientMock := mocks.NewAPIClient(t)
+			clientMock := mockapi.NewClient(t)
 			if tt.mockClient != nil {
 				tt.mockClient(clientMock)
 			}
 
-			authMock := mocks.NewAuthenticator(t)
+			authMock := mockapi.NewAuthenticator(t)
 			if tt.mockAuthenticator != nil {
 				tt.mockAuthenticator(authMock)
 			}
 
-			signalRClientMock := mocks.NewClient(t)
+			signalRClientMock := mockedsignalr.NewClient(t)
 			if tt.mockSignalRClient != nil {
 				tt.mockSignalRClient(signalRClientMock)
 			}
@@ -445,7 +447,7 @@ func TestApplication_Logout(t *testing.T) {
 		authLogoutError     error
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
-		mockSignalRClient   func(c *mocks.Client)
+		mockSignalRClient   func(c *mocksignalr.Client)
 	}{
 		{
 			name: "successful config, lifecycle and adapter reset",
@@ -460,7 +462,7 @@ func TestApplication_Logout(t *testing.T) {
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 			},
-			mockSignalRClient: func(c *mocks.Client) {
+			mockSignalRClient: func(c *mocksignalr.Client) {
 				c.On("Close").Return(nil)
 			},
 		},
@@ -477,7 +479,7 @@ func TestApplication_Logout(t *testing.T) {
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 			},
-			mockSignalRClient: func(c *mocks.Client) {
+			mockSignalRClient: func(c *mocksignalr.Client) {
 				c.On("Close").Return(nil)
 			},
 
@@ -493,13 +495,13 @@ func TestApplication_Logout(t *testing.T) {
 			lc := lifecycle.New()
 			tt.setLifecycle(lc)
 
-			clientMock := new(mocks.APIClient)
+			clientMock := new(mockapi.Client)
 			clientMock.On("Ping").Return(errors.New("oops"))
 
-			authMock := &mocks.Authenticator{}
+			authMock := &mockapi.Authenticator{}
 			authMock.On("Logout").Return(tt.authLogoutError)
 
-			signalRClientMock := mocks.NewClient(t)
+			signalRClientMock := mocksignalr.NewClient(t)
 			if tt.mockSignalRClient != nil {
 				tt.mockSignalRClient(signalRClientMock)
 			}
@@ -521,7 +523,7 @@ func TestApplication_Initialize(t *testing.T) {
 		cfg                 *config.Config
 		setLifecycle        func(lc *lifecycle.Lifecycle)
 		mockAdapter         func(a *mockedadapter.Adapter)
-		mockClient          func(c *mocks.APIClient)
+		mockClient          func(c *mockapi.Client)
 		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 	}{
@@ -543,7 +545,7 @@ func TestApplication_Initialize(t *testing.T) {
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(nil)
 			},
-			mockClient: func(c *mocks.APIClient) {
+			mockClient: func(c *mockapi.Client) {
 				c.On("Ping").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -565,7 +567,7 @@ func TestApplication_Initialize(t *testing.T) {
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(nil)
 			},
-			mockClient: func(c *mocks.APIClient) {
+			mockClient: func(c *mockapi.Client) {
 				c.On("Ping").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -587,7 +589,7 @@ func TestApplication_Initialize(t *testing.T) {
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(errors.New("oops"))
 			},
-			mockClient: func(c *mocks.APIClient) {
+			mockClient: func(c *mockapi.Client) {
 				c.On("Ping").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -616,7 +618,7 @@ func TestApplication_Initialize(t *testing.T) {
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(nil)
 			},
-			mockClient: func(c *mocks.APIClient) {
+			mockClient: func(c *mockapi.Client) {
 				c.On("Ping").Return(errors.New("oops"))
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
@@ -643,7 +645,7 @@ func TestApplication_Initialize(t *testing.T) {
 				tt.mockAdapter(adapterMock)
 			}
 
-			clientMock := new(mocks.APIClient)
+			clientMock := new(mockapi.Client)
 			if tt.mockClient != nil {
 				tt.mockClient(clientMock)
 			}

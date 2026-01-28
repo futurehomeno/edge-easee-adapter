@@ -19,8 +19,8 @@ func SetupMQTTContainer(t *testing.T) string {
 		Started: true,
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "eclipse-mosquitto:1.6.8", //nolint:misspell
-			ExposedPorts: []string{"11883/tcp"},
-			WaitingFor:   wait.ForLog("Opening ipv4 listen socket on port 11883"),
+			ExposedPorts: []string{"1883/tcp"},
+			WaitingFor:   wait.ForLog("Opening ipv4 listen socket on port 1883"),
 		},
 	})
 	require.NoError(t, err)

@@ -1,3 +1,7 @@
+define generate_mocks
+    cd src && mockery --exported --packageprefix mocked --name=$(3) --recursive --case underscore --dir ./$(1) --output ./internal/test/mocks/$(2)
+endef
+
 SHELL := /bin/bash
 
 TAG := 2.6.1
@@ -88,7 +92,7 @@ test:
 	rm -f test_coverage.out || true
 
 	@echo "Run tests"
-	cd src && go test -p 1 -count 1 -v -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
+	cd src && go test -p 1 -count 1 -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
 
 	@echo "Preparecoverage report"
 	cd src && cat profile_full.cov | grep -v .pb.go | grep -v mock | grep -v test > test_coverage.out
@@ -96,7 +100,13 @@ test:
 	rm -f src/profile_full.cov
 
 generate-mocks:
-	cd ./src && mockery --dir ./internal --all --output ./internal/test/mocks --disable-version-string
+	find ./src/internal/test/mocks -type f -not -name "*_helper.go" | xargs rm -rf
+	$(call generate_mocks,"internal/api","api","Authenticator|Client|NewAPIClient")
+	$(call generate_mocks,"internal/app","app","Application")
+	$(call generate_mocks,"internal/cache","cache","Cache")
+	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
+	$(call generate_mocks,"internal/signalr","signalr","Client")
 
+                        
 
 .PHONY: all clean test generate-mocks configure package-deb deb-arm deb-amd upload deploy
