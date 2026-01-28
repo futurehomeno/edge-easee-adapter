@@ -3,8 +3,9 @@
 *.deb
 package/build/*
 !package/build/.gitkeep
-/package/debian/opt/thingsplex/easee/easee
-/src/easee
+package/debian/opt/thingsplex/easee/easee
+package/debian/DEBIAN/control
+src/easee
 testdata/log/*
 src/internal/test/mocks/*
 !testdata/log/.gitkeep
@@ -12,5 +13,5 @@ testdata/data/*
 !testdata/data/.gitkeep
 src/scratch
 edge-easee-adapter
-/src/profile_full.cov
+src/profile_full.cov
 test_coverage.out

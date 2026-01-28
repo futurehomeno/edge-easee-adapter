@@ -4,7 +4,7 @@ endef
 
 SHELL := /bin/bash
 
-TAG := 2.6.1
+VERSION := 2.6.1
 APP_NAME := easee
 
 ARCH ?= armhf
@@ -13,7 +13,7 @@ OUT_DIR := package/build
 DEB_DIR := package/debian
 DEB_DIR := package/debian
 CONTROL_DIR := $(DEB_DIR)/DEBIAN
-TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(TAG)_$(ARCH).deb
+TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
 BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
 TARGET_BIN := $(BIN_DIR)/$(APP_NAME)
 
@@ -30,19 +30,19 @@ clean:
 	mkdir -p $(BIN_DIR)
 
 build-local:
-	cd src ; go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(APP_NAME) main.go
+	cd src ; go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME) main.go
 
 build-arm:
-	cd src ; GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(TARGET_BIN) main.go
+	cd src ; GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(TARGET_BIN) main.go
 
 build-linux-amd64:
-	cd src ; GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(TARGET_BIN) main.go
+	cd src ; GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(TARGET_BIN) main.go
 
 build-mac-amd64:
-	cd src ; GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(TARGET_BIN) main.go
+	cd src ; GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(TARGET_BIN) main.go
 
 build-win-amd64:
-	cd src ; GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(APP_NAME).exe main.go
+	cd src ; GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME).exe main.go
 
 configure:
 	mkdir -p $(CONTROL_DIR)
@@ -86,7 +86,7 @@ upload:
 	rsync -avz -e "ssh -p $(PORT)" $(TARGET_PKG) $(REMOTE_HOST):/home/fhtunnel/
 
 deploy: upload
-	ssh -t -p $(PORT) $(REMOTE_HOST) "su - fh -c 'sudo dpkg -i /home/fhtunnel/$(APP_NAME)_$(TAG)_$(ARCH).deb'"
+	ssh -t -p $(PORT) $(REMOTE_HOST) "su - fh -c 'sudo dpkg -i /home/fhtunnel/$(APP_NAME)_$(VERSION)_$(ARCH).deb'"
 
 test:
 	rm -f test_coverage.out || true
