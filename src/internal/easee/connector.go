@@ -70,6 +70,7 @@ func (c *connector) Connectivity() *adapter.ConnectivityDetails {
 	}
 
 	ret.ConnectionStatus = adapter.ConnectionStatusUp
+
 	return &ret
 }
 

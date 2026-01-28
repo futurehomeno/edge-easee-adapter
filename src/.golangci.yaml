@@ -17,7 +17,6 @@ linters:
     - typecheck
     - unused
     # Enabled specifically
-    - wsl
     - lll
     - cyclop
     - bodyclose
