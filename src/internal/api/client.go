@@ -111,6 +111,10 @@ func (a *apiClient) ChargerDetails(chargerID string) (model.ChargerDetails, erro
 }
 
 func (a *apiClient) Ping() error {
+<<<<<<< Updated upstream
+=======
+	log.Debugf("Ping")
+>>>>>>> Stashed changes
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)

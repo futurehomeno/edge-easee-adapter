@@ -220,7 +220,55 @@ func (a *authenticator) updateCredentials(credentials *model.Credentials) error 
 		return fmt.Errorf("failed to save credentials in storage: %w", err)
 	}
 
+<<<<<<< Updated upstream
 	return nil
+=======
+	return ret, nil
+}
+
+func (a *authenticator) updateCredentials(credentials config.Credentials, reason string, retries int, timeout time.Duration) (*config.Credentials, error) {
+	if a.backoff.Should() {
+		return nil, errors.New("too many requests: backoff")
+	}
+
+	for range retries {
+		log.Infof("[auth] Refresh AccessToken reason=%s RefreshToken expires_at=%s (%s)",
+			reason, credentials.RefreshTokenExpiresAt.Format(time.RFC3339), -time.Since(credentials.RefreshTokenExpiresAt))
+		newCred, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
+		if err == nil {
+			ret, err := a.storeCredentials(newCred)
+
+			if err != nil {
+				log.Error("[auth] Store credentials err: " + err.Error())
+			} else {
+				log.Debugf("[auth] New AccessToken expires_at=%s (%s)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt))
+			}
+
+			return &ret, nil
+		}
+
+		switch {
+		case strings.Contains(err.Error(), "unauthorized"):
+			if err := a.triggerAppLogout(); err != nil {
+				log.Error("[auth] TriggerAppLogout err: " + err.Error())
+			}
+
+			a.backoff.Fail()
+			return nil, errors.New("refreshToken expired")
+
+		case strings.Contains(err.Error(), "timeout"):
+			log.Warn("[auth] AccessToken refresh timeout")
+			time.Sleep(timeout)
+
+		default:
+			a.backoff.Fail()
+			return nil, err
+		}
+	}
+
+	a.backoff.Fail()
+	return nil, errors.New("failed to refresh AccessToken")
+>>>>>>> Stashed changes
 }
 
 func (a *authenticator) ensureBackwardsCompatibility() error {
