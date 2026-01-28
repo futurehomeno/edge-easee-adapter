@@ -6,6 +6,7 @@ package/build/*
 /package/debian/opt/thingsplex/easee/easee
 /src/easee
 testdata/log/*
+src/internal/test/mocks/*
 !testdata/log/.gitkeep
 testdata/data/*
 !testdata/data/.gitkeep

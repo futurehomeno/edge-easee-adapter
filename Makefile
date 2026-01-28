@@ -1,12 +1,14 @@
 SHELL := /bin/bash
 
-TAG := 2.5.11
+TAG := 2.6.1
 APP_NAME := easee
 
 ARCH ?= armhf
 
 OUT_DIR := package/build
 DEB_DIR := package/debian
+DEB_DIR := package/debian
+CONTROL_DIR := $(DEB_DIR)/DEBIAN
 TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(TAG)_$(ARCH).deb
 BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
 TARGET_BIN := $(BIN_DIR)/$(APP_NAME)
@@ -39,7 +41,16 @@ build-win-amd64:
 	cd src ; GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(APP_NAME).exe main.go
 
 configure:
-	python3 ./scripts/config_env.py $(DEB_DIR)/DEBIAN $(TAG) $(ARCH)
+	mkdir -p $(CONTROL_DIR)
+	printf '%s\n' \
+	  "Package: $(APP_NAME)" \
+	  "Version: $(VERSION)" \
+	  "Section: non-free/misc" \
+	  "Priority: optional" \
+	  "Architecture: $(ARCH)" \
+	  "Maintainer: Futurehome AS <dev@futurehome.no>" \
+	  "Description: Futurehome Easee EV charger adapter" \
+	  > $(CONTROL_DIR)/control
 
 package-deb:
 	chmod 755 $(DEB_DIR)
@@ -76,16 +87,16 @@ deploy: upload
 test:
 	rm -f test_coverage.out || true
 
-	@echo "Running tests"
+	@echo "Run tests"
 	cd src && go test -p 1 -count 1 -v -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
 
-	@echo "Preparing coverage report"
+	@echo "Preparecoverage report"
 	cd src && cat profile_full.cov | grep -v .pb.go | grep -v mock | grep -v test > test_coverage.out
 	mv src/test_coverage.out .
 	rm -f src/profile_full.cov
 
-mocks:
+generate-mocks:
 	cd ./src && mockery --dir ./internal --all --output ./internal/test/mocks --disable-version-string
 
 
-.PHONY: all clean test mocks configure package-deb deb-arm deb-amd upload deploy
+.PHONY: all clean test generate-mocks configure package-deb deb-arm deb-amd upload deploy
