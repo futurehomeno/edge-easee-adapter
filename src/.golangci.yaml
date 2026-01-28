@@ -49,7 +49,6 @@ linters:
     - nakedret
     - nestif
     - nilerr
-    - nlreturn
     - noctx
     - nolintlint
     - paralleltest
@@ -68,6 +67,7 @@ linters:
     - whitespace
     - goimports
   disable:
+    - nlreturn
     - depguard # Not suitable for our use-case.
     - tagliatelle # Need to maintain compatibility with legacy JSON models.
     - wrapcheck # To be enabled if comfortable to work with.

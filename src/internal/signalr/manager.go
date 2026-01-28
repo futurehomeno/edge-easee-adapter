@@ -254,9 +254,11 @@ func (m *manager) handleClientState(state model.ClientState) {
 		m.mu.Lock()
 		m.subscriptions = make(chan string, 1+len(m.chargers))
 		chargersIDs := make([]string, 0, len(m.chargers))
+
 		for chargerID := range m.chargers {
 			chargersIDs = append(chargersIDs, chargerID)
 		}
+
 		m.mu.Unlock()
 
 		for _, chargerID := range chargersIDs {
