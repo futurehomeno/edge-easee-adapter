@@ -16,6 +16,7 @@ type Config struct {
 
 	EaseeBaseURL                 string     `json:"easeeBaseURL2"`
 	PollingInterval              string     `json:"pollingInterval"`
+	TokenRefreshInterval         string     `json:"token_refresh_interval"`
 	CurrentWaitDuration          string     `json:"currentWaitDuration"`
 	SlowChargingCurrentInAmperes float64    `json:"slowChargingCurrentInAmperes"`
 	HTTPTimeout                  string     `json:"httpTimeout"`
@@ -219,7 +220,7 @@ func (cs *Service) GetPollingInterval() time.Duration {
 
 	duration, err := time.ParseDuration(cs.Storage.Model().PollingInterval)
 	if err != nil {
-		return 30 * time.Second
+		return 10 * time.Minute
 	}
 
 	return duration
@@ -592,6 +593,28 @@ func (cs *Service) SetAuthenticatorBackoffCfg(cfg BackoffCfg) error {
 		InitialFailureCount:  cfg.InitialFailureCount,
 		RepeatedFailureCount: cfg.RepeatedFailureCount,
 	}
+
+	return cs.Save()
+}
+
+func (cs *Service) GetTokenRefreshInterval() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	interval, err := time.ParseDuration(cs.Storage.Model().TokenRefreshInterval)
+	if err != nil {
+		return 58 * time.Minute
+	}
+
+	return interval
+}
+
+func (cs *Service) SetTokenRefreshInterval(interval time.Duration) error {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Storage.Model().TokenRefreshInterval = interval.String()
 
 	return cs.Save()
 }

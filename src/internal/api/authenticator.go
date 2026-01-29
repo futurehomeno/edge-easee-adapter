@@ -2,6 +2,7 @@ package api
 
 import (
 	"fmt"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
@@ -95,10 +96,6 @@ func (a *authenticator) Login(userName, password string) error {
 }
 
 func (a *authenticator) AccessToken() (string, error) {
-	return a.AccessTokenWithReason("unknown")
-}
-
-func (a *authenticator) AccessTokenWithReason(useReason string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -124,7 +121,7 @@ func (a *authenticator) AccessTokenWithReason(useReason string) (string, error) 
 		return "", errors.Wrap(a.triggerAppLogout(), errStr)
 	}
 
-	newCredentials, err := a.updateCredentials(credentials, useReason, 3, 2*time.Second)
+	newCredentials, err := a.updateCredentials(credentials, 3, 30*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("[auth] update credentials err: %w", err)
 	}
@@ -195,14 +192,15 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 	return ret, nil
 }
 
-func (a *authenticator) updateCredentials(credentials config.Credentials, reason string, retries int, timeout time.Duration) (*config.Credentials, error) {
+func (a *authenticator) updateCredentials(credentials config.Credentials, retries int, timeout time.Duration) (*config.Credentials, error) {
 	if a.backoff.Should() {
 		return nil, errors.New("too many requests: backoff")
 	}
 
+	log.Debugf("[auth] Refresh AccessToken RefreshToken expires_at=%s (%.1fmin)",
+		credentials.RefreshTokenExpiresAt.Format(time.RFC3339), -time.Since(credentials.RefreshTokenExpiresAt).Minutes())
+
 	for range retries {
-		log.Infof("[auth] Refresh AccessToken reason=%s RefreshToken expires_at=%s (%s)",
-			reason, credentials.RefreshTokenExpiresAt.Format(time.RFC3339), -time.Since(credentials.RefreshTokenExpiresAt))
 		newCred, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
 		if err == nil {
 			ret, err := a.storeCredentials(newCred)
@@ -210,7 +208,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, reason
 			if err != nil {
 				log.Error("[auth] Store credentials err: " + err.Error())
 			} else {
-				log.Infof("[auth] New AccessToken expires_at=%s (%s)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt))
+				log.Infof("[auth] New AccessToken expires_at=%s (%.1fmin)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt).Minutes())
 			}
 
 			return &ret, nil
@@ -226,8 +224,9 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, reason
 			return nil, errors.New("refreshToken expired")
 
 		case strings.Contains(err.Error(), "timeout"):
-			log.Warn("[auth] AccessToken refresh timeout")
-			time.Sleep(timeout)
+			retryAfter := time.Duration(retries)*timeout + time.Second*time.Duration(rand.Intn(10))
+			log.Warnf("[auth] AccessToken refresh timeout retry in %ds", int(retryAfter.Seconds()))
+			time.Sleep(retryAfter)
 
 		default:
 			a.backoff.Fail()

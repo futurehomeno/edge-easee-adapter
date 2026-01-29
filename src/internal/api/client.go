@@ -120,7 +120,7 @@ func (a *apiClient) ChargerDetails(chargerID string) (model.ChargerDetails, erro
 }
 
 func (a *apiClient) Ping() error {
-	log.Infof("Ping")
+	log.Debugf("Ping")
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)
@@ -130,5 +130,5 @@ func (a *apiClient) Ping() error {
 }
 
 func (a *apiClient) tokenError(err error) error {
-	return fmt.Errorf("unable to get access token: %w", err)
+	return fmt.Errorf("get token err: %w", err)
 }
