@@ -318,7 +318,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to perform token refresh api call")
 
-	// alow 2 retries without backoff
+	// allow 2 retries without backoff
 	for range 2 {
 		_, err = auth.AccessToken()
 		assert.Error(t, err)

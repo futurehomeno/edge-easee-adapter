@@ -36,7 +36,7 @@ type serviceContainer struct {
 	lifecycle     *lifecycle.Lifecycle
 	mqtt          *fimpgo.MqttTransport
 
-	application     app.Application
+	application     app.AppliacationWithToken
 	manifestLoader  manifest.Loader
 	eventManager    event.Manager
 	adapter         adapter.Adapter
@@ -129,7 +129,7 @@ func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 }
 
 // getApplication creates or returns existing application.
-func getApplication(cfg *config.Config) app.Application {
+func getApplication(cfg *config.Config) app.AppliacationWithToken {
 	if services.application == nil {
 		services.application = app.New(
 			getAdapter(cfg),
