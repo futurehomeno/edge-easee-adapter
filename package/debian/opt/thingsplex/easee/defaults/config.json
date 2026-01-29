@@ -7,6 +7,8 @@
   "log_file": "/var/log/thingsplex/easee/easee.log",
   "log_level": "debug",
   "log_format": "budzik",
+  "accessToken": "",
+  "refreshToken": "",
   "easeeBaseURL2": "https://api.easee.com",
   "pollingInterval": "10m",
   "token_refresh_interval": "57m",
