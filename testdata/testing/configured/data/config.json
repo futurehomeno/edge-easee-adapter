@@ -1,10 +1,10 @@
 {
-	"mqtt_server_uri": "tcp://localhost:32782",
+	"mqtt_server_uri": "tcp://localhost:32788",
 	"mqtt_server_username": "",
 	"mqtt_server_password": "",
 	"mqtt_client_id_prefix": "easee",
 	"info_file": "",
-	"log_file": "",
+	"log_file": "../../testdata/log/easee.log",
 	"log_level": "debug",
 	"log_format": "budzik",
 	"configured_at": "",

@@ -39,7 +39,7 @@ jobs:
       with:
         name: easee-armhf
         path: package/build/*.deb
-  
+
   linter:
     runs-on: ubuntu-24.04
     timeout-minutes: 2

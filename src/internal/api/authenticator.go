@@ -49,7 +49,6 @@ type authenticator struct {
 	mqtt                *fimpgo.MqttTransport
 	serviceName         string
 	backoff             backoff.Stateful
-	username            string
 
 	bcEnsured bool
 }
@@ -92,7 +91,6 @@ func (a *authenticator) Login(userName, password string) error {
 		log.Error("[auth] Store credentials err: " + err.Error())
 	}
 
-	a.username = userName
 	return nil
 }
 

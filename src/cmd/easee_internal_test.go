@@ -1446,7 +1446,9 @@ func loggerSetup(t *testing.T) {
 	t.Helper()
 
 	cfg := getConfigService().Model()
-	_ = bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
+	if err := bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat); err != nil {
+		t.Fatalf("failed to initialize logger: %s", err)
+	}
 }
 
 func waitForRunning() suite.Callback {

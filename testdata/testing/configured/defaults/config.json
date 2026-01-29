@@ -1,6 +1,7 @@
 {
   "mqtt_client_id_prefix": "easee",
   "work_dir": "../testdata/testing/configured",
+  "log_file": "../../testdata/log/easee.log",
   "log_level": "debug",
   "log_format": "budzik",
   "easeeBaseURL2": "http://localhost:9998",
