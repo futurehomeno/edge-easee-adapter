@@ -148,7 +148,7 @@ func (cs *Service) SetEaseeBaseURL(url string) error {
 func (cs *Service) GetEnergyLifetimeInterval() time.Duration {
 	duration, err := time.ParseDuration(cs.Storage.Model().EnergyLifetimeInterval)
 	if err != nil {
-		return 15 * time.Second
+		return 5 * time.Minute
 	}
 
 	return duration

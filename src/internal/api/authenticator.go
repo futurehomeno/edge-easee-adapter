@@ -91,7 +91,6 @@ func (a *authenticator) Login(userName, password string) error {
 		log.Errorf("[auth] Credentials store err: %v", err.Error())
 	}
 
-	log.Debugf("[auth] User=%s logged in", userName)
 	return nil
 }
 

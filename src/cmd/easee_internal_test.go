@@ -1327,6 +1327,29 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					},
 				},
 			},
+			{
+				Name: "Token refresh task should call Ping() at configured interval",
+				Setup: serviceSetup(testContainer, "configured", mqttAddr, func(client *mocks.APIClient) {
+					client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
+					client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
+					client.On("Ping").Return(nil).Maybe()
+				}, signalRSetup(test.DefaultSignalRAddr, nil)),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{
+							waitForRunning(),
+							func(t *testing.T) {
+								time.Sleep(400 * time.Millisecond)
+							},
+							func(t *testing.T) {
+								client := services.easeeAPIClient.(*mocks.APIClient)
+								client.AssertNumberOfCalls(t, "Ping", 4)
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -1446,7 +1469,9 @@ func loggerSetup(t *testing.T) {
 	t.Helper()
 
 	cfg := getConfigService().Model()
-	_ = bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
+	if err := bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat); err != nil {
+		t.Fatalf("failed to initialize logger: %s", err)
+	}
 }
 
 func waitForRunning() suite.Callback {
