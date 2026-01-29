@@ -1,8 +1,6 @@
 package tasks
 
 import (
-	"time"
-
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/cliffhanger/app"
@@ -21,14 +19,14 @@ func New(
 	ad adapter.Adapter,
 ) []*task.Task {
 	return task.Combine(
-		[]*task.Task{task.New(refreshTokenFn(application, appLifecycle, cfgSrv.GetTokenRefreshInterval()), cfgSrv.GetTokenRefreshInterval())},
+		[]*task.Task{task.New(refreshTokenFn(application, appLifecycle), cfgSrv.GetTokenRefreshInterval())},
 		app.TaskApp(application, appLifecycle),
 		adapter.TaskAdapter(ad, cfgSrv.GetPollingInterval()),
 		thing.TaskCarCharger(ad, cfgSrv.GetPollingInterval(), task.WhenAppIsConnected(appLifecycle)),
 	)
 }
 
-func refreshTokenFn(application easeeapp.AppliacationWithToken, appLifecycle *lifecycle.Lifecycle, interval time.Duration) func() {
+func refreshTokenFn(application easeeapp.AppliacationWithToken, appLifecycle *lifecycle.Lifecycle) func() {
 
 	return func() {
 		if appLifecycle.AuthState() != lifecycle.AuthStateNotAuthenticated {
