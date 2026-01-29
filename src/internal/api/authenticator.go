@@ -1,8 +1,9 @@
 package api
 
 import (
+	"crypto/rand"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"strings"
 	"sync"
 	"time"
@@ -223,7 +224,8 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			return nil, errors.New("refreshToken expired")
 
 		case strings.Contains(err.Error(), "timeout"):
-			retryAfter := time.Duration(retries)*timeout + time.Second*time.Duration(rand.Intn(10))
+			randomDelay, _ := rand.Int(rand.Reader, big.NewInt(10))
+			retryAfter := time.Duration(retries)*timeout + time.Second*time.Duration(randomDelay.Int64())
 			log.Warnf("[auth] AccessToken refresh timeout retry in %ds", int(retryAfter.Seconds()))
 			time.Sleep(retryAfter)
 

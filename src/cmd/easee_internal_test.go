@@ -1340,10 +1340,15 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						InitCallbacks: []suite.Callback{
 							waitForRunning(),
 							func(t *testing.T) {
+								t.Helper()
 								time.Sleep(400 * time.Millisecond)
 							},
 							func(t *testing.T) {
-								client := services.easeeAPIClient.(*mocks.APIClient)
+								t.Helper()
+								client, ok := services.easeeAPIClient.(*mocks.APIClient)
+								if !ok {
+									t.Fatalf("expected easeeAPIClient to be of type *mocks.APIClient")
+								}
 								client.AssertNumberOfCalls(t, "Ping", 4)
 							},
 						},

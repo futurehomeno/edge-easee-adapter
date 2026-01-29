@@ -27,7 +27,6 @@ func New(
 }
 
 func refreshTokenFn(application easeeapp.AppliacationWithToken, appLifecycle *lifecycle.Lifecycle) func() {
-
 	return func() {
 		if appLifecycle.AuthState() != lifecycle.AuthStateNotAuthenticated {
 			application.RefreshToken()
