@@ -17,7 +17,7 @@ func New(
 	application app.App,
 	ad adapter.Adapter,
 ) []*task.Task {
-	return task.Combine[[]*task.Task](
+	return task.Combine(
 		app.TaskApp(application, appLifecycle),
 		adapter.TaskAdapter(ad, cfgSrv.GetPollingInterval()),
 		thing.TaskCarCharger(ad, cfgSrv.GetPollingInterval(), task.WhenAppIsConnected(appLifecycle)),
