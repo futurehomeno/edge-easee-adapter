@@ -5,7 +5,7 @@
   "mqtt_server_password": "",
   "work_dir": "/opt/thingsplex/easee",
   "log_file": "/var/log/thingsplex/easee/easee.log",
-  "log_level": "debug",
+  "log_level": "info",
   "log_format": "budzik",
   "accessToken": "",
   "refreshToken": "",
