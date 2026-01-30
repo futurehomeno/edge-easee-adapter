@@ -97,8 +97,8 @@ func (h *observationsHandler) HandleObservation(observation model.Observation) e
 
 		prevValFloat, err := strconv.ParseFloat(prev.Value, 64)
 
-		if err != nil {
-			log.Infof("%s prev=%v", observation.Str(), prevValFloat)
+		if err == nil {
+			log.Infof("%s prev=%.2f", observation.Str(), prevValFloat)
 		} else {
 			log.Infof("%s prev=%v", observation.Str(), prev.Value)
 		}
