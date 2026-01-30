@@ -85,16 +85,18 @@ type Observation struct {
 }
 
 func (o *Observation) Str() string {
-	ret := fmt.Sprintf("%s [%s] %s (%s)",
-		o.Timestamp.Format(time.RFC3339), o.ChargerID, o.ID.Str(), o.DataType.Str())
+	ret := fmt.Sprintf("[%s] %s", o.ChargerID, o.ID.Str())
 
-	valFloat, err := strconv.ParseFloat(o.Value, 64)
+	if o.DataType == ObservationDataTypeDouble {
+		valFloat, err := strconv.ParseFloat(o.Value, 64)
 
-	if err == nil {
-		ret += fmt.Sprintf(" = %.2f", valFloat)
-	} else {
-		ret += fmt.Sprintf(" = %s", o.Value)
+		if err == nil {
+			ret += fmt.Sprintf("=%.2f", valFloat)
+			return ret
+		}
 	}
+
+	ret += fmt.Sprintf("=%s", o.Value)
 
 	return ret
 }
