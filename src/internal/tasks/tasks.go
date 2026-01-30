@@ -1,6 +1,9 @@
 package tasks
 
 import (
+	"math/rand"
+	"time"
+
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/cliffhanger/app"
@@ -18,8 +21,9 @@ func New(
 	application easeeapp.AppliacationWithToken,
 	ad adapter.Adapter,
 ) []*task.Task {
+	refreshTokenIntervalRandMs := time.Second * time.Duration(rand.Intn(60))
 	return task.Combine(
-		[]*task.Task{task.New(refreshTokenFn(application, appLifecycle), cfgSrv.GetTokenRefreshInterval())},
+		[]*task.Task{task.New(refreshTokenFn(application, appLifecycle), cfgSrv.GetTokenRefreshInterval()+refreshTokenIntervalRandMs)},
 		app.TaskApp(application, appLifecycle),
 		adapter.TaskAdapter(ad, cfgSrv.GetPollingInterval()),
 		thing.TaskCarCharger(ad, cfgSrv.GetPollingInterval(), task.WhenAppIsConnected(appLifecycle)),
