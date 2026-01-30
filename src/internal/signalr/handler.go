@@ -93,7 +93,7 @@ func (h *observationsHandler) IsOnline() bool {
 
 func (h *observationsHandler) HandleObservation(observation model.Observation) error {
 	if prev, ok := h.storedObs[observation.ID]; !ok || prev.Value != observation.Value {
-		log.Infof("%s prev=%v", observation.Str(), prev.Value)
+		log.Infof("%s", observation.Str())
 		h.storedObs[observation.ID] = observation
 	}
 
