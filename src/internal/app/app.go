@@ -90,7 +90,9 @@ func (a *application) RefreshToken() {
 		log.Info("API client reconnected")
 	}
 
-	a.lifecycle.SetConnectionState(lifecycle.ConnStateConnected)
+	if prevConnState != lifecycle.ConnStateConnected {
+		a.lifecycle.SetConnectionState(lifecycle.ConnStateConnected)
+	}
 }
 
 func (a *application) Uninstall() error {
