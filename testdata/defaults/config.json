@@ -12,7 +12,7 @@
   "expiresAt": "0001-01-01T00:00:00Z",
   "easeeBaseURL2": "https://api.easee.com",
   "pollingInterval": "10m",
-  "token_refresh_interval": "29m",
+  "token_refresh_interval": "30m",
   "currentWaitDuration": "3s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
