@@ -2,7 +2,7 @@
   "mqtt_client_id_prefix": "easee",
   "work_dir": "../testdata/testing/configured",
   "log_file": "../../testdata/log/easee.log",
-  "log_level": "debug",
+  "log_level": "info",
   "log_format": "budzik",
   "expiresAt": "9999-02-01T00:00:00Z",
   "refreshTokenExpiresAt": "9999-02-01T00:00:00Z",

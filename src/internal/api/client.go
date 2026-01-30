@@ -120,7 +120,7 @@ func (a *apiClient) ChargerDetails(chargerID string) (model.ChargerDetails, erro
 }
 
 func (a *apiClient) Ping() error {
-	log.Debugf("Ping")
+	log.Tracef("Ping")
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)
