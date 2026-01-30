@@ -21,7 +21,7 @@ func New(
 	application easeeapp.AppliacationWithToken,
 	ad adapter.Adapter,
 ) []*task.Task {
-	refreshTokenIntervalRandMs := time.Second * time.Duration(rand.Intn(60))
+	refreshTokenIntervalRandMs := time.Millisecond * time.Duration(rand.Intn(5000))
 	return task.Combine(
 		[]*task.Task{task.New(refreshTokenFn(application, appLifecycle), cfgSrv.GetTokenRefreshInterval()+refreshTokenIntervalRandMs)},
 		app.TaskApp(application, appLifecycle),
