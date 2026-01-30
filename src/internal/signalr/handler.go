@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -93,7 +94,15 @@ func (h *observationsHandler) IsOnline() bool {
 
 func (h *observationsHandler) HandleObservation(observation model.Observation) error {
 	if prev, ok := h.storedObs[observation.ID]; !ok || prev.Value != observation.Value {
-		log.Infof("%s prev=%v", observation.Str(), prev.Value)
+
+		prevValFloat, err := strconv.ParseFloat(prev.Value, 64)
+
+		if err != nil {
+			log.Infof("%s prev=%v", observation.Str(), prevValFloat)
+		} else {
+			log.Infof("%s prev=%v", observation.Str(), prev.Value)
+		}
+
 		h.storedObs[observation.ID] = observation
 	}
 
