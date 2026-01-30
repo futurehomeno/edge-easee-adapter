@@ -85,8 +85,18 @@ type Observation struct {
 }
 
 func (o *Observation) Str() string {
-	return fmt.Sprintf("%s [%s] %s (%s) = %s",
-		o.Timestamp.Format(time.RFC3339), o.ChargerID, o.ID.Str(), o.DataType.Str(), o.Value)
+	ret := fmt.Sprintf("%s [%s] %s (%s)",
+		o.Timestamp.Format(time.RFC3339), o.ChargerID, o.ID.Str(), o.DataType.Str())
+
+	valFloat, err := strconv.ParseFloat(o.Value, 64)
+
+	if err == nil {
+		ret += fmt.Sprintf(" = %.2f", valFloat)
+	} else {
+		ret += fmt.Sprintf(" = %s", o.Value)
+	}
+
+	return ret
 }
 
 // IntValue returns an integer representation of the Observation value.
