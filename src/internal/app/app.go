@@ -81,13 +81,13 @@ func (a *application) RefreshToken() {
 	prevConnState := a.lifecycle.ConnectionState()
 
 	if err := a.client.Ping(); err != nil {
-		log.Warnf("Refresh token failed API client disconnected err: %v", err)
+		log.Warnf("[auth] Refresh token failed API client disconnected err: %v", err)
 		a.lifecycle.SetConnectionState(lifecycle.ConnStateDisconnected)
 		return
 	}
 
 	if prevConnState == lifecycle.ConnStateDisconnected {
-		log.Info("API client reconnected")
+		log.Info("[auth] API client reconnected")
 	}
 
 	if prevConnState != lifecycle.ConnStateConnected {

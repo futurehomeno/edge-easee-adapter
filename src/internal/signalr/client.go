@@ -192,7 +192,6 @@ func (c *client) notifyState(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			c.updateState(model.ClientStateDisconnected)
-
 			return
 
 		case clientState := <-ch:
