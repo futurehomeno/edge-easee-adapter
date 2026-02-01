@@ -197,8 +197,11 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 		return nil, errors.New("too many requests: backoff")
 	}
 
-	log.Debugf("[auth] Refresh AccessToken RefreshToken expires_at=%s (%.1fmin)",
-		credentials.RefreshTokenExpiresAt.Format(time.RFC3339), -time.Since(credentials.RefreshTokenExpiresAt).Minutes())
+	hours := -time.Since(credentials.RefreshTokenExpiresAt).Hours()
+	minutes := -time.Since(credentials.RefreshTokenExpiresAt).Minutes() - 60*hours
+
+	log.Debugf("[auth] Refresh AccessToken RefreshToken expires_at=%s (%.1fh %.1fmin)",
+		credentials.RefreshTokenExpiresAt.Format(time.RFC3339), hours, minutes)
 
 	for range retries {
 		newCred, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)

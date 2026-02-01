@@ -1,7 +1,8 @@
 package tasks
 
 import (
-	"math/rand"
+	"crypto/rand"
+	"math/big"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
@@ -9,6 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/task"
+	log "github.com/sirupsen/logrus"
 
 	easeeapp "github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -21,9 +23,13 @@ func New(
 	application easeeapp.AppliacationWithToken,
 	ad adapter.Adapter,
 ) []*task.Task {
-	refreshTokenIntervalRandMs := time.Millisecond * time.Duration(rand.Intn(5000))
+	maxValue := big.NewInt(5000)
+	refreshTokenIntervalRandMs, _ := rand.Int(rand.Reader, maxValue)
+	randDuration := time.Duration(refreshTokenIntervalRandMs.Int64()) * time.Millisecond
+	log.Infof("Refresh token interval=%s", cfgSrv.GetTokenRefreshInterval()+randDuration)
+
 	return task.Combine(
-		[]*task.Task{task.New(refreshTokenFn(application, appLifecycle), cfgSrv.GetTokenRefreshInterval()+refreshTokenIntervalRandMs)},
+		[]*task.Task{task.New(refreshTokenFn(application, appLifecycle), cfgSrv.GetTokenRefreshInterval()+randDuration)},
 		app.TaskApp(application, appLifecycle),
 		adapter.TaskAdapter(ad, cfgSrv.GetPollingInterval()),
 		thing.TaskCarCharger(ad, cfgSrv.GetPollingInterval(), task.WhenAppIsConnected(appLifecycle)),
