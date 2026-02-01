@@ -575,7 +575,7 @@ func (c *cache) waitForCurrent(group waitGroup, current int64, duration time.Dur
 	case waitGroupOfferedCurrent:
 		value = c.offeredCurrent.Value
 	default:
-		log.Warnf("invalid waitGroup: %v", group)
+		log.Warnf("Invalid waitGroup: %v", group)
 		c.mu.Unlock()
 
 		return false

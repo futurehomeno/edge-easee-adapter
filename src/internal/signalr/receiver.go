@@ -26,6 +26,11 @@ func (r *receiver) ProductUpdate(o model.Observation) {
 }
 
 func (r *receiver) CommandResponse(resp any) {
-	res, _ := json.MarshalIndent(resp, "", "\t")
-	log.Info("command response: ", string(res))
+	res, err := json.MarshalIndent(resp, "", "\t")
+
+	if err != nil {
+		log.Errorf("Marshal command response err: %v", err)
+	} else {
+		log.Debugf("Command response: %s", string(res))
+	}
 }
