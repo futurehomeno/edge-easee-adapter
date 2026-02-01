@@ -23,9 +23,14 @@ func New(
 	application easeeapp.AppliacationWithToken,
 	ad adapter.Adapter,
 ) []*task.Task {
-	maxValue := big.NewInt(5000)
-	refreshTokenIntervalRandMs, _ := rand.Int(rand.Reader, maxValue)
-	randDuration := time.Duration(refreshTokenIntervalRandMs.Int64()) * time.Millisecond
+	randDuration := time.Duration(0)
+
+	if cfgSrv.GetTokenRefreshInterval() > time.Minute {
+		maxValue := big.NewInt(5000)
+		refreshTokenIntervalRandMs, _ := rand.Int(rand.Reader, maxValue)
+		randDuration = time.Duration(refreshTokenIntervalRandMs.Int64()) * time.Millisecond
+	}
+
 	log.Infof("Refresh token interval=%s", cfgSrv.GetTokenRefreshInterval()+randDuration)
 
 	return task.Combine(
