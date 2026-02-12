@@ -4,14 +4,14 @@ endef
 
 SHELL := /bin/bash
 
-VERSION := 2.6.1
+VERSION := 2.6.2
 APP_NAME := easee
 
 ARCH ?= armhf
 
 OUT_DIR := package/build
 DEB_DIR := package/debian
-DEB_DIR := package/debian
+LOG_DIR := /var/log/thingsplex/$(APP_NAME)
 CONTROL_DIR := $(DEB_DIR)/DEBIAN
 TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
 BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
@@ -27,7 +27,6 @@ clean:
 	-rm -f $(TARGET_BIN)
 	-rm -f $(APP_NAME)
 	-rm -f $(APP_NAME).exe
-	mkdir -p $(BIN_DIR)
 
 build-local:
 	cd src ; go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME) main.go
@@ -46,6 +45,8 @@ build-win-amd64:
 
 configure:
 	mkdir -p $(CONTROL_DIR)
+	mkdir -p $(BIN_DIR)
+	mkdir -p $(LOG_DIR)
 	printf '%s\n' \
 	  "Package: $(APP_NAME)" \
 	  "Version: $(VERSION)" \
