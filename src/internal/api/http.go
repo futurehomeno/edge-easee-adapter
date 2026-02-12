@@ -332,13 +332,12 @@ func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (model
 		return model.ChargerDetails{}, err
 	}
 
-	var ok bool
-	details, ok = ret.(model.ChargerDetails)
+	result, ok := ret.(*model.ChargerDetails)
 	if !ok {
 		return model.ChargerDetails{}, errors.New("failed to cast response to charger details")
 	}
 
-	return details, nil
+	return *result, nil
 }
 
 func (c *httpClient) Ping(accessToken string) error {
