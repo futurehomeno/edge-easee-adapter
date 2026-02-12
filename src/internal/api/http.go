@@ -280,8 +280,8 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 }
 
 func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*model.ChargerConfig, error) {
-	var siteInfo model.ChargerConfig
-	rsp, err := c.getResponse(&siteInfo, c.buildURL(chargerConfigURITemplate, chargerID), accessToken)
+	var chargerConfig model.ChargerConfig
+	rsp, err := c.getResponse(&chargerConfig, c.buildURL(chargerConfigURITemplate, chargerID), accessToken)
 	if err != nil {
 		return nil, err
 	}

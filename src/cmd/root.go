@@ -42,34 +42,27 @@ func NewBudzikFormatter() *BudzikFormatter {
 }
 
 // Execute is an entry point to the edge application.
-func Execute(version string) {
+func Execute(version string) error {
 	cfg := getConfigService().Model()
 
 	if err := bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat); err != nil {
-		//nolint:forbidigo
-		fmt.Printf("Failed init logger err: %v", err)
-		return
+		return fmt.Errorf("init logger err: %w", err)
 	}
 
-	log.Infof("\t--- Start Easee v.%s ---", version)
-	defer log.Infof("\t+++ Stop Easee v.%s +++", version)
-
-	edgeApp, err := Build(cfg)
+	rootApp, err := Build(cfg)
 	if err != nil {
-		log.WithError(err).Fatalf("failed to build the edge application")
+		return fmt.Errorf("build app err: %w", err)
 	}
 
-	err = edgeApp.Start()
+	log.Infof("\t--- Start Easee v%s ---", version)
+	defer log.Infof("\t+++ Stop Easee v%s +++", version)
+
+	err = rootApp.Run()
 	if err != nil {
-		log.WithError(err).Fatalf("failed to start the edge application")
+		return fmt.Errorf("start app err: %w", err)
 	}
 
-	bootstrap.WaitForShutdown()
-
-	err = edgeApp.Stop()
-	if err != nil {
-		log.WithError(err).Fatalf("failed to stop the edge application")
-	}
+	return nil
 }
 
 func Build(cfg *config.Config) (root.App, error) {
