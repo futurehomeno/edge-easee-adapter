@@ -301,7 +301,6 @@ func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*model.Char
 		return nil, err
 	}
 
-	var ok bool
 	ret, ok := rsp.(*model.ChargerSiteInfo)
 	if !ok {
 		return nil, errors.New("failed to cast response to charger site info")
