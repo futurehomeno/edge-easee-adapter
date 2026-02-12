@@ -131,7 +131,7 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 	phaseMode, _ = h.cache.PhaseMode()
 	supportedModes := model.SupportedPhaseModes(gridType, phaseMode, phases)
 
-	service = h.ensureChargepointProps(service, map[string]interface{}{
+	service = h.ensureChargepointProps(service, map[string]any{
 		chargepoint.PropertySupportedPhaseModes: supportedModes,
 	})
 
@@ -171,7 +171,7 @@ func (h *observationsHandler) handleCloudConnected(observation model.Observation
 		return err
 	}
 
-	if !val {
+	if h.isCloudOnline.Load() && !val {
 		log.Warnf("Charger=%s disconnected from cloud", h.chargerID)
 	}
 
