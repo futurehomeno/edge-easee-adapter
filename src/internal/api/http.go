@@ -295,19 +295,19 @@ func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*model.Charge
 }
 
 func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*model.ChargerSiteInfo, error) {
-	var siteInfo *model.ChargerSiteInfo
-	ret, err := c.getResponse(&siteInfo, c.buildURL(chargerSiteURITemplate, chargerID), accessToken)
+	var siteInfo model.ChargerSiteInfo
+	rsp, err := c.getResponse(&siteInfo, c.buildURL(chargerSiteURITemplate, chargerID), accessToken)
 	if err != nil {
 		return nil, err
 	}
 
 	var ok bool
-	siteInfo, ok = ret.(*model.ChargerSiteInfo)
+	ret, ok := rsp.(*model.ChargerSiteInfo)
 	if !ok {
 		return nil, errors.New("failed to cast response to charger site info")
 	}
 
-	return siteInfo, nil
+	return ret, nil
 }
 
 func (c *httpClient) Chargers(accessToken string) ([]model.Charger, error) {
