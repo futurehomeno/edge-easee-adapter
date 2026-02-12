@@ -216,20 +216,11 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	var current *int64
-	if val >= 0 {
-		current = new(int64)
-		*current = int64(val)
-	}
+	var cableCurrent int64
 
-	ok := h.cache.SetCableCurrent(current, observation.Timestamp)
+	ok := h.cache.SetCableCurrent(&cableCurrent, observation.Timestamp)
 	if !ok {
-		return nil
-	}
-
-	state, _ := h.cache.ChargerState()
-	if state == chargepoint.StateCharging && current == nil {
-		return nil
+		log.Errorf("Set cable current=%d err: %v", val, err)
 	}
 
 	chargepointSrv, err := getChargepointService(h.thing)
@@ -237,7 +228,9 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	_, err = chargepointSrv.SendCableLockReport(true)
+	state, _ := h.cache.ChargerState()
+	cableConnected := state == chargepoint.StateCharging || cableCurrent > 0
+	_, err = chargepointSrv.SendCableLockReport(cableConnected)
 
 	return err
 }

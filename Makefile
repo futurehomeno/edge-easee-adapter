@@ -11,7 +11,8 @@ ARCH ?= armhf
 
 OUT_DIR := package/build
 DEB_DIR := package/debian
-LOG_DIR := /var/log/thingsplex/$(APP_NAME)
+DATA_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)/data
+LOG_DIR := $(DEB_DIR)/var/log/thingsplex/$(APP_NAME)
 CONTROL_DIR := $(DEB_DIR)/DEBIAN
 TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
 BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
@@ -47,6 +48,7 @@ configure:
 	mkdir -p $(CONTROL_DIR)
 	mkdir -p $(BIN_DIR)
 	mkdir -p $(LOG_DIR)
+	mkdir -p $(DATA_DIR)
 	printf '%s\n' \
 	  "Package: $(APP_NAME)" \
 	  "Version: $(VERSION)" \
