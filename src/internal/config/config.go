@@ -479,8 +479,8 @@ func (cs *Service) GetSignalRInitialFailureCount() uint32 {
 
 // SetSignalRInitialFailureCount allows to safely alter signalr initial failure count.
 func (cs *Service) SetSignalRInitialFailureCount(n uint32) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
 
 	cs.Model().SignalR.InitialFailureCount = n
 
@@ -497,8 +497,8 @@ func (cs *Service) GetSignalRRepeatedFailureCount() uint32 {
 
 // SetSignalRRepeatedFailureCount allows to safely alter repeated failure count.
 func (cs *Service) SetSignalRRepeatedFailureCount(n uint32) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
 
 	cs.Model().SignalR.RepeatedFailureCount = n
 
