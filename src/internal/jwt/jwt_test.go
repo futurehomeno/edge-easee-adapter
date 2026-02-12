@@ -19,14 +19,12 @@ func TestExpirationDate(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "successful extraction",
-			//nolint:lll
+			name:  "successful extraction",
 			token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlODYwOTliNi02MTE1LTRmZmEtOWU3My01ODM3MWQ4ODUwMTUiLCJ0eXBlIjoiaWQiLCJpYXQiOjE2ODYwNDExMDUsImV4cCI6MTY4NjA0MTcwNX0.hrP1cHyyOV7I3PM4TMY_0Q2UYokyIugPtFx5HhZbrYk",
 			want:  time.Date(2023, time.June, 6, 8, 55, 5, 0, time.UTC),
 		},
 		{
-			name: "token without expiration date",
-			//nolint:lll
+			name:    "token without expiration date",
 			token:   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlODYwOTliNi02MTE1LTRmZmEtOWU3My01ODM3MWQ4ODUwMTUiLCJ0eXBlIjoiaWQiLCJpYXQiOjE2ODYwNDExMDV9.uaef87bFclazEKRvu9_-MVsG3T7uoy3U5YPm0kigby0",
 			wantErr: true,
 		},

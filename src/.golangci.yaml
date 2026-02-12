@@ -7,9 +7,7 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-    # Enabled specifically
     - lll
-    - cyclop
     - bodyclose
     - asciicheck
     - dupl
@@ -18,10 +16,7 @@ linters:
     - durationcheck
     - gocritic
     - gocyclo
-    - gocognit
-    - goconst
     - gosec
-    - exhaustive
     - forbidigo
     - forcetypeassert
     - goheader
@@ -32,7 +27,6 @@ linters:
     - makezero
     - misspell
     - nakedret
-    - nestif
     - nilerr
     - noctx
     - nolintlint
@@ -48,22 +42,16 @@ linters:
     - whitespace
 
   disable:
+    - paralleltest
+    - tparallel
+    - tagliatelle
+    - wrapcheck
+    - gochecknoinits
+    - depguard
     - nlreturn
-    - depguard # Not suitable for our use-case.
-    - tagliatelle # Need to maintain compatibility with legacy JSON models.
-    - wrapcheck # To be enabled if comfortable to work with.
-    - goerr113 # Too restrictive as forbids dynamic declaration of errors.
-    - exhaustivestruct # Too restrictive as partial struct initialization is a common and valid scenario.
-    - gochecknoglobals # Too restrictive and controversial.
-    - gochecknoinits # Too restrictive and controversial.
-    - prealloc # Too restrictive and generating a lot of false positives.
-  fast: false
-linters-settings:
-  lll:
-    line-length: 220
-  gci:
-    custom-order: true
-    sections:
-      - standard
-      - default
-      - prefix(github.com/futurehomeno/edge-easee-adapter)
+    - revive
+    - funlen
+
+  settings:
+    lll:
+      line-length: 220
