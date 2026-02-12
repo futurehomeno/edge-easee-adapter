@@ -2,6 +2,7 @@ package signalr
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,7 @@ type observationsHandler struct {
 	energyHandler  *energyHandler
 	sessionStorage db.ChargingSessionStorage
 	chargerID      string
+	storedObs      map[model.ObservationID]model.Observation
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
@@ -55,6 +57,7 @@ func NewObservationsHandler(
 		energyHandler:  newEnergyHandler(cache, thing, confSrv),
 		sessionStorage: sessionStorage,
 		chargerID:      chargerID,
+		storedObs:      make(map[model.ObservationID]model.Observation),
 	}
 
 	handler.isCloudOnline.Store(true)
@@ -89,11 +92,16 @@ func (h *observationsHandler) IsOnline() bool {
 }
 
 func (h *observationsHandler) HandleObservation(observation model.Observation) error {
+	if prev, ok := h.storedObs[observation.ID]; !ok || prev.Value != observation.Value {
+		log.Infof("%s", observation.Str())
+		h.storedObs[observation.ID] = observation
+	}
+
 	if handler, ok := h.handlers[observation.ID]; ok {
 		return handler(observation)
 	}
 
-	return nil
+	return fmt.Errorf("not supported")
 }
 
 func (h *observationsHandler) handlePhaseMode(observation model.Observation) error {
@@ -123,7 +131,7 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 	phaseMode, _ = h.cache.PhaseMode()
 	supportedModes := model.SupportedPhaseModes(gridType, phaseMode, phases)
 
-	service = h.ensureChargepointProps(service, map[string]interface{}{
+	service = h.ensureChargepointProps(service, map[string]any{
 		chargepoint.PropertySupportedPhaseModes: supportedModes,
 	})
 
@@ -161,6 +169,10 @@ func (h *observationsHandler) handleCloudConnected(observation model.Observation
 	val, err := observation.BoolValue()
 	if err != nil {
 		return err
+	}
+
+	if h.isCloudOnline.Load() && !val {
+		log.Warnf("Charger=%s disconnected from cloud", h.chargerID)
 	}
 
 	h.isCloudOnline.Store(val)
@@ -428,7 +440,7 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 
 	supportedModes := model.SupportedPhaseModes(supportedGridType, phaseMode, supportedPhases)
 
-	service = h.ensureChargepointProps(service, map[string]interface{}{
+	service = h.ensureChargepointProps(service, map[string]any{
 		chargepoint.PropertyGridType:            supportedGridType,
 		chargepoint.PropertyPhases:              supportedPhases,
 		chargepoint.PropertySupportedPhaseModes: supportedModes,

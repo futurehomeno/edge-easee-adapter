@@ -1,6 +1,7 @@
 package signalr
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -182,71 +183,85 @@ func (m *manager) run() {
 				continue
 			}
 
-			m.handleSubscription(chargerID)
+			if err := m.handleSubscription(chargerID); err != nil {
+				log.Warnf("Handle subscription chargerID=%s err: %v", chargerID, err)
+			}
 
 		case state := <-states:
 			m.handleClientState(state)
 
 		case observation := <-observations:
-			m.handleObservation(observation)
+			if err := m.handleObservation(observation); err != nil {
+				log.Warnf("Handle observation chargerID=%s err: %v", observation.ChargerID, err)
+			}
 		}
 	}
 }
 
-func (m *manager) handleSubscription(chargerID string) {
+func (m *manager) handleSubscription(chargerID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	charger, ok := m.chargers[chargerID]
 	if !ok {
-		return
+		return fmt.Errorf("unknown charger")
 	}
 
 	if err := m.client.SubscribeCharger(chargerID); err != nil {
 		log.Warnf("Failed to subscribe charger '%s'", chargerID)
 
 		if m.subscriptions == nil {
-			return
+			return fmt.Errorf("subscriptions channel closed")
 		}
 
 		go m.addChargerSubscription(chargerID, charger)
 
-		return
+		return nil
 	}
 
 	charger.backoff.Reset()
 	charger.isSubscribed = true
 
 	log.Debugf("signalR: subscribed charger '%s'", chargerID)
+	return nil
 }
 
 func (m *manager) addChargerSubscription(chargerID string, charger *charger) {
+	m.mu.Lock()
 	timer := time.NewTimer(charger.backoff.Next())
+	m.mu.Unlock()
+
 	defer timer.Stop()
 
 	select {
 	case <-m.done:
 	case <-timer.C:
 		m.mu.Lock()
-		defer m.mu.Unlock()
+		ok := m.subscriptions != nil
+		m.mu.Unlock()
 
-		if m.subscriptions != nil {
+		if ok {
 			m.subscriptions <- chargerID
 		}
 	}
 }
 
 func (m *manager) handleClientState(state model.ClientState) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	switch state {
 	case model.ClientStateConnected:
-		log.Debug("signalR: client connected")
+		log.Info("signalR: client connected")
 
+		m.mu.Lock()
 		m.subscriptions = make(chan string, 1+len(m.chargers))
+		chargersIDs := make([]string, 0, len(m.chargers))
 
 		for chargerID := range m.chargers {
+			chargersIDs = append(chargersIDs, chargerID)
+		}
+
+		m.mu.Unlock()
+
+		for _, chargerID := range chargersIDs {
 			select {
 			case <-m.done:
 			case m.subscriptions <- chargerID:
@@ -254,8 +269,9 @@ func (m *manager) handleClientState(state model.ClientState) {
 		}
 
 	case model.ClientStateDisconnected:
-		log.Debug("signalR: client disconnected")
+		log.Warn("signalR: client disconnected")
 
+		m.mu.Lock()
 		for _, charger := range m.chargers {
 			charger.backoff.Reset()
 			charger.isSubscribed = false
@@ -263,38 +279,34 @@ func (m *manager) handleClientState(state model.ClientState) {
 
 		if m.subscriptions != nil {
 			close(m.subscriptions)
+			m.subscriptions = nil
 		}
 
-		m.subscriptions = nil
+		m.mu.Unlock()
 
 	default:
 		log.Warnf("Unknown client state %v", state)
 	}
 }
 
-func (m *manager) handleObservation(observation model.Observation) {
+func (m *manager) handleObservation(observation model.Observation) error {
 	if !observation.ID.Supported() {
-		return
+		return nil
 	}
-
-	log.Debugf("received observation: %+v", observation)
 
 	m.mu.RLock()
 	chargerHandler, ok := m.chargers[observation.ChargerID]
 	m.mu.RUnlock()
 
 	if !ok {
-		return
+		return fmt.Errorf("no handler")
 	}
 
 	if err := chargerHandler.handler.HandleObservation(observation); err != nil {
-		log.
-			WithError(err).
-			WithField("chargerID", observation.ChargerID).
-			WithField("observationID", observation.ID).
-			WithField("value", observation.Value).
-			Error("failed to handle observation")
+		return fmt.Errorf("obs='%s' err: %w", observation.ID.Str(), err)
 	}
+
+	return nil
 }
 
 func (m *manager) ensureClientStarted() {

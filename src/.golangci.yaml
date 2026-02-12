@@ -7,6 +7,7 @@ linters:
     - ineffassign
     - staticcheck
     - unused
+    # Enabled specifically
     - lll
     - cyclop
     - bodyclose
@@ -47,18 +48,22 @@ linters:
     - whitespace
 
   disable:
-    - paralleltest
-    - tparallel
-    - tagliatelle
-    - wrapcheck
-    - gochecknoglobals
-    - gochecknoinits
-    - prealloc
-    - depguard
-    - funlen
     - nlreturn
-    - revive
-
-  settings:
-    lll:
-      line-length: 180
+    - depguard # Not suitable for our use-case.
+    - tagliatelle # Need to maintain compatibility with legacy JSON models.
+    - wrapcheck # To be enabled if comfortable to work with.
+    - goerr113 # Too restrictive as forbids dynamic declaration of errors.
+    - exhaustivestruct # Too restrictive as partial struct initialization is a common and valid scenario.
+    - gochecknoglobals # Too restrictive and controversial.
+    - gochecknoinits # Too restrictive and controversial.
+    - prealloc # Too restrictive and generating a lot of false positives.
+  fast: false
+linters-settings:
+  lll:
+    line-length: 220
+  gci:
+    custom-order: true
+    sections:
+      - standard
+      - default
+      - prefix(github.com/futurehomeno/edge-easee-adapter)
