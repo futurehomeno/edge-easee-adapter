@@ -218,7 +218,7 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 
 	cableCurrent := int64(val)
 
-	ok := h.cache.SetCableCurrent(&cableCurrent, observation.Timestamp)
+	ok := h.cache.SetCableCurrent(cableCurrent, observation.Timestamp)
 	if !ok {
 		log.Errorf("Set cable current=%d err: %v", val, err)
 	}

@@ -58,7 +58,7 @@ type Cache interface {
 	SetOutputPhaseType(mode chargepoint.PhaseMode, timestamp time.Time) bool
 	SetInstallationParameters(gridType chargepoint.GridType, phases int, timestamp time.Time) bool
 	SetCableLocked(locked bool, timestamp time.Time) bool
-	SetCableCurrent(current *int64, timestamp time.Time) bool
+	SetCableCurrent(current int64, timestamp time.Time) bool
 	SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool
 	SetEnergySession(energy float64, timestamp time.Time) bool
 	SetPhase1Current(current float64, timestamp time.Time) bool
@@ -89,7 +89,7 @@ type cache struct {
 	gridType                model.TimestampedValue[chargepoint.GridType]
 	phases                  model.TimestampedValue[int]
 	cableLocked             model.TimestampedValue[bool]
-	cableCurrent            model.TimestampedValue[*int64]
+	cableCurrent            model.TimestampedValue[int64]
 	cableAlwaysLocked       model.TimestampedValue[bool]
 
 	currentListeners map[waitGroup][]chan<- int64
@@ -257,7 +257,7 @@ func (c *cache) SetCableLocked(locked bool, timestamp time.Time) bool {
 	return true
 }
 
-func (c *cache) SetCableCurrent(current *int64, timestamp time.Time) bool {
+func (c *cache) SetCableCurrent(current int64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -267,7 +267,7 @@ func (c *cache) SetCableCurrent(current *int64, timestamp time.Time) bool {
 		return false
 	}
 
-	c.cableCurrent = model.TimestampedValue[*int64]{
+	c.cableCurrent = model.TimestampedValue[int64]{
 		Value:     current,
 		Timestamp: timestamp,
 	}
