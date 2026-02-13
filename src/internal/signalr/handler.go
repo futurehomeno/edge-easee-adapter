@@ -391,12 +391,12 @@ func (h *observationsHandler) handleInCurrentT5(observation model.Observation) e
 		return err
 	}
 
-	log.Debugf("[%s] Phase3Current=%.1f", h.chargerID, val)
-
 	ok := h.cache.SetPhase3Current(val, observation.Timestamp)
 	if !ok {
 		return nil
 	}
+
+	log.Debugf("[%s] Phase3Current=%.1f", h.chargerID, val)
 
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {

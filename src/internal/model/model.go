@@ -307,8 +307,6 @@ func (s ChargerState) Str() string {
 		return "await_auth"
 	case ChargerStateDeAuthenticating:
 		return "de_auth"
-	default:
-
 	}
 
 	return fmt.Sprintf("unknown(%#x)", s)
