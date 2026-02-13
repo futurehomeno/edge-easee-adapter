@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-TAG := 2.5.11
+TAG := 2.6.2
 APP_NAME := easee
 
 ARCH ?= armhf
