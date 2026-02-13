@@ -127,6 +127,8 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 		return errors.Wrap(err, fmt.Sprintf("failed to login as '%s'", credentials.Username))
 	}
 
+	defer a.RefreshToken() // Call only on success
+
 	if err := a.registerChargers(); err != nil {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
@@ -139,7 +141,6 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
 
-	a.RefreshToken() // Call only on success
 	return nil
 }
 
@@ -152,6 +153,8 @@ func (a *application) Initialize() error {
 		return errors.Wrap(err, "failed to save configs at application initialization")
 	}
 
+	defer a.RefreshToken()
+
 	if a.cfgService.GetCredentials().Empty() {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
@@ -163,7 +166,6 @@ func (a *application) Initialize() error {
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
 
-	a.RefreshToken()
 	return nil
 }
 

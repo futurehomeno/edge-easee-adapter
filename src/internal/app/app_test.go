@@ -277,9 +277,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					On("Login", "test-user", "test-password").
 					Return(errors.New("oops"))
 			},
-			mockClient: func(c *mocks.APIClient) {
-				c.On("Ping").Return(nil)
-			},
 			wantErr: true,
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
@@ -586,9 +583,6 @@ func TestApplication_Initialize(t *testing.T) {
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(errors.New("oops"))
-			},
-			mockClient: func(c *mocks.APIClient) {
-				c.On("Ping").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())

@@ -147,7 +147,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	var reason err
+	var reason error
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -174,7 +174,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 	}
 
 	c.logFailedResponse(resp)
-	return nil, fmt.Errorf("%v status code=%d", reason, resp.StatusCode)
+	return nil, fmt.Errorf("%w status code=%d", reason, resp.StatusCode)
 }
 
 func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current float64) error {

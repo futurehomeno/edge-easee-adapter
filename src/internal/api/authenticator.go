@@ -191,7 +191,7 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 	return ret, nil
 }
 
-func (a *authenticator) updateCredentials(credentials config.Credentials, retries int, timeout time.Duration) (*config.Credentials, error) {
+func (a *authenticator) updateCredentials(credentials config.Credentials, retries int, timeout time.Duration) (*config.Credentials, error) { //nolint:cyclop
 	if a.backoff.Should() {
 		return nil, errors.New("too many requests: backoff")
 	}
@@ -215,7 +215,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 
 			if err != nil {
 				log.Error("[auth] Store credentials err: " + err.Error())
-			} else {
+			} else if hours < 22 {
 				log.Infof("[auth] New AccessToken expires_at=%s (%.1fmin)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt).Minutes())
 			}
 
