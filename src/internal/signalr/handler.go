@@ -152,7 +152,7 @@ func (h *observationsHandler) handleMaxChargerCurrent(observation model.Observat
 		return err
 	}
 
-	log.Infof("[%s] Max current=%.1f", h.chargerID, val)
+	log.Debugf("[%s] Max current=%.1f", h.chargerID, val)
 
 	ok := h.cache.SetMaxCurrent(int64(math.Round(val)), observation.Timestamp)
 	if !ok {
@@ -519,7 +519,7 @@ func (h *observationsHandler) handleChargingSessionStop(observation model.Observ
 		return err
 	}
 
-	log.Debugf("[%s] Stop session", h.chargerID)
+	log.Debugf("[%s] Stop session %v", h.chargerID, chargingSession)
 
 	err = h.sessionStorage.RegisterSessionStop(h.chargerID, chargingSession)
 	if err != nil {
@@ -539,7 +539,7 @@ func (h *observationsHandler) handleChargingSessionStart(observation model.Obser
 		return err
 	}
 
-	log.Debugf("[%s] Start session", h.chargerID)
+	log.Debugf("[%s] Start session %v", h.chargerID, chargingSession)
 
 	err = h.sessionStorage.RegisterSessionStart(h.chargerID, chargingSession)
 	if err != nil {
