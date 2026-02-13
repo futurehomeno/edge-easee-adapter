@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
-	"strings"
 	"sync"
 	"time"
 
@@ -120,7 +119,7 @@ func (a *authenticator) AccessToken() (string, error) {
 		return "", errors.Wrap(a.triggerAppLogout(), "refresh token expired")
 	}
 
-	newCredentials, err := a.updateCredentials(credentials, 3, 30*time.Second)
+	newCredentials, err := a.updateCredentials(credentials, 2, 30*time.Second)
 	if err != nil {
 		return "", fmt.Errorf("[auth] update credentials err: %w", err)
 	}
@@ -224,7 +223,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 		}
 
 		switch {
-		case strings.Contains(err.Error(), "unauthorized"):
+		case errors.Is(err, ErrUnauthorized):
 			if err := a.triggerAppLogout(); err != nil {
 				log.Error("[auth] TriggerAppLogout err: " + err.Error())
 			}
@@ -232,8 +231,11 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			a.backoff.Fail()
 			return nil, errors.New("refreshToken expired")
 
-		case strings.Contains(err.Error(), "timeout"):
-			randomDelay, _ := rand.Int(rand.Reader, big.NewInt(10))
+		case errors.Is(err, ErrTimeout):
+			randomDelay, err := rand.Int(rand.Reader, big.NewInt(10))
+			if err != nil {
+				randomDelay = big.NewInt(0)
+			}
 			retryAfter := time.Duration(retries)*timeout + time.Second*time.Duration(randomDelay.Int64())
 			log.Warnf("[auth] AccessToken refresh timeout retry in %ds", int(retryAfter.Seconds()))
 			time.Sleep(retryAfter)

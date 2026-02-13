@@ -18,6 +18,13 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
+var (
+	ErrUnauthorized = errors.New("unauthorized")
+	ErrTimeout      = errors.New("timeout")
+	ErrServer       = errors.New("server_error")
+	ErrUnexpected   = errors.New("unexpected")
+)
+
 const (
 	loginURI        = "/api/accounts/login"
 	tokenRefreshURI = "/api/accounts/refresh_token" //nolint:gosec
@@ -140,7 +147,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	var reason string
+	var reason err
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -154,17 +161,20 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 		return loginData, nil
 
 	case http.StatusUnauthorized:
-		reason = "unauthorized"
+		reason = ErrUnauthorized
 
-	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		reason = "timeout"
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		reason = ErrTimeout
+
+	case http.StatusInternalServerError:
+		reason = ErrServer
 
 	default:
-		reason = "unexpected"
+		reason = ErrUnexpected
 	}
 
 	c.logFailedResponse(resp)
-	return nil, fmt.Errorf("%s status code=%d", reason, resp.StatusCode)
+	return nil, fmt.Errorf("%v status code=%d", reason, resp.StatusCode)
 }
 
 func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current float64) error {

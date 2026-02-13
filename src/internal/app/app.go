@@ -16,7 +16,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
-type AppliacationWithToken interface {
+type ApplicationWithToken interface {
 	Application
 	RefreshToken()
 }
@@ -38,7 +38,7 @@ func New(
 	client api.Client,
 	auth api.Authenticator,
 	signalRClient signalr.Client,
-) AppliacationWithToken {
+) ApplicationWithToken {
 	return &application{
 		ad:            ad,
 		mfLoader:      mfLoader,
@@ -119,8 +119,6 @@ func (a *application) Uninstall() error {
 }
 
 func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
-	defer a.RefreshToken()
-
 	if err := a.auth.Login(credentials.Username, credentials.Password); err != nil {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
@@ -141,12 +139,11 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
 
+	a.RefreshToken() // Call only on success
 	return nil
 }
 
 func (a *application) Initialize() error {
-	defer a.RefreshToken()
-
 	if err := a.ad.InitializeThings(); err != nil {
 		return errors.Wrap(err, "failed to initialize things")
 	}
@@ -159,7 +156,6 @@ func (a *application) Initialize() error {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-
 		return nil
 	}
 
@@ -167,6 +163,7 @@ func (a *application) Initialize() error {
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
 
+	a.RefreshToken()
 	return nil
 }
 

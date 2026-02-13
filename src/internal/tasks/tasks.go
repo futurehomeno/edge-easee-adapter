@@ -20,7 +20,7 @@ import (
 func New(
 	cfgSrv *config.Service,
 	appLifecycle *lifecycle.Lifecycle,
-	application easeeapp.AppliacationWithToken,
+	application easeeapp.ApplicationWithToken,
 	ad adapter.Adapter,
 ) []*task.Task {
 	interval := cfgSrv.GetTokenRefreshInterval()
@@ -41,7 +41,7 @@ func New(
 	)
 }
 
-func refreshTokenFn(application easeeapp.AppliacationWithToken, appLifecycle *lifecycle.Lifecycle) func() {
+func refreshTokenFn(application easeeapp.ApplicationWithToken, appLifecycle *lifecycle.Lifecycle) func() {
 	return func() {
 		if appLifecycle.AuthState() != lifecycle.AuthStateNotAuthenticated {
 			application.RefreshToken()
