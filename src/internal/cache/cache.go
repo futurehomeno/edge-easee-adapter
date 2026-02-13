@@ -44,7 +44,7 @@ type Cache interface {
 	// CableLocked returns the cable locked state.
 	CableLocked() (bool, time.Time)
 	// CableCurrent returns the cable max current.
-	CableCurrent() (*int64, time.Time)
+	CableCurrent() (int64, time.Time)
 	// CableAlwaysLocked returns state of cable always locked parameter.
 	CableAlwaysLocked() (bool, time.Time)
 
@@ -207,7 +207,7 @@ func (c *cache) CableLocked() (bool, time.Time) {
 	return c.cableLocked.Value, c.cableLocked.Timestamp
 }
 
-func (c *cache) CableCurrent() (*int64, time.Time) {
+func (c *cache) CableCurrent() (int64, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -575,7 +575,7 @@ func (c *cache) waitForCurrent(group waitGroup, current int64, duration time.Dur
 	case waitGroupOfferedCurrent:
 		value = c.offeredCurrent.Value
 	default:
-		log.Warnf("invalid waitGroup: %v", group)
+		log.Warnf("Invalid waitGroup: %v", group)
 		c.mu.Unlock()
 
 		return false
