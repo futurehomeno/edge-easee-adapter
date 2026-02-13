@@ -1349,7 +1349,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								if !ok {
 									t.Fatalf("expected easeeAPIClient to be of type *mocks.APIClient")
 								}
-								client.AssertNumberOfCalls(t, "Ping", 4)
+								client.AssertNumberOfCalls(t, "Ping", 6)
 							},
 						},
 					},

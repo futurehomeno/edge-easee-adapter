@@ -200,8 +200,14 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 	hours := -time.Since(credentials.RefreshTokenExpiresAt).Hours()
 	minutes := -time.Since(credentials.RefreshTokenExpiresAt).Minutes() - 60*hours
 
-	log.Debugf("[auth] Refresh AccessToken RefreshToken expires_at=%s (%.1fh %.1fmin)",
+	dbgStr := fmt.Sprintf("[auth] Refresh AccessToken RefreshToken expires_at=%s (%.1fh %.1fmin)",
 		credentials.RefreshTokenExpiresAt.Format(time.RFC3339), hours, minutes)
+
+	if hours < 22 {
+		log.Info(dbgStr)
+	} else {
+		log.Trace(dbgStr)
+	}
 
 	for range retries {
 		newCred, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)

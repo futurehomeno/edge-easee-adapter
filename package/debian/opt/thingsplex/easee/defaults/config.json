@@ -14,6 +14,7 @@
   "token_refresh_interval": "30m",
   "energyLifetimeInterval": "15m",
   "currentWaitDuration": "3s",
+  "offered_current_wait_time": "30s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
   "signalR": {
@@ -21,18 +22,18 @@
     "connCreationTimeout": "30s",
     "keepAliveInterval2": "30s",
     "timeoutInterval2": "1m",
-    "initialBackoff": "5s",
+    "initialBackoff": "10s",
     "repeatedBackoff": "30s",
     "finalBackoff": "2m",
-    "initialFailureCount": 3,
-    "repeatedFailureCount": 6,
+    "initialFailureCount": 2,
+    "repeatedFailureCount": 3,
     "invokeTimeout": "10s"
   },
   "authenticatorBackoff": {
     "initialBackoff": "1m",
     "repeatedBackoff": "5m",
     "finalBackoff": "10m",
-    "initialFailureCount": 5,
-    "repeatedFailureCount": 10
+    "initialFailureCount": 4,
+    "repeatedFailureCount": 8
   }
 }
