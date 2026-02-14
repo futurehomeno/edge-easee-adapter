@@ -64,7 +64,7 @@ package-deb:
 	chmod 644 $(DEB_DIR)/DEBIAN/control
 	chmod -R g-w $(DEB_DIR)
 
-	@if command -v dpkg-deb >/dev/null; then \
+	@if command -v dpkg-deb >/dev/null && command -v fakeroot >/dev/null; then \
 		echo "Using local dpkg-deb"; \
 		fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG); \
 	else \

@@ -220,7 +220,7 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 
 	ok := h.cache.SetCableCurrent(cableCurrent, observation.Timestamp)
 	if !ok {
-		log.Errorf("Set cable current=%d err: %v", val, err)
+		return nil
 	}
 
 	chargepointSrv, err := getChargepointService(h.thing)

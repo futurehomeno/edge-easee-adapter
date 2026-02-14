@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.25'
+        go-version: '1.26'
 
     - name: Cache Go modules
       uses: actions/cache@v3
@@ -48,11 +48,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.7.2
+          version: v2.9.0
           working-directory: src
       - name: Run staticcheck
         run: |
@@ -66,14 +66,14 @@ jobs:
       - build
       - linter
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: '1.25'
+        go-version: '1.26'
 
-    - name: Install mockery (v2, Go 1.25 compatible)
+    - name: Install mockery (v2, Go 1.26 compatible)
       run: |
         go install github.com/vektra/mockery/v2@2.53.5
         echo "$HOME/go/bin" >> $GITHUB_PATH
@@ -96,7 +96,7 @@ jobs:
     needs: test
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
