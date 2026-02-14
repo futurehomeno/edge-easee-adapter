@@ -46,6 +46,11 @@ jobs:
           go version
           mockery --version
 
+      - name: Generate mocks
+        run: |
+          mockery --version
+          make generate-mocks
+
   build:
     runs-on: ubuntu-latest
     needs: setup
@@ -127,11 +132,6 @@ jobs:
             ~/go/pkg/mod
             ~/go/bin
           key: ${{ needs.setup.outputs.go-cache-key }}
-
-      - name: Generate mocks
-        run: |
-          mockery --version
-          make generate-mocks
 
       - name: Test
         shell: bash
