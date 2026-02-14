@@ -1,25 +1,13 @@
-issues:
-  fix: false
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - lll
-        - funlen
-        - dupl
+version: "2"
+
 linters:
   enable:
-    # Enabled by default
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - staticcheck
-    - typecheck
     - unused
-    # Enabled specifically
-    - wsl
     - lll
-    - cyclop
     - bodyclose
     - asciicheck
     - dupl
@@ -28,17 +16,9 @@ linters:
     - durationcheck
     - gocritic
     - gocyclo
-    - gci
-    - gocognit
-    - goconst
-    - godot
-    - godox
     - gosec
     - forbidigo
     - forcetypeassert
-    - funlen
-    - gofmt
-    - gofumpt
     - goheader
     - gomoddirectives
     - gomodguard
@@ -47,42 +27,31 @@ linters:
     - makezero
     - misspell
     - nakedret
-    - nestif
     - nilerr
-    - nlreturn
     - noctx
     - nolintlint
-    - paralleltest
     - predeclared
     - promlinter
-    - revive
     - rowserrcheck
     - sqlclosecheck
-    - stylecheck
     - testpackage
     - thelper
-    - tparallel
     - unconvert
     - unparam
     - wastedassign
     - whitespace
-    - goimports
+
   disable:
-    - depguard # Not suitable for our use-case.
-    - tagliatelle # Need to maintain compatibility with legacy JSON models.
-    - wrapcheck # To be enabled if comfortable to work with.
-    - goerr113 # Too restrictive as forbids dynamic declaration of errors.
-    - exhaustivestruct # Too restrictive as partial struct initialization is a common and valid scenario.
-    - gochecknoglobals # Too restrictive and controversial.
-    - gochecknoinits # Too restrictive and controversial.
-    - prealloc # Too restrictive and generating a lot of false positives.
-  fast: false
-linters-settings:
-  lll:
-    line-length: 160
-  gci:
-    custom-order: true
-    sections:
-      - standard
-      - default
-      - prefix(github.com/futurehomeno/edge-easee-adapter)
+    - paralleltest
+    - tparallel
+    - tagliatelle
+    - wrapcheck
+    - gochecknoinits
+    - depguard
+    - nlreturn
+    - revive
+    - funlen
+
+  settings:
+    lll:
+      line-length: 220

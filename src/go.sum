@@ -52,8 +52,6 @@ github.com/felixge/httpsnoop v1.0.4 h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2
 github.com/felixge/httpsnoop v1.0.4/go.mod h1:m8KPJKqk1gH5J9DgRY2ASl2lWCfGKXixSwevea8zH2U=
 github.com/fsnotify/fsnotify v1.7.0 h1:8JEhPFa5W2WU7YfeZzPNqzMP6Lwt7L2715Ggo0nosvA=
 github.com/fsnotify/fsnotify v1.7.0/go.mod h1:40Bi/Hjc2AVfZrqy+aj+yEI+/bRxZnMJyTJwOpGvigM=
-github.com/futurehomeno/cliffhanger v0.61.4 h1:evVBwd3GfHzR6amhn/GuIP1Z3HfSUNBHgssbC78BD3g=
-github.com/futurehomeno/cliffhanger v0.61.4/go.mod h1:i4DbxFdSIvQCWmNLIVb/NkdWnzam+hkI4ngtcEO5aj4=
 github.com/futurehomeno/cliffhanger v0.61.11 h1:tcqLcx09si6HweFZ9I7NfzyegqjAdKYekJqrIT9obFE=
 github.com/futurehomeno/cliffhanger v0.61.11/go.mod h1:i4DbxFdSIvQCWmNLIVb/NkdWnzam+hkI4ngtcEO5aj4=
 github.com/futurehomeno/fimpgo v1.15.0 h1:NpR5NImhzGakTu8WHZmipUXZ12BAZrIWi5t8L7n0bBs=

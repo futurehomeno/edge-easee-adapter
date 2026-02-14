@@ -185,8 +185,6 @@ func (a *authenticator) triggerAppLogout(credentials config.Credentials) error {
 }
 
 // TODO: Migrate it to use cliffhanger's event manager.
-//
-//nolint:godox
 func (a *authenticator) sendAppLogoutMessage() error {
 	message := fimpgo.NewNullMessage("cmd.auth.logout", a.serviceName, nil, nil, nil)
 
