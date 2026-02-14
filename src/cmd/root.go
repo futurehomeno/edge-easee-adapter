@@ -16,7 +16,9 @@ import (
 func Execute(version string) error {
 	cfg := getConfigService().Model()
 
-	bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
+	if err := bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat); err != nil {
+		return err
+	}
 
 	log.Infof("\t--- Start Easee v%s ---", version)
 	defer log.Infof("\t+++ Stop Easee v%s +++", version)
