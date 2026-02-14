@@ -1,5 +1,13 @@
 version: "2"
 
+run:
+  path-prefix: src
+
+issues:
+  exclude-dirs:
+    - internal/test
+    - testdata
+    
 linters:
   enable:
     - errcheck

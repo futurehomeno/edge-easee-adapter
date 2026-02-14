@@ -59,8 +59,6 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.9.0
-          working-directory: src
-          args: --skip-dirs=internal/test --skip-dirs=testdata
       - name: Run staticcheck
         run: |
           cd src
