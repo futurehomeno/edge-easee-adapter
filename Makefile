@@ -69,7 +69,7 @@ package-deb:
 		docker run --rm -v "$$(pwd)":/build -w /build debian:stable-slim \
 			bash -c "\
 				apt-get update >/dev/null && \
-				apt-get install -y --no-install-recommends dpkg-dev >/dev/null && \
+				apt-get install -y --no-install-recommends dpkg-dev fakeroot >/dev/null && \
 				fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG)"; \
 	fi
 
