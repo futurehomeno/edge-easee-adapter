@@ -11,7 +11,6 @@ ARCH ?= armhf
 
 OUT_DIR := package/build
 DEB_DIR := package/debian
-DEB_DIR := package/debian
 CONTROL_DIR := $(DEB_DIR)/DEBIAN
 TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
 BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
@@ -94,7 +93,7 @@ test:
 	@echo "Run tests"
 	cd src && go test -p 1 -count 1 -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
 
-	@echo "Preparecoverage report"
+	@echo "Prepare coverage report"
 	cd src && cat profile_full.cov | grep -v .pb.go | grep -v mock | grep -v test > test_coverage.out
 	mv src/test_coverage.out .
 	rm -f src/profile_full.cov
@@ -106,7 +105,5 @@ generate-mocks:
 	$(call generate_mocks,"internal/cache","cache","Cache")
 	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
 	$(call generate_mocks,"internal/signalr","signalr","Client")
-
-                        
 
 .PHONY: all clean test generate-mocks configure package-deb deb-arm deb-amd upload deploy
