@@ -1,14 +1,10 @@
 version: "2"
 
-run:
-  path-prefix: src
-
-issues:
-  exclude-dirs:
-    - internal/test
-    - testdata
-    
 linters:
+  exclusions:
+    paths:
+    - internal/test/
+
   enable:
     - errcheck
     - govet
