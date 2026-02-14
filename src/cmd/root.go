@@ -47,8 +47,6 @@ func Execute(version string) {
 
 	bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
 
-	log.SetFormatter(NewBudzikFormatter()) // remove when implemented in
-
 	log.Infof("\t--- Start Easee v%s ---", version)
 	defer log.Infof("\t+++ Stop Easee v%s +++", version)
 
