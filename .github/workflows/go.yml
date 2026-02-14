@@ -16,27 +16,15 @@ permissions:
 jobs:
   setup:
     runs-on: ubuntu-latest
-    outputs:
-      go-cache-key: ${{ steps.cache.outputs.cache-primary-key }}
 
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.26'
 
-      - name: Cache Go modules and binaries
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/go/bin
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-
-      - name: Install mockery (v2)
+      - name: Install mockery
         run: |
           go install github.com/vektra/mockery/v2@v2.53.5
           echo "$HOME/go/bin" >> $GITHUB_PATH
@@ -48,7 +36,6 @@ jobs:
 
       - name: Generate mocks
         run: |
-          mockery --version
           make generate-mocks
 
   build:
@@ -61,13 +48,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/go/bin
-          key: ${{ needs.setup.outputs.go-cache-key }}
 
       - name: Build
         shell: bash
@@ -94,13 +74,6 @@ jobs:
         with:
           go-version: '1.26'
 
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/go/bin
-          key: ${{ needs.setup.outputs.go-cache-key }}
-
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
@@ -125,13 +98,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/pkg/mod
-            ~/go/bin
-          key: ${{ needs.setup.outputs.go-cache-key }}
 
       - name: Test
         shell: bash
