@@ -92,6 +92,7 @@ deploy: upload
 	ssh -t -p $(PORT) $(REMOTE_HOST) "su - fh -c 'sudo dpkg -i /home/fhtunnel/$(APP_NAME)_$(VERSION)_$(ARCH).deb'"
 
 test:
+	# it may require to generate mocks first
 	rm -f test_coverage.out || true
 
 	@echo "Run tests"
@@ -104,7 +105,7 @@ test:
 
 generate-mocks:
 	find ./src/internal/test/mocks -type f -not -name "*_helper.go" | xargs rm -rf
-	$(call generate_mocks,"internal/api","api","Authenticator|Client|NewAPIClient")
+	$(call generate_mocks,"internal/api","api","Authenticator|Client")
 	$(call generate_mocks,"internal/app","app","Application")
 	$(call generate_mocks,"internal/cache","cache","Cache")
 	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
