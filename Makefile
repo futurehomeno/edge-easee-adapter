@@ -15,18 +15,18 @@ CONTROL_DIR := $(DEB_DIR)/DEBIAN
 TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
 BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
 TARGET_BIN := $(BIN_DIR)/$(APP_NAME)
+LOG_DIR := $(DEB_DIR)/var/log/thingsplex/$(APP_NAME)
+CONFIG_DIR :=  $(BIN_DIR)/data
 
 REMOTE_HOST := fhtunnel@3.255.43.28
 PORT := 8000
-
-all: deb-arm
 
 clean:
 	-rm -f $(OUT_DIR)/*
 	-rm -f $(TARGET_BIN)
 	-rm -f $(APP_NAME)
 	-rm -f $(APP_NAME).exe
-	mkdir -p $(BIN_DIR)
+	-rm -f $(LOG_DIR)/*
 
 build-local:
 	cd src ; go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME) main.go
@@ -44,7 +44,11 @@ build-win-amd64:
 	cd src ; GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME).exe main.go
 
 configure:
+	mkdir -p $(BIN_DIR)
 	mkdir -p $(CONTROL_DIR)
+	mkdir -p $(LOG_DIR) 
+	mkdir -p $(CONFIG_DIR)
+
 	printf '%s\n' \
 	  "Package: $(APP_NAME)" \
 	  "Version: $(VERSION)" \
