@@ -16,7 +16,7 @@ TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
 BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
 TARGET_BIN := $(BIN_DIR)/$(APP_NAME)
 LOG_DIR := $(DEB_DIR)/var/log/thingsplex/$(APP_NAME)
-CONFIG_DIR :=  $(BIN_DIR)/data
+CONFIG_DIR := $(BIN_DIR)/data
 
 REMOTE_HOST := fhtunnel@3.255.43.28
 PORT := 8000
@@ -64,7 +64,7 @@ package-deb:
 	chmod 644 $(DEB_DIR)/DEBIAN/control
 	chmod -R g-w $(DEB_DIR)
 
-	@if command -v dpkg-deb >/dev/null; then \
+	@if command -v fakeroot >/dev/null && command -v dpkg-deb >/dev/null; then \
 		echo "Using local dpkg-deb"; \
 		fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG); \
 	else \
@@ -72,7 +72,7 @@ package-deb:
 		docker run --rm -v "$$(pwd)":/build -w /build debian:stable-slim \
 			bash -c "\
 				apt-get update >/dev/null && \
-				apt-get install -y --no-install-recommends dpkg-dev fakeroot >/dev/null && \
+				apt-get install -y --no-install-recommends dpkg-dev >/dev/null && \
 				fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG)"; \
 	fi
 
@@ -104,8 +104,9 @@ test:
 	rm -f src/profile_full.cov
 
 generate-mocks:
-	find ./src/internal/test/mocks -type f -not -name "*_helper.go" | xargs rm -rf
-	$(call generate_mocks,"internal/api","api","Authenticator|Client")
+	mkdir -p ./src/internal/test/mocks
+	find ./src/internal/test/mocks -type f -not -name "*_helper.go" -delete 2>/dev/null || true
+	$(call generate_mocks,"internal/api","api","Authenticator|Client|HTTPClient")
 	$(call generate_mocks,"internal/app","app","Application")
 	$(call generate_mocks,"internal/cache","cache","Cache")
 	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")

@@ -21,7 +21,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
-	mockedsignalr "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/signalr"
 	mocksignalr "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/signalr"
 )
 
@@ -416,7 +415,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				tt.mockAuthenticator(authMock)
 			}
 
-			signalRClientMock := mockedsignalr.NewClient(t)
+			signalRClientMock := mocksignalr.NewClient(t)
 			if tt.mockSignalRClient != nil {
 				tt.mockSignalRClient(signalRClientMock)
 			}
