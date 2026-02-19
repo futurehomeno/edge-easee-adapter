@@ -11,23 +11,22 @@ ARCH ?= armhf
 
 OUT_DIR := package/build
 DEB_DIR := package/debian
-DATA_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)/data
 LOG_DIR := $(DEB_DIR)/var/log/thingsplex/$(APP_NAME)
 CONTROL_DIR := $(DEB_DIR)/DEBIAN
 TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
 BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
 TARGET_BIN := $(BIN_DIR)/$(APP_NAME)
+CONFIG_DIR := $(BIN_DIR)/data
 
 REMOTE_HOST := fhtunnel@3.255.43.28
 PORT := 8000
-
-all: deb-arm
 
 clean:
 	-rm -f $(OUT_DIR)/*
 	-rm -f $(TARGET_BIN)
 	-rm -f $(APP_NAME)
 	-rm -f $(APP_NAME).exe
+	-rm -f $(LOG_DIR)/*
 
 build-local:
 	cd src ; go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME) main.go
@@ -45,10 +44,11 @@ build-win-amd64:
 	cd src ; GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME).exe main.go
 
 configure:
-	mkdir -p $(CONTROL_DIR)
 	mkdir -p $(BIN_DIR)
+	mkdir -p $(CONTROL_DIR)
 	mkdir -p $(LOG_DIR)
-	mkdir -p $(DATA_DIR)
+	mkdir -p $(CONFIG_DIR)
+
 	printf '%s\n' \
 	  "Package: $(APP_NAME)" \
 	  "Version: $(VERSION)" \
@@ -92,24 +92,24 @@ deploy: upload
 	ssh -t -p $(PORT) $(REMOTE_HOST) "su - fh -c 'sudo dpkg -i /home/fhtunnel/$(APP_NAME)_$(VERSION)_$(ARCH).deb'"
 
 test:
+	# it may require to generate mocks first
 	rm -f test_coverage.out || true
 
 	@echo "Run tests"
 	cd src && go test -p 1 -count 1 -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
 
-	@echo "Preparecoverage report"
+	@echo "Prepare coverage report"
 	cd src && cat profile_full.cov | grep -v .pb.go | grep -v mock | grep -v test > test_coverage.out
 	mv src/test_coverage.out .
 	rm -f src/profile_full.cov
 
 generate-mocks:
-	find ./src/internal/test/mocks -type f -not -name "*_helper.go" | xargs rm -rf
-	$(call generate_mocks,"internal/api","api","Authenticator|Client|NewAPIClient")
+	mkdir -p ./src/internal/test/mocks
+	find ./src/internal/test/mocks -type f -not -name "*_helper.go" -delete 2>/dev/null || true
+	$(call generate_mocks,"internal/api","api","Authenticator|Client|HTTPClient")
 	$(call generate_mocks,"internal/app","app","Application")
 	$(call generate_mocks,"internal/cache","cache","Cache")
 	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
 	$(call generate_mocks,"internal/signalr","signalr","Client")
-
-                        
 
 .PHONY: all clean test generate-mocks configure package-deb deb-arm deb-amd upload deploy
