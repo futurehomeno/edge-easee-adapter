@@ -562,13 +562,10 @@ func TestApplication_Initialize(t *testing.T) {
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(nil)
 			},
-			mockClient: func(c *mocks.APIClient) {
-				c.On("Ping").Return(nil)
-			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
+				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 			},
 		},

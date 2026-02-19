@@ -224,8 +224,13 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 
 		switch {
 		case errors.Is(err, ErrUnauthorized):
-			if err := a.triggerAppLogout(); err != nil {
-				log.Error("[auth] TriggerAppLogout err: " + err.Error())
+			logoutErr := a.triggerAppLogout()
+			if logoutErr != nil {
+				log.Error("[auth] TriggerAppLogout err: " + logoutErr.Error())
+				// Ensure credentials are cleared even if notification failed
+				if clearErr := a.cfg.ClearCredentials(); clearErr != nil {
+					log.Error("[auth] ClearCredentials fallback err: " + clearErr.Error())
+				}
 			}
 
 			a.backoff.Fail()

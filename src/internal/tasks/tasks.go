@@ -27,7 +27,10 @@ func New(
 
 	if interval > 1000*time.Millisecond {
 		maxValue := big.NewInt(5000)
-		refreshTokenIntervalRandMs, _ := rand.Int(rand.Reader, maxValue)
+		refreshTokenIntervalRandMs, err := rand.Int(rand.Reader, maxValue)
+		if err != nil {
+			refreshTokenIntervalRandMs = big.NewInt(0)
+		}
 		interval += time.Duration(refreshTokenIntervalRandMs.Int64()) * time.Millisecond
 	}
 

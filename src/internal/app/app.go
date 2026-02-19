@@ -153,8 +153,6 @@ func (a *application) Initialize() error {
 		return errors.Wrap(err, "failed to save configs at application initialization")
 	}
 
-	defer a.RefreshToken()
-
 	if a.cfgService.GetCredentials().Empty() {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
@@ -165,6 +163,8 @@ func (a *application) Initialize() error {
 	a.lifecycle.SetAppState(lifecycle.AppStateRunning, nil)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
+
+	a.RefreshToken()
 
 	return nil
 }
