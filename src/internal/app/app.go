@@ -119,6 +119,8 @@ func (a *application) Uninstall() error {
 }
 
 func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
+	defer func() { _ = a.Check() }()
+
 	if err := a.auth.Login(credentials.Username, credentials.Password); err != nil {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)

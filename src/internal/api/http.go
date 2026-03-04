@@ -300,8 +300,8 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 }
 
 func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*model.ChargerConfig, error) {
-	var siteInfo model.ChargerConfig
-	rsp, err := c.getResponse(&siteInfo, c.buildURL(chargerConfigURITemplate, chargerID), accessToken)
+	var chargerConfig model.ChargerConfig
+	rsp, err := c.getResponse(&chargerConfig, c.buildURL(chargerConfigURITemplate, chargerID), accessToken)
 	if err != nil {
 		return nil, err
 	}
@@ -315,19 +315,18 @@ func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*model.Charge
 }
 
 func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*model.ChargerSiteInfo, error) {
-	var siteInfo *model.ChargerSiteInfo
-	ret, err := c.getResponse(&siteInfo, c.buildURL(chargerSiteURITemplate, chargerID), accessToken)
+	var siteInfo model.ChargerSiteInfo
+	rsp, err := c.getResponse(&siteInfo, c.buildURL(chargerSiteURITemplate, chargerID), accessToken)
 	if err != nil {
 		return nil, err
 	}
 
-	var ok bool
-	siteInfo, ok = ret.(*model.ChargerSiteInfo)
+	ret, ok := rsp.(*model.ChargerSiteInfo)
 	if !ok {
 		return nil, errors.New("failed to cast response to charger site info")
 	}
 
-	return siteInfo, nil
+	return ret, nil
 }
 
 func (c *httpClient) Chargers(accessToken string) ([]model.Charger, error) {
@@ -352,13 +351,12 @@ func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (model
 		return model.ChargerDetails{}, err
 	}
 
-	var ok bool
-	details, ok = ret.(model.ChargerDetails)
+	result, ok := ret.(*model.ChargerDetails)
 	if !ok {
 		return model.ChargerDetails{}, errors.New("failed to cast response to charger details")
 	}
 
-	return details, nil
+	return *result, nil
 }
 
 func (c *httpClient) Ping(accessToken string) error {

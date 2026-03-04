@@ -78,11 +78,16 @@ func (s *SignalRServer) Start() {
 	}()
 
 	wg.Wait()
-	time.Sleep(50 * time.Millisecond)
 
-	if !s.running.Load() {
-		s.t.Fatalf("failed to start signalR test server")
+	for range 3 {
+		if s.running.Load() {
+			return
+		}
+
+		time.Sleep(50 * time.Millisecond)
 	}
+
+	s.t.Fatalf("failed to start signalR test server")
 }
 
 func (s *SignalRServer) Close() {

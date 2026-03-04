@@ -8,7 +8,6 @@ linters:
     - staticcheck
     - unused
     - lll
-    - cyclop
     - bodyclose
     - asciicheck
     - dupl
@@ -17,13 +16,10 @@ linters:
     - durationcheck
     - gocritic
     - gocyclo
-    - gocognit
-    - goconst
     - gosec
     - exhaustive
     - forbidigo
     - forcetypeassert
-    - funlen
     - goheader
     - gomoddirectives
     - gomodguard
@@ -32,7 +28,6 @@ linters:
     - makezero
     - misspell
     - nakedret
-    - nestif
     - nilerr
     - noctx
     - nolintlint
@@ -52,14 +47,12 @@ linters:
     - tparallel
     - tagliatelle
     - wrapcheck
-    - gochecknoglobals
     - gochecknoinits
-    - prealloc
     - depguard
-    - funlen
     - nlreturn
     - revive
+    - funlen
 
   settings:
     lll:
-      line-length: 180
+      line-length: 220

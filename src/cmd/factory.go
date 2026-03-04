@@ -65,7 +65,7 @@ func getConfigService() *config.Service {
 
 		err := services.configService.Load()
 		if err != nil {
-			log.WithError(err).Fatal("failed to load configuration")
+			log.Fatalf("Config load err: %v", err)
 		}
 	}
 
