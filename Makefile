@@ -1,78 +1,85 @@
-version="2.5.10"
-version_file=package/debian/opt/thingsplex/$(app_name)/VERSION
-working_dir=$(shell pwd)
-app_name=easee
-remote_host = "fhtunnel@$(prod_host)"
-beta_host = "52.58.200.103"
-prod_host = "34.247.133.26"
-remote_port = "8985"
+SHELL := /bin/bash
+
+TAG := 2.5.11
+APP_NAME := easee
+
+ARCH ?= armhf
+
+OUT_DIR := package/build
+DEB_DIR := package/debian
+TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(TAG)_$(ARCH).deb
+BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
+TARGET_BIN := $(BIN_DIR)/$(APP_NAME)
+
+REMOTE_HOST := fhtunnel@3.255.43.28
+PORT := 8000
+
+all: deb-arm
 
 clean:
-	-rm ./src/$(app_name)
-	-rm ./package/debian/opt/thingsplex/$(app_name)/$(app_name)
-	find package/debian -name ".DS_Store" -delete
+	-rm -f $(OUT_DIR)/*
+	-rm -f $(TARGET_BIN)
+	-rm -f $(APP_NAME)
+	-rm -f $(APP_NAME).exe
+	mkdir -p $(BIN_DIR)
 
-build-go:
-	cd ./src; go build -o $(app_name) main.go; cd ../
+build-local:
+	cd src ; go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(APP_NAME) main.go
 
-build-go-arm:
-	cd ./src; GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w" -o $(app_name) main.go; cd ../
+build-arm:
+	cd src ; GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(TARGET_BIN) main.go
 
-build-go-amd:
-	cd ./src; GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o $(app_name) main.go; cd ../
+build-linux-amd64:
+	cd src ; GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(TARGET_BIN) main.go
 
-configure-arm:
-	sed -i.bak "1s/.*/$(version)/" $(version_file)
-	rm $(version_file).bak
-	sed -i.bak "s/Version: .*/Version: $(version)/" package/debian/DEBIAN/control
-	sed -i.bak "s/Architecture: .*/Architecture: armhf/" package/debian/DEBIAN/control
-	rm package/debian/DEBIAN/control.bak
+build-mac-amd64:
+	cd src ; GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(TARGET_BIN) main.go
 
-configure-amd64:
-	sed -i.bak "1s/.*/$(version)/" $(version_file)
-	rm $(version_file).bak
-	sed -i.bak "s/Version: .*/Version: $(version)/" package/debian/DEBIAN/control
-	sed -i.bak "s/Architecture: .*/Architecture: amd64/" package/debian/DEBIAN/control
-	rm package/debian/DEBIAN/control.bak
+build-win-amd64:
+	cd src ; GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(TAG)" -o ../$(APP_NAME).exe main.go
 
-package-deb-lint:
-	docker run -w /root -v $(working_dir)/package/build/:/root/ -it eddelbuettel/lintian lintian $(app_name)_$(version)_armhf.deb --no-tag-display-limit
+configure:
+	python3 ./scripts/config_env.py $(DEB_DIR)/DEBIAN $(TAG) $(ARCH)
 
 package-deb:
-	@echo "Packaging application using Thingsplex debian package layout..."
-	mkdir -p package/debian/var/log/thingsplex/$(app_name)
-	mkdir -p package/debian/opt/thingsplex/$(app_name)/data
-	chmod -R 755 package/debian
-	chmod 644 package/debian/opt/thingsplex/$(app_name)/defaults/*
-	chmod 644 package/debian/opt/thingsplex/$(app_name)/VERSION
-	chmod 644 package/debian/usr/lib/systemd/system/$(app_name).service
-	cp ./src/$(app_name) package/debian/opt/thingsplex/$(app_name)
-	docker run --rm -v ${working_dir}:/build -w /build --name debuild debian dpkg-deb --build package/debian
-	@echo "Done"
+	chmod 755 $(DEB_DIR)
+	chmod 644 $(DEB_DIR)/DEBIAN/control
+	chmod -R g-w $(DEB_DIR)
 
-deb-arm: clean configure-arm build-go-arm package-deb
-	mv -f package/debian.deb package/build/$(app_name)_$(version)_armhf.deb
+	@if command -v dpkg-deb >/dev/null; then \
+		echo "Using local dpkg-deb"; \
+		fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG); \
+	else \
+		echo "Using docker dpkg-deb"; \
+		docker run --rm -v "$$(pwd)":/build -w /build debian:stable-slim \
+			bash -c "\
+			    apt-get update >/dev/null && \
+			    apt-get install -y --no-install-recommends dpkg-dev fakeroot >/dev/null && \
+			    fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG)"; \
+	fi
 
-deb-amd: clean configure-amd64 build-go-amd package-deb
-	mv -f package/debian.deb package/build/$(app_name)_$(version)_amd64.deb
+	@echo "Debian package created → $(TARGET_PKG)"
+
+deb-arm: ARCH=armhf
+deb-arm: clean configure build-arm package-deb
+
+deb-amd: ARCH=amd64
+deb-amd: clean configure build-linux-amd64 package-deb
 
 upload:
-	scp -O -P ${remote_port} package/build/$(app_name)_$(version)_armhf.deb $(remote_host):~/
+	@echo "Uploading..."
+	rsync -avz -e "ssh -p $(PORT)" $(TARGET_PKG) $(REMOTE_HOST):/home/fhtunnel/
 
-run: build-go
-	cd ./testdata; ../src/$(app_name) -c ./; cd ../
-
-lint:
-	cd src; golangci-lint run; cd ..
+deploy: upload
+	ssh -t -p $(PORT) $(REMOTE_HOST) "su - fh -c 'sudo dpkg -i /home/fhtunnel/$(APP_NAME)_$(TAG)_$(ARCH).deb'"
 
 test:
-	@echo "\033[92;1mRemoving an old coverage report...\033[0m"
 	rm -f test_coverage.out || true
 
-	@echo "\033[92;1mRunning tests...\033[0m"
+	@echo "Running tests"
 	cd src && go test -p 1 -count 1 -v -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
 
-	@echo "\033[92;1mPreparing a new coverage report...\033[0m"
+	@echo "Preparing coverage report"
 	cd src && cat profile_full.cov | grep -v .pb.go | grep -v mock | grep -v test > test_coverage.out
 	mv src/test_coverage.out .
 	rm -f src/profile_full.cov
@@ -80,4 +87,5 @@ test:
 mocks:
 	cd ./src && mockery --dir ./internal --all --output ./internal/test/mocks --disable-version-string
 
-.phony : clean
+
+.PHONY: all clean test mocks configure package-deb deb-arm deb-amd upload deploy

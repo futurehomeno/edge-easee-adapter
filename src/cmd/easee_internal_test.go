@@ -429,6 +429,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Inclusion report updated: changed phase mode",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -479,7 +480,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(3),
 								chargepoint.PropertyGridType:            "TN",
-								chargepoint.PropertySupportedPhaseModes: []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"},
+								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL2", "NL3", "NL1L2L3"},
 							}, nil),
 						},
 					},
@@ -487,6 +488,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Inclusion report on start",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -528,7 +530,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(3),
 								chargepoint.PropertyGridType:            "TN",
-								chargepoint.PropertySupportedPhaseModes: []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"},
+								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL2", "NL3", "NL1L2L3"},
 							}, nil),
 						},
 					},
@@ -536,6 +538,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Inclusion report updated - different grid type",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -593,7 +596,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(1),
 								chargepoint.PropertyGridType:            "TN",
-								chargepoint.PropertySupportedPhaseModes: []interface{}{"NL1"},
+								chargepoint.PropertySupportedPhaseModes: []any{"NL1"},
 							}, nil),
 						},
 					},
@@ -661,6 +664,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Phase mode report - no OutputPhase observation",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -764,6 +768,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Cable lock get report when cable is locked",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -816,6 +821,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Error when user tries set cable lock",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -868,6 +874,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Get supported parameters",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -938,6 +945,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Get cable lock parameter report",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -992,6 +1000,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Get error for no supported parameter",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -1044,6 +1053,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Get supported parameters report after inclusion report",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -1114,6 +1124,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Start session report after observation, no previous session",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -1167,6 +1178,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Get sessions report",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
@@ -1381,22 +1393,24 @@ func cleanUpTestData(t *testing.T, configSet string) {
 	}
 
 	// recreate 'data' path
-	if err = os.Mkdir(dataPath, 0o755); err != nil {
+	if err = os.Mkdir(dataPath, 0750); err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
 
 	// copy 'adapter.json' from 'defaults' to 'data'
+	// #nosec
 	fin, err := os.Open(path.Join(defaultsPath, "adapter.json"))
 	if err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
+	// #nosec
 	fout, err := os.Create(path.Join(dataPath, "adapter.json"))
 	if err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
-	defer fout.Close()
+	defer func() { _ = fout.Close() }()
 
 	_, err = io.Copy(fout, fin)
 	if err != nil {
@@ -1432,7 +1446,7 @@ func loggerSetup(t *testing.T) {
 	t.Helper()
 
 	cfg := getConfigService().Model()
-	bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
+	_ = bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
 }
 
 func waitForRunning() suite.Callback {

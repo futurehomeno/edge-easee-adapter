@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -46,7 +47,7 @@ func (r *requestBuilder) build() (*http.Request, error) {
 		body = bytes.NewReader(b)
 	}
 
-	req, err := http.NewRequest(r.method, r.url, body) //nolint:noctx
+	req, err := http.NewRequestWithContext(context.Background(), r.method, r.url, body)
 	if err != nil {
 		return nil, err
 	}

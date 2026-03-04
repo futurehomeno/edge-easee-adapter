@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"fmt"
+
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	"github.com/futurehomeno/cliffhanger/root"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
@@ -10,28 +12,57 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 )
 
+type BudzikFormatter struct {
+	TimestampFormat string
+	LevelDesc       []string
+}
+
+func (f *BudzikFormatter) Format(entry *log.Entry) ([]byte, error) {
+	timestamp := entry.Time.Format(f.TimestampFormat)
+
+	level := "D"
+
+	if int(entry.Level) >= 0 && int(entry.Level) < len(f.LevelDesc) {
+		level = f.LevelDesc[int(entry.Level)]
+	}
+
+	ret := fmt.Appendf(nil, "%s %s %s", timestamp, level, entry.Message)
+	for k, v := range entry.Data {
+		ret = fmt.Appendf(ret, " %s=%v", k, v)
+	}
+
+	ret = fmt.Appendf(ret, "\n")
+
+	return ret, nil
+}
+
+func NewBudzikFormatter() *BudzikFormatter {
+	lvlDesc := []string{"PANIC", "FATAL", "E", "W", "I", "D", "T", "?"}
+	return &BudzikFormatter{TimestampFormat: "01-02 15:04:05", LevelDesc: lvlDesc}
+}
+
 // Execute is an entry point to the edge application.
-func Execute() {
+func Execute(version string) error {
 	cfg := getConfigService().Model()
 
-	bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
-
-	edgeApp, err := Build(cfg)
-	if err != nil {
-		log.WithError(err).Fatalf("failed to build the edge application")
+	if err := bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat); err != nil {
+		return fmt.Errorf("init logger err: %w", err)
 	}
 
-	err = edgeApp.Start()
+	rootApp, err := Build(cfg)
 	if err != nil {
-		log.WithError(err).Fatalf("failed to start the edge application")
+		return fmt.Errorf("build app err: %w", err)
 	}
 
-	bootstrap.WaitForShutdown()
+	log.Infof("\t--- Start Easee v%s ---", version)
+	defer log.Infof("\t+++ Stop Easee v%s +++", version)
 
-	err = edgeApp.Stop()
+	err = rootApp.Run()
 	if err != nil {
-		log.WithError(err).Fatalf("failed to stop the edge application")
+		return fmt.Errorf("start app err: %w", err)
 	}
+
+	return nil
 }
 
 func Build(cfg *config.Config) (root.App, error) {
