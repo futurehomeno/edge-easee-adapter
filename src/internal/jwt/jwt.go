@@ -20,5 +20,5 @@ func ExpirationDate(jwtToken string) (time.Time, error) {
 		return time.Time{}, errors.New("no expiration date found in the token")
 	}
 
-	return claims.ExpiresAt.Time.UTC(), nil
+	return claims.ExpiresAt.UTC(), nil
 }

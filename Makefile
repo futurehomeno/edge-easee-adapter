@@ -71,9 +71,9 @@ package-deb:
 		echo "Using docker dpkg-deb"; \
 		docker run --rm -v "$$(pwd)":/build -w /build debian:stable-slim \
 			bash -c "\
-				apt-get update >/dev/null && \
-				apt-get install -y --no-install-recommends dpkg-dev >/dev/null && \
-				fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG)"; \
+			    apt-get update >/dev/null && \
+			    apt-get install -y --no-install-recommends dpkg-dev fakeroot >/dev/null && \
+			    fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG)"; \
 	fi
 
 	@echo "Debian package created → $(TARGET_PKG)"
