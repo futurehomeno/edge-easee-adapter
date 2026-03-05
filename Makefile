@@ -4,7 +4,7 @@ endef
 
 SHELL := /bin/bash
 
-VERSION := 2.6.2
+VERSION := 2.6.3
 APP_NAME := easee
 
 ARCH ?= armhf
@@ -21,13 +21,6 @@ CONFIG_DIR := $(BIN_DIR)/data
 REMOTE_HOST := fhtunnel@3.255.43.28
 PORT := 8000
 
-clean:
-	-rm -f $(OUT_DIR)/*
-	-rm -f $(TARGET_BIN)
-	-rm -f $(APP_NAME)
-	-rm -f $(APP_NAME).exe
-	-rm -f $(LOG_DIR)/*
-
 build-local:
 	cd src ; go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME) main.go
 
@@ -43,10 +36,17 @@ build-mac-amd64:
 build-win-amd64:
 	cd src ; GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME).exe main.go
 
+clean:
+	-rm -f $(OUT_DIR)/*
+	-rm -f $(TARGET_BIN)
+	-rm -f $(APP_NAME)
+	-rm -f $(APP_NAME).exe
+	-rm -f $(LOG_DIR)/*
+	
 configure:
 	mkdir -p $(BIN_DIR)
 	mkdir -p $(CONTROL_DIR)
-	mkdir -p $(LOG_DIR) 
+	mkdir -p $(LOG_DIR)
 	mkdir -p $(CONFIG_DIR)
 
 	printf '%s\n' \
@@ -64,16 +64,16 @@ package-deb:
 	chmod 644 $(DEB_DIR)/DEBIAN/control
 	chmod -R g-w $(DEB_DIR)
 
-	@if command -v fakeroot >/dev/null && command -v dpkg-deb >/dev/null; then \
+	@if command -v dpkg-deb >/dev/null && command -v fakeroot >/dev/null; then \
 		echo "Using local dpkg-deb"; \
 		fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG); \
 	else \
 		echo "Using docker dpkg-deb"; \
 		docker run --rm -v "$$(pwd)":/build -w /build debian:stable-slim \
 			bash -c "\
-			    apt-get update >/dev/null && \
-			    apt-get install -y --no-install-recommends dpkg-dev fakeroot >/dev/null && \
-			    fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG)"; \
+				apt-get update >/dev/null && \
+				apt-get install -y --no-install-recommends dpkg-dev fakeroot >/dev/null && \
+				fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG)"; \
 	fi
 
 	@echo "Debian package created → $(TARGET_PKG)"

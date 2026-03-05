@@ -25,7 +25,7 @@ func Execute(version string) error {
 	}
 
 	if err := bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat); err != nil {
-		return fmt.Errorf("init logger err: %w", err)
+		return err
 	}
 
 	log.Infof("\t--- Start Easee v%s ---", version)

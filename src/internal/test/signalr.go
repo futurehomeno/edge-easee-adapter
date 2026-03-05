@@ -2,8 +2,9 @@ package test
 
 import (
 	"context"
-	"errors"
+	"net"
 	"net/http"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -54,40 +55,45 @@ func NewSignalRServer(t *testing.T, address string) *SignalRServer {
 }
 
 func (s *SignalRServer) Start() {
-	if s.running.Load() {
+	// Atomically check if not running AND set to running
+	// Returns false if already running (prevents duplicate goroutines)
+	if !s.running.CompareAndSwap(false, true) {
 		return
 	}
 
 	log.Infof("signalR test server: starting on addr %s", s.http.Addr)
 	s.running.Store(true)
-	wg := sync.WaitGroup{}
-	wg.Add(2)
 
+	started := make(chan error, 1)
 	go func() {
-		wg.Done()
-		if err := s.runHTTPServer(); err != nil {
-			log.Errorf("http server stopped with error: %v", err)
-		}
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error(r)
+				log.Error(string(debug.Stack()))
+				panic(r)
+			}
+		}()
 
-		s.running.Store(false)
-	}()
-
-	go func() {
-		wg.Done()
-		s.scheduleObservations()
-	}()
-
-	wg.Wait()
-
-	for range 3 {
-		if s.running.Load() {
+		defer s.running.Store(false)
+		ln, err := net.Listen("tcp", s.http.Addr)
+		if err != nil {
+			started <- err
 			return
 		}
 
-		time.Sleep(50 * time.Millisecond)
-	}
+		close(started) // Signal successful start
 
-	s.t.Fatalf("failed to start signalR test server")
+		if err := s.http.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Errorf("http server stopped with error: %v", err)
+		}
+	}()
+
+	go s.scheduleObservations()
+
+	// Wait for startup result
+	if err := <-started; err != nil {
+		s.t.Fatalf("failed to start signalR test server: %v", err)
+	}
 }
 
 func (s *SignalRServer) Close() {
@@ -111,19 +117,18 @@ func (s *SignalRServer) MockObservations(delay time.Duration, o []model.Observat
 }
 
 func (s *SignalRServer) scheduleObservations() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error(r)
+			log.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
+
 	for _, batch := range s.mockedObservations {
 		time.Sleep(batch.delay)
-
 		s.hub.propagate(batch.observations)
 	}
-}
-
-func (s *SignalRServer) runHTTPServer() error {
-	if err := s.http.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-		return err
-	}
-
-	return nil
 }
 
 type signalRHub struct {

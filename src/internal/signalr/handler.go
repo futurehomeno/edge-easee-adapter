@@ -228,9 +228,9 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	current := int64(val)
+	cableCurrent := int64(val)
 
-	ok := h.cache.SetCableCurrent(&current, observation.Timestamp)
+	ok := h.cache.SetCableCurrent(cableCurrent, observation.Timestamp)
 	if !ok {
 		return nil
 	}
@@ -240,7 +240,7 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	_, err = chargepointSrv.SendCableLockReport(true)
+	_, err = chargepointSrv.SendCableLockReport(false)
 
 	return err
 }

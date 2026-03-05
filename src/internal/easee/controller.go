@@ -127,18 +127,26 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 	}
 
 	locked, _ := c.cache.CableLocked()
-	current, _ := c.cache.CableCurrent()
+	cable := int64(0)
 
-	if !locked || (current != nil && *current < 0) {
-		locked = false
+	if !locked {
+		return &chargepoint.CableReport{
+			CableLock:    false,
+			CableCurrent: &cable,
+		}, nil
+	}
 
-		current = new(int64)
-		*current = 0
+	cable, cableTime := c.cache.CableCurrent()
+
+	if !cableTime.IsZero() && cable >= 0 {
+		return &chargepoint.CableReport{
+			CableLock:    locked,
+			CableCurrent: &cable,
+		}, nil
 	}
 
 	return &chargepoint.CableReport{
-		CableLock:    locked,
-		CableCurrent: current,
+		CableLock: locked,
 	}, nil
 }
 

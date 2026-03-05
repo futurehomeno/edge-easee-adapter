@@ -14,52 +14,84 @@ permissions:
   checks: write
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  setup:
+    runs-on: ubuntu-24.04
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.26'
+      - name: Install mockery
+        run: |
+          go install github.com/vektra/mockery/v2@v2.53.5
+          echo "$HOME/go/bin" >> $GITHUB_PATH
 
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/go/pkg/mod
-          ~/go/bin
-        key: ${{ runner.os }}-go-${{ hashFiles('src/go.sum') }}
+      - name: Verify tools
+        run: |
+          go version
+          mockery --version
 
-    - name: Build
-      shell: bash
-      run: |
-        export "GH_TOKEN=${{ secrets.GH_OAUTH_TOKEN }}"
-        git config --global url."https://$GH_TOKEN@github.com/".insteadOf "https://github.com/"
-        make deb-arm
+      - name: Generate mocks
+        run: |
+          make generate-mocks
 
-    - name: Upload .deb artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: easee-armhf
-        path: package/build/*.deb
-  
+      - name: Upload mocks
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-mocks
+          path: src/internal/test/mocks/
+
+  build:
+    runs-on: ubuntu-24.04
+    needs: setup
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build
+        shell: bash
+        run: |
+          export "GH_TOKEN=${{ secrets.GH_OAUTH_TOKEN }}"
+          git config --global url."https://$GH_TOKEN@github.com/".insteadOf "https://github.com/"
+          make deb-arm
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: easee-armhf
+          path: package/build/*.deb
+
   linter:
     runs-on: ubuntu-24.04
+    needs: setup
     timeout-minutes: 2
 
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version: '1.26'
+
+      - name: Download mocks
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-mocks
+          path: src/internal/test/mocks/
+
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.10.1
           working-directory: src
+
       - name: Run staticcheck
         run: |
           cd src
@@ -67,28 +99,34 @@ jobs:
           staticcheck ./...
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs:
+      - setup
       - build
       - linter
+
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
 
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version: '1.26'
+      - name: Download mocks
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-mocks
+          path: src/internal/test/mocks/
 
-    - name: Test
-      shell: bash
-      run: |
-        export "GH_TOKEN=${{ secrets.GH_OAUTH_TOKEN }}"
-        git config --global url."https://$GH_TOKEN@github.com/".insteadOf "https://github.com/"
-        make test
+      - name: Test
+        shell: bash
+        run: |
+          export "GH_TOKEN=${{ secrets.GH_OAUTH_TOKEN }}"
+          git config --global url."https://$GH_TOKEN@github.com/".insteadOf "https://github.com/"
+          make test
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: test
     permissions:
       contents: write
