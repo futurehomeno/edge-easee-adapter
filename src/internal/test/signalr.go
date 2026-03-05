@@ -62,7 +62,6 @@ func (s *SignalRServer) Start() {
 	}
 
 	log.Infof("signalR test server: starting on addr %s", s.http.Addr)
-	s.running.Store(true)
 
 	started := make(chan error, 1)
 	go func() {
@@ -88,12 +87,12 @@ func (s *SignalRServer) Start() {
 		}
 	}()
 
-	go s.scheduleObservations()
-
 	// Wait for startup result
 	if err := <-started; err != nil {
 		s.t.Fatalf("failed to start signalR test server: %v", err)
 	}
+
+	go s.scheduleObservations()
 }
 
 func (s *SignalRServer) Close() {
