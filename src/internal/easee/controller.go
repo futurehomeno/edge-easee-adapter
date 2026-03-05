@@ -128,7 +128,7 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 	}
 
 	locked, _ := c.cache.CableLocked()
-	cable := int(0)
+	cable := 0
 
 	if !locked {
 		return &chargepoint.CableReport{
