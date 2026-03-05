@@ -155,7 +155,7 @@ func (a *authenticator) triggerAppLogout() error {
 		return fmt.Errorf("clear credentials err: %w", err)
 	}
 
-	return errors.New("re-login required")
+	return nil // Success - no error
 }
 
 // TODO: Migrate it to use cliffhanger's event manager.
@@ -244,7 +244,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			a.backoff.Fail()
 			return nil, errors.New("refreshToken expired")
 
-		case errors.Is(err, ErrTimeout), errors.Is(err, ErrServer), errors.Is(err, ErrUnexpected):
+		case errors.Is(err, ErrTimeout), errors.Is(err, ErrServer):
 			if i == retries-1 {
 				// Last attempt, don't sleep before returning failure
 				break
