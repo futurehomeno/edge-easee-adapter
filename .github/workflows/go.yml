@@ -112,7 +112,7 @@ jobs:
     - name: Generate changelog
       id: changelog
       run: |
-        LAST=${{ steps.prevtag.outputs.last_tag }}
+        LAST="${{ steps.prevtag.outputs.last_tag }}"
         echo "### Changes since \"$LAST\"" > changes.md
         echo "" >> changes.md
 

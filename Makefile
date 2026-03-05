@@ -112,4 +112,4 @@ generate-mocks:
 	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
 	$(call generate_mocks,"internal/signalr","signalr","Client")
 
-.PHONY: all clean test generate-mocks configure package-deb deb-arm deb-amd upload deploy
+.PHONY: clean test generate-mocks configure package-deb deb-arm deb-amd upload deploy
