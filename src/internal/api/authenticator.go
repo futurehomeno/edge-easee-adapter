@@ -42,7 +42,7 @@ type Authenticator interface {
 }
 
 type authenticator struct {
-	mu                  sync.Mutex
+	lock                sync.Mutex
 	cfg                 *config.Service
 	http                HTTPClient
 	notificationManager Notifier
@@ -78,8 +78,8 @@ func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify Notifier, 
 }
 
 func (a *authenticator) Login(userName, password string) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.lock.Lock()
+	defer a.lock.Unlock()
 
 	creds, err := a.http.Login(userName, password)
 	if err != nil {
@@ -95,8 +95,8 @@ func (a *authenticator) Login(userName, password string) error {
 }
 
 func (a *authenticator) AccessToken() (string, error) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.lock.Lock()
+	defer a.lock.Unlock()
 
 	if !a.bcEnsured {
 		if err := a.ensureBackwardsCompatibility(); err != nil {
@@ -135,8 +135,8 @@ func (a *authenticator) AccessToken() (string, error) {
 }
 
 func (a *authenticator) Logout() error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.lock.Lock()
+	defer a.lock.Unlock()
 
 	return a.cfg.ClearCredentials()
 }
@@ -144,15 +144,15 @@ func (a *authenticator) Logout() error {
 func (a *authenticator) triggerAppLogout() error {
 	err := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
 	if err != nil {
-		return fmt.Errorf("failed to send push notification: %w", err)
+		return fmt.Errorf("send push notification err: %w", err)
 	}
 
 	if err = a.sendAppLogoutMessage(); err != nil {
-		return fmt.Errorf("failed to send app logout message: %w", err)
+		return fmt.Errorf("send app logout message err: %w", err)
 	}
 
 	if err = a.cfg.ClearCredentials(); err != nil {
-		return fmt.Errorf("failed to clear credentials: %w", err)
+		return fmt.Errorf("clear credentials err: %w", err)
 	}
 
 	return errors.New("re-login required")
@@ -163,7 +163,7 @@ func (a *authenticator) sendAppLogoutMessage() error {
 	message := fimpgo.NewNullMessage("cmd.auth.logout", a.serviceName, nil, nil, nil)
 
 	if err := a.mqtt.PublishToTopic(logoutAddress, message); err != nil {
-		return fmt.Errorf("failed to publish a message to mqtt: address: %s, message: %v, err: %w", logoutAddress, message, err)
+		return fmt.Errorf("publish a message to mqtt addr=%s msg=%v err: %w", logoutAddress, message, err)
 	}
 
 	return nil
@@ -207,7 +207,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 	hours := -time.Since(credentials.RefreshTokenExpiresAt).Hours()
 	minutes := -time.Since(credentials.RefreshTokenExpiresAt).Minutes() - 60*hours
 
-	dbgStr := fmt.Sprintf("[auth] Refresh AccessToken RefreshToken expires_at=%s (%.1fh %.1fmin)",
+	dbgStr := fmt.Sprintf("[auth] Refresh AT - RT expires_at=%s (%.1fh %.1fmin)",
 		credentials.RefreshTokenExpiresAt.Format(time.RFC3339), hours, minutes)
 
 	if hours < 22 {
@@ -216,7 +216,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 		log.Trace(dbgStr)
 	}
 
-	for range retries {
+	for i := range retries {
 		newCred, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
 		if err == nil {
 			ret, err := a.storeCredentials(newCred)
@@ -224,7 +224,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			if err != nil {
 				log.Error("[auth] Store credentials err: " + err.Error())
 			} else if hours < 22 {
-				log.Infof("[auth] New AccessToken expires_at=%s (%.1fmin)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt).Minutes())
+				log.Infof("[auth] New AT expires_at=%s (%.1fmin)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt).Minutes())
 			}
 
 			return &ret, nil
@@ -244,14 +244,21 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			a.backoff.Fail()
 			return nil, errors.New("refreshToken expired")
 
-		case errors.Is(err, ErrTimeout):
+		case errors.Is(err, ErrTimeout), errors.Is(err, ErrServer), errors.Is(err, ErrUnauthorized):
+			if i == retries-1 {
+				// Last attempt, don't sleep before returning failure
+				break
+			}
+
 			randomDelay, err := rand.Int(rand.Reader, big.NewInt(10))
 			if err != nil {
 				randomDelay = big.NewInt(0)
 			}
 			retryAfter := time.Duration(retries)*timeout + time.Second*time.Duration(randomDelay.Int64())
-			log.Warnf("[auth] AccessToken refresh timeout retry in %ds", int(retryAfter.Seconds()))
+			log.Warnf("[auth] AT refresh err=%v retry in %ds", err, int(retryAfter.Seconds()))
+			a.lock.Unlock()
 			time.Sleep(retryAfter)
+			a.lock.Lock()
 
 		default:
 			a.backoff.Fail()
@@ -264,7 +271,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 }
 
 func (a *authenticator) ensureBackwardsCompatibility() error {
-	log.Debug("[auth] ensuring backwards compatibility...")
+	log.Debug("[auth] Ensure backwards compatibility")
 
 	creds := a.cfg.GetCredentials()
 
@@ -275,17 +282,17 @@ func (a *authenticator) ensureBackwardsCompatibility() error {
 	// We're refreshing the field to make sure we have a correct time set there.
 	accessTokenExpiresAt, err := jwt.ExpirationDate(creds.AccessToken)
 	if err != nil {
-		return fmt.Errorf("cant't get access token expiration time: %w", err)
+		return fmt.Errorf("access token expiration time err: %w", err)
 	}
 
 	refreshTokenExpiresAt, err := jwt.ExpirationDate(creds.RefreshToken)
 	if err != nil {
-		return fmt.Errorf("cant't get refresh token expiration time: %w", err)
+		return fmt.Errorf("refresh token expiration time err: %w", err)
 	}
 
 	log.WithField("access_token_expires_at", accessTokenExpiresAt.Format(time.RFC3339)).
 		WithField("refresh_token_expires_at", refreshTokenExpiresAt.Format(time.RFC3339)).
-		Info("[auth] ensuring backwards compatibility: updating token expiration times")
+		Info("[auth] Update token expiration times")
 
 	return a.cfg.SetCredentials(config.Credentials{
 		AccessToken:           creds.AccessToken,
