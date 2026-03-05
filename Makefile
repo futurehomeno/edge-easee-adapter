@@ -21,13 +21,6 @@ CONFIG_DIR := $(BIN_DIR)/data
 REMOTE_HOST := fhtunnel@3.255.43.28
 PORT := 8000
 
-clean:
-	-rm -f $(OUT_DIR)/*
-	-rm -f $(TARGET_BIN)
-	-rm -f $(APP_NAME)
-	-rm -f $(APP_NAME).exe
-	-rm -f $(LOG_DIR)/*
-
 build-local:
 	cd src ; go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME) main.go
 
@@ -43,6 +36,13 @@ build-mac-amd64:
 build-win-amd64:
 	cd src ; GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME).exe main.go
 
+clean:
+	-rm -f $(OUT_DIR)/*
+	-rm -f $(TARGET_BIN)
+	-rm -f $(APP_NAME)
+	-rm -f $(APP_NAME).exe
+	-rm -f $(LOG_DIR)/*
+	
 configure:
 	mkdir -p $(BIN_DIR)
 	mkdir -p $(CONTROL_DIR)
