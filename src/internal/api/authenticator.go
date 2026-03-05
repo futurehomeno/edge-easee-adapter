@@ -244,7 +244,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			a.backoff.Fail()
 			return nil, errors.New("refreshToken expired")
 
-		case errors.Is(err, ErrTimeout), errors.Is(err, ErrServer), errors.Is(err, ErrUnauthorized):
+		case errors.Is(err, ErrTimeout), errors.Is(err, ErrServer), errors.Is(err, ErrUnexpected):
 			if i == retries-1 {
 				// Last attempt, don't sleep before returning failure
 				break
@@ -256,9 +256,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			}
 			retryAfter := time.Duration(retries)*timeout + time.Second*time.Duration(randomDelay.Int64())
 			log.Warnf("[auth] AT refresh err=%v retry in %ds", err, int(retryAfter.Seconds()))
-			a.lock.Unlock()
 			time.Sleep(retryAfter)
-			a.lock.Lock()
 
 		default:
 			a.backoff.Fail()
