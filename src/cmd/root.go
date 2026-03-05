@@ -18,6 +18,7 @@ func Execute(version string) error {
 
 	if cfg.LogFormat == "text" {
 		cfg.LogFormat = "budzik"
+
 		if err := getConfigService().Save(); err != nil {
 			log.Warnf("Save config err: %v", err)
 		}

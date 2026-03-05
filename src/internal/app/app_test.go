@@ -278,9 +278,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					On("Login", "test-user", "test-password").
 					Return(errors.New("oops"))
 			},
-			mockClient: func(c *mockapi.Client) {
-				c.On("Ping").Return(nil)
-			},
 			wantErr: true,
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
@@ -566,13 +563,10 @@ func TestApplication_Initialize(t *testing.T) {
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(nil)
 			},
-			mockClient: func(c *mockapi.Client) {
-				c.On("Ping").Return(nil)
-			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
+				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 			},
 		},
@@ -587,9 +581,6 @@ func TestApplication_Initialize(t *testing.T) {
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(errors.New("oops"))
-			},
-			mockClient: func(c *mockapi.Client) {
-				c.On("Ping").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())

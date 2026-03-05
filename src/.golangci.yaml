@@ -17,6 +17,7 @@ linters:
     - gocritic
     - gocyclo
     - gosec
+    - exhaustive
     - forbidigo
     - forcetypeassert
     - goheader
