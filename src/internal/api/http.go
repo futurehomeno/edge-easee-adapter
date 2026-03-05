@@ -107,7 +107,7 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTransport, err)
+		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -144,7 +144,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTransport, err)
+		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -192,7 +192,7 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrTransport, err)
+		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -224,7 +224,7 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrTransport, err)
+		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -258,7 +258,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrTransport, err)
+		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -286,7 +286,7 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrTransport, err)
+		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -370,7 +370,7 @@ func (c *httpClient) Ping(accessToken string) error {
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrTransport, err)
+		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -465,7 +465,7 @@ func (c *httpClient) getResponse(state any, url, accessToken string) (any, error
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrTransport, err)
+		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
 
 	defer func() {
