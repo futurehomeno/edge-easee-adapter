@@ -7,7 +7,7 @@ package/build/*
 /package/debian/DEBIAN/control
 /src/easee
 testdata/log/*
-src/internal/test/mocks/*
+/src/internal/test/mocks/*
 !testdata/log/.gitkeep
 testdata/data/*
 !testdata/data/.gitkeep

@@ -4,18 +4,18 @@ endef
 
 SHELL := /bin/bash
 
-VERSION := 2.6.2
+VERSION := 2.6.3
 APP_NAME := easee
 
 ARCH ?= armhf
 
 OUT_DIR := package/build
 DEB_DIR := package/debian
-LOG_DIR := $(DEB_DIR)/var/log/thingsplex/$(APP_NAME)
 CONTROL_DIR := $(DEB_DIR)/DEBIAN
 TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
 BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
 TARGET_BIN := $(BIN_DIR)/$(APP_NAME)
+LOG_DIR := $(DEB_DIR)/var/log/thingsplex/$(APP_NAME)
 CONFIG_DIR := $(BIN_DIR)/data
 
 REMOTE_HOST := fhtunnel@3.255.43.28
@@ -112,4 +112,4 @@ generate-mocks:
 	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
 	$(call generate_mocks,"internal/signalr","signalr","Client")
 
-.PHONY: all clean test generate-mocks configure package-deb deb-arm deb-amd upload deploy
+.PHONY: clean test generate-mocks configure package-deb deb-arm deb-amd upload deploy
