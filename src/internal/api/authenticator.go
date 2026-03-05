@@ -250,8 +250,8 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 				break
 			}
 
-			randomDelay, err := rand.Int(rand.Reader, big.NewInt(10))
-			if err != nil {
+			randomDelay, e := rand.Int(rand.Reader, big.NewInt(10))
+			if e != nil {
 				randomDelay = big.NewInt(0)
 			}
 			retryAfter := time.Duration(retries)*timeout + time.Second*time.Duration(randomDelay.Int64())
