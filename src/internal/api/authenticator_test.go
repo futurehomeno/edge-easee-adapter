@@ -18,7 +18,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
-	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
+	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
 )
 
 //nolint:godox
@@ -79,7 +79,7 @@ func TestLogin(t *testing.T) {
 
 			notificationManager := fakes.NewNotifier(t)
 
-			httpClient := mocks.NewHTTPClient(t)
+			httpClient := mockapi.NewHTTPClient(t)
 
 			httpClient.On("Login", v.username, v.password).Return(&model.Credentials{
 				AccessToken:  v.accessToken,
@@ -188,7 +188,7 @@ func TestAccessToken(t *testing.T) {
 
 			t.Cleanup(mqtt.Stop)
 
-			httpClient := mocks.NewHTTPClient(t)
+			httpClient := mockapi.NewHTTPClient(t)
 
 			if !clock.Now().After(v.credentialsCfg.RefreshTokenExpiresAt) && clock.Now().After(v.credentialsCfg.AccessTokenExpiresAt) {
 				httpClient.On("RefreshToken", cfg.AccessToken, cfg.RefreshToken).Return(&model.Credentials{
@@ -292,7 +292,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 
 	notificationManager := fakes.NewNotifier(t)
 
-	client := mocks.NewHTTPClient(t)
+	client := mockapi.NewHTTPClient(t)
 	client.On("RefreshToken", accessToken, refreshToken).
 		Return(
 			nil,

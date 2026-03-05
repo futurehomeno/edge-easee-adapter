@@ -88,3 +88,7 @@ Topic: `pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1`
 "ver": "1"
 }
 ```
+
+
+## Mockery:
+go install github.com/vektra/mockery/v2@v2.53.5
