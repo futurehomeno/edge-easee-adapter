@@ -192,11 +192,6 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 
 	err = a.cfg.SetCredentials(ret)
 	if err != nil {
-		// Check if this is a JWT parsing error (empty ret) vs storage error (valid ret)
-		if ret.AccessToken == "" {
-			a.backoff.Fail()
-			return ret, fmt.Errorf("refresh credential err: %w", err)
-		}
 		// Storage failure only - credentials are valid, just not persisted
 		log.Warnf("[auth] Store credentials err: %v", err)
 	}
