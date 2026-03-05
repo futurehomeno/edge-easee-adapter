@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
+	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
@@ -29,10 +30,10 @@ type Info struct {
 
 // State is an object representing charger persisted mutable information.
 type State struct {
-	GridType            chargepoint.GridType `json:"gridType"`
-	Phases              int                  `json:"phases"`
-	PhaseMode           int                  `json:"phaseMode"`
-	SupportedMaxCurrent int64                `json:"supportedMaxCurrent"`
+	GridType            types.GridType `json:"gridType"`
+	Phases              int            `json:"phases"`
+	PhaseMode           int            `json:"phaseMode"`
+	SupportedMaxCurrent int            `json:"supportedMaxCurrent"`
 }
 
 func (s *State) IsConfigUpdateNeeded() bool {
@@ -142,7 +143,7 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 	}
 
 	return chargepoint.Specification(
-		ad.Name(),
+		ad.Name().Str(),
 		ad.Address(),
 		thingState.Address(),
 		groups,
@@ -221,7 +222,7 @@ func (t *thingFactory) newParametersService(publisher adapter.ServicePublisher,
 }
 
 func (t *thingFactory) parametersSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
-	return parameters.Specification(adapter.Name(), adapter.Address(), thingState.Address(), groups)
+	return parameters.Specification(adapter.Name().Str(), adapter.Address(), thingState.Address(), groups)
 }
 
 // parameterSpecificationCableAlwaysLocked returns parameter specification for the associated configuration option.

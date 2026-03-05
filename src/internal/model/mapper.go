@@ -1,11 +1,11 @@
 package model
 
 import (
-	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 )
 
-func SupportedPhaseModes(gridType chargepoint.GridType, phaseMode, phases int) []chargepoint.PhaseMode {
+func SupportedPhaseModes(gridType types.GridType, phaseMode, phases int) []types.PhaseMode {
 	if gridType == "" || phaseMode == 0 || phases == 0 {
 		return nil
 	}
@@ -34,38 +34,38 @@ func SupportedPhaseModes(gridType chargepoint.GridType, phaseMode, phases int) [
 	return phaseModeMap
 }
 
-var phaseModeMatrix = map[chargepoint.GridType]map[int]map[int][]chargepoint.PhaseMode{
-	chargepoint.GridTypeTN: {
+var phaseModeMatrix = map[types.GridType]map[int]map[int][]types.PhaseMode{
+	types.GridTypeTN: {
 		1: {
-			1: []chargepoint.PhaseMode{chargepoint.PhaseModeNL1},
-			2: []chargepoint.PhaseMode{chargepoint.PhaseModeNL1},
+			1: []types.PhaseMode{types.PhaseModeNL1},
+			2: []types.PhaseMode{types.PhaseModeNL1},
 		},
 		3: {
-			1: []chargepoint.PhaseMode{chargepoint.PhaseModeNL1, chargepoint.PhaseModeNL2, chargepoint.PhaseModeNL3},
-			2: []chargepoint.PhaseMode{chargepoint.PhaseModeNL1, chargepoint.PhaseModeNL2, chargepoint.PhaseModeNL3, chargepoint.PhaseModeNL1L2L3},
-			3: []chargepoint.PhaseMode{chargepoint.PhaseModeNL1L2L3},
+			1: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL3},
+			2: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL3, types.PhaseModeNL1L2L3},
+			3: []types.PhaseMode{types.PhaseModeNL1L2L3},
 		},
 	},
-	chargepoint.GridTypeTT: {
+	types.GridTypeTT: {
 		1: {
-			1: []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2},
-			2: []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2},
+			1: []types.PhaseMode{types.PhaseModeL1L2},
+			2: []types.PhaseMode{types.PhaseModeL1L2},
 		},
 		3: {
-			1: []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2, chargepoint.PhaseModeL2L3, chargepoint.PhaseModeL3L1},
-			2: []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2, chargepoint.PhaseModeL2L3, chargepoint.PhaseModeL3L1, chargepoint.PhaseModeL1L2L3},
-			3: []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2L3},
+			1: []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL2L3, types.PhaseModeL3L1},
+			2: []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL2L3, types.PhaseModeL3L1, types.PhaseModeL1L2L3},
+			3: []types.PhaseMode{types.PhaseModeL1L2L3},
 		},
 	},
-	chargepoint.GridTypeIT: {
+	types.GridTypeIT: {
 		1: {
-			1: []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2},
-			2: []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2},
+			1: []types.PhaseMode{types.PhaseModeL1L2},
+			2: []types.PhaseMode{types.PhaseModeL1L2},
 		},
 		3: {
-			1: []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2, chargepoint.PhaseModeL2L3, chargepoint.PhaseModeL3L1},
-			2: []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2, chargepoint.PhaseModeL2L3, chargepoint.PhaseModeL3L1, chargepoint.PhaseModeL1L2L3},
-			3: []chargepoint.PhaseMode{chargepoint.PhaseModeL1L2L3},
+			1: []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL2L3, types.PhaseModeL3L1},
+			2: []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL2L3, types.PhaseModeL3L1, types.PhaseModeL1L2L3},
+			3: []types.PhaseMode{types.PhaseModeL1L2L3},
 		},
 	},
 }

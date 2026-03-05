@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
+	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -127,7 +128,7 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 	}
 
 	locked, _ := c.cache.CableLocked()
-	cable := int64(0)
+	cable := int(0)
 
 	if !locked {
 		return &chargepoint.CableReport{
@@ -150,7 +151,7 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 	}, nil
 }
 
-func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {
+func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	if err := c.checkConnection(); err != nil {
 		return "", err
 	}
@@ -182,7 +183,7 @@ func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error)
 	return "", errors.New(errMsg)
 }
 
-func (c *controller) SetChargepointMaxCurrent(current int64) error {
+func (c *controller) SetChargepointMaxCurrent(current int) error {
 	err := c.client.UpdateMaxCurrent(c.chargerID, float64(current))
 	if err != nil {
 		return err
@@ -193,7 +194,7 @@ func (c *controller) SetChargepointMaxCurrent(current int64) error {
 	return nil
 }
 
-func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
+func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 	if err := c.checkConnection(); err != nil {
 		return 0, err
 	}
@@ -203,7 +204,7 @@ func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
 	return current, nil
 }
 
-func (c *controller) SetChargepointOfferedCurrent(current int64) error {
+func (c *controller) SetChargepointOfferedCurrent(current int) error {
 	err := c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
 	if err != nil {
 		return err
@@ -375,7 +376,7 @@ func (c *controller) updateChargerSiteState(chargerID string, state *State) erro
 		return nil
 	}
 
-	state.SupportedMaxCurrent = min(int64(math.Round(siteInfo.RatedCurrent)), maxCurrentValue)
+	state.SupportedMaxCurrent = min(int(math.Round(siteInfo.RatedCurrent)), maxCurrentValue)
 
 	return nil
 }

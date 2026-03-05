@@ -64,20 +64,20 @@ func (s *sessionStorage) RegisterSessionStart(chargerID string, session model.St
 	if latest != nil && latest.Stop.IsZero() {
 		latest.Stop = session.Start
 
-		err = s.db.Set(bucket, latest.IDString(), latest)
+		err = s.db.Set(bucket, idString(latest.ID), latest)
 		if err != nil {
 			return errors.Wrap(err, "register start session: can't update previous charging session")
 		}
 	}
 
-	return s.db.Set(bucket, session.IDString(), ChargingSession{
+	return s.db.Set(bucket, idString(session.ID), ChargingSession{
 		ID:    session.ID,
 		Start: session.Start,
 	})
 }
 
 func (s *sessionStorage) RegisterSessionStop(chargerID string, session model.StopChargingSession) error {
-	return s.db.Set(s.bucketName(chargerID), session.IDString(), ChargingSession{
+	return s.db.Set(s.bucketName(chargerID), idString(session.ID), ChargingSession{
 		ID:     session.ID,
 		Start:  session.Start,
 		Stop:   session.Stop,
@@ -130,14 +130,14 @@ func (s *sessionStorage) bucketName(chargerID string) string {
 }
 
 type ChargingSession struct {
-	ID     int64     `json:"id"`
+	ID     int       `json:"id"`
 	Start  time.Time `json:"start"`
 	Stop   time.Time `json:"stop"`
 	Energy float64   `json:"energy"`
 }
 
-func (s *ChargingSession) IDString() string {
-	return strconv.FormatInt(s.ID, 10)
+func idString(id int) string {
+	return strconv.FormatInt(int64(id), 10)
 }
 
 type ChargingSessions []*ChargingSession

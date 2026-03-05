@@ -4,7 +4,7 @@ endef
 
 SHELL := /bin/bash
 
-VERSION := 2.6.3
+VERSION := 2.6.4
 APP_NAME := easee
 
 ARCH ?= armhf
@@ -42,7 +42,7 @@ clean:
 	-rm -f $(APP_NAME)
 	-rm -f $(APP_NAME).exe
 	-rm -f $(LOG_DIR)/*
-	
+
 configure:
 	mkdir -p $(BIN_DIR)
 	mkdir -p $(CONTROL_DIR)
