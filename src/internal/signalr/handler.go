@@ -150,7 +150,7 @@ func (h *observationsHandler) handleMaxChargerCurrent(observation model.Observat
 		return err
 	}
 
-	ok := h.cache.SetMaxCurrent(int64(math.Round(val)), observation.Timestamp)
+	ok := h.cache.SetMaxCurrent(int(math.Round(val)), observation.Timestamp)
 	if !ok {
 		return nil
 	}
@@ -186,7 +186,7 @@ func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Obse
 		return err
 	}
 
-	ok := h.cache.SetOfferedCurrent(int64(math.Round(val)), observation.Timestamp)
+	ok := h.cache.SetOfferedCurrent(int(math.Round(val)), observation.Timestamp)
 	if !ok {
 		return nil
 	}
@@ -228,9 +228,7 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	cableCurrent := int64(val)
-
-	ok := h.cache.SetCableCurrent(cableCurrent, observation.Timestamp)
+	ok := h.cache.SetCableCurrent(val, observation.Timestamp)
 	if !ok {
 		return nil
 	}
@@ -240,7 +238,7 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	_, err = chargepointSrv.SendCableLockReport(false)
+	_, err = chargepointSrv.SendCableLockReport(true)
 
 	return err
 }

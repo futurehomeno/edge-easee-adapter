@@ -183,8 +183,8 @@ func TestAccessToken(t *testing.T) {
 			cfgSrv := config.NewConfigServiceWithStorage(&storage)
 			notificationManager := fakes.NewNotifier(t)
 
-			mqtt := fimpgo.NewMqttTransport(mqttAddr, "", "", "", true, 1, 1)
-			require.NoError(t, mqtt.Start())
+			mqtt := fimpgo.NewMqttTransport(mqttAddr, "", "", "", true, 1, 1, nil)
+			require.NoError(t, mqtt.Start(5*time.Second))
 
 			t.Cleanup(mqtt.Stop)
 
@@ -310,6 +310,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 		true,
 		1,
 		1,
+		nil,
 	)
 
 	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, routing.ServiceName)

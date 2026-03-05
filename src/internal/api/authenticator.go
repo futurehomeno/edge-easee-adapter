@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/notification"
 	"github.com/futurehomeno/fimpgo"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
@@ -47,14 +48,14 @@ type authenticator struct {
 	http                HTTPClient
 	notificationManager Notifier
 	mqtt                *fimpgo.MqttTransport
-	serviceName         string
+	serviceName         fimptype.ServiceNameT
 	backoff             backoff.Stateful
 
 	bcEnsured bool
 }
 
 // NewAuthenticator creates a new instance of the Authenticator.
-func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify Notifier, mqtt *fimpgo.MqttTransport, serviceName string) Authenticator {
+func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify Notifier, mqtt *fimpgo.MqttTransport, serviceName fimptype.ServiceNameT) Authenticator {
 	backoffCfg := cfgSvc.GetAuthenticatorBackoffCfg()
 
 	statefulBackoff := backoff.NewStateful(

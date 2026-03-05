@@ -112,6 +112,10 @@ func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 // getMQTT creates or returns existing MQTT broker service.
 func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 	if services.mqtt == nil {
+		errHandler := func(err error) {
+			log.Fatalf("Unrecoverable MQTT err: %v", err)
+		}
+
 		services.mqtt = fimpgo.NewMqttTransport(
 			cfg.MQTTServerURI,
 			cfg.MQTTClientIDPrefix,
@@ -120,6 +124,7 @@ func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 			true,
 			1,
 			1,
+			errHandler,
 		)
 	}
 
