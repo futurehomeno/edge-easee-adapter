@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"strings"
 	"sync"
 	"time"
 
@@ -244,7 +245,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			a.backoff.Fail()
 			return nil, errors.New("refreshToken expired")
 
-		case errors.Is(err, ErrTimeout), errors.Is(err, ErrServer):
+		case errors.Is(err, ErrTimeout), errors.Is(err, ErrServer), strings.Contains(err.Error(), ErrTransport.Error()):
 			if i == retries-1 {
 				// Last attempt, don't sleep before returning failure
 				break

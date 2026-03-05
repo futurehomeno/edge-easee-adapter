@@ -23,6 +23,7 @@ var (
 	ErrTimeout      = errors.New("timeout")
 	ErrServer       = errors.New("server_error")
 	ErrUnexpected   = errors.New("unexpected")
+	ErrTransport    = errors.New("transport_error")
 )
 
 const (
@@ -106,7 +107,7 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return nil, errors.Wrap(err, "login request failed")
+		return nil, fmt.Errorf("%w: %v", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -143,7 +144,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return nil, errors.Wrap(err, "token refresh request failed")
+		return nil, fmt.Errorf("%w: %v", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -191,7 +192,7 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return errors.Wrap(err, "update max current request failed")
+		return fmt.Errorf("%w: %v", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -223,7 +224,7 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return errors.Wrap(err, "update dynamic current request failed")
+		return fmt.Errorf("%w: %v", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -257,7 +258,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return errors.Wrap(err, "stop charging request failed")
+		return fmt.Errorf("%w: %v", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -285,7 +286,7 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return errors.Wrap(err, "could not perform cable lock api call")
+		return fmt.Errorf("%w: %v", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -369,7 +370,7 @@ func (c *httpClient) Ping(accessToken string) error {
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return errors.Wrap(err, "failed to perform ping request")
+		return fmt.Errorf("%w: %v", ErrTransport, err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -464,7 +465,7 @@ func (c *httpClient) getResponse(state any, url, accessToken string) (any, error
 
 	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
-		return nil, errors.Wrap(err, "could not perform api call")
+		return nil, fmt.Errorf("%w: %v", ErrTransport, err)
 	}
 
 	defer func() {
