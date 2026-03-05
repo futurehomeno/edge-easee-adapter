@@ -240,9 +240,7 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	state, _ := h.cache.ChargerState()
-	cableConnected := state == chargepoint.StateCharging || cableCurrent > 0
-	_, err = chargepointSrv.SendCableLockReport(cableConnected)
+	_, err = chargepointSrv.SendCableLockReport(false)
 
 	return err
 }

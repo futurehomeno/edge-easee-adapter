@@ -29,11 +29,6 @@ jobs:
           go install github.com/vektra/mockery/v2@v2.53.5
           echo "$HOME/go/bin" >> $GITHUB_PATH
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-
       - name: Verify tools
         run: |
           go version

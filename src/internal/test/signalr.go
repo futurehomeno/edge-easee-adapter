@@ -63,8 +63,6 @@ func (s *SignalRServer) Start() {
 
 	log.Infof("signalR test server: starting on addr %s", s.http.Addr)
 	s.running.Store(true)
-	wg := sync.WaitGroup{}
-	wg.Add(2)
 
 	started := make(chan error, 1)
 	go func() {
@@ -88,7 +86,6 @@ func (s *SignalRServer) Start() {
 		if err := s.http.Serve(ln); err != nil && err != http.ErrServerClosed {
 			log.Errorf("http server stopped with error: %v", err)
 		}
-		s.running.Store(false)
 	}()
 
 	go s.scheduleObservations()
@@ -130,7 +127,6 @@ func (s *SignalRServer) scheduleObservations() {
 
 	for _, batch := range s.mockedObservations {
 		time.Sleep(batch.delay)
-
 		s.hub.propagate(batch.observations)
 	}
 }
