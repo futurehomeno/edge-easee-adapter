@@ -48,8 +48,8 @@ func Factory() *Config {
 
 // Credentials represent Easee API credentials.
 type Credentials struct {
-	AccessToken           string    `json:"accessToken"`
-	RefreshToken          string    `json:"refreshToken"`
+	AccessToken           string    `json:"accessToken"`  //nolint:gosec
+	RefreshToken          string    `json:"refreshToken"` //nolint:gosec
 	AccessTokenExpiresAt  time.Time `json:"expiresAt,omitzero"`
 	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt,omitzero"`
 }

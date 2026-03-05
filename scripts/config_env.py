@@ -10,7 +10,6 @@ Section: non-free/misc
 Version: {version}
 Architecture: {arch}
 Priority: optional
-Depends: influxdb (>= 1.7)
 Replaces: easee
 Maintainer: Futurehome AS <dev@futurehome.no>
 Description: Futurehome Easee EV charger adapter

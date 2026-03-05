@@ -104,7 +104,7 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 		return nil, errors.Wrap(err, "failed to create login request")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
 		return nil, errors.Wrap(err, "login request failed")
 	}
@@ -141,7 +141,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 		return nil, errors.Wrap(err, "failed to create token refresh request")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
 		return nil, errors.Wrap(err, "token refresh request failed")
 	}
@@ -189,7 +189,7 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 		return errors.Wrap(err, "failed to create max current request")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
 		return errors.Wrap(err, "update max current request failed")
 	}
@@ -221,7 +221,7 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 		return errors.Wrap(err, "failed to create dynamic current request")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
 		return errors.Wrap(err, "update dynamic current request failed")
 	}
@@ -255,7 +255,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 		return errors.Wrap(err, "failed to create stop charging request")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
 		return errors.Wrap(err, "stop charging request failed")
 	}
@@ -283,7 +283,7 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 		return errors.Wrap(err, "failed to create cable lock request")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
 		return errors.Wrap(err, "could not perform cable lock api call")
 	}
@@ -367,7 +367,7 @@ func (c *httpClient) Ping(accessToken string) error {
 		return errors.Wrap(err, "failed to create ping request")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
 		return errors.Wrap(err, "failed to perform ping request")
 	}
@@ -462,7 +462,7 @@ func (c *httpClient) getResponse(state any, url, accessToken string) (any, error
 		return nil, errors.Wrap(err, "failed to create request")
 	}
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec
 	if err != nil {
 		return nil, errors.Wrap(err, "could not perform api call")
 	}

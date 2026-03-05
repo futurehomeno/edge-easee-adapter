@@ -116,18 +116,14 @@ func (a *authenticator) AccessToken() (string, error) {
 	}
 
 	if credentials.RefreshTokenExpired() {
-<<<<<<< Updated upstream
-		return "", errors.Wrap(a.triggerAppLogout(), "refresh token expired")
-=======
-		if err := a.triggerAppLogout(credentials); err != nil {
+		if err := a.triggerAppLogout(); err != nil {
 			log.Errorf("[auth] TriggerAppLogout err: %v", err)
 			// Ensure credentials are cleared even if notification failed
 			if clearErr := a.cfg.ClearCredentials(); clearErr != nil {
 				log.Errorf("[auth] ClearCredentials fallback err: %v", clearErr)
 			}
 		}
-		return "", errors.New("refresh token expired: re-login required")
->>>>>>> Stashed changes
+		return "", errors.New("re-login required")
 	}
 
 	newCredentials, err := a.updateCredentials(credentials, 2, 30*time.Second)
@@ -179,12 +175,12 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 
 	accessTokenExpDate, err := jwt.ExpirationDate(credentials.AccessToken)
 	if err != nil {
-		return ret, fmt.Errorf("failed to extract expiration date from access token: %w", err)
+		return ret, fmt.Errorf("extract expiration date from access token err: %w", err)
 	}
 
 	refreshTokenExpDate, err := jwt.ExpirationDate(credentials.RefreshToken)
 	if err != nil {
-		return ret, fmt.Errorf("failed to extract expiration date from refresh token: %w", err)
+		return ret, fmt.Errorf("extract expiration date from refresh token err: %w", err)
 	}
 
 	ret = config.Credentials{
@@ -196,19 +192,13 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 
 	err = a.cfg.SetCredentials(ret)
 	if err != nil {
-<<<<<<< Updated upstream
-		return ret, fmt.Errorf("failed to save credentials in storage: %w", err)
-=======
 		// Check if this is a JWT parsing error (empty ret) vs storage error (valid ret)
 		if ret.AccessToken == "" {
 			a.backoff.Fail()
-			return nil, fmt.Errorf("failed to process refreshed credentials: %w", err)
+			return ret, fmt.Errorf("refresh credential err: %w", err)
 		}
 		// Storage failure only - credentials are valid, just not persisted
-		log.Warn("[auth] Store credentials err (will retry on restart): " + err.Error())
-	} else if hours < 22 {
-		log.Infof("[auth] New AccessToken expires_at=%s (%.1fmin)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt).Minutes())
->>>>>>> Stashed changes
+		log.Warnf("[auth] Store credentials err: %v", err)
 	}
 
 	return ret, nil
