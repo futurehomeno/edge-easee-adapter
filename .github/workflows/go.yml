@@ -23,7 +23,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.25'
+        go-version: '1.26'
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -54,11 +54,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.7.2
+          version: v2.10.1
           working-directory: src
       - name: Run staticcheck
         run: |
@@ -77,7 +77,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.25'
+        go-version: '1.26'
 
     - name: Test
       shell: bash
@@ -112,7 +112,7 @@ jobs:
     - name: Generate changelog
       id: changelog
       run: |
-        LAST=${{ steps.prevtag.outputs.last_tag }}
+        LAST="${{ steps.prevtag.outputs.last_tag }}"
         echo "### Changes since \"$LAST\"" > changes.md
         echo "" >> changes.md
 
