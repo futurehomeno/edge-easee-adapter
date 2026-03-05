@@ -1,6 +1,7 @@
 .idea
 .DS_Store
 *.deb
+*.bak
 package/build/*
 !package/build/.gitkeep
 /package/debian/opt/thingsplex/easee/easee
