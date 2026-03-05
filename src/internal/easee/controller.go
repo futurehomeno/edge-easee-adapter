@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
+	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -127,22 +128,30 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 	}
 
 	locked, _ := c.cache.CableLocked()
-	current, _ := c.cache.CableCurrent()
+	cable := int(0)
 
-	if !locked || (current != nil && *current < 0) {
-		locked = false
+	if !locked {
+		return &chargepoint.CableReport{
+			CableLock:    false,
+			CableCurrent: &cable,
+		}, nil
+	}
 
-		current = new(int64)
-		*current = 0
+	cable, cableTime := c.cache.CableCurrent()
+
+	if !cableTime.IsZero() && cable >= 0 {
+		return &chargepoint.CableReport{
+			CableLock:    locked,
+			CableCurrent: &cable,
+		}, nil
 	}
 
 	return &chargepoint.CableReport{
-		CableLock:    locked,
-		CableCurrent: current,
+		CableLock: locked,
 	}, nil
 }
 
-func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {
+func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	if err := c.checkConnection(); err != nil {
 		return "", err
 	}
@@ -174,7 +183,7 @@ func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error)
 	return "", errors.New(errMsg)
 }
 
-func (c *controller) SetChargepointMaxCurrent(current int64) error {
+func (c *controller) SetChargepointMaxCurrent(current int) error {
 	err := c.client.UpdateMaxCurrent(c.chargerID, float64(current))
 	if err != nil {
 		return err
@@ -185,7 +194,7 @@ func (c *controller) SetChargepointMaxCurrent(current int64) error {
 	return nil
 }
 
-func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
+func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 	if err := c.checkConnection(); err != nil {
 		return 0, err
 	}
@@ -195,7 +204,7 @@ func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
 	return current, nil
 }
 
-func (c *controller) SetChargepointOfferedCurrent(current int64) error {
+func (c *controller) SetChargepointOfferedCurrent(current int) error {
 	lastValue, lastSet := c.cache.RequestedOfferedCurrent()
 
 	if time.Since(lastSet) < 15*time.Second && current == lastValue {
@@ -226,7 +235,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		slowCurrent := c.cfgService.GetSlowChargingCurrentInAmperes()
 
 		if slowCurrent > 0 {
-			startCurrent = int64(math.Round(slowCurrent))
+			startCurrent = int(math.Round(slowCurrent))
 		}
 	}
 
@@ -373,7 +382,7 @@ func (c *controller) updateChargerSiteState(chargerID string, state *State) erro
 		return nil
 	}
 
-	state.SupportedMaxCurrent = min(int64(math.Round(siteInfo.RatedCurrent)), maxCurrentValue)
+	state.SupportedMaxCurrent = min(int(math.Round(siteInfo.RatedCurrent)), maxCurrentValue)
 
 	return nil
 }

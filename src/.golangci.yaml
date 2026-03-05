@@ -1,6 +1,10 @@
 version: "2"
 
 linters:
+  exclusions:
+    paths:
+    - internal/test/
+
   enable:
     - errcheck
     - govet
@@ -17,6 +21,7 @@ linters:
     - gocritic
     - gocyclo
     - gosec
+    - exhaustive
     - forbidigo
     - forcetypeassert
     - goheader

@@ -5,17 +5,16 @@
   "mqtt_server_password": "",
   "work_dir": "/opt/thingsplex/easee",
   "log_file": "/var/log/thingsplex/easee/easee.log",
-  "log_level": "debug",
+  "log_level": "info",
   "log_format": "budzik",
-  "configured_at": "",
-  "configured_by": "",
   "accessToken": "",
   "refreshToken": "",
   "easeeBaseURL2": "https://api.easee.com",
-  "easeeBackoff": "4s",
-  "pollingInterval": "30s",
-  "energyLifetimeInterval": "15s",
+  "pollingInterval": "10m",
+  "token_refresh_interval": "30m",
+  "energyLifetimeInterval": "15m",
   "currentWaitDuration": "3s",
+  "offered_current_wait_time": "30s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
   "signalR": {
@@ -23,18 +22,18 @@
     "connCreationTimeout": "30s",
     "keepAliveInterval2": "30s",
     "timeoutInterval2": "1m",
-    "initialBackoff": "5s",
+    "initialBackoff": "10s",
     "repeatedBackoff": "30s",
     "finalBackoff": "2m",
-    "initialFailureCount": 3,
-    "repeatedFailureCount": 6,
+    "initialFailureCount": 2,
+    "repeatedFailureCount": 3,
     "invokeTimeout": "10s"
   },
   "authenticatorBackoff": {
     "initialBackoff": "1m",
     "repeatedBackoff": "5m",
     "finalBackoff": "10m",
-    "initialFailureCount": 5,
-    "repeatedFailureCount": 10
+    "initialFailureCount": 4,
+    "repeatedFailureCount": 8
   }
 }

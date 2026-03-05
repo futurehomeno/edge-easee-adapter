@@ -2,6 +2,7 @@ package signalr
 
 import (
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -170,6 +171,14 @@ func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
 }
 
 func (m *manager) run() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error(r)
+			log.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
+
 	states := m.client.StateC()
 	observations := m.client.ObservationC()
 

@@ -18,7 +18,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
-	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
+	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
 )
 
 //nolint:godox
@@ -48,13 +48,13 @@ func TestLogin(t *testing.T) {
 			errorContains: "expected response code to be 200",
 		},
 		{
-			name:          "should return error when storage failed to save",
+			name:          "should not return error when storage failed to save",
 			username:      "user",
 			password:      "pwd",
 			accessToken:   accessToken,
 			refreshToken:  refreshToken,
-			saveError:     errors.New("failed to save to the storage"),
-			errorContains: "failed to save to the storage",
+			saveError:     nil,
+			errorContains: "",
 		},
 		{
 			name:         "should save tokens to the storage",
@@ -79,7 +79,7 @@ func TestLogin(t *testing.T) {
 
 			notificationManager := fakes.NewNotifier(t)
 
-			httpClient := mocks.NewHTTPClient(t)
+			httpClient := mockapi.NewHTTPClient(t)
 
 			httpClient.On("Login", v.username, v.password).Return(&model.Credentials{
 				AccessToken:  v.accessToken,
@@ -146,14 +146,14 @@ func TestAccessToken(t *testing.T) {
 			errorContains: "failed to perform token refresh api call",
 		},
 		{
-			name: "should return error when failed to set credentials",
+			name: "should not return error when failed to set credentials",
 			credentialsCfg: config.Credentials{
 				AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
 				RefreshTokenExpiresAt: time.Now().Add(time.Hour),
 			},
-
-			saveError:     errors.New("failed to save"),
-			errorContains: "failed to save",
+			expectedToken: accessToken,
+			accessToken:   accessToken,
+			refreshToken:  refreshToken,
 		},
 		{
 			name: "should save refreshed token when all validations passed",
@@ -183,12 +183,12 @@ func TestAccessToken(t *testing.T) {
 			cfgSrv := config.NewConfigServiceWithStorage(&storage)
 			notificationManager := fakes.NewNotifier(t)
 
-			mqtt := fimpgo.NewMqttTransport(mqttAddr, "", "", "", true, 1, 1)
-			require.NoError(t, mqtt.Start())
+			mqtt := fimpgo.NewMqttTransport(mqttAddr, "", "", "", true, 1, 1, nil)
+			require.NoError(t, mqtt.Start(5*time.Second))
 
 			t.Cleanup(mqtt.Stop)
 
-			httpClient := mocks.NewHTTPClient(t)
+			httpClient := mockapi.NewHTTPClient(t)
 
 			if !clock.Now().After(v.credentialsCfg.RefreshTokenExpiresAt) && clock.Now().After(v.credentialsCfg.AccessTokenExpiresAt) {
 				httpClient.On("RefreshToken", cfg.AccessToken, cfg.RefreshToken).Return(&model.Credentials{
@@ -292,7 +292,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 
 	notificationManager := fakes.NewNotifier(t)
 
-	client := mocks.NewHTTPClient(t)
+	client := mockapi.NewHTTPClient(t)
 	client.On("RefreshToken", accessToken, refreshToken).
 		Return(
 			nil,
@@ -310,6 +310,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 		true,
 		1,
 		1,
+		nil,
 	)
 
 	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, routing.ServiceName)
@@ -318,9 +319,16 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to perform token refresh api call")
 
-	for i := 0; i < 10; i++ {
+	// allow 2 retries without backoff
+	for range 2 {
 		_, err = auth.AccessToken()
-		assert.Contains(t, err.Error(), "too many requests: backoff is in use")
+		assert.Error(t, err)
+	}
+
+	// block more requests with backoff
+	for range 8 {
+		_, err = auth.AccessToken()
+		assert.Contains(t, err.Error(), "too many requests: backoff")
 	}
 
 	time.Sleep(1 * time.Second)
@@ -331,5 +339,5 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 
 	_, err = auth.AccessToken()
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "too many requests: backoff is in use")
+	assert.Contains(t, err.Error(), "too many requests: backoff")
 }

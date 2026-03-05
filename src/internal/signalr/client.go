@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -162,9 +163,17 @@ func (c *client) invoke(method string, args ...any) error {
 }
 
 func (c *client) handleConnection(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Error(r)
+			log.Error(string(debug.Stack()))
+			panic(r)
+		}
+	}()
+
 	for {
 		if client, err := c.getClient(ctx); err != nil {
-			log.WithError(err).Warn("Unable to start signalr client")
+			log.Errorf("Unable to start signalr client err: %v", err)
 		} else {
 			c.connection = client
 			c.connection.Start()
@@ -192,7 +201,6 @@ func (c *client) notifyState(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			c.updateState(model.ClientStateDisconnected)
-
 			return
 
 		case clientState := <-ch:

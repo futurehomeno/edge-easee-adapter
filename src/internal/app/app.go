@@ -16,6 +16,11 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
+type ApplicationWithToken interface {
+	Application
+	RefreshToken()
+}
+
 // Application is an interface representing a service responsible for preparing an application manifest and configuring app.
 type Application interface {
 	cliffApp.App
@@ -33,7 +38,7 @@ func New(
 	client api.Client,
 	auth api.Authenticator,
 	signalRClient signalr.Client,
-) Application {
+) ApplicationWithToken {
 	return &application{
 		ad:            ad,
 		mfLoader:      mfLoader,
@@ -64,8 +69,30 @@ func (a *application) GetManifest() (*manifest.Manifest, error) {
 	return mf, nil
 }
 
-func (a *application) Configure(_ interface{}) error {
+func (a *application) Configure(_ any) error {
 	return nil
+}
+
+func (a *application) Check() error {
+	return nil
+}
+
+func (a *application) RefreshToken() {
+	prevConnState := a.lifecycle.ConnectionState()
+
+	if err := a.client.Ping(); err != nil {
+		log.Warnf("[auth] Refresh token failed API client disconnected err: %v", err)
+		a.lifecycle.SetConnectionState(lifecycle.ConnStateDisconnected)
+		return
+	}
+
+	if prevConnState == lifecycle.ConnStateDisconnected {
+		log.Info("[auth] API client reconnected")
+	}
+
+	if prevConnState != lifecycle.ConnStateConnected {
+		a.lifecycle.SetConnectionState(lifecycle.ConnStateConnected)
+	}
 }
 
 func (a *application) Uninstall() error {
@@ -102,6 +129,8 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 		return errors.Wrap(err, fmt.Sprintf("failed to login as '%s'", credentials.Username))
 	}
 
+	defer a.RefreshToken() // Call only on success
+
 	if err := a.registerChargers(); err != nil {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
@@ -117,21 +146,7 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 	return nil
 }
 
-func (a *application) Check() error {
-	if err := a.client.Ping(); err != nil {
-		a.lifecycle.SetConnectionState(lifecycle.ConnStateDisconnected)
-
-		return nil //nolint:nilerr
-	}
-
-	a.lifecycle.SetConnectionState(lifecycle.ConnStateConnected)
-
-	return nil
-}
-
 func (a *application) Initialize() error {
-	defer a.Check() //nolint:errcheck
-
 	if err := a.ad.InitializeThings(); err != nil {
 		return errors.Wrap(err, "failed to initialize things")
 	}
@@ -144,13 +159,14 @@ func (a *application) Initialize() error {
 		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-
 		return nil
 	}
 
 	a.lifecycle.SetAppState(lifecycle.AppStateRunning, nil)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
+
+	a.RefreshToken()
 
 	return nil
 }
@@ -168,7 +184,7 @@ func (a *application) Logout() error {
 		return err
 	}
 
-	_ = a.Check()
+	a.RefreshToken()
 
 	a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
