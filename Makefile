@@ -33,14 +33,10 @@ build-linux-amd64:
 build-mac-amd64:
 	cd src ; GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(TARGET_BIN) main.go
 
-build-win-amd64:
-	cd src ; GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME).exe main.go
-
 clean:
 	-rm -f $(OUT_DIR)/*
 	-rm -f $(TARGET_BIN)
 	-rm -f $(APP_NAME)
-	-rm -f $(APP_NAME).exe
 	-rm -f $(LOG_DIR)/*
 
 configure:
@@ -86,9 +82,12 @@ deb-amd: clean configure build-linux-amd64 package-deb
 
 upload:
 	@echo "Uploading..."
-	rsync -avz -e "ssh -p $(PORT)" $(TARGET_PKG) $(REMOTE_HOST):/home/fhtunnel/
+	rsync -av --info=progress2 -e "ssh -p $(PORT)" $(TARGET_PKG) $(REMOTE_HOST):/home/fhtunnel/
 
 deploy: upload
+	ssh -t -p $(PORT) $(REMOTE_HOST) "su - fh -c 'sudo dpkg -i /home/fhtunnel/$(APP_NAME)_$(VERSION)_$(ARCH).deb'"
+
+install:
 	ssh -t -p $(PORT) $(REMOTE_HOST) "su - fh -c 'sudo dpkg -i /home/fhtunnel/$(APP_NAME)_$(VERSION)_$(ARCH).deb'"
 
 test:
@@ -112,4 +111,4 @@ generate-mocks:
 	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
 	$(call generate_mocks,"internal/signalr","signalr","Client")
 
-.PHONY: clean test generate-mocks configure package-deb deb-arm deb-amd upload deploy
+.PHONY: clean test generate-mocks configure package-deb deb-arm deb-amd build-mac-amd64 build-linux-amd64 build-arm build-local upload deploy
