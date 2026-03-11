@@ -192,7 +192,11 @@ func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Obse
 		return err
 	}
 
-	log.Debugf("[%s] Offered current=%.1f", h.chargerID, val)
+	if preVal, _ := h.cache.OfferedCurrent(); preVal != int(val) {
+		log.Infof("[%s] Offered current=%d->%.1f", h.chargerID, preVal, val)
+	} else {
+		log.Debugf("[%s] Offered current=%.1f", h.chargerID, val)
+	}
 
 	ok := h.cache.SetOfferedCurrent(int(math.Round(val)), observation.Timestamp)
 	if !ok {
@@ -263,7 +267,11 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 
 	state := model.ChargerState(val)
 
-	log.Debugf("[%s] State=%s", h.chargerID, state.Str())
+	if prevState, _ := h.cache.ChargerState(); prevState != state.ToFimpState() {
+		log.Infof("[%s] State=%s", h.chargerID, state.Str())
+	} else {
+		log.Debugf("[%s] State=%s", h.chargerID, state.Str())
+	}
 
 	ok := h.cache.SetChargerState(state.ToFimpState(), observation.Timestamp)
 	if !ok {
@@ -348,7 +356,7 @@ func (h *observationsHandler) handleInCurrentT3(observation model.Observation) e
 		return nil
 	}
 
-	log.Debugf("[%s] Phase1Current=%.1f", h.chargerID, val)
+	log.Debugf("[%s] i1=%.1f", h.chargerID, val)
 
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
@@ -371,7 +379,7 @@ func (h *observationsHandler) handleInCurrentT4(observation model.Observation) e
 		return nil
 	}
 
-	log.Debugf("[%s] Phase2Current=%.1f", h.chargerID, val)
+	log.Debugf("[%s] i2=%.1f", h.chargerID, val)
 
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
@@ -394,7 +402,7 @@ func (h *observationsHandler) handleInCurrentT5(observation model.Observation) e
 		return nil
 	}
 
-	log.Debugf("[%s] Phase3Current=%.1f", h.chargerID, val)
+	log.Debugf("[%s] i3=%.1f", h.chargerID, val)
 
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
@@ -419,7 +427,7 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return nil
 	}
 
-	log.Debugf("[%s] PhaseMode=%s", h.chargerID, outPhaseType)
+	log.Infof("[%s] PhaseMode=%s", h.chargerID, outPhaseType)
 
 	ok := h.cache.SetOutputPhaseType(outPhaseType, observation.Timestamp)
 	if !ok {
@@ -517,7 +525,7 @@ func (h *observationsHandler) handleChargingSessionStop(observation model.Observ
 		return err
 	}
 
-	log.Debugf("[%s] Stop session %v", h.chargerID, chargingSession)
+	log.Infof("[%s] Stop session %v", h.chargerID, chargingSession)
 
 	err = h.sessionStorage.RegisterSessionStop(h.chargerID, chargingSession)
 	if err != nil {
@@ -537,7 +545,7 @@ func (h *observationsHandler) handleChargingSessionStart(observation model.Obser
 		return err
 	}
 
-	log.Debugf("[%s] Start session %v", h.chargerID, chargingSession)
+	log.Infof("[%s] Start session %v", h.chargerID, chargingSession)
 
 	err = h.sessionStorage.RegisterSessionStart(h.chargerID, chargingSession)
 	if err != nil {
