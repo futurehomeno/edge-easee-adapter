@@ -93,7 +93,7 @@ func (h *observationsHandler) IsOnline() bool {
 
 func (h *observationsHandler) HandleObservation(observation model.Observation) error {
 	if prev, ok := h.storedObs[observation.ID]; !ok || prev.Value != observation.Value {
-		log.Infof("%s", observation.Str())
+		log.Tracef("%s", observation.Str())
 		h.storedObs[observation.ID] = observation
 	}
 
@@ -109,6 +109,8 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("[%s] Connected phases=%d", h.chargerID, val)
 
 	phaseMode, _ := h.cache.PhaseMode()
 
@@ -150,6 +152,8 @@ func (h *observationsHandler) handleMaxChargerCurrent(observation model.Observat
 		return err
 	}
 
+	log.Debugf("[%s] Max current=%.1f", h.chargerID, val)
+
 	ok := h.cache.SetMaxCurrent(int(math.Round(val)), observation.Timestamp)
 	if !ok {
 		return nil
@@ -172,7 +176,9 @@ func (h *observationsHandler) handleCloudConnected(observation model.Observation
 	}
 
 	if h.isCloudOnline.Load() && !val {
-		log.Warnf("Charger=%s disconnected from cloud", h.chargerID)
+		log.Warnf("[%s] Disconnected from cloud", h.chargerID)
+	} else if !h.isCloudOnline.Load() && val {
+		log.Infof("[%s] Connected to cloud", h.chargerID)
 	}
 
 	h.isCloudOnline.Store(val)
@@ -186,7 +192,14 @@ func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Obse
 		return err
 	}
 
-	ok := h.cache.SetOfferedCurrent(int(math.Round(val)), observation.Timestamp)
+	roundedVal := int(math.Round(val))
+	if preVal, _ := h.cache.OfferedCurrent(); preVal != roundedVal {
+		log.Infof("[%s] Offered current=%d->%d", h.chargerID, preVal, roundedVal)
+	} else {
+		log.Debugf("[%s] Offered current=%d", h.chargerID, roundedVal)
+	}
+
+	ok := h.cache.SetOfferedCurrent(roundedVal, observation.Timestamp)
 	if !ok {
 		return nil
 	}
@@ -206,6 +219,8 @@ func (h *observationsHandler) handleCableLocked(observation model.Observation) e
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("[%s] Cable locked=%t", h.chargerID, val)
 
 	ok := h.cache.SetCableLocked(val, observation.Timestamp)
 	if !ok {
@@ -228,6 +243,8 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
+	log.Debugf("[%s] Cable=%dA", h.chargerID, val)
+
 	ok := h.cache.SetCableCurrent(val, observation.Timestamp)
 	if !ok {
 		return nil
@@ -238,7 +255,7 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	_, err = chargepointSrv.SendCableLockReport(true)
+	_, err = chargepointSrv.SendCableLockReport(false)
 
 	return err
 }
@@ -250,6 +267,12 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 	}
 
 	state := model.ChargerState(val)
+
+	if prevState, _ := h.cache.ChargerState(); prevState != state.ToFimpState() {
+		log.Infof("[%s] State=%s", h.chargerID, state.Str())
+	} else {
+		log.Debugf("[%s] State=%s", h.chargerID, state.Str())
+	}
 
 	ok := h.cache.SetChargerState(state.ToFimpState(), observation.Timestamp)
 	if !ok {
@@ -278,6 +301,8 @@ func (h *observationsHandler) handleTotalPower(observation model.Observation) er
 		return err
 	}
 
+	log.Debugf("[%s] TotalPower=%.2fkW", h.chargerID, val)
+
 	ok := h.cache.SetTotalPower(val*1000, observation.Timestamp)
 	if !ok {
 		return nil
@@ -303,6 +328,8 @@ func (h *observationsHandler) handleEnergySession(observation model.Observation)
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("[%s] EnergySession=%.1f", h.chargerID, val)
 
 	ok := h.cache.SetEnergySession(val, observation.Timestamp)
 	if !ok {
@@ -330,6 +357,8 @@ func (h *observationsHandler) handleInCurrentT3(observation model.Observation) e
 		return nil
 	}
 
+	log.Debugf("[%s] i1=%.1f", h.chargerID, val)
+
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
 		return err
@@ -351,6 +380,8 @@ func (h *observationsHandler) handleInCurrentT4(observation model.Observation) e
 		return nil
 	}
 
+	log.Debugf("[%s] i2=%.1f", h.chargerID, val)
+
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
 		return err
@@ -371,6 +402,8 @@ func (h *observationsHandler) handleInCurrentT5(observation model.Observation) e
 	if !ok {
 		return nil
 	}
+
+	log.Debugf("[%s] i3=%.1f", h.chargerID, val)
 
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
@@ -394,6 +427,8 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	if outPhaseType == "" {
 		return nil
 	}
+
+	log.Infof("[%s] PhaseMode=%s", h.chargerID, outPhaseType)
 
 	ok := h.cache.SetOutputPhaseType(outPhaseType, observation.Timestamp)
 	if !ok {
@@ -423,6 +458,8 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	if supportedGridType == gridType && supportedPhases == phases {
 		return nil
 	}
+
+	log.Debugf("[%s] supGridType=%v supPh=%v", h.chargerID, supportedGridType, supportedPhases)
 
 	ok := h.cache.SetInstallationParameters(supportedGridType, supportedPhases, observation.Timestamp)
 	if !ok {
@@ -464,6 +501,8 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 		return nil
 	}
 
+	log.Debugf("[%s] cableAlwaysLock=%t", h.chargerID, val)
+
 	parameterSrv, err := getParametersService(h.thing)
 	if err != nil {
 		return err
@@ -487,6 +526,8 @@ func (h *observationsHandler) handleChargingSessionStop(observation model.Observ
 		return err
 	}
 
+	log.Infof("[%s] Stop session %v", h.chargerID, chargingSession)
+
 	err = h.sessionStorage.RegisterSessionStop(h.chargerID, chargingSession)
 	if err != nil {
 		return err
@@ -504,6 +545,8 @@ func (h *observationsHandler) handleChargingSessionStart(observation model.Obser
 	if err != nil {
 		return err
 	}
+
+	log.Infof("[%s] Start session %v", h.chargerID, chargingSession)
 
 	err = h.sessionStorage.RegisterSessionStart(h.chargerID, chargingSession)
 	if err != nil {

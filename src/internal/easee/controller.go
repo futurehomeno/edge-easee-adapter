@@ -205,6 +205,12 @@ func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 }
 
 func (c *controller) SetChargepointOfferedCurrent(current int) error {
+	lastValue, lastSet := c.cache.RequestedOfferedCurrent()
+
+	if time.Since(lastSet) < c.cfgService.GetOfferedCurrentWaitTime() && current == lastValue {
+		return nil
+	}
+
 	err := c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
 	if err != nil {
 		return err
@@ -219,17 +225,17 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
 	maxCurrent, _ := c.cache.MaxCurrent()
-	startCurrent := float64(maxCurrent)
+	startCurrent := maxCurrent
 
 	if offered, _ := c.cache.RequestedOfferedCurrent(); offered > 0 {
-		startCurrent = float64(offered)
+		startCurrent = offered
 	}
 
 	if strings.ToLower(settings.Mode) == model.ChargingModeSlow {
 		slowCurrent := c.cfgService.GetSlowChargingCurrentInAmperes()
 
 		if slowCurrent > 0 {
-			startCurrent = slowCurrent
+			startCurrent = int(math.Round(slowCurrent))
 		}
 	}
 
@@ -237,9 +243,9 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		return errors.New("invalid start current")
 	}
 
-	// resume charing request is not used because it clears dynamic current value.
+	// resume charging request is not used because it clears dynamic current value.
 	// update current will resume charging.
-	return c.client.UpdateDynamicCurrent(c.chargerID, startCurrent)
+	return c.SetChargepointOfferedCurrent(startCurrent)
 }
 
 func (c *controller) StopChargepointCharging() error {

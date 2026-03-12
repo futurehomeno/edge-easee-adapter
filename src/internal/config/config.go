@@ -537,7 +537,7 @@ func (cs *Service) GetOfferedCurrentWaitTime() time.Duration {
 
 	duration, err := time.ParseDuration(cs.Model().OfferedCurrentWaitTime)
 	if err != nil {
-		return 30 * time.Second
+		return 15 * time.Second
 	}
 
 	return duration

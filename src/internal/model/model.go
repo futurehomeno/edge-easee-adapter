@@ -286,6 +286,33 @@ const (
 	ChargerStateDeAuthenticating
 )
 
+func (s ChargerState) Str() string {
+	switch s {
+	case ChargerStateUnknown:
+		return "unknown"
+	case ChargerStateOffline:
+		return "offline"
+	case ChargerStateDisconnected:
+		return "disconnected"
+	case ChargerStateAwaitingStart:
+		return "await_start"
+	case ChargerStateCharging:
+		return "charging"
+	case ChargerStateCompleted:
+		return "completed"
+	case ChargerStateError:
+		return "error"
+	case ChargerStateReadyToCharge:
+		return "ready_to_charge"
+	case ChargerStateAwaitingAuthentication:
+		return "await_auth"
+	case ChargerStateDeAuthenticating:
+		return "de_auth"
+	}
+
+	return fmt.Sprintf("unknown(%d)", s)
+}
+
 type OutputPhaseType int
 
 const (

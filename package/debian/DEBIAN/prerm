@@ -3,11 +3,9 @@ set -e
 
 case "$1" in
 	remove)
-		echo -n "Stopping and disabling service if present..."
+		echo "Stop and disable service if present"
 		systemctl stop easee.service > /dev/null || true
 		systemctl disable easee.service > /dev/null || true
-
-		echo "...OK"
 	;;
 
 	upgrade|failed-upgrade|deconfigure)

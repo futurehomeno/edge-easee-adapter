@@ -3,10 +3,8 @@ set -e
 
 case "$1" in
 	upgrade)
-		echo -n "Pausing service if running..."
+		echo "Pause service if running"
 		systemctl stop easee.service > /dev/null
-
-		echo "...OK"
 	;;
 
 	install|abort-upgrade)

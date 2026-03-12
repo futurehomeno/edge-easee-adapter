@@ -4,54 +4,48 @@ set -e
 add_user_and_group() {
 	if ! getent group thingsplex >/dev/null
 	then
-		echo -n "Adding group thingsplex..."
+		echo "Add group thingsplex"
 		addgroup --quiet \
 			--system \
 			thingsplex 2>/dev/null || true
-		echo "...OK"
 	fi
 
 	if ! getent passwd easee >/dev/null
 	then
-		echo -n "Adding user easee..."
+		echo "Add user easee"
 		adduser --quiet \
 			--system \
 			--ingroup thingsplex \
 			--no-create-home \
 			--disabled-password \
 			easee 2>/dev/null || true
-		echo "...OK"
 	fi
 }
 
 create_dirs_and_files() {
-	echo -n "Creating required directories and files..."
+	echo "Create directories and files"
 	touch /opt/thingsplex/easee/data/config.json
 	touch /var/log/thingsplex/easee/easee.log
-	echo "...OK"
 }
 
 set_ownership() {
-  echo -n "Set proper ownership and rights for files..."
+  echo "Set ownership and rights for files"
   chown -R easee:thingsplex /opt/thingsplex/easee || true
   chown -R easee:thingsplex /var/log/thingsplex/easee || true
   chmod -R 644 /opt/thingsplex/easee || true
   chmod 755 /opt/thingsplex/easee || true
   chmod 755 /opt/thingsplex/easee/defaults || true
   chmod 755 /opt/thingsplex/easee/data || true
+  chmod 755 /opt/thingsplex/easee/easee || true
   chmod -R 644 /var/log/thingsplex/easee || true
   chmod 755 /var/log/thingsplex/easee || true
-  chmod 755 /opt/thingsplex/easee/easee || true
-  echo "...OK"
 }
 
 configure_service() {
-		echo -n "Configuring service..."
+		echo "Configure service"
 		systemctl enable easee.service > /dev/null || true
 		systemctl --system daemon-reload >/dev/null || true
 		systemctl start easee.service > /dev/null || true
-
-		echo "...OK"
 }
 
 case "$1" in
