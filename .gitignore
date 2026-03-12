@@ -5,6 +5,8 @@
 package/build/*
 !package/build/.gitkeep
 /package/debian/opt/thingsplex/easee/easee
+/package/debian/usr/bin/
+/usr/bin/easee
 /package/debian/DEBIAN/control
 /src/easee
 testdata/log/*

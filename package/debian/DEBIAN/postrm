@@ -2,7 +2,15 @@
 set -e
 
 case "$1" in
-	bootstrap
+	remove|purge)
+		echo "Remove logs"
+		rm -rf /var/log/futurehome/easee || true
+		echo "Remove config files"
+		rm -rf /var/lib/futurehome/easee || true
+	;;
+
+	bootstrap)
+	;;
 
 	upgrade|abort-upgrade|abort-install|failed-upgrade|disappear)
 	;;

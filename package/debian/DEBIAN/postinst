@@ -2,12 +2,12 @@
 set -e
 
 add_user_and_group() {
-	if ! getent group thingsplex >/dev/null
+	if ! getent group futurehome >/dev/null
 	then
-		echo "Add group thingsplex"
+		echo "Add group futurehome"
 		addgroup --quiet \
 			--system \
-			thingsplex 2>/dev/null || true
+			futurehome 2>/dev/null || true
 	fi
 
 	if ! getent passwd easee >/dev/null
@@ -15,7 +15,7 @@ add_user_and_group() {
 		echo "Add user easee"
 		adduser --quiet \
 			--system \
-			--ingroup thingsplex \
+			--ingroup futurehome \
 			--no-create-home \
 			--disabled-password \
 			easee 2>/dev/null || true
@@ -24,33 +24,71 @@ add_user_and_group() {
 
 create_dirs_and_files() {
 	echo "Create directories and files"
-	touch /opt/thingsplex/easee/data/config.json
-	touch /var/log/thingsplex/easee/easee.log
+	touch /var/lib/futurehome/easee/data/config.json
+	touch /var/log/futurehome/easee/easee.log
+}
+
+migrate() {
+	OLD_DIR="/opt/thingsplex/easee/data"
+	
+	if [ -d "$OLD_DIR" ]; then
+		NEW_DIR="/var/lib/futurehome/easee/data"
+		echo "Migrate data from $OLD_DIR to $NEW_DIR"
+
+		if [ ! -d "$NEW_DIR" ]; then
+			mkdir -p "$NEW_DIR"
+		fi
+
+		chmod 755 "$NEW_DIR"
+		chown -R easee:futurehome "$NEW_DIR"
+
+		# Move contents instead of the directory itself
+		cp -a "$OLD_DIR"/. "$NEW_DIR"/
+		rm -rf "$OLD_DIR"
+	fi
+
+	OLD_LOGS="/var/log/thingsplex/easee"
+
+	if [ -d "$OLD_LOGS" ]; then
+		NEW_LOGS="/var/log/futurehome/easee"
+		echo "Migrate logs from $OLD_LOGS to $NEW_LOGS"
+
+		if [ ! -d "$NEW_LOGS" ]; then
+			mkdir -p "$NEW_LOGS"
+		fi
+
+		chmod 755 "$NEW_LOGS"
+		chown -R easee:futurehome "$NEW_LOGS"
+
+		# Move contents instead of the directory itself
+		cp -a "$OLD_LOGS"/. "$NEW_LOGS"/
+		rm -rf "$OLD_LOGS"
+	fi
 }
 
 set_ownership() {
   echo "Set ownership and rights for files"
-  chown -R easee:thingsplex /opt/thingsplex/easee || true
-  chown -R easee:thingsplex /var/log/thingsplex/easee || true
-  chmod -R 644 /opt/thingsplex/easee || true
-  chmod 755 /opt/thingsplex/easee || true
-  chmod 755 /opt/thingsplex/easee/defaults || true
-  chmod 755 /opt/thingsplex/easee/data || true
-  chmod 755 /opt/thingsplex/easee/easee || true
-  chmod -R 644 /var/log/thingsplex/easee || true
-  chmod 755 /var/log/thingsplex/easee || true
+  chown -R easee:futurehome /var/log/futurehome/easee || true
+  chown -R easee:futurehome /var/lib/futurehome/easee || true
+  chmod -R 644 /var/lib/futurehome/easee || true
+  chmod 755 /var/lib/futurehome/easee || true
+  chmod 755 /var/lib/futurehome/easee/defaults || true
+  chmod 755 /var/lib/futurehome/easee/data || true
+  chmod -R 644 /var/log/futurehome/easee || true
+  chmod 755 /var/log/futurehome/easee || true
 }
 
 configure_service() {
-		echo "Configure service"
-		systemctl enable easee.service > /dev/null || true
-		systemctl --system daemon-reload >/dev/null || true
-		systemctl start easee.service > /dev/null || true
+	echo "Configure service"
+	systemctl enable easee.service > /dev/null || true
+	systemctl --system daemon-reload >/dev/null || true
+	systemctl start easee.service > /dev/null || true
 }
 
 case "$1" in
 	configure)
 		add_user_and_group
+		migrate
 		create_dirs_and_files
 		set_ownership
 		configure_service
