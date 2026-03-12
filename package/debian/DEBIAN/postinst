@@ -30,6 +30,11 @@ create_dirs_and_files() {
 
 migrate() {
 	OLD_DIR="/opt/thingsplex/easee/data"
+
+	if [ -L "$OLD_DIR" ]; then
+        echo "Error: $OLD_DIR is a symlink, refusing to migrate" >&2
+        exit 1
+    fi
 	
 	if [ -d "$OLD_DIR" ]; then
 		NEW_DIR="/var/lib/futurehome/easee/data"
@@ -42,13 +47,21 @@ migrate() {
 		chmod 755 "$NEW_DIR"
 
 		# Move contents instead of the directory itself
-		cp -a "$OLD_DIR"/. "$NEW_DIR"/
-		rm -rf "$OLD_DIR"
+		if cp -a "$OLD_DIR"/. "$NEW_DIR"/; then
+			rm -rf "$OLD_DIR"
+		else
+			echo "Migration failed, preserving original data" >&2
+		fi
 
 		chown -R easee:futurehome "$NEW_DIR"
 	fi
 
 	OLD_LOGS="/var/log/thingsplex/easee"
+
+	if [ -L "$OLD_LOGS" ]; then
+        echo "Error: $OLD_LOGS is a symlink, refusing to migrate" >&2
+        exit 1
+    fi
 
 	if [ -d "$OLD_LOGS" ]; then
 		NEW_LOGS="/var/log/futurehome/easee"
