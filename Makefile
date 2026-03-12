@@ -16,7 +16,7 @@ TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
 BIN_DIR := $(DEB_DIR)/usr/bin
 TARGET_BIN := $(BIN_DIR)/$(APP_NAME)
 LOG_DIR := $(DEB_DIR)/var/log/futurehome/$(APP_NAME)
-CONFIG_DIR := $(DEB_DIR)/var/lib/futurehome/easee/data
+CONFIG_DIR := $(DEB_DIR)/var/lib/futurehome/$(APP_NAME)/data
 
 REMOTE_HOST := fhtunnel@3.255.43.28
 PORT := 8000

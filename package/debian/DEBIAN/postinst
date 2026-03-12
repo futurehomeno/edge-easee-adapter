@@ -40,11 +40,12 @@ migrate() {
 		fi
 
 		chmod 755 "$NEW_DIR"
-		chown -R easee:futurehome "$NEW_DIR"
 
 		# Move contents instead of the directory itself
 		cp -a "$OLD_DIR"/. "$NEW_DIR"/
 		rm -rf "$OLD_DIR"
+
+		chown -R easee:futurehome "$NEW_DIR"
 	fi
 
 	OLD_LOGS="/var/log/thingsplex/easee"
@@ -70,12 +71,12 @@ set_ownership() {
   echo "Set ownership and rights for files"
   chown -R easee:futurehome /var/log/futurehome/easee || true
   chown -R easee:futurehome /var/lib/futurehome/easee || true
-  chmod -R 644 /var/lib/futurehome/easee || true
-  chmod 755 /var/lib/futurehome/easee || true
-  chmod 755 /var/lib/futurehome/easee/defaults || true
-  chmod 755 /var/lib/futurehome/easee/data || true
-  chmod -R 644 /var/log/futurehome/easee || true
-  chmod 755 /var/log/futurehome/easee || true
+  
+  # Set 755 for directories, 644 for files
+  find /var/lib/futurehome/easee -type d -exec chmod 755 {} + || true
+  find /var/lib/futurehome/easee -type f -exec chmod 644 {} + || true
+  find /var/log/futurehome/easee -type d -exec chmod 755 {} + || true
+  find /var/log/futurehome/easee -type f -exec chmod 644 {} + || true
 }
 
 configure_service() {

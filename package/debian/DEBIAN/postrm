@@ -2,7 +2,12 @@
 set -e
 
 case "$1" in
-	remove|purge)
+	remove)
+		# Only remove logs on remove, keep config for potential reinstall
+		echo "Remove logs"
+		rm -rf /var/log/futurehome/easee || true
+	;;
+	purge)
 		echo "Remove logs"
 		rm -rf /var/log/futurehome/easee || true
 		echo "Remove config files"
