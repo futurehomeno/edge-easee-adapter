@@ -3,7 +3,13 @@ set -e
 
 case "$1" in
 	remove|purge)
-		# cleanup if needed, or leave empty
+		echo "Remove logs"
+		rm -rf /var/log/futurehome/easee || true
+		echo "Remove config files"
+		rm -rf /opt/thingsplex/easee || true
+	;;
+
+	bootstrap)
 	;;
 
 	upgrade|abort-upgrade|abort-install|failed-upgrade|disappear)
