@@ -4,7 +4,7 @@ set -e
 case "$1" in
 	remove|purge)
 		echo "Remove logs"
-		rm -rf /var/log/futurehome/easee || true
+		rm -rf /var/log/thingsplex/easee || true
 		echo "Remove config files"
 		rm -rf /opt/thingsplex/easee || true
 	;;
