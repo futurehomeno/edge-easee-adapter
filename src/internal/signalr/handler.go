@@ -254,7 +254,7 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	_, err = chargepointSrv.SendCableLockReport(true)
+	_, err = chargepointSrv.SendCableLockReport(false)
 
 	return err
 }

@@ -207,7 +207,7 @@ func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 func (c *controller) SetChargepointOfferedCurrent(current int) error {
 	lastValue, lastSet := c.cache.RequestedOfferedCurrent()
 
-	if time.Since(lastSet) < 15*time.Second && current == lastValue {
+	if time.Since(lastSet) < c.cfgService.GetOfferedCurrentWaitTime() && current == lastValue {
 		return nil
 	}
 
