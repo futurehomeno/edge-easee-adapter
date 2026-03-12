@@ -9,7 +9,7 @@ case "$1" in
 	;;
 	purge)
 		echo "Remove logs"
-		rm -rf /var/log/futurehome/easee || true
+		rm -rf /var/log/thingsplex/easee || true
 		echo "Remove config files"
 		rm -rf /var/lib/futurehome/easee || true
 	;;

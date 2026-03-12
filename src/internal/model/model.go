@@ -310,7 +310,7 @@ func (s ChargerState) Str() string {
 		return "de_auth"
 	}
 
-	return fmt.Sprintf("unknown(%#x)", s)
+	return fmt.Sprintf("unknown(%d)", s)
 }
 
 type OutputPhaseType int
