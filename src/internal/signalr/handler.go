@@ -192,13 +192,14 @@ func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Obse
 		return err
 	}
 
-	if preVal, _ := h.cache.OfferedCurrent(); preVal != int(val) {
-		log.Infof("[%s] Offered current=%d->%.1f", h.chargerID, preVal, val)
+	roundedVal := int(math.Round(val))
+	if preVal, _ := h.cache.OfferedCurrent(); preVal != roundedVal {
+		log.Infof("[%s] Offered current=%d->%d", h.chargerID, preVal, roundedVal)
 	} else {
-		log.Debugf("[%s] Offered current=%.1f", h.chargerID, val)
+		log.Debugf("[%s] Offered current=%d", h.chargerID, roundedVal)
 	}
 
-	ok := h.cache.SetOfferedCurrent(int(math.Round(val)), observation.Timestamp)
+	ok := h.cache.SetOfferedCurrent(roundedVal, observation.Timestamp)
 	if !ok {
 		return nil
 	}

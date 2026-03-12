@@ -2,7 +2,9 @@
 set -e
 
 case "$1" in
-	bootstrap
+	remove|purge)
+		# cleanup if needed, or leave empty
+	;;
 
 	upgrade|abort-upgrade|abort-install|failed-upgrade|disappear)
 	;;
