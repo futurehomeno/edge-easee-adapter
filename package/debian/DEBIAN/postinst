@@ -75,7 +75,12 @@ migrate() {
 		chown -R easee:futurehome "$NEW_LOGS"
 
 		# Move contents instead of the directory itself
-		cp -a "$OLD_LOGS"/. "$NEW_LOGS"/
+		if cp -a "$OLD_LOGS"/. "$NEW_LOGS"/; then
+			rm -rf "$OLD_LOGS"
+		else
+			echo "Log migration failed, preserving original logs" >&2
+		fi
+
 		rm -rf "$OLD_LOGS"
 	fi
 }
