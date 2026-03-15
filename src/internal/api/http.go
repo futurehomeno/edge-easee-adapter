@@ -276,7 +276,7 @@ func (c *httpClient) UpdateEaseePhaseMode(accessToken, chargerID string, easeePh
 		return c.handleFailedResponse(resp, "update phase mode request failed: unexpected status code")
 	}
 
-	c.registerPhaseModeChange(chargerID)
+	c.registerPhaseModeChange(chargerID, easeePhaseMode)
 
 	return nil
 }
@@ -286,19 +286,20 @@ func (c *httpClient) SetActivePhases(accessToken, chargerID string, phase1, phas
 		return errors.New("client: failed to update phase mode: too many requests")
 	}
 
+	c.lock.RLock()
 	if easeePhaseMode, ok := c.lastEaseePhaseMode[chargerID]; !ok || easeePhaseMode != model.EaseePhaseModeAuto {
 		if err := c.UpdateEaseePhaseMode(accessToken, chargerID, model.EaseePhaseModeAuto); err != nil {
-			log.Warnf("UpdateEaseePhaseMode err: %v", err)
+			log.Warnf("UpdateEaseePhaseMode err: %v", err) // best-effort so continue
 		}
 	}
-
-	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	dynamicCurrentVal := defCurrent
 
 	if val, ok := c.lastDynamicCurrentVal[chargerID]; ok {
 		dynamicCurrentVal = val
 	}
+
+	c.lock.RUnlock()
 
 	const timeToLiveMin = 120
 	payload := setPhaseCurrents{TimeToLive: timeToLiveMin}
@@ -314,6 +315,8 @@ func (c *httpClient) SetActivePhases(accessToken, chargerID string, phase1, phas
 	if phase3 {
 		payload.SetPhase3 = dynamicCurrentVal
 	}
+
+	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
 		withBody(payload).
@@ -364,9 +367,10 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 
 	if resp.StatusCode != http.StatusAccepted {
 		c.logFailedResponse(resp)
-
 		return c.handleFailedResponse(resp, "stop charging request failed: unexpected status code")
 	}
+
+	c.registerStop(chargerID)
 
 	return nil
 }
@@ -572,11 +576,17 @@ func (c *httpClient) shouldBackoffWithPhaseModeChange(chargerID string) bool {
 		return false
 	}
 
-	if clock.Now().Sub(lastPhaseModeChange) >= c.cfgSrv.GePhaseModeSwitchWaitTime() {
+	if clock.Now().Sub(lastPhaseModeChange) >= c.cfgSrv.GetPhaseModeSwitchWaitTime() {
 		return false
 	}
 
 	return true
+}
+
+func (c *httpClient) registerStop(chargerID string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.lastStop[chargerID] = clock.Now()
 }
 
 func (c *httpClient) registerDynamicCurrentChange(chargerID string, current float64) {
@@ -587,10 +597,10 @@ func (c *httpClient) registerDynamicCurrentChange(chargerID string, current floa
 	c.lastDynamicCurrentSet[chargerID] = clock.Now()
 }
 
-func (c *httpClient) registerPhaseModeChange(chargerID string) {
+func (c *httpClient) registerPhaseModeChange(chargerID string, phaseMode model.EaseePhaseModeT) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
-
+	c.lastEaseePhaseMode[chargerID] = phaseMode
 	c.lastPhaseModeChange[chargerID] = clock.Now()
 }
 

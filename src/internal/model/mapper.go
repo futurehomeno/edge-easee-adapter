@@ -62,8 +62,8 @@ var phaseModeMatrix = map[types.GridType]map[int]map[EaseePhaseModeT][]types.Pha
 			EaseePhaseModeAuto:   []types.PhaseMode{types.PhaseModeL1L2},
 		},
 		3: {
-			1:                  []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL2L3, types.PhaseModeL3L1},
-			EaseePhaseModeAuto: []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL2L3, types.PhaseModeL3L1 /* forbidden types.PhaseModeL1L2L3*/},
+			EaseePhaseMode1Phase: []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL2L3, types.PhaseModeL3L1},
+			EaseePhaseModeAuto:   []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL2L3, types.PhaseModeL3L1 /* forbidden types.PhaseModeL1L2L3*/},
 			// forbidden  EaseePhaseMode3Phase: []types.PhaseMode{types.PhaseModeL1L2L3},
 		},
 	},

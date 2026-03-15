@@ -316,8 +316,8 @@ func (c *cache) SetPhaseCurrents(p1, p2, p3 float64, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if timestamp.Before(c.easeePhaseMode.Timestamp) {
-		c.logOutdatedObservation("phase mode", c.easeePhaseMode.Timestamp, timestamp)
+	if timestamp.Before(c.setPhaseCurrents.Timestamp) {
+		c.logOutdatedObservation("phase currents", c.setPhaseCurrents.Timestamp, timestamp)
 		return false
 	}
 

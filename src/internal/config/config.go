@@ -555,7 +555,7 @@ func (cs *Service) SetOfferedCurrentWaitTime(duration time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GePhaseModeSwitchWaitTime() time.Duration {
+func (cs *Service) GetPhaseModeSwitchWaitTime() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -567,7 +567,7 @@ func (cs *Service) GePhaseModeSwitchWaitTime() time.Duration {
 	return duration
 }
 
-func (cs *Service) SePhaseModeSwitchWaitTime(duration time.Duration) error {
+func (cs *Service) SetPhaseModeSwitchWaitTime(duration time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
