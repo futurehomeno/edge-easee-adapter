@@ -3,13 +3,13 @@ package api
 // loginBody represents a login request body.
 type loginBody struct {
 	Username string `json:"userName"`
-	Password string `json:"password"` //nolint:gosec
+	Password string `json:"password"`
 }
 
 // refreshBody represents a token refresh request body.
 type refreshBody struct {
-	AccessToken  string `json:"accessToken"`  //nolint:gosec
-	RefreshToken string `json:"refreshToken"` //nolint:gosec
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
 }
 
 // The following struct is currently commented out because it is not needed for the current functionality.

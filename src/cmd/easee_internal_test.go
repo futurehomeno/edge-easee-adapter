@@ -619,7 +619,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
-					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) { //nolint:dupl
 						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
@@ -865,7 +865,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Inclusion report on start - IT 3-phase",
-				Setup: serviceSetup(
+				Setup: serviceSetup( //nolint:dupl
 					testContainer,
 					"configured",
 					mqttAddr,
@@ -914,7 +914,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Inclusion report on start - IT 1-phase",
-				Setup: serviceSetup(
+				Setup: serviceSetup( //nolint:dupl
 					testContainer,
 					"configured",
 					mqttAddr,
@@ -977,7 +977,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
-					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) { //nolint:dupl
 						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,

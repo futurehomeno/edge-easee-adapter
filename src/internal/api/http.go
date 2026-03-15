@@ -115,7 +115,7 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 		return nil, errors.Wrap(err, "failed to create login request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -152,7 +152,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 		return nil, errors.Wrap(err, "failed to create token refresh request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -200,7 +200,7 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 		return errors.Wrap(err, "failed to create max current request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -231,7 +231,7 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 		return errors.Wrap(err, "failed to create dynamic current request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -264,7 +264,7 @@ func (c *httpClient) UpdateEaseePhaseMode(accessToken, chargerID string, easeePh
 		return errors.Wrap(err, "failed to create phase mode request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -324,7 +324,7 @@ func (c *httpClient) SetActivePhases(accessToken, chargerID string, phase1, phas
 		return errors.Wrap(err, "failed to create phase currents request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -355,7 +355,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 		return errors.Wrap(err, "failed to create stop charging request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -383,7 +383,7 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 		return errors.Wrap(err, "failed to create cable lock request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -467,7 +467,7 @@ func (c *httpClient) Ping(accessToken string) error {
 		return errors.Wrap(err, "failed to create ping request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -602,7 +602,7 @@ func (c *httpClient) getResponse(state any, url, accessToken string) (any, error
 		return nil, errors.Wrap(err, "failed to create request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
