@@ -80,8 +80,6 @@ migrate() {
 		else
 			echo "Log migration failed, preserving original logs" >&2
 		fi
-
-		rm -rf "$OLD_LOGS"
 	fi
 }
 
