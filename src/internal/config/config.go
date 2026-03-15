@@ -23,6 +23,7 @@ type Config struct {
 	SignalR                      SignalR    `json:"signalR"`
 	AuthenticatorBackoff         backoffCfg `json:"authenticatorBackoff"`
 	OfferedCurrentWaitTime       string     `json:"offered_current_wait_time"`
+	PhaseModeSwitchWaitTime      string     `json:"phase_mode_switch_wait_time"`
 	EnergyLifetimeInterval       string     `json:"energyLifetimeInterval"`
 }
 
@@ -550,6 +551,28 @@ func (cs *Service) SetOfferedCurrentWaitTime(duration time.Duration) error {
 
 	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
 	cs.Model().OfferedCurrentWaitTime = duration.String()
+
+	return cs.Save()
+}
+
+func (cs *Service) GePhaseModeSwitchWaitTime() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	duration, err := time.ParseDuration(cs.Model().PhaseModeSwitchWaitTime)
+	if err != nil {
+		return 90 * time.Second
+	}
+
+	return duration
+}
+
+func (cs *Service) SePhaseModeSwitchWaitTime(duration time.Duration) error {
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
+
+	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
+	cs.Model().PhaseModeSwitchWaitTime = duration.String()
 
 	return cs.Save()
 }

@@ -29,6 +29,17 @@ type dynamicCurrentBody struct {
 	DynamicChargerCurrent float64 `json:"dynamicChargerCurrent"`
 }
 
+type setPhaseModeBody struct {
+	SetPhaseMode int `json:"phaseMode"`
+}
+
+type setPhaseCurrents struct {
+	SetPhase1  float64 `json:"phase1"`
+	SetPhase2  float64 `json:"phase2"`
+	SetPhase3  float64 `json:"phase3"`
+	TimeToLive int     `json:"timeToLive"`
+}
+
 // cableLockStateBody represents a charger cable lock state request body.
 type cableLockStateBody struct {
 	State bool `json:"state"`

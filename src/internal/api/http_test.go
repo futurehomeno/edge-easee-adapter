@@ -743,6 +743,254 @@ func TestClient_Chargers(t *testing.T) {
 	}
 }
 
+func TestClient_UpdateEaseePhaseMode(t *testing.T) {
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+
+	t.Cleanup(func() {
+		clock.Restore()
+	})
+
+	tests := []struct {
+		name             string
+		chargerID        string
+		accessToken      string
+		easeePhaseMode   model.EaseePhaseModeT
+		serverHandler    http.Handler
+		forceServerError bool
+		wantErr          bool
+	}{
+		{
+			name:           "successful call to Easee API",
+			chargerID:      test.ChargerID,
+			accessToken:    test.AccessToken,
+			easeePhaseMode: model.EaseePhaseModeAuto,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/settings",
+				requestBody:   `{"phaseMode":2}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusAccepted,
+			}),
+		},
+		{
+			name:           "response code != 202",
+			chargerID:      test.ChargerID,
+			accessToken:    test.AccessToken,
+			easeePhaseMode: model.EaseePhaseModeAuto,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/settings",
+				requestBody:   `{"phaseMode":2}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			wantErr: true,
+		},
+		{
+			name:             "http client error",
+			chargerID:        test.ChargerID,
+			accessToken:      test.AccessToken,
+			easeePhaseMode:   model.EaseePhaseModeAuto,
+			forceServerError: true,
+			wantErr:          true,
+		},
+		{
+			name:           "return error if access token is empty",
+			chargerID:      test.ChargerID,
+			easeePhaseMode: model.EaseePhaseModeAuto,
+			wantErr:        true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
+			httpClient := &http.Client{Timeout: 3 * time.Second}
+			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+
+			err := c.UpdateEaseePhaseMode(tt.accessToken, tt.chargerID, tt.easeePhaseMode)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestClient_SetActivePhases(t *testing.T) {
+	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
+
+	t.Cleanup(func() {
+		clock.Restore()
+	})
+
+	tests := []struct {
+		name             string
+		chargerID        string
+		accessToken      string
+		phase1           bool
+		phase2           bool
+		phase3           bool
+		defCurrent       float64
+		serverHandler    http.Handler
+		forceServerError bool
+		wantErr          bool
+	}{
+		{
+			name:        "successful call - single phase",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			phase1:      true,
+			phase2:      false,
+			phase3:      false,
+			defCurrent:  32,
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/XX12345/settings",
+					requestBody:   `{"phaseMode":2}`,
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusAccepted,
+				},
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/XX12345/settings",
+					requestBody:   `{"phase1":32,"phase2":0,"phase3":0,"timeToLive":120}`,
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusAccepted,
+				},
+			}...),
+		},
+		{
+			name:        "successful call - all phases",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			phase1:      true,
+			phase2:      true,
+			phase3:      true,
+			defCurrent:  32,
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/XX12345/settings",
+					requestBody:   `{"phaseMode":2}`,
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusAccepted,
+				},
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/XX12345/settings",
+					requestBody:   `{"phase1":32,"phase2":32,"phase3":32,"timeToLive":120}`,
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusAccepted,
+				},
+			}...),
+		},
+		{
+			name:        "response code != 202 on phase currents call",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			phase1:      true,
+			defCurrent:  32,
+			serverHandler: newTestHandler(t, []call{
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/XX12345/settings",
+					requestBody:   `{"phaseMode":2}`,
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusAccepted,
+				},
+				{
+					requestMethod: http.MethodPost,
+					requestPath:   "/api/chargers/XX12345/settings",
+					requestBody:   `{"phase1":32,"phase2":0,"phase3":0,"timeToLive":120}`,
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusInternalServerError,
+				},
+			}...),
+			wantErr: true,
+		},
+		{
+			name:             "http client error",
+			chargerID:        test.ChargerID,
+			accessToken:      test.AccessToken,
+			phase1:           true,
+			defCurrent:       32,
+			forceServerError: true,
+			wantErr:          true,
+		},
+		{
+			name:       "return error if access token is empty",
+			chargerID:  test.ChargerID,
+			phase1:     true,
+			defCurrent: 32,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			storage := mockedstorage.Storage[*config.Config]{}
+
+			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+
+			httpClient := &http.Client{Timeout: 3 * time.Second}
+			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+
+			err := c.SetActivePhases(tt.accessToken, tt.chargerID, tt.phase1, tt.phase2, tt.phase3, tt.defCurrent)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
 type call struct {
 	requestMethod  string
 	requestPath    string
