@@ -304,7 +304,7 @@ func (c *httpClient) SetActivePhases(accessToken, chargerID string, phase1, phas
 	payload := setPhaseCurrents{TimeToLive: timeToLiveMin}
 
 	if phase1 {
-		payload.SetPhase1 = defCurrent
+		payload.SetPhase1 = dynamicCurrentVal
 	}
 
 	if phase2 {
