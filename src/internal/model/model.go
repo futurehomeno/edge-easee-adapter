@@ -64,9 +64,16 @@ type ChargerConfig struct {
 	EaseePhaseMode        EaseePhaseModeT `json:"phaseMode"`
 }
 
-// ChargerSiteInfo represents charger rate current.
+// ChargerSiteInfo represents charger site information.
 type ChargerSiteInfo struct {
-	RatedCurrent float64 `json:"ratedCurrent"`
+	ID           int           `json:"id"`
+	RatedCurrent float64       `json:"ratedCurrent"`
+	Circuits     []CircuitInfo `json:"circuits"`
+}
+
+// CircuitInfo represents a circuit within a site.
+type CircuitInfo struct {
+	ID int `json:"id"`
 }
 
 const (

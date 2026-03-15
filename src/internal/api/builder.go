@@ -11,7 +11,7 @@ import (
 type requestBuilder struct {
 	method  string
 	url     string
-	body    interface{}
+	body    any
 	headers map[string]string
 }
 
@@ -23,15 +23,13 @@ func newRequestBuilder(method, url string) *requestBuilder {
 	}
 }
 
-func (r *requestBuilder) withBody(body interface{}) *requestBuilder {
+func (r *requestBuilder) withBody(body any) *requestBuilder {
 	r.body = body
-
 	return r
 }
 
 func (r *requestBuilder) addHeader(key, value string) *requestBuilder {
 	r.headers[key] = value
-
 	return r
 }
 

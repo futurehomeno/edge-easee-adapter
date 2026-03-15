@@ -32,13 +32,13 @@ const (
 	chargersURI     = "/api/chargers"
 	healthURI       = "/health"
 
-	chargerConfigURITemplate   = "/api/chargers/%s/config"
-	chargerSiteURITemplate     = "/api/chargers/%s/site"
-	chargerSettingsURITemplate = "/api/chargers/%s/settings"
-	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
-	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
-	chargerSessionsURITemplate = "/api/sessions/charger/%s/sessions/descending?limit=2"
-	chargerDetailsURITemplate  = "/api/chargers/%s/details?alwaysGetChargerAccessLevel=false"
+	chargerConfigURITemplate         = "/api/chargers/%s/config"
+	chargerSiteURITemplate           = "/api/chargers/%s/site"
+	chargerSettingsURITemplate       = "/api/chargers/%s/settings"
+	circuitDynamicCurrentURITemplate = "/api/sites/%d/circuits/%d/dynamicCurrent"
+	chargerStopURITemplate           = "/api/chargers/%s/commands/pause_charging"
+	cableLockURITemplate             = "/api/chargers/%s/commands/lock_state"
+	chargerDetailsURITemplate        = "/api/chargers/%s/details?alwaysGetChargerAccessLevel=false"
 
 	authorizationHeader = "Authorization"
 	contentTypeHeader   = "Content-Type"
@@ -286,20 +286,29 @@ func (c *httpClient) SetActivePhases(accessToken, chargerID string, phase1, phas
 		return errors.New("client: failed to update phase mode: too many requests")
 	}
 
+	// Read cache values while holding RLock
 	c.lock.RLock()
-	if easeePhaseMode, ok := c.lastEaseePhaseMode[chargerID]; !ok || easeePhaseMode != model.EaseePhaseModeAuto {
-		if err := c.UpdateEaseePhaseMode(accessToken, chargerID, model.EaseePhaseModeAuto); err != nil {
-			log.Warnf("UpdateEaseePhaseMode err: %v", err) // best-effort so continue
-		}
-	}
-
+	easeePhaseMode, hasPhaseMode := c.lastEaseePhaseMode[chargerID]
 	dynamicCurrentVal := defCurrent
-
 	if val, ok := c.lastDynamicCurrentVal[chargerID]; ok {
 		dynamicCurrentVal = val
 	}
-
 	c.lock.RUnlock()
+
+	if !hasPhaseMode || easeePhaseMode != model.EaseePhaseModeAuto {
+		if err := c.UpdateEaseePhaseMode(accessToken, chargerID, model.EaseePhaseModeAuto); err != nil {
+			log.Warnf("UpdateEaseePhaseMode err: %v", err)
+		}
+	}
+
+	siteInfo, err := c.ChargerSiteInfo(accessToken, chargerID)
+	if err != nil {
+		return errors.Wrap(err, "failed to get charger site info")
+	}
+
+	if len(siteInfo.Circuits) == 0 {
+		return errors.New("no circuits found for charger")
+	}
 
 	const timeToLiveMin = 120
 	payload := setPhaseCurrents{TimeToLive: timeToLiveMin}
@@ -316,7 +325,7 @@ func (c *httpClient) SetActivePhases(accessToken, chargerID string, phase1, phas
 		payload.SetPhase3 = dynamicCurrentVal
 	}
 
-	u := c.buildURL(chargerSettingsURITemplate, chargerID)
+	u := c.buildURL(circuitDynamicCurrentURITemplate, siteInfo.ID, siteInfo.Circuits[0].ID)
 
 	req, err := newRequestBuilder(http.MethodPost, u).
 		withBody(payload).
@@ -510,7 +519,6 @@ func (c *httpClient) logFailedResponse(resp *http.Response) {
 	if err != nil {
 		log.WithError(err).
 			Errorf("%s %s %s: failed to read response body", resp.Request.Method, resp.Request.URL.String(), resp.Status)
-
 		return
 	}
 

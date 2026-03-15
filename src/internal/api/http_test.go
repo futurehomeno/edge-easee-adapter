@@ -875,8 +875,18 @@ func TestClient_SetActivePhases(t *testing.T) {
 					responseCode: http.StatusAccepted,
 				},
 				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/chargers/XX12345/site",
+					requestBody:   "",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusOK,
+					responseBody: `{"id":100,"ratedCurrent":32,"circuits":[{"id":200}]}`,
+				},
+				{
 					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/XX12345/settings",
+					requestPath:   "/api/sites/100/circuits/200/dynamicCurrent",
 					requestBody:   `{"phase1":32,"phase2":0,"phase3":0,"timeToLive":120}`,
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
@@ -904,8 +914,18 @@ func TestClient_SetActivePhases(t *testing.T) {
 					responseCode: http.StatusAccepted,
 				},
 				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/chargers/XX12345/site",
+					requestBody:   "",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusOK,
+					responseBody: `{"id":100,"ratedCurrent":32,"circuits":[{"id":200}]}`,
+				},
+				{
 					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/XX12345/settings",
+					requestPath:   "/api/sites/100/circuits/200/dynamicCurrent",
 					requestBody:   `{"phase1":32,"phase2":32,"phase3":32,"timeToLive":120}`,
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
@@ -931,8 +951,18 @@ func TestClient_SetActivePhases(t *testing.T) {
 					responseCode: http.StatusAccepted,
 				},
 				{
+					requestMethod: http.MethodGet,
+					requestPath:   "/api/chargers/XX12345/site",
+					requestBody:   "",
+					requestHeaders: map[string]string{
+						"Authorization": "Bearer test.access.token",
+					},
+					responseCode: http.StatusOK,
+					responseBody: `{"id":100,"ratedCurrent":32,"circuits":[{"id":200}]}`,
+				},
+				{
 					requestMethod: http.MethodPost,
-					requestPath:   "/api/chargers/XX12345/settings",
+					requestPath:   "/api/sites/100/circuits/200/dynamicCurrent",
 					requestBody:   `{"phase1":32,"phase2":0,"phase3":0,"timeToLive":120}`,
 					requestHeaders: map[string]string{
 						"Authorization": "Bearer test.access.token",
