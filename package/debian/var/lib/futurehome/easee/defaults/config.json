@@ -3,8 +3,8 @@
   "mqtt_client_id_prefix": "easee",
   "mqtt_server_username": "",
   "mqtt_server_password": "",
-  "work_dir": "/opt/thingsplex/easee",
-  "log_file": "/var/log/thingsplex/easee/easee.log",
+  "work_dir": "/var/lib/futurehome/easee",
+  "log_file": "/var/log/futurehome/easee/easee.log",
   "log_level": "info",
   "log_format": "budzik",
   "accessToken": "",
@@ -15,6 +15,7 @@
   "energyLifetimeInterval": "15m",
   "currentWaitDuration": "3s",
   "offered_current_wait_time": "15s",
+  "phase_mode_switch_wait_time": "90s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
   "signalR": {

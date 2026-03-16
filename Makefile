@@ -4,7 +4,7 @@ endef
 
 SHELL := /bin/bash
 
-VERSION := 2.6.5
+VERSION := 2.7.0
 APP_NAME := easee
 
 ARCH ?= armhf
@@ -13,10 +13,10 @@ OUT_DIR := package/build
 DEB_DIR := package/debian
 CONTROL_DIR := $(DEB_DIR)/DEBIAN
 TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
-BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
+BIN_DIR := $(DEB_DIR)/usr/bin
 TARGET_BIN := $(BIN_DIR)/$(APP_NAME)
-LOG_DIR := $(DEB_DIR)/var/log/thingsplex/$(APP_NAME)
-CONFIG_DIR := $(BIN_DIR)/data
+LOG_DIR := $(DEB_DIR)/var/log/futurehome/$(APP_NAME)
+CONFIG_DIR := $(DEB_DIR)/var/lib/futurehome/$(APP_NAME)/data
 
 REMOTE_HOST := fhtunnel@3.255.43.28
 PORT := 8000

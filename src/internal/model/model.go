@@ -20,11 +20,11 @@ const (
 
 // Credentials stands for Easee API credentials.
 type Credentials struct {
-	AccessToken  string   `json:"accessToken"` //nolint:gosec
+	AccessToken  string   `json:"accessToken"`
 	ExpiresIn    int      `json:"expiresIn"`
 	AccessClaims []string `json:"accessClaims"`
 	TokenType    string   `json:"tokenType"`
-	RefreshToken string   `json:"refreshToken"` //nolint:gosec
+	RefreshToken string   `json:"refreshToken"`
 }
 
 // Charger represents charger data.
@@ -50,15 +50,30 @@ type BackPlate struct {
 	MasterBackPlateID string `json:"masterBackPlateId"`
 }
 
+type EaseePhaseModeT int
+
+const (
+	EaseePhaseMode1Phase EaseePhaseModeT = 1 // force 1 phase
+	EaseePhaseModeAuto   EaseePhaseModeT = 2
+	EaseePhaseMode3Phase EaseePhaseModeT = 3 // force 3 phases
+)
+
 // ChargerConfig represents charger config.
 type ChargerConfig struct {
-	DetectedPowerGridType GridType `json:"detectedPowerGridType"`
-	PhaseMode             int      `json:"phaseMode"`
+	DetectedPowerGridType GridType        `json:"detectedPowerGridType"`
+	EaseePhaseMode        EaseePhaseModeT `json:"phaseMode"`
 }
 
-// ChargerSiteInfo represents charger rate current.
+// ChargerSiteInfo represents charger site information.
 type ChargerSiteInfo struct {
-	RatedCurrent float64 `json:"ratedCurrent"`
+	ID           int           `json:"id"`
+	RatedCurrent float64       `json:"ratedCurrent"`
+	Circuits     []CircuitInfo `json:"circuits"`
+}
+
+// CircuitInfo represents a circuit within a site.
+type CircuitInfo struct {
+	ID int `json:"id"`
 }
 
 const (
@@ -142,15 +157,19 @@ func (o *Observation) JSONValue(v any) error {
 type ObservationID int
 
 const (
+	OfflineReason         ObservationID = 11 // Enum describing why charger is offline [Integer]
 	DetectedPowerGridType ObservationID = 21
 	LockCablePermanently  ObservationID = 30
-	PhaseMode             ObservationID = 38
+	SinglePhaseNumber     ObservationID = 34 // Phase to use in 1-phase charging [Integer]
+	EaseePhaseMode        ObservationID = 38 // 1-Locked to 1-Phase, 2-Auto, 3-Locked to 3-phase(only Home) [Integer]
 	MaxChargerCurrent     ObservationID = 47
 	DynamicChargerCurrent ObservationID = 48
+	SoftwareVersion       ObservationID = 80 // Embedded software package release id [boot] [Integer]
 	CableLocked           ObservationID = 103
 	CableRating           ObservationID = 104
 	ChargerOPState        ObservationID = 109
 	OutputPhase           ObservationID = 110
+	ErrorCode             ObservationID = 119 // Error code according to error code table [event] [Integer]
 	TotalPower            ObservationID = 120
 	EnergySession         ObservationID = 121
 	LifetimeEnergy        ObservationID = 124
@@ -165,16 +184,22 @@ const (
 //nolint:cyclop
 func (o ObservationID) Str() string {
 	switch o {
+	case OfflineReason:
+		return "offline_reason"
 	case DetectedPowerGridType:
 		return "detected_power_grid_type"
 	case LockCablePermanently:
 		return "lock_cable_permanently"
-	case PhaseMode:
-		return "phase_mode"
+	case SinglePhaseNumber:
+		return "single_phase_num"
+	case EaseePhaseMode:
+		return "easee_phase_mode"
 	case MaxChargerCurrent:
 		return "max_charger_current"
 	case DynamicChargerCurrent:
 		return "dynamic_charger_current"
+	case SoftwareVersion:
+		return "sw_version"
 	case CableLocked:
 		return "cable_locked"
 	case CableRating:
@@ -183,6 +208,8 @@ func (o ObservationID) Str() string {
 		return "charger_op_state"
 	case OutputPhase:
 		return "output_phase"
+	case ErrorCode:
+		return "error_code"
 	case TotalPower:
 		return "total_power"
 	case EnergySession:
@@ -214,23 +241,26 @@ func (o ObservationID) Supported() bool {
 // SupportedObservationIDs returns all observation IDs supported by our system.
 func SupportedObservationIDs() []ObservationID {
 	return []ObservationID{
+		// TODO: OfflineReason,
 		DetectedPowerGridType,
-		PhaseMode,
+		LockCablePermanently,
+		SinglePhaseNumber,
+		EaseePhaseMode,
 		MaxChargerCurrent,
 		DynamicChargerCurrent,
+		// TODO: SoftwareVersion,
+		CableLocked,
+		CableRating,
 		ChargerOPState,
 		OutputPhase,
+		// TODO: ErrorCode,
 		TotalPower,
-		LifetimeEnergy,
 		EnergySession,
-		CableRating,
+		LifetimeEnergy,
 		InCurrentT3,
 		InCurrentT4,
 		InCurrentT5,
 		CloudConnected,
-		CableLocked,
-		CableRating,
-		LockCablePermanently,
 		ChargingSessionStart,
 		ChargingSessionStop,
 	}
@@ -461,16 +491,16 @@ const (
 // ToFimpGridType returns grid type and phases.
 func (g GridType) ToFimpGridType() (types.GridType, int) {
 	if g >= GridTypeWarningTN2PhasePin235 {
-		log.Warnf("faulty grid type detected: %s", g)
+		log.Warnf("Faulty grid type detected: %s", g)
 	}
 
 	if t, ok := easeeNetworkTypeMap[g]; ok {
 		return t.gridType, t.phases
 	}
 
-	log.Warnf("unknown grid type detected: %d", g)
+	log.Warnf("Unknown grid type detected: %d", g)
 
-	return "", 0
+	return types.GridTypeUnknown, 0
 }
 
 // String returns a human-readable name of the grid type.

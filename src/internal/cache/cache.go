@@ -14,8 +14,9 @@ import (
 
 // Cache is a cache for charger observations.
 type Cache interface {
+	PhaseCurrents() (float64, float64, float64, time.Time)
 	// PhaseMode returns the charger phase mode.
-	PhaseMode() (int, time.Time)
+	EaseePhaseMode() (model.EaseePhaseModeT, time.Time)
 	// ChargerState returns the charger state.
 	ChargerState() (chargepoint.State, time.Time)
 	// MaxCurrent returns the charger max current set by the user.
@@ -49,7 +50,9 @@ type Cache interface {
 	// CableAlwaysLocked returns state of cable always locked parameter.
 	CableAlwaysLocked() (bool, time.Time)
 
-	SetPhaseMode(mode int, timestamp time.Time) bool
+	SetPhaseCurrents(float64, float64, float64, time.Time) bool
+	SetEaseePhaseMode(mode model.EaseePhaseModeT, timestamp time.Time) bool
+	SetSinglePhaseNumber(phaseNumber int, timestamp time.Time) bool
 	SetChargerState(state chargepoint.State, timestamp time.Time) bool
 	SetMaxCurrent(current int, timestamp time.Time) bool
 	SetRequestedOfferedCurrent(current int, timestamp time.Time) bool
@@ -77,7 +80,9 @@ type cache struct {
 
 	requestedOfferedCurrent model.TimestampedValue[int]
 	chargerState            model.TimestampedValue[chargepoint.State]
-	phaseMode               model.TimestampedValue[int]
+	easeePhaseMode          model.TimestampedValue[model.EaseePhaseModeT]
+	singlePhaseNumber       model.TimestampedValue[int]
+	setPhaseCurrents        model.TimestampedValue[[3]float64]
 	maxCurrent              model.TimestampedValue[int]
 	offeredCurrent          model.TimestampedValue[int]
 	energySession           model.TimestampedValue[float64]
@@ -103,11 +108,28 @@ func NewCache(chargerID string) Cache {
 	}
 }
 
-func (c *cache) PhaseMode() (int, time.Time) {
+func (c *cache) SinglePhaseNumber() (int, time.Time) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.phaseMode.Value, c.phaseMode.Timestamp
+	return c.singlePhaseNumber.Value, c.singlePhaseNumber.Timestamp
+}
+
+func (c *cache) EaseePhaseMode() (model.EaseePhaseModeT, time.Time) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.easeePhaseMode.Value, c.easeePhaseMode.Timestamp
+}
+
+func (c *cache) PhaseCurrents() (float64, float64, float64, time.Time) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.setPhaseCurrents.Value[0],
+		c.setPhaseCurrents.Value[1],
+		c.setPhaseCurrents.Value[2],
+		c.setPhaseCurrents.Timestamp
 }
 
 func (c *cache) OutputPhaseType() (types.PhaseMode, time.Time) {
@@ -228,7 +250,6 @@ func (c *cache) SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) boo
 
 	if timestamp.Before(c.cableAlwaysLocked.Timestamp) {
 		c.logOutdatedObservation("cable always locked", c.cableAlwaysLocked.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -246,7 +267,6 @@ func (c *cache) SetCableLocked(locked bool, timestamp time.Time) bool {
 
 	if timestamp.Before(c.cableLocked.Timestamp) {
 		c.logOutdatedObservation("cable locked", c.cableLocked.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -264,7 +284,6 @@ func (c *cache) SetCableCurrent(current int, timestamp time.Time) bool {
 
 	if timestamp.Before(c.cableCurrent.Timestamp) {
 		c.logOutdatedObservation("cable current", c.cableCurrent.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -276,18 +295,51 @@ func (c *cache) SetCableCurrent(current int, timestamp time.Time) bool {
 	return true
 }
 
-func (c *cache) SetPhaseMode(phaseMode int, timestamp time.Time) bool {
+func (c *cache) SetEaseePhaseMode(easeePhaseMode model.EaseePhaseModeT, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if timestamp.Before(c.phaseMode.Timestamp) {
-		c.logOutdatedObservation("phase mode", c.phaseMode.Timestamp, timestamp)
-
+	if timestamp.Before(c.easeePhaseMode.Timestamp) {
+		c.logOutdatedObservation("phase mode", c.easeePhaseMode.Timestamp, timestamp)
 		return false
 	}
 
-	c.phaseMode = model.TimestampedValue[int]{
-		Value:     phaseMode,
+	c.easeePhaseMode = model.TimestampedValue[model.EaseePhaseModeT]{
+		Value:     easeePhaseMode,
+		Timestamp: timestamp,
+	}
+
+	return true
+}
+
+func (c *cache) SetPhaseCurrents(p1, p2, p3 float64, timestamp time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if timestamp.Before(c.setPhaseCurrents.Timestamp) {
+		c.logOutdatedObservation("phase currents", c.setPhaseCurrents.Timestamp, timestamp)
+		return false
+	}
+
+	c.setPhaseCurrents = model.TimestampedValue[[3]float64]{
+		Value:     [3]float64{p1, p2, p3},
+		Timestamp: timestamp,
+	}
+
+	return true
+}
+
+func (c *cache) SetSinglePhaseNumber(singlePhaseNumber int, timestamp time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if timestamp.Before(c.singlePhaseNumber.Timestamp) {
+		c.logOutdatedObservation("single phase", c.singlePhaseNumber.Timestamp, timestamp)
+		return false
+	}
+
+	c.singlePhaseNumber = model.TimestampedValue[int]{
+		Value:     singlePhaseNumber,
 		Timestamp: timestamp,
 	}
 
@@ -300,7 +352,6 @@ func (c *cache) SetOutputPhaseType(mode types.PhaseMode, timestamp time.Time) bo
 
 	if timestamp.Before(c.outputPhase.Timestamp) {
 		c.logOutdatedObservation("output phase", c.outputPhase.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -318,7 +369,6 @@ func (c *cache) SetEnergySession(energy float64, timestamp time.Time) bool {
 
 	if timestamp.Before(c.energySession.Timestamp) {
 		c.logOutdatedObservation("session energy", c.energySession.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -336,7 +386,6 @@ func (c *cache) SetMaxCurrent(current int, timestamp time.Time) bool {
 
 	if timestamp.Before(c.maxCurrent.Timestamp) {
 		c.logOutdatedObservation("max current", c.maxCurrent.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -364,7 +413,6 @@ func (c *cache) SetRequestedOfferedCurrent(current int, timestamp time.Time) boo
 
 	if timestamp.Before(c.requestedOfferedCurrent.Timestamp) {
 		c.logOutdatedObservation("requested offered current", c.requestedOfferedCurrent.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -382,7 +430,6 @@ func (c *cache) SetOfferedCurrent(current int, timestamp time.Time) bool {
 
 	if timestamp.Before(c.offeredCurrent.Timestamp) {
 		c.logOutdatedObservation("offered current", c.offeredCurrent.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -410,7 +457,6 @@ func (c *cache) SetTotalPower(power float64, timestamp time.Time) bool {
 
 	if timestamp.Before(c.totalPower.Timestamp) {
 		c.logOutdatedObservation("total power", c.totalPower.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -428,7 +474,6 @@ func (c *cache) SetLifetimeEnergy(energy float64, timestamp time.Time) bool {
 
 	if timestamp.Before(c.lifetimeEnergy.Timestamp) {
 		c.logOutdatedObservation("lifetime energy", c.lifetimeEnergy.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -456,7 +501,6 @@ func (c *cache) SetChargerState(state chargepoint.State, timestamp time.Time) bo
 
 	if timestamp.Before(c.chargerState.Timestamp) {
 		c.logOutdatedObservation("charger state", c.chargerState.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -474,7 +518,6 @@ func (c *cache) SetPhase1Current(current float64, timestamp time.Time) bool {
 
 	if timestamp.Before(c.phase1Current.Timestamp) {
 		c.logOutdatedObservation("phase 1 current", c.phase1Current.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -492,7 +535,6 @@ func (c *cache) SetPhase2Current(current float64, timestamp time.Time) bool {
 
 	if timestamp.Before(c.phase2Current.Timestamp) {
 		c.logOutdatedObservation("phase 2 current", c.phase2Current.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -510,7 +552,6 @@ func (c *cache) SetPhase3Current(current float64, timestamp time.Time) bool {
 
 	if timestamp.Before(c.phase3Current.Timestamp) {
 		c.logOutdatedObservation("phase 3 current", c.phase3Current.Timestamp, timestamp)
-
 		return false
 	}
 
@@ -528,13 +569,11 @@ func (c *cache) SetInstallationParameters(gridType types.GridType, phases int, t
 
 	if timestamp.Before(c.gridType.Timestamp) {
 		c.logOutdatedObservation("grid type", c.gridType.Timestamp, timestamp)
-
 		return false
 	}
 
 	if timestamp.Before(c.phases.Timestamp) {
 		c.logOutdatedObservation("phases", c.phases.Timestamp, timestamp)
-
 		return false
 	}
 

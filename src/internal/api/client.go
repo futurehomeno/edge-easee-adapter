@@ -2,7 +2,9 @@ package api
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	log "github.com/sirupsen/logrus"
 )
@@ -13,6 +15,7 @@ type Client interface {
 	UpdateMaxCurrent(chargerID string, current float64) error
 	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
 	UpdateDynamicCurrent(chargerID string, current float64) error
+	UpdatePhaseMode(chargerID string, phaseMode types.PhaseMode) error
 	// StopCharging stops charging session for the selected charger.
 	StopCharging(chargerID string) error
 	// ChargerConfig retrieves charger config.
@@ -67,6 +70,21 @@ func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) erro
 	}
 
 	return a.httpClient.UpdateDynamicCurrent(token, chargerID, current)
+}
+
+func (a *apiClient) UpdatePhaseMode(chargerID string, phaseMode types.PhaseMode) error {
+	log.Infof("[%s] Update phase mode to %s", chargerID, phaseMode.Str())
+	token, err := a.auth.AccessToken()
+	if err != nil {
+		return a.tokenError(err)
+	}
+
+	p1 := strings.Contains(phaseMode.Str(), "1")
+	p2 := strings.Contains(phaseMode.Str(), "2")
+	p3 := strings.Contains(phaseMode.Str(), "3")
+	defaultCurrent := 32.0
+
+	return a.httpClient.SetActivePhases(token, chargerID, p1, p2, p3, defaultCurrent)
 }
 
 func (a *apiClient) StopCharging(chargerID string) error {

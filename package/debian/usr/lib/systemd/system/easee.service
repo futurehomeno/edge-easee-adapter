@@ -1,13 +1,13 @@
 [Unit]
 StartLimitIntervalSec=10
 StartLimitBurst=5
-Description=Futurehome Easee EV charger adapter.
+Description=Futurehome Easee EV charger adapter
 
 [Service]
 Type=simple
-ExecStart=/opt/thingsplex/easee/easee
+ExecStart=/usr/bin/easee
 User=easee
-WorkingDirectory=/opt/thingsplex/easee
+WorkingDirectory=/var/lib/futurehome/easee
 Restart=always
 RestartSec=10
 StandardOutput=null

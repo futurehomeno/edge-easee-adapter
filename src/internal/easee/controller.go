@@ -58,6 +58,7 @@ type Controller interface {
 	chargepoint.PhaseModeAwareController
 	chargepoint.AdjustableMaxCurrentController
 	chargepoint.AdjustableOfferedCurrentController
+	chargepoint.AdjustablePhaseModeController
 	chargepoint.CableLockAwareController
 	parameters.Controller
 	numericmeter.Reporter
@@ -168,7 +169,7 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		return "", err
 	}
 
-	if modes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(modes) > 0 {
+	if modes := model.SupportedPhaseModes(state.GridType, state.EaseePhaseMode, state.Phases); len(modes) > 0 {
 		return modes[0], nil
 	}
 
@@ -177,10 +178,14 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	log.WithField("charger_id", c.chargerID).
 		WithField("grid_type", state.GridType).
 		WithField("phases", state.Phases).
-		WithField("internal_phase_mode", state.PhaseMode).
+		WithField("easee_phase_mode", state.EaseePhaseMode).
 		Error(errMsg)
 
 	return "", errors.New(errMsg)
+}
+
+func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
+	return c.client.UpdatePhaseMode(c.chargerID, mode)
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int) error {
@@ -367,7 +372,7 @@ func (c *controller) updateChargerConfigState(chargerID string, state *State) er
 
 	state.GridType = gridType
 	state.Phases = phases
-	state.PhaseMode = cfg.PhaseMode
+	state.EaseePhaseMode = cfg.EaseePhaseMode
 
 	return nil
 }
