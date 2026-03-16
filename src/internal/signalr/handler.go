@@ -531,12 +531,7 @@ func (h *observationsHandler) handleSinglePhaseNumber(observation model.Observat
 
 	log.Debugf("[%s] singlePhaseNum=%v", h.chargerID, val)
 
-	chargepointSrv, err := getChargepointService(h.thing)
-	if err != nil {
-		return err
-	}
-
-	_, err = chargepointSrv.SendPhaseModeReport(false)
+	// evt.phase_mode.report handled in OutPhaseType
 
 	return err
 }

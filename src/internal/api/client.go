@@ -82,7 +82,7 @@ func (a *apiClient) UpdatePhaseMode(chargerID string, phaseMode types.PhaseMode)
 	p1 := strings.Contains(phaseMode.Str(), "1")
 	p2 := strings.Contains(phaseMode.Str(), "2")
 	p3 := strings.Contains(phaseMode.Str(), "3")
-	defaultCurrent := 80.0
+	defaultCurrent := 32.0
 
 	return a.httpClient.SetActivePhases(token, chargerID, p1, p2, p3, defaultCurrent)
 }
