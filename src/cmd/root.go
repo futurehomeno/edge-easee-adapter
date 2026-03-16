@@ -66,8 +66,8 @@ func migrateConfig(cfg *config.Config) {
 		migrated = true
 	}
 
-	if cfg.LogFile == "/var/log/thingsplex/easee" {
-		cfg.LogFile = "/var/log/futurehome/easee"
+	if cfg.LogFile == "/var/log/thingsplex/easee/easee.log" {
+		cfg.LogFile = "/var/log/futurehome/easee/easee.log"
 		migrated = true
 	}
 
