@@ -64,24 +64,28 @@ func NewObservationsHandler(
 	handler.isStateOnline.Store(true)
 
 	handler.handlers = map[model.ObservationID]func(model.Observation) error{
+		// model.OfflineReason:
 		model.DetectedPowerGridType: handler.handleDetectedPowerGridType,
-		model.PhaseMode:             handler.handlePhaseMode,
+		model.LockCablePermanently:  handler.handleLockCablePermanently,
+		model.SinglePhaseNumber:     handler.handleSinglePhaseNumber,
+		model.EaseePhaseMode:        handler.handleEaseePhaseMode,
 		model.MaxChargerCurrent:     handler.handleMaxChargerCurrent,
 		model.DynamicChargerCurrent: handler.handleDynamicChargerCurrent,
-		model.ChargerOPState:        handler.handleChargerState,
-		model.OutputPhase:           handler.handleOutPhase,
-		model.TotalPower:            handler.handleTotalPower,
-		model.LifetimeEnergy:        handler.energyHandler.handle,
-		model.EnergySession:         handler.handleEnergySession,
-		model.InCurrentT3:           handler.handleInCurrentT3,
-		model.InCurrentT4:           handler.handleInCurrentT4,
-		model.InCurrentT5:           handler.handleInCurrentT5,
-		model.CloudConnected:        handler.handleCloudConnected,
-		model.CableLocked:           handler.handleCableLocked,
-		model.CableRating:           handler.handleCableRating,
-		model.LockCablePermanently:  handler.handleLockCablePermanently,
-		model.ChargingSessionStop:   handler.handleChargingSessionStop,
-		model.ChargingSessionStart:  handler.handleChargingSessionStart,
+		// model.SoftwareVersion:
+		model.CableLocked:    handler.handleCableLocked,
+		model.CableRating:    handler.handleCableRating,
+		model.ChargerOPState: handler.handleChargerState,
+		model.OutputPhase:    handler.handleOutPhase,
+		// model.ErrorCode:
+		model.TotalPower:           handler.handleTotalPower,
+		model.LifetimeEnergy:       handler.energyHandler.handle,
+		model.EnergySession:        handler.handleEnergySession,
+		model.InCurrentT3:          handler.handleInCurrentT3,
+		model.InCurrentT4:          handler.handleInCurrentT4,
+		model.InCurrentT5:          handler.handleInCurrentT5,
+		model.CloudConnected:       handler.handleCloudConnected,
+		model.ChargingSessionStop:  handler.handleChargingSessionStop,
+		model.ChargingSessionStart: handler.handleChargingSessionStart,
 	}
 
 	return &handler, nil
@@ -104,21 +108,23 @@ func (h *observationsHandler) HandleObservation(observation model.Observation) e
 	return fmt.Errorf("not supported")
 }
 
-func (h *observationsHandler) handlePhaseMode(observation model.Observation) error {
-	val, err := observation.IntValue()
+func (h *observationsHandler) handleEaseePhaseMode(observation model.Observation) error {
+	tempVal, err := observation.IntValue()
 	if err != nil {
 		return err
 	}
 
-	log.Debugf("[%s] Connected phases=%d", h.chargerID, val)
+	val := model.EaseePhaseModeT(tempVal)
 
-	phaseMode, _ := h.cache.PhaseMode()
+	log.Debugf("[%s] Easee phase mode=%d", h.chargerID, val)
+
+	phaseMode, _ := h.cache.EaseePhaseMode()
 
 	if val == phaseMode {
 		return nil
 	}
 
-	ok := h.cache.SetPhaseMode(val, observation.Timestamp)
+	ok := h.cache.SetEaseePhaseMode(val, observation.Timestamp)
 	if !ok {
 		return nil
 	}
@@ -130,7 +136,7 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 
 	gridType, _ := h.cache.GridType()
 	phases, _ := h.cache.Phases()
-	phaseMode, _ = h.cache.PhaseMode()
+	phaseMode, _ = h.cache.EaseePhaseMode()
 	supportedModes := model.SupportedPhaseModes(gridType, phaseMode, phases)
 
 	service = h.ensureChargepointProps(service, map[string]any{
@@ -471,8 +477,7 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		return err
 	}
 
-	phaseMode, _ := h.cache.PhaseMode()
-
+	phaseMode, _ := h.cache.EaseePhaseMode()
 	supportedModes := model.SupportedPhaseModes(supportedGridType, phaseMode, supportedPhases)
 
 	service = h.ensureChargepointProps(service, map[string]any{
@@ -509,6 +514,24 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 	}
 
 	_, err = parameterSrv.SendParameterReport(model.CableAlwaysLockedParameter, true)
+
+	return err
+}
+
+func (h *observationsHandler) handleSinglePhaseNumber(observation model.Observation) error {
+	val, err := observation.IntValue()
+	if err != nil {
+		return err
+	}
+
+	ok := h.cache.SetSinglePhaseNumber(val, observation.Timestamp)
+	if !ok {
+		return nil
+	}
+
+	log.Debugf("[%s] singlePhaseNum=%v", h.chargerID, val)
+
+	// evt.phase_mode.report handled in OutPhaseType
 
 	return err
 }

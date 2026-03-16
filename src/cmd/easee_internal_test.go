@@ -16,6 +16,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/prime"
 	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/test/suite"
+	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/google/go-cmp/cmp"
@@ -437,7 +438,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
-							PhaseMode:             1, // results in NL1, NL2, NL3
+							EaseePhaseMode:        model.EaseePhaseModeT(1), // results in NL1, NL2, NL3
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -464,7 +465,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
 								Timestamp: time.Now(),
-								ID:        model.PhaseMode,
+								ID:        model.EaseePhaseMode,
 								Value:     "2",
 							},
 						})
@@ -479,8 +480,8 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							ExpectInclusionReportWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", map[string]any{
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(3),
-								chargepoint.PropertyGridType:            "TN",
-								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL2", "NL3", "NL1L2L3"},
+								chargepoint.PropertyGridType:            string(types.GridTypeTN),
+								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL2", "NL3", "NL1L2", "NL2L3", "NL1L2L3"},
 							}, nil),
 						},
 					},
@@ -496,7 +497,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
-							PhaseMode:             2,
+							EaseePhaseMode:        model.EaseePhaseModeT(2),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -529,8 +530,8 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							ExpectInclusionReportWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", map[string]any{
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(3),
-								chargepoint.PropertyGridType:            "TN",
-								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL2", "NL3", "NL1L2L3"},
+								chargepoint.PropertyGridType:            string(types.GridTypeTN),
+								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL2", "NL3", "NL1L2", "NL2L3", "NL1L2L3"},
 							}, nil),
 						},
 					},
@@ -546,7 +547,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -580,7 +581,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
 								Timestamp: time.Now(),
-								ID:        model.PhaseMode,
+								ID:        model.EaseePhaseMode,
 								Value:     "1",
 							},
 						})
@@ -595,7 +596,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							ExpectInclusionReportWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", map[string]any{
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(1),
-								chargepoint.PropertyGridType:            "TN",
+								chargepoint.PropertyGridType:            string(types.GridTypeTN),
 								chargepoint.PropertySupportedPhaseModes: []any{"NL1"},
 							}, nil),
 						},
@@ -611,14 +612,14 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
-							PhaseMode:             2,
+							EaseePhaseMode:        model.EaseePhaseModeT(2),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
 						}, nil)
 						client.On("Ping").Return(nil)
 					},
-					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) { //nolint:dupl
 						s.MockObservations(0, []model.Observation{
 							{
 								ChargerID: test.ChargerID,
@@ -672,7 +673,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -706,7 +707,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeInteger,
 								Timestamp: time.Now(),
-								ID:        model.PhaseMode,
+								ID:        model.EaseePhaseMode,
 								Value:     "1",
 							},
 						})
@@ -724,6 +725,395 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
+				Name: "Set phase mode - success",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeTN3Phase,
+							EaseePhaseMode:        model.EaseePhaseModeT(2),
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+						client.On("UpdatePhaseMode", "XX12345", types.PhaseModeNL1).Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.DetectedPowerGridType,
+								Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.OutputPhase,
+								Value:     strconv.Itoa(int(model.P1T2T3TN)), // NL1
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					suite.SleepNode(300 * time.Millisecond),
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.StringMessage(cmdDeviceChargepointTopic, "cmd.phase_mode.set", "chargepoint", "NL1"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectString(evtDeviceChargepointTopic, "evt.phase_mode.report", "chargepoint", "NL1"),
+						},
+					},
+				},
+			},
+			{
+				Name: "Set phase mode - unsupported mode for grid",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeTN3Phase,
+							EaseePhaseMode:        model.EaseePhaseModeT(1), // 1-phase locked -> only NL1, NL2, NL3
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.StringMessage(cmdDeviceChargepointTopic, "cmd.phase_mode.set", "chargepoint", "NL1L2L3"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectError(evtDeviceChargepointTopic, "chargepoint"),
+						},
+					},
+				},
+			},
+			{
+				Name: "Set phase mode - API error",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeTN3Phase,
+							EaseePhaseMode:        model.EaseePhaseModeT(2),
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+						client.On("UpdatePhaseMode", "XX12345", types.PhaseModeNL1).Return(errors.New("api error"))
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.DetectedPowerGridType,
+								Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					suite.SleepNode(300 * time.Millisecond),
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.StringMessage(cmdDeviceChargepointTopic, "cmd.phase_mode.set", "chargepoint", "NL1"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectError(evtDeviceChargepointTopic, "chargepoint"),
+						},
+					},
+				},
+			},
+			{
+				Name: "Inclusion report on start - IT 3-phase",
+				Setup: serviceSetup( //nolint:dupl
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeIT3Phase,
+							EaseePhaseMode:        model.EaseePhaseModeAuto,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeDouble,
+								Timestamp: time.Now(),
+								ID:        model.MaxChargerCurrent,
+								Value:     "32",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							ExpectInclusionReportWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", map[string]any{
+								chargepoint.PropertySupportedMaxCurrent: float64(32),
+								chargepoint.PropertyPhases:              float64(3),
+								chargepoint.PropertyGridType:            string(types.GridTypeIT),
+								chargepoint.PropertySupportedPhaseModes: []any{"L1L2", "L2L3", "L3L1"},
+							}, nil),
+						},
+					},
+				},
+			},
+			{
+				Name: "Inclusion report on start - IT 1-phase",
+				Setup: serviceSetup( //nolint:dupl
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeIT1Phase,
+							EaseePhaseMode:        model.EaseePhaseMode1Phase,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeDouble,
+								Timestamp: time.Now(),
+								ID:        model.MaxChargerCurrent,
+								Value:     "32",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							ExpectInclusionReportWithChargepointProps("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", map[string]any{
+								chargepoint.PropertySupportedMaxCurrent: float64(32),
+								chargepoint.PropertyPhases:              float64(1),
+								chargepoint.PropertyGridType:            string(types.GridTypeIT),
+								chargepoint.PropertySupportedPhaseModes: []any{"L1L2"},
+							}, nil),
+						},
+					},
+				},
+			},
+			{
+				Name: "Phase mode report - IT grid",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeIT3Phase,
+							EaseePhaseMode:        model.EaseePhaseModeAuto,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) { //nolint:dupl
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeDouble,
+								Timestamp: time.Now(),
+								ID:        model.MaxChargerCurrent,
+								Value:     "32",
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.DetectedPowerGridType,
+								Value:     strconv.Itoa(int(model.GridTypeIT3Phase)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.OutputPhase,
+								Value:     strconv.Itoa(int(model.P1T3T4IT)), // L2L3
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					suite.SleepNode(300 * time.Millisecond),
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.phase_mode.get_report", "chargepoint"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.phase_mode.report", "chargepoint", "L2L3"),
+						},
+					},
+				},
+			},
+			{
+				Name: "Set phase mode - IT grid - success",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeIT3Phase,
+							EaseePhaseMode:        model.EaseePhaseModeAuto,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+						client.On("UpdatePhaseMode", "XX12345", types.PhaseModeL1L2).Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.DetectedPowerGridType,
+								Value:     strconv.Itoa(int(model.GridTypeIT3Phase)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.OutputPhase,
+								Value:     strconv.Itoa(int(model.P1T2T3IT)), // L1L2
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					suite.SleepNode(300 * time.Millisecond),
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.StringMessage(cmdDeviceChargepointTopic, "cmd.phase_mode.set", "chargepoint", "L1L2"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectString(evtDeviceChargepointTopic, "evt.phase_mode.report", "chargepoint", "L1L2"),
+						},
+					},
+				},
+			},
+			{
+				Name: "Set phase mode - IT grid - unsupported mode",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeIT3Phase,
+							EaseePhaseMode:        model.EaseePhaseModeAuto,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.StringMessage(cmdDeviceChargepointTopic, "cmd.phase_mode.set", "chargepoint", "NL1"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectError(evtDeviceChargepointTopic, "chargepoint"),
+						},
+					},
+				},
+			},
+			{
 				Name: "Grid Type not supported",
 				Setup: serviceSetup(
 					testContainer,
@@ -732,7 +1122,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -776,7 +1166,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -829,7 +1219,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -882,7 +1272,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -953,7 +1343,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -1008,7 +1398,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -1061,7 +1451,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -1132,7 +1522,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -1186,7 +1576,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -1248,7 +1638,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -1291,7 +1681,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
-							PhaseMode:             1,
+							EaseePhaseMode:        model.EaseePhaseModeT(1),
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,

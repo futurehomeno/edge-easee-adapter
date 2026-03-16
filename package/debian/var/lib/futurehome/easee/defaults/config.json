@@ -15,6 +15,7 @@
   "energyLifetimeInterval": "15m",
   "currentWaitDuration": "3s",
   "offered_current_wait_time": "15s",
+  "phase_mode_switch_wait_time": "90s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
   "signalR": {

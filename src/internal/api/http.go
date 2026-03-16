@@ -32,13 +32,13 @@ const (
 	chargersURI     = "/api/chargers"
 	healthURI       = "/health"
 
-	chargerConfigURITemplate   = "/api/chargers/%s/config"
-	chargerSiteURITemplate     = "/api/chargers/%s/site"
-	chargerSettingsURITemplate = "/api/chargers/%s/settings"
-	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
-	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
-	chargerSessionsURITemplate = "/api/sessions/charger/%s/sessions/descending?limit=2"
-	chargerDetailsURITemplate  = "/api/chargers/%s/details?alwaysGetChargerAccessLevel=false"
+	chargerConfigURITemplate         = "/api/chargers/%s/config"
+	chargerSiteURITemplate           = "/api/chargers/%s/site"
+	chargerSettingsURITemplate       = "/api/chargers/%s/settings"
+	circuitDynamicCurrentURITemplate = "/api/sites/%d/circuits/%d/dynamicCurrent"
+	chargerStopURITemplate           = "/api/chargers/%s/commands/pause_charging"
+	cableLockURITemplate             = "/api/chargers/%s/commands/lock_state"
+	chargerDetailsURITemplate        = "/api/chargers/%s/details?alwaysGetChargerAccessLevel=false"
 
 	authorizationHeader = "Authorization"
 	contentTypeHeader   = "Content-Type"
@@ -52,6 +52,8 @@ type HTTPClient interface {
 	UpdateMaxCurrent(accessToken, chargerID string, current float64) error
 	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
 	UpdateDynamicCurrent(accessToken, chargerID string, current float64) error
+	UpdateEaseePhaseMode(accessToken, chargerID string, phaseMode model.EaseePhaseModeT) error
+	SetActivePhases(accessToken, chargerID string, phase1, phase2, phase3 bool, defCurrent float64) error
 	// Login logs the user in the Easee API and retrieves credentials.
 	Login(userName, password string) (*model.Credentials, error)
 	// RefreshToken retrieves new credentials based on an access token and a refresh token.
@@ -77,17 +79,25 @@ type httpClient struct {
 	baseURL    string
 	cfgSrv     *config.Service
 
-	lock              sync.RWMutex
-	lastMaxCurrentSet map[string]time.Time
+	lock                  sync.RWMutex
+	lastStop              map[string]time.Time
+	lastDynamicCurrentSet map[string]time.Time
+	lastDynamicCurrentVal map[string]float64
+	lastPhaseModeChange   map[string]time.Time
+	lastEaseePhaseMode    map[string]model.EaseePhaseModeT
 }
 
 // NewHTTPClient returns a new instance of Easee HTTPClient.
 func NewHTTPClient(cfgSrv *config.Service, http *http.Client, baseURL string) HTTPClient {
 	return &httpClient{
-		httpClient:        http,
-		baseURL:           baseURL,
-		lastMaxCurrentSet: make(map[string]time.Time),
-		cfgSrv:            cfgSrv,
+		httpClient:            http,
+		baseURL:               baseURL,
+		lastStop:              make(map[string]time.Time),
+		lastDynamicCurrentSet: make(map[string]time.Time),
+		lastDynamicCurrentVal: make(map[string]float64),
+		lastPhaseModeChange:   make(map[string]time.Time),
+		lastEaseePhaseMode:    make(map[string]model.EaseePhaseModeT),
+		cfgSrv:                cfgSrv,
 	}
 }
 
@@ -105,7 +115,7 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 		return nil, errors.Wrap(err, "failed to create login request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -142,7 +152,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 		return nil, errors.Wrap(err, "failed to create token refresh request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -190,7 +200,7 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 		return errors.Wrap(err, "failed to create max current request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -199,7 +209,6 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 
 	if resp.StatusCode != http.StatusAccepted {
 		c.logFailedResponse(resp)
-
 		return c.handleFailedResponse(resp, "update max current request failed: unexpected status code")
 	}
 
@@ -207,7 +216,7 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 }
 
 func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current float64) error {
-	if c.shouldBackoffWithMaxCurrentChange(chargerID) {
+	if c.shouldBackoffWithDynamicCurrentChange(chargerID) {
 		return errors.New("client: failed to update dynamic current: too many requests")
 	}
 
@@ -222,7 +231,7 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 		return errors.Wrap(err, "failed to create dynamic current request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -231,11 +240,113 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 
 	if resp.StatusCode != http.StatusAccepted {
 		c.logFailedResponse(resp)
-
 		return c.handleFailedResponse(resp, "update dynamic current request failed: unexpected status code")
 	}
 
-	c.registerMaxCurrentChange(chargerID)
+	c.registerDynamicCurrentChange(chargerID, current)
+
+	return nil
+}
+
+func (c *httpClient) UpdateEaseePhaseMode(accessToken, chargerID string, easeePhaseMode model.EaseePhaseModeT) error {
+	if c.shouldBackoffWithPhaseModeChange(chargerID) {
+		return errors.New("client: failed to update phase mode: too many requests")
+	}
+
+	u := c.buildURL(chargerSettingsURITemplate, chargerID)
+
+	req, err := newRequestBuilder(http.MethodPost, u).
+		withBody(setPhaseModeBody{SetPhaseMode: int(easeePhaseMode)}).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return errors.Wrap(err, "failed to create phase mode request")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrTransport, err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusAccepted {
+		c.logFailedResponse(resp)
+		return c.handleFailedResponse(resp, "update phase mode request failed: unexpected status code")
+	}
+
+	c.registerPhaseModeChange(chargerID, easeePhaseMode)
+
+	return nil
+}
+
+func (c *httpClient) SetActivePhases(accessToken, chargerID string, phase1, phase2, phase3 bool, defCurrent float64) error {
+	if c.shouldBackoffWithPhaseModeChange(chargerID) {
+		return errors.New("client: failed to update phase mode: too many requests")
+	}
+
+	// Read cache values while holding RLock
+	c.lock.RLock()
+	easeePhaseMode, hasPhaseMode := c.lastEaseePhaseMode[chargerID]
+	dynamicCurrentVal := defCurrent
+	if val, ok := c.lastDynamicCurrentVal[chargerID]; ok {
+		dynamicCurrentVal = val
+	}
+	c.lock.RUnlock()
+
+	if !hasPhaseMode || easeePhaseMode != model.EaseePhaseModeAuto {
+		if err := c.UpdateEaseePhaseMode(accessToken, chargerID, model.EaseePhaseModeAuto); err != nil {
+			log.Warnf("UpdateEaseePhaseMode err: %v", err)
+		}
+	}
+
+	siteInfo, err := c.ChargerSiteInfo(accessToken, chargerID)
+	if err != nil {
+		return errors.Wrap(err, "failed to get charger site info")
+	}
+
+	if len(siteInfo.Circuits) == 0 {
+		return errors.New("no circuits found for charger")
+	}
+
+	const timeToLiveMin = 120
+	payload := setPhaseCurrents{TimeToLive: timeToLiveMin}
+
+	if phase1 {
+		payload.SetPhase1 = dynamicCurrentVal
+	}
+
+	if phase2 {
+		payload.SetPhase2 = dynamicCurrentVal
+	}
+
+	if phase3 {
+		payload.SetPhase3 = dynamicCurrentVal
+	}
+
+	u := c.buildURL(circuitDynamicCurrentURITemplate, siteInfo.ID, siteInfo.Circuits[0].ID)
+
+	req, err := newRequestBuilder(http.MethodPost, u).
+		withBody(payload).
+		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
+		addHeader(contentTypeHeader, jsonContentType).
+		build()
+	if err != nil {
+		return errors.Wrap(err, "failed to create phase currents request")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrTransport, err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusAccepted {
+		c.logFailedResponse(resp)
+		return c.handleFailedResponse(resp, "update phase currents request failed: unexpected status code")
+	}
 
 	return nil
 }
@@ -243,7 +354,7 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 	// When stop charging command is sent, Easee sets dynamic current to 0.
 	// That's why a protection against changing offered current more often than once in 30 seconds is needed.
-	if c.shouldBackoffWithMaxCurrentChange(chargerID) {
+	if c.shouldBackoffWithStop(chargerID) {
 		return errors.New("client: failed to stop charging: too many requests to the charger")
 	}
 
@@ -256,7 +367,7 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 		return errors.Wrap(err, "failed to create stop charging request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -265,9 +376,10 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 
 	if resp.StatusCode != http.StatusAccepted {
 		c.logFailedResponse(resp)
-
 		return c.handleFailedResponse(resp, "stop charging request failed: unexpected status code")
 	}
+
+	c.registerStop(chargerID)
 
 	return nil
 }
@@ -284,7 +396,7 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 		return errors.Wrap(err, "failed to create cable lock request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -368,7 +480,7 @@ func (c *httpClient) Ping(accessToken string) error {
 		return errors.Wrap(err, "failed to create ping request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrTransport, err)
 	}
@@ -407,7 +519,6 @@ func (c *httpClient) logFailedResponse(resp *http.Response) {
 	if err != nil {
 		log.WithError(err).
 			Errorf("%s %s %s: failed to read response body", resp.Request.Method, resp.Request.URL.String(), resp.Status)
-
 		return
 	}
 
@@ -432,27 +543,73 @@ func (c *httpClient) bearerTokenHeader(authToken string) string {
 	return "Bearer " + authToken
 }
 
-func (c *httpClient) shouldBackoffWithMaxCurrentChange(chargerID string) bool {
+func (c *httpClient) shouldBackoffWithDynamicCurrentChange(chargerID string) bool {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
-	lastMaxCurrentSet, ok := c.lastMaxCurrentSet[chargerID]
+	lastDynamicCurrentSet, ok := c.lastDynamicCurrentSet[chargerID]
 	if !ok {
 		return false
 	}
 
-	if clock.Now().Sub(lastMaxCurrentSet) >= c.cfgSrv.GetOfferedCurrentWaitTime() {
+	if clock.Now().Sub(lastDynamicCurrentSet) >= c.cfgSrv.GetOfferedCurrentWaitTime() {
 		return false
 	}
 
 	return true
 }
 
-func (c *httpClient) registerMaxCurrentChange(chargerID string) {
+func (c *httpClient) shouldBackoffWithStop(chargerID string) bool {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	lastStop, ok := c.lastStop[chargerID]
+	if !ok {
+		return false
+	}
+
+	if clock.Now().Sub(lastStop) >= c.cfgSrv.GetOfferedCurrentWaitTime()/2 {
+		return false
+	}
+
+	return true
+}
+
+func (c *httpClient) shouldBackoffWithPhaseModeChange(chargerID string) bool {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	lastPhaseModeChange, ok := c.lastPhaseModeChange[chargerID]
+	if !ok {
+		return false
+	}
+
+	if clock.Now().Sub(lastPhaseModeChange) >= c.cfgSrv.GetPhaseModeSwitchWaitTime() {
+		return false
+	}
+
+	return true
+}
+
+func (c *httpClient) registerStop(chargerID string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.lastStop[chargerID] = clock.Now()
+}
+
+func (c *httpClient) registerDynamicCurrentChange(chargerID string, current float64) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	c.lastMaxCurrentSet[chargerID] = clock.Now()
+	c.lastDynamicCurrentVal[chargerID] = current
+	c.lastDynamicCurrentSet[chargerID] = clock.Now()
+}
+
+func (c *httpClient) registerPhaseModeChange(chargerID string, phaseMode model.EaseePhaseModeT) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.lastEaseePhaseMode[chargerID] = phaseMode
+	c.lastPhaseModeChange[chargerID] = clock.Now()
 }
 
 func (c *httpClient) getResponse(state any, url, accessToken string) (any, error) {
@@ -463,7 +620,7 @@ func (c *httpClient) getResponse(state any, url, accessToken string) (any, error
 		return nil, errors.Wrap(err, "failed to create request")
 	}
 
-	resp, err := c.httpClient.Do(req) //nolint:gosec
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
 	}
