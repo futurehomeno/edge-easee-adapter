@@ -16,13 +16,7 @@ import (
 func Execute(version string) error {
 	cfg := getConfigService().Model()
 
-	if cfg.LogFormat == "text" {
-		cfg.LogFormat = "budzik"
-
-		if err := getConfigService().Save(); err != nil {
-			log.Warnf("Save config err: %v", err)
-		}
-	}
+	migrateConfig(cfg)
 
 	if err := bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat); err != nil {
 		return err
@@ -57,4 +51,29 @@ func Build(cfg *config.Config) (root.App, error) {
 		WithTask(newTasks(cfg)...).
 		WithServices(getSignalRManager(cfg), getEventListener(cfg), getSessionStorage(cfg)).
 		Build()
+}
+
+func migrateConfig(cfg *config.Config) {
+	var migrated bool
+
+	if cfg.LogFormat == "text" {
+		cfg.LogFormat = "budzik"
+		migrated = true
+	}
+
+	if cfg.WorkDir == "/opt/thingsplex/easee" {
+		cfg.WorkDir = "/var/lib/futurehome/easee"
+		migrated = true
+	}
+
+	if cfg.LogFile == "/var/log/thingsplex/easee/easee.log" {
+		cfg.LogFile = "/var/log/futurehome/easee/easee.log"
+		migrated = true
+	}
+
+	if migrated {
+		if err := getConfigService().Save(); err != nil {
+			log.Warnf("Save config err: %v", err)
+		}
+	}
 }
