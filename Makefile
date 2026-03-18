@@ -4,7 +4,7 @@ endef
 
 SHELL := /bin/bash
 
-VERSION := 2.6.5
+VERSION := 2.6.6
 APP_NAME := easee
 
 ARCH ?= armhf
@@ -109,6 +109,6 @@ generate-mocks:
 	$(call generate_mocks,"internal/app","app","Application")
 	$(call generate_mocks,"internal/cache","cache","Cache")
 	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
-	$(call generate_mocks,"internal/signalr","signalr","Client")
+	$(call generate_mocks,"internal/signalr","signalr","Client|Manager")
 
 .PHONY: clean test generate-mocks configure package-deb deb-arm deb-amd build-mac-amd64 build-linux-amd64 build-arm build-local upload deploy install

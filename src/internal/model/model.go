@@ -20,11 +20,11 @@ const (
 
 // Credentials stands for Easee API credentials.
 type Credentials struct {
-	AccessToken  string   `json:"accessToken"` //nolint:gosec
+	AccessToken  string   `json:"accessToken"`
 	ExpiresIn    int      `json:"expiresIn"`
 	AccessClaims []string `json:"accessClaims"`
 	TokenType    string   `json:"tokenType"`
-	RefreshToken string   `json:"refreshToken"` //nolint:gosec
+	RefreshToken string   `json:"refreshToken"`
 }
 
 // Charger represents charger data.
