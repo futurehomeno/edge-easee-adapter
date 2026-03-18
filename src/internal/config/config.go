@@ -613,8 +613,8 @@ func (cs *Service) GetTokenRefreshInterval() time.Duration {
 }
 
 func (cs *Service) SetTokenRefreshInterval(interval time.Duration) error {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
+	cs.lock.Lock()
+	defer cs.lock.Unlock()
 
 	cs.Storage.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
 	cs.Storage.Model().TokenRefreshInterval = interval.String()
