@@ -205,6 +205,16 @@ func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 }
 
 func (c *controller) SetChargepointOfferedCurrent(current int) error {
+	limit, _ := c.cache.MaxCurrent()
+	if limit == 0 {
+		limit = maxCurrentValue
+	}
+
+	if current > limit {
+		log.Warnf("[%s] Clamp offered current %dA to max %dA", c.chargerID, current, limit)
+		current = limit
+	}
+
 	lastValue, lastSet := c.cache.RequestedOfferedCurrent()
 
 	if time.Since(lastSet) < c.cfgService.GetOfferedCurrentWaitTime() && current == lastValue {
