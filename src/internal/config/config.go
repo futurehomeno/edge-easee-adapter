@@ -144,6 +144,7 @@ func (cs *Service) SetEaseeBaseURL(url string) error {
 	return cs.Save()
 }
 
+
 // GetEnergyLifetimeInterval allows to safely access a configuration setting.
 func (cs *Service) GetEnergyLifetimeInterval() time.Duration {
 	cs.lock.RLock()
