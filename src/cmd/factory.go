@@ -15,6 +15,7 @@ import (
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/task"
 	"github.com/futurehomeno/fimpgo"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -128,7 +129,7 @@ func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 		)
 	}
 
-	services.mqtt.SetDefaultSource(routing.ResourceName)
+	services.mqtt.SetDefaultSource(fimptype.EaseeRn)
 
 	return services.mqtt
 }
@@ -167,7 +168,7 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 			getEventManager(cfg),
 			getThingFactory(cfg),
 			getAdapterState(),
-			routing.ServiceName,
+			fimptype.EaseeRn,
 			"1",
 		)
 	}
@@ -255,7 +256,7 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 			getConfigService(),
 			notification.NewNotification(getMQTT(cfg)),
 			getMQTT(cfg),
-			routing.ServiceName,
+			fimptype.EaseeService,
 		)
 	}
 

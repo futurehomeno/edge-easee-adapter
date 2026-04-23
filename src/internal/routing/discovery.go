@@ -2,12 +2,13 @@ package routing
 
 import (
 	"github.com/futurehomeno/cliffhanger/discovery"
+	"github.com/futurehomeno/fimpgo/fimptype"
 )
 
 // GetDiscoveryResource returns a service discovery configuration.
 func GetDiscoveryResource() *discovery.Resource {
 	return &discovery.Resource{
-		ResourceName:           ServiceName,
+		ResourceName:           fimptype.EaseeService.Str(),
 		ResourceType:           discovery.ResourceTypeAd,
 		ResourceFullName:       "Easee",
 		Description:            "EV chargers from Easee",

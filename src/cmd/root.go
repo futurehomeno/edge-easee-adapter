@@ -6,6 +6,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/bootstrap"
 	"github.com/futurehomeno/cliffhanger/root"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -50,8 +51,8 @@ func Build(cfg *config.Config) (root.App, error) {
 		WithServiceDiscovery(routing.GetDiscoveryResource()).
 		WithLifecycle(getLifecycle()).
 		WithTopicSubscription(
-			cliffRouter.TopicPatternAdapter(routing.ServiceName),
-			cliffRouter.TopicPatternDevices(routing.ServiceName),
+			cliffRouter.TopicPatternAdapter(fimptype.EaseeRn),
+			cliffRouter.TopicPatternDevices(fimptype.EaseeRn),
 		).
 		WithRouting(newRouting(cfg)...).
 		WithTask(newTasks(cfg)...).
