@@ -205,6 +205,53 @@ func TestController_StartChargepointCharging(t *testing.T) {
 	}
 }
 
+// Regression: pressing Start within OfferedCurrentWaitTime of a previous identical request
+// must NOT be silently suppressed by the dedup gate. The cache is only cleared async by the
+// SignalR session-finished observation; if a user re-presses Start before that lands, dedup
+// would otherwise drop the UpdateDynamicCurrent and leave the charger stopped.
+func TestController_StartChargepointCharging_BypassesOfferedCurrentDedup(t *testing.T) {
+	t.Parallel()
+
+	cacheMock := mockedcache.NewCache(t)
+	clientMock := mockapi.NewClient(t)
+
+	// Cache reports a recent identical offered-current request - exactly the state where
+	// the buggy dedup would fire (lastValue == startCurrent && time.Since(lastSet) < wait).
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Now())
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(true)
+
+	cfg := &config.Config{OfferedCurrentWaitTime: "15s"}
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
+
+	err := ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal})
+	assert.NoError(t, err)
+	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(16))
+}
+
+// SetChargepointOfferedCurrent (the non-Start path) must keep the existing dedup so that
+// rapid in-progress current adjustments to the same value don't hammer the API.
+func TestController_SetChargepointOfferedCurrent_KeepsDedup(t *testing.T) {
+	t.Parallel()
+
+	cacheMock := mockedcache.NewCache(t)
+	clientMock := mockapi.NewClient(t)
+
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Now())
+
+	cfg := &config.Config{OfferedCurrentWaitTime: "15s"}
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
+
+	err := ctrl.SetChargepointOfferedCurrent(16)
+	assert.NoError(t, err)
+	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
+}
+
 func TestController_UpdateState(t *testing.T) {
 	t.Parallel()
 
