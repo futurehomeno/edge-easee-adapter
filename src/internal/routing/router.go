@@ -66,6 +66,11 @@ func New(
 	)
 }
 
+var sensitiveInterfaces = map[string]bool{
+	app.CmdAuthLogin:     true,
+	app.CmdAuthSetTokens: true,
+}
+
 func routeLogIncoming() *router.Routing {
 	return router.NewRouting(
 		router.MessageHandlerFn(func(message *fimpgo.Message) *fimpgo.Message {
@@ -75,6 +80,12 @@ func routeLogIncoming() *router.Routing {
 				} else {
 					log.Debugf("FMP <- %s %s %s %v", message.Addr.ServiceAddress, message.Payload.Service, message.Payload.Interface, message.Payload.Value)
 				}
+
+				return nil
+			}
+
+			if sensitiveInterfaces[message.Payload.Interface] {
+				log.Infof("FMP %s -> %s %s %s [REDACTED]", message.Payload.Source, message.Addr.ServiceAddress, message.Payload.Service, message.Payload.Interface)
 
 				return nil
 			}

@@ -7,6 +7,7 @@ import (
 
 	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
 	"github.com/futurehomeno/fimpgo"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +16,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
-	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
@@ -313,7 +313,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 		nil,
 	)
 
-	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, routing.ServiceName)
+	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, fimptype.EaseeService)
 
 	_, err = auth.AccessToken()
 	assert.Error(t, err)
