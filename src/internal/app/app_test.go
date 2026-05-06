@@ -360,7 +360,6 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				}, nil)
 				c.On("ChargerDetails", "123").Return(model.ChargerDetails{Product: "xd"}, nil)
 				c.On("ChargerDetails", "456").Return(model.ChargerDetails{Product: "edi"}, nil)
-				c.On("Ping").Return(nil)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("EnsureThings", adapter.ThingSeeds{
@@ -383,7 +382,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
+				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 			},
 			wantErr: true,
