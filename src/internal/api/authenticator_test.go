@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
+	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 	"github.com/futurehomeno/fimpgo"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -15,7 +16,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
-	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
@@ -265,6 +265,140 @@ func TestLogout(t *testing.T) {
 	}
 }
 
+// TestUnauthorizedDoesNotImmediatelyLogout asserts that a single (or short burst of) 401
+// from /refresh_token does NOT clear local credentials. The authenticator must keep
+// retrying (gated by backoff) until MaxUnauthorizedDuration has elapsed; only then is the
+// app logout triggered. Regression coverage for the bug where one 401 logged the user out.
+//
+//nolint:paralleltest
+func TestUnauthorizedDoesNotImmediatelyLogout(t *testing.T) {
+	now := time.Date(2026, time.May, 7, 0, 0, 0, 0, time.UTC)
+	clock.Mock(now)
+	t.Cleanup(clock.Restore)
+
+	cfg := config.Config{
+		Credentials: config.Credentials{
+			AccessToken:           accessToken,
+			RefreshToken:          refreshToken,
+			AccessTokenExpiresAt:  now.Add(-time.Minute),
+			RefreshTokenExpiresAt: now.Add(7 * 24 * time.Hour),
+		},
+	}
+
+	storage := mockedstorage.NewStorage[*config.Config](t)
+	storage.On("Model").Return(&cfg)
+	storage.On("Save").Return(nil)
+
+	configService := config.NewService(storage)
+	require.NoError(t, configService.SetAuthenticatorBackoffCfg(config.BackoffCfg{
+		InitialBackoff:          time.Nanosecond,
+		RepeatedBackoff:         time.Nanosecond,
+		FinalBackoff:            time.Nanosecond,
+		InitialFailureCount:     1_000,
+		RepeatedFailureCount:    1_000,
+		MaxUnauthorizedDuration: 2 * time.Hour,
+	}))
+
+	notificationManager := fakes.NewNotifier(t)
+
+	client := mockapi.NewHTTPClient(t)
+	client.On("RefreshToken", accessToken, refreshToken).
+		Return(nil, api.HTTPError{
+			Message:    "InvalidRefreshToken",
+			StatusCode: http.StatusUnauthorized,
+		})
+
+	mqtt := fimpgo.NewMqttTransport(cfg.MQTTServerURI, cfg.MQTTClientIDPrefix, cfg.MQTTUsername, cfg.MQTTPassword, true, 1, 1, nil)
+
+	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, fimptype.EaseeService)
+
+	// 1. First 401: credentials must remain, no notification, no logout.
+	_, err := auth.AccessToken()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transient 401")
+	assert.NotEqual(t, config.Credentials{}, cfg.Credentials, "credentials must NOT be cleared on a single 401")
+	assert.True(t, notificationManager.NoEventsReceived(), "no offline notification should fire below the threshold")
+
+	// 2. Repeated 401s within the threshold also keep credentials intact.
+	clock.Mock(now.Add(30 * time.Minute))
+
+	_, err = auth.AccessToken()
+	require.Error(t, err)
+	assert.NotEqual(t, config.Credentials{}, cfg.Credentials, "credentials must remain after repeated 401s within threshold")
+	assert.True(t, notificationManager.NoEventsReceived())
+
+	// 3. Cross MaxUnauthorizedDuration: app logout fires and credentials are cleared.
+	clock.Mock(now.Add(3 * time.Hour))
+
+	_, err = auth.AccessToken()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "refreshToken expired")
+	assert.Equal(t, config.Credentials{}, cfg.Credentials, "credentials must be cleared once threshold exceeded")
+	assert.True(t, notificationManager.IsEventReceived("easee_status_offline"))
+}
+
+// TestUnauthorizedThenSuccessResetsThreshold asserts that a successful refresh after some
+// transient 401s clears the unauthorized timer, so the next 401 starts a fresh countdown
+// rather than immediately exceeding the threshold.
+//
+//nolint:paralleltest
+func TestUnauthorizedThenSuccessResetsThreshold(t *testing.T) {
+	now := time.Date(2026, time.May, 7, 0, 0, 0, 0, time.UTC)
+	clock.Mock(now)
+	t.Cleanup(clock.Restore)
+
+	cfg := config.Config{
+		Credentials: config.Credentials{
+			AccessToken:           accessToken,
+			RefreshToken:          refreshToken,
+			AccessTokenExpiresAt:  now.Add(-time.Minute),
+			RefreshTokenExpiresAt: now.Add(7 * 24 * time.Hour),
+		},
+	}
+
+	storage := mockedstorage.NewStorage[*config.Config](t)
+	storage.On("Model").Return(&cfg)
+	storage.On("Save").Return(nil)
+
+	configService := config.NewService(storage)
+	require.NoError(t, configService.SetAuthenticatorBackoffCfg(config.BackoffCfg{
+		InitialBackoff:          time.Nanosecond,
+		RepeatedBackoff:         time.Nanosecond,
+		FinalBackoff:            time.Nanosecond,
+		InitialFailureCount:     1_000,
+		RepeatedFailureCount:    1_000,
+		MaxUnauthorizedDuration: 2 * time.Hour,
+	}))
+
+	notificationManager := fakes.NewNotifier(t)
+
+	client := mockapi.NewHTTPClient(t)
+	// Sequence: 401, then a successful refresh.
+	client.On("RefreshToken", accessToken, refreshToken).
+		Return(nil, api.HTTPError{Message: "InvalidRefreshToken", StatusCode: http.StatusUnauthorized}).
+		Once()
+	client.On("RefreshToken", accessToken, refreshToken).
+		Return(&model.Credentials{AccessToken: accessToken, RefreshToken: refreshToken}, nil).
+		Once()
+
+	mqtt := fimpgo.NewMqttTransport(cfg.MQTTServerURI, cfg.MQTTClientIDPrefix, cfg.MQTTUsername, cfg.MQTTPassword, true, 1, 1, nil)
+
+	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, fimptype.EaseeService)
+
+	// First refresh: 401, credentials kept, transient err.
+	_, err := auth.AccessToken()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transient 401")
+
+	// Second refresh: succeeds — must reset unauthorizedSince so a future 401 starts fresh.
+	clock.Mock(now.Add(time.Hour))
+	cfg.AccessTokenExpiresAt = now.Add(-time.Minute) // re-expire to force another refresh
+
+	_, err = auth.AccessToken()
+	require.NoError(t, err)
+	assert.True(t, notificationManager.NoEventsReceived(), "no logout should fire after a successful refresh")
+}
+
 //nolint:paralleltest
 func TestHandleFailedRefreshToken(t *testing.T) {
 	cfg := config.Config{
@@ -313,7 +447,7 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 		nil,
 	)
 
-	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, routing.ServiceName)
+	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, fimptype.EaseeService)
 
 	_, err = auth.AccessToken()
 	assert.Error(t, err)

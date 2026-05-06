@@ -11,6 +11,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/notification"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
+	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
@@ -50,6 +51,12 @@ type authenticator struct {
 	mqtt                *fimpgo.MqttTransport
 	serviceName         fimptype.ServiceNameT
 	backoff             backoff.Stateful
+	maxUnauthorizedDur  time.Duration
+	// unauthorizedSince records the first 401 from the refresh-token endpoint since the last
+	// successful refresh. While non-zero, refresh attempts are gated by `backoff` to avoid
+	// hammering the API. Once `time.Since(unauthorizedSince) > maxUnauthorizedDur` the
+	// authenticator gives up and triggers an app logout.
+	unauthorizedSince time.Time
 
 	bcEnsured bool
 }
@@ -73,6 +80,7 @@ func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify Notifier, 
 		mqtt:                mqtt,
 		serviceName:         serviceName,
 		backoff:             statefulBackoff,
+		maxUnauthorizedDur:  backoffCfg.MaxUnauthorizedDuration,
 	}
 
 	return a
@@ -86,6 +94,8 @@ func (a *authenticator) Login(userName, password string) error {
 	if err != nil {
 		return err
 	}
+
+	a.unauthorizedSince = time.Time{}
 
 	_, err = a.storeCredentials(creds)
 	if err != nil {
@@ -109,7 +119,7 @@ func (a *authenticator) AccessToken() (string, error) {
 
 	credentials := a.cfg.GetCredentials()
 	if credentials.Empty() {
-		return "", errors.New("credentials are empty: login first")
+		return "", ErrNotLoggedIn
 	}
 
 	if !credentials.AccessTokenExpired() {
@@ -117,7 +127,7 @@ func (a *authenticator) AccessToken() (string, error) {
 	}
 
 	if credentials.RefreshTokenExpired() {
-		if err := a.triggerAppLogout(); err != nil {
+		if err := a.triggerAppLogout(fmt.Sprintf("refresh token expired locally at %s", credentials.RefreshTokenExpiresAt.Format(time.RFC3339))); err != nil {
 			log.Errorf("[auth] TriggerAppLogout err: %v", err)
 			// Ensure credentials are cleared even if notification failed
 			if clearErr := a.cfg.ClearCredentials(); clearErr != nil {
@@ -139,10 +149,17 @@ func (a *authenticator) Logout() error {
 	a.lock.Lock()
 	defer a.lock.Unlock()
 
+	log.Info("[auth] Logout: clearing credentials (explicit logout request)")
+
 	return a.cfg.ClearCredentials()
 }
 
-func (a *authenticator) triggerAppLogout() error {
+// triggerAppLogout publishes the offline notification, sends cmd.auth.logout, and clears
+// stored credentials. The reason is logged at Info level so any logout path leaves a
+// single, searchable trace of WHY the user got logged out.
+func (a *authenticator) triggerAppLogout(reason string) error {
+	log.Infof("[auth] Triggering app logout: %s", reason)
+
 	err := a.notificationManager.Event(&notification.Event{EventName: notificationEaseeStatusOffline})
 	if err != nil {
 		return fmt.Errorf("send push notification err: %w", err)
@@ -202,7 +219,7 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 
 func (a *authenticator) updateCredentials(credentials config.Credentials, retries int, timeout time.Duration) (*config.Credentials, error) { //nolint:cyclop
 	if a.backoff.Should() {
-		return nil, errors.New("too many requests: backoff")
+		return nil, ErrRefreshBackoff
 	}
 
 	hours := -time.Since(credentials.RefreshTokenExpiresAt).Hours()
@@ -228,22 +245,14 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 				log.Infof("[auth] New AT expires_at=%s (%.1fmin)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt).Minutes())
 			}
 
+			a.unauthorizedSince = time.Time{}
+
 			return &ret, nil
 		}
 
 		switch {
 		case errors.Is(err, ErrUnauthorized):
-			logoutErr := a.triggerAppLogout()
-			if logoutErr != nil {
-				log.Error("[auth] TriggerAppLogout err: " + logoutErr.Error())
-				// Ensure credentials are cleared even if notification failed
-				if clearErr := a.cfg.ClearCredentials(); clearErr != nil {
-					log.Error("[auth] ClearCredentials fallback err: " + clearErr.Error())
-				}
-			}
-
-			a.backoff.Fail()
-			return nil, errors.New("refreshToken expired")
+			return a.handleUnauthorized(err)
 
 		case errors.Is(err, ErrTimeout), errors.Is(err, ErrServer), errors.Is(err, ErrTransport):
 			if i == retries-1 {
@@ -267,6 +276,42 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 
 	a.backoff.Fail()
 	return nil, errors.New("failed to refresh AccessToken")
+}
+
+// handleUnauthorized records a 401 from /refresh_token. A single 401 (and most short-lived bursts)
+// MUST NOT clear credentials - Easee has historically returned transient 401s on a still-valid RT.
+// We rely on the stateful backoff to space retries, and only trigger the app logout once we have
+// been unauthorized for `maxUnauthorizedDur` (default 6h) consecutively.
+func (a *authenticator) handleUnauthorized(reqErr error) (*config.Credentials, error) {
+	a.backoff.Fail()
+
+	if a.unauthorizedSince.IsZero() {
+		a.unauthorizedSince = clock.Now()
+	}
+
+	elapsed := clock.Now().Sub(a.unauthorizedSince)
+
+	if elapsed < a.maxUnauthorizedDur {
+		log.Warnf("[auth] Refresh token returned 401 - keeping credentials, retry gated by backoff (unauthorized for %s, threshold %s)",
+			elapsed.Round(time.Second), a.maxUnauthorizedDur)
+
+		return nil, fmt.Errorf("refresh token rejected (transient 401, retrying): %w", reqErr)
+	}
+
+	reason := fmt.Sprintf("refresh token rejected by API for %s (>= %s threshold)", elapsed.Round(time.Second), a.maxUnauthorizedDur)
+	log.Errorf("[auth] %s", reason)
+
+	if err := a.triggerAppLogout(reason); err != nil {
+		log.Error("[auth] TriggerAppLogout err: " + err.Error())
+		// Ensure credentials are cleared even if notification failed
+		if clearErr := a.cfg.ClearCredentials(); clearErr != nil {
+			log.Error("[auth] ClearCredentials fallback err: " + clearErr.Error())
+		}
+	}
+
+	a.unauthorizedSince = time.Time{}
+
+	return nil, errors.New("refreshToken expired")
 }
 
 func (a *authenticator) ensureBackwardsCompatibility() error {

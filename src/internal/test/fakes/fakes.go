@@ -51,6 +51,10 @@ func (f *fakeConfigStorage[T]) Model() T {
 	return f.model
 }
 
+func (f *fakeConfigStorage[T]) IncrementRestartsCount() (int, error) {
+	return 0, nil
+}
+
 var _ api.Notifier = (*FakeNotifier)(nil)
 
 type FakeNotifier struct {

@@ -24,6 +24,10 @@ var (
 	ErrServer       = errors.New("server_error")
 	ErrUnexpected   = errors.New("unexpected")
 	ErrTransport    = errors.New("transport_error")
+	// ErrNotLoggedIn is returned when no credentials are stored locally so callers can downgrade their logging.
+	ErrNotLoggedIn = errors.New("credentials are empty: login first")
+	// ErrRefreshBackoff is returned while the authenticator is in backoff after refresh-token failures, to avoid hammering the API.
+	ErrRefreshBackoff = errors.New("too many requests: backoff")
 )
 
 const (

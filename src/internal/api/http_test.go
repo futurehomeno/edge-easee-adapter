@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
+	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/stretchr/testify/assert"
 
