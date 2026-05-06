@@ -187,7 +187,6 @@ func (a *authenticator) sendAppLogoutMessage() error {
 }
 
 func (a *authenticator) storeCredentials(credentials *model.Credentials) (config.Credentials, error) {
-	a.backoff.Reset()
 	ret := config.Credentials{}
 
 	accessTokenExpDate, err := jwt.ExpirationDate(credentials.AccessToken)
@@ -199,6 +198,8 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 	if err != nil {
 		return ret, fmt.Errorf("extract expiration date from refresh token err: %w", err)
 	}
+
+	a.backoff.Reset()
 
 	ret = config.Credentials{
 		AccessToken:           credentials.AccessToken,
