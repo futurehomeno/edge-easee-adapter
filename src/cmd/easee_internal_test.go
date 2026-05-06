@@ -1382,7 +1382,7 @@ func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn fu
 
 		services.easeeAPIClient = client
 
-		app, err := Build(cfg)
+		app, err := Build(cfg, "easee", "test")
 		if err != nil {
 			t.Fatalf("failed to build app: %s", err)
 		}
@@ -1481,7 +1481,7 @@ func waitForRunning() suite.Callback {
 	return func(t *testing.T) {
 		t.Helper()
 
-		getLifecycle().WaitFor("test_suite", lifecycle.StateTypeAppState, lifecycle.AppStateRunning)
+		getLifecycle().WaitFor("test_suite", lifecycle.StateTypeAppHealth, lifecycle.AppHealthRunning)
 	}
 }
 

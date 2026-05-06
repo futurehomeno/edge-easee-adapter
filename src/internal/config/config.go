@@ -93,11 +93,12 @@ type Service struct {
 
 // backoffCfg represents a file storage representation of BackoffCfg.
 type backoffCfg struct {
-	InitialBackoff       string `json:"initialBackoff"`
-	RepeatedBackoff      string `json:"repeatedBackoff"`
-	FinalBackoff         string `json:"finalBackoff"`
-	InitialFailureCount  uint32 `json:"initialFailureCount"`
-	RepeatedFailureCount uint32 `json:"repeatedFailureCount"`
+	InitialBackoff          string `json:"initialBackoff"`
+	RepeatedBackoff         string `json:"repeatedBackoff"`
+	FinalBackoff            string `json:"finalBackoff"`
+	InitialFailureCount     uint32 `json:"initialFailureCount"`
+	RepeatedFailureCount    uint32 `json:"repeatedFailureCount"`
+	MaxUnauthorizedDuration string `json:"maxUnauthorizedDuration"`
 }
 
 // BackoffCfg represents values used to configure backoff.
@@ -107,6 +108,10 @@ type BackoffCfg struct {
 	FinalBackoff         time.Duration
 	InitialFailureCount  uint32
 	RepeatedFailureCount uint32
+	// MaxUnauthorizedDuration bounds how long the authenticator keeps
+	// retrying refresh after the API responds with 401 (InvalidRefreshToken)
+	// before forcing an app logout. A single transient 401 should not nuke credentials.
+	MaxUnauthorizedDuration time.Duration
 }
 
 // NewService creates a new configuration service.
@@ -574,12 +579,18 @@ func (cs *Service) GetAuthenticatorBackoffCfg() BackoffCfg {
 		final = 10 * time.Minute
 	}
 
+	maxUnauthorized, err := time.ParseDuration(cs.Model().AuthenticatorBackoff.MaxUnauthorizedDuration)
+	if err != nil {
+		maxUnauthorized = 2 * time.Hour
+	}
+
 	return BackoffCfg{
-		InitialBackoff:       initial,
-		RepeatedBackoff:      repeated,
-		FinalBackoff:         final,
-		InitialFailureCount:  cs.Model().AuthenticatorBackoff.InitialFailureCount,
-		RepeatedFailureCount: cs.Model().AuthenticatorBackoff.RepeatedFailureCount,
+		InitialBackoff:          initial,
+		RepeatedBackoff:         repeated,
+		FinalBackoff:            final,
+		InitialFailureCount:     cs.Model().AuthenticatorBackoff.InitialFailureCount,
+		RepeatedFailureCount:    cs.Model().AuthenticatorBackoff.RepeatedFailureCount,
+		MaxUnauthorizedDuration: maxUnauthorized,
 	}
 }
 
@@ -590,11 +601,12 @@ func (cs *Service) SetAuthenticatorBackoffCfg(cfg BackoffCfg) error {
 
 	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
 	cs.Model().AuthenticatorBackoff = backoffCfg{
-		InitialBackoff:       cfg.InitialBackoff.String(),
-		RepeatedBackoff:      cfg.RepeatedBackoff.String(),
-		FinalBackoff:         cfg.FinalBackoff.String(),
-		InitialFailureCount:  cfg.InitialFailureCount,
-		RepeatedFailureCount: cfg.RepeatedFailureCount,
+		InitialBackoff:          cfg.InitialBackoff.String(),
+		RepeatedBackoff:         cfg.RepeatedBackoff.String(),
+		FinalBackoff:            cfg.FinalBackoff.String(),
+		InitialFailureCount:     cfg.InitialFailureCount,
+		RepeatedFailureCount:    cfg.RepeatedFailureCount,
+		MaxUnauthorizedDuration: cfg.MaxUnauthorizedDuration.String(),
 	}
 
 	return cs.Save()
