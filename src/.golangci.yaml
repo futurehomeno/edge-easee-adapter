@@ -26,7 +26,7 @@ linters:
     - forcetypeassert
     - goheader
     - gomoddirectives
-    - gomodguard
+    - gomodguard_v2
     - goprintffuncname
     - importas
     - makezero
