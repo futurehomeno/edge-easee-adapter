@@ -392,7 +392,7 @@ func TestUnauthorizedThenSuccessResetsThreshold(t *testing.T) {
 
 	// Second refresh: succeeds — must reset unauthorizedSince so a future 401 starts fresh.
 	clock.Mock(now.Add(time.Hour))
-	cfg.Credentials.AccessTokenExpiresAt = now.Add(-time.Minute) // re-expire to force another refresh
+	cfg.AccessTokenExpiresAt = now.Add(-time.Minute) // re-expire to force another refresh
 
 	_, err = auth.AccessToken()
 	require.NoError(t, err)
