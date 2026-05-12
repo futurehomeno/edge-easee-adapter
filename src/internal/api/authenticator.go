@@ -238,10 +238,11 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 		newCred, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
 		if err == nil {
 			ret, err := a.storeCredentials(newCred)
-
 			if err != nil {
-				log.Error("[auth] Store credentials err: " + err.Error())
-			} else if hours < 22 {
+				return nil, fmt.Errorf("store credentials err: %w", err)
+			}
+
+			if hours < 22 {
 				log.Infof("[auth] New AT expires_at=%s (%.1fmin)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt).Minutes())
 			}
 

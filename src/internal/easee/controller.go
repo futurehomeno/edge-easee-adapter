@@ -205,6 +205,14 @@ func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 }
 
 func (c *controller) SetChargepointOfferedCurrent(current int) error {
+	return c.setOfferedCurrent(current, false)
+}
+
+// setOfferedCurrent is the shared implementation behind SetChargepointOfferedCurrent and the
+// Start path. When force is true the recent-value dedup is bypassed - this matters for
+// (re)starting a stopped session, where the charger needs the UpdateDynamicCurrent call to
+// resume charging even if the cached value matches what was sent before the stop.
+func (c *controller) setOfferedCurrent(current int, force bool) error {
 	limit, _ := c.cache.MaxCurrent()
 	if limit == 0 {
 		limit = maxCurrentValue
@@ -215,10 +223,12 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 		current = limit
 	}
 
-	lastValue, lastSet := c.cache.RequestedOfferedCurrent()
+	if !force {
+		lastValue, lastSet := c.cache.RequestedOfferedCurrent()
 
-	if time.Since(lastSet) < c.cfgService.GetOfferedCurrentWaitTime() && current == lastValue {
-		return nil
+		if time.Since(lastSet) < c.cfgService.GetOfferedCurrentWaitTime() && current == lastValue {
+			return nil
+		}
 	}
 
 	err := c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
@@ -254,8 +264,11 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	}
 
 	// resume charging request is not used because it clears dynamic current value.
-	// update current will resume charging.
-	return c.SetChargepointOfferedCurrent(startCurrent)
+	// update current will resume charging. Bypass the dedup - if the user pressed Start
+	// within OfferedCurrentWaitTime of a Stop the cached value still matches startCurrent
+	// (cache is only cleared async via the SignalR session-finished observation), and
+	// dedup-suppressing the call would leave the charger stopped.
+	return c.setOfferedCurrent(startCurrent, true)
 }
 
 func (c *controller) StopChargepointCharging() error {
