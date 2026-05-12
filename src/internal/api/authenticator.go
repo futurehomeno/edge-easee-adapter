@@ -97,8 +97,9 @@ func (a *authenticator) Login(userName, password string) error {
 
 	a.unauthorizedSince = time.Time{}
 
-	if _, err = a.storeCredentials(creds); err != nil {
-		return fmt.Errorf("store credentials err: %w", err)
+	_, err = a.storeCredentials(creds)
+	if err != nil {
+		log.Error("[auth] Store credentials err: " + err.Error())
 	}
 
 	return nil
