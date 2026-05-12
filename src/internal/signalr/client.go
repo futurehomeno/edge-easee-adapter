@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	"github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 
@@ -163,13 +163,7 @@ func (c *client) invoke(method string, args ...any) error {
 }
 
 func (c *client) handleConnection(ctx context.Context) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Error(r)
-			log.Error(string(debug.Stack()))
-			panic(r)
-		}
-	}()
+	defer telemetry.RecoverAndEmit(nil, "handleConnection", true)
 
 	for {
 		if client, err := c.getClient(ctx); err != nil {

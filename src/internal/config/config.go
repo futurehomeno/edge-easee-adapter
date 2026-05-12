@@ -173,25 +173,6 @@ func (cs *Service) SetEnergyLifetimeInterval(interval time.Duration) error {
 	return cs.Save()
 }
 
-// GetLogLevel allows to safely access a configuration setting.
-func (cs *Service) GetLogLevel() string {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().LogLevel
-}
-
-// SetLogLevel allows to safely set and persist configuration settings.
-func (cs *Service) SetLogLevel(logLevel string) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().LogLevel = logLevel
-
-	return cs.Save()
-}
-
 // GetCredentials allows to safely access a configuration setting.
 func (cs *Service) GetCredentials() Credentials {
 	cs.lock.RLock()
