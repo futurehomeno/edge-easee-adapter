@@ -5,8 +5,8 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/cliffhanger/app"
+	"github.com/futurehomeno/cliffhanger/bootstrap"
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
-	"github.com/futurehomeno/cliffhanger/debug"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/fimpgo/fimptype"
@@ -22,9 +22,8 @@ func New(
 	adapter cliffAdapter.Adapter,
 ) []*router.Routing {
 	return router.Combine(
+		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.GetPublicConfig() }, nil),
 		[]*router.Routing{
-			debug.RouteCmdLogGetLevel(fimptype.EaseeService),
-			debug.RouteCmdLogSetLevel(fimptype.EaseeService),
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.GetPollingInterval),
 			cliffConfig.RouteCmdConfigSetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.SetPollingInterval),
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "current_wait_duration", cfgSrv.GetCurrentWaitDuration),

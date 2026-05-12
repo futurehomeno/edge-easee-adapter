@@ -89,6 +89,7 @@ func migrateConfig(cfgSvc *config.Service) {
 	applied, err := cfg.Migrate(
 		cliffCfg.Migration{From: 0, To: 2, Do: resetLogDefaults},
 		cliffCfg.Migration{From: 1, To: 2, Do: resetLogDefaults},
+		cliffCfg.Migration{From: 2, To: 3, Do: cfg.MigrateAuthBackoff},
 	)
 	if err != nil {
 		log.Errorf("Migrate config err: %v", err)
@@ -187,7 +188,7 @@ func getApplication(cfg *config.Config) app.ApplicationWithToken {
 
 func getManifestLoader() manifest.Loader {
 	if services.manifestLoader == nil {
-		services.manifestLoader = manifest.NewLoader(getConfigService().GetWorkDir())
+		services.manifestLoader = manifest.NewLoader(getConfigService().Model().WorkDir)
 	}
 
 	return services.manifestLoader
@@ -220,7 +221,7 @@ func getAdapterState() adapter.State {
 	if services.adapterState == nil {
 		var err error
 
-		services.adapterState, err = adapter.NewState(getConfigService().GetWorkDir())
+		services.adapterState, err = adapter.NewState(getConfigService().Model().WorkDir)
 		if err != nil {
 			log.WithError(err).Fatal("failed to initialize adapter state")
 		}

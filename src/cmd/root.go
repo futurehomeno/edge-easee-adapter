@@ -17,7 +17,6 @@ import (
 )
 
 func Execute(packageName, version string) error {
-
 	rootApp, err := Build(getConfigService().Model(), packageName, version)
 	if err != nil {
 		return fmt.Errorf("build app err: %w", err)

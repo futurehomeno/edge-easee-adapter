@@ -61,17 +61,11 @@ type client struct {
 func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
 	observations := make(chan model.Observation, 100)
 
-	backoff := backoff.NewStateful(cfg.GetSignalRInitialBackoff(),
-		cfg.GetSignalRRepeatedBackoff(),
-		cfg.GetSignalRFinalBackoff(),
-		cfg.GetSignalRInitialFailureCount(),
-		cfg.GetSignalRRepeatedFailureCount())
-
 	return &client{
 		cfg:           cfg,
 		tokenProvider: tokenProvider,
 		receiver:      newReceiver(observations),
-		backoff:       backoff,
+		backoff:       cfg.SignalRBackoffStateful(),
 		states:        make(chan model.ClientState, 10),
 		observations:  observations,
 	}

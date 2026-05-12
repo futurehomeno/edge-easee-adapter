@@ -108,16 +108,10 @@ func (m *manager) Register(chargerID string, handler Handler) {
 		return
 	}
 
-	backoff := backoff.NewStateful(m.cfg.GetSignalRInitialBackoff(),
-		m.cfg.GetSignalRRepeatedBackoff(),
-		m.cfg.GetSignalRFinalBackoff(),
-		m.cfg.GetSignalRInitialFailureCount(),
-		m.cfg.GetSignalRRepeatedFailureCount())
-
 	m.chargers[chargerID] = &charger{
 		handler:      handler,
 		isSubscribed: false,
-		backoff:      backoff,
+		backoff:      m.cfg.SignalRBackoffStateful(),
 	}
 
 	m.ensureClientStarted()

@@ -63,24 +63,14 @@ type authenticator struct {
 
 // NewAuthenticator creates a new instance of the Authenticator.
 func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify Notifier, mqtt *fimpgo.MqttTransport, serviceName fimptype.ServiceNameT) Authenticator {
-	backoffCfg := cfgSvc.GetAuthenticatorBackoffCfg()
-
-	statefulBackoff := backoff.NewStateful(
-		backoffCfg.InitialBackoff,
-		backoffCfg.RepeatedBackoff,
-		backoffCfg.FinalBackoff,
-		backoffCfg.InitialFailureCount,
-		backoffCfg.RepeatedFailureCount,
-	)
-
 	a := &authenticator{
 		cfg:                 cfgSvc,
 		http:                http,
 		notificationManager: notify,
 		mqtt:                mqtt,
 		serviceName:         serviceName,
-		backoff:             statefulBackoff,
-		maxUnauthorizedDur:  backoffCfg.MaxUnauthorizedDuration,
+		backoff:             cfgSvc.AuthenticatorBackoffStateful(),
+		maxUnauthorizedDur:  cfgSvc.AuthenticatorMaxUnauthorized(),
 	}
 
 	return a
@@ -97,8 +87,9 @@ func (a *authenticator) Login(userName, password string) error {
 
 	a.unauthorizedSince = time.Time{}
 
-	if _, err = a.storeCredentials(creds); err != nil {
-		return fmt.Errorf("store credentials err: %w", err)
+	_, err = a.storeCredentials(creds)
+	if err != nil {
+		log.Error("[auth] Store credentials err: " + err.Error())
 	}
 
 	return nil
