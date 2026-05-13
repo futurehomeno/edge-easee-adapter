@@ -10,9 +10,10 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
-	"github.com/futurehomeno/cliffhanger/bootstrap"
-	cliffConfig "github.com/futurehomeno/cliffhanger/config"
+	cliffCfg "github.com/futurehomeno/cliffhanger/config"
+	"github.com/futurehomeno/cliffhanger/debug"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
+	cliffStorage "github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/prime"
 	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/test/suite"
@@ -1456,7 +1457,7 @@ func configSetup(t *testing.T, configSet, mqttAddr string) *config.Config {
 
 	cfgDir := path.Join("./../../testdata/testing/", configSet)
 	cfg := config.New(cfgDir)
-	storage := cliffConfig.NewStorage(cfg, cfgDir)
+	storage := cliffStorage.New(cfg, cfgDir, "config.json")
 
 	service := config.NewService(storage)
 
@@ -1473,8 +1474,11 @@ func configSetup(t *testing.T, configSet, mqttAddr string) *config.Config {
 func loggerSetup(t *testing.T) {
 	t.Helper()
 
-	cfg := getConfigService().Model()
-	_ = bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
+	store := cliffCfg.NewDefaultStoreFromStorage(
+		getConfigService().Storage,
+		func(c *config.Config) *cliffCfg.Default { return &c.Default },
+	)
+	_ = debug.InitializeLogger(store)
 }
 
 func waitForRunning() suite.Callback {
