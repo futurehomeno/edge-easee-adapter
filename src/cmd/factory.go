@@ -76,7 +76,7 @@ func getConfigService() *config.Service {
 // getLifecycle creates or returns existing lifecycle service.
 func getLifecycle() *lifecycle.Lifecycle {
 	if services.lifecycle == nil {
-		services.lifecycle = lifecycle.New()
+		services.lifecycle = lifecycle.New(getConfigService())
 	}
 
 	return services.lifecycle

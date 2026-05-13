@@ -1,13 +1,14 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
-	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -63,7 +64,7 @@ type application struct {
 func (a *application) GetManifest() (*manifest.Manifest, error) {
 	mf, err := a.mfLoader.Load()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to load manifest")
+		return nil, fmt.Errorf("failed to load manifest: %w", err)
 	}
 
 	return mf, nil
@@ -77,12 +78,23 @@ func (a *application) Check() error {
 	return nil
 }
 
+func (a *application) CheckInterval() time.Duration {
+	return 0
+}
+
 func (a *application) RefreshToken() {
 	prevConnState := a.lifecycle.ConnectionState()
 
 	if err := a.client.Ping(); err != nil {
-		log.Warnf("[auth] Refresh token failed API client disconnected err: %v", err)
-		a.lifecycle.SetConnectionState(lifecycle.ConnStateDisconnected)
+		switch {
+		case errors.Is(err, api.ErrNotLoggedIn):
+			log.Debugf("[auth] Refresh token skipped: %v", err)
+		case errors.Is(err, api.ErrRefreshBackoff):
+			log.Debugf("[auth] Refresh token skipped (backoff): %v", err)
+		default:
+			log.Warnf("[auth] Refresh token failed API client disconnected err: %v", err)
+		}
+		a.lifecycle.SetConnState(lifecycle.ConnStateDisconnected)
 		return
 	}
 
@@ -91,11 +103,13 @@ func (a *application) RefreshToken() {
 	}
 
 	if prevConnState != lifecycle.ConnStateConnected {
-		a.lifecycle.SetConnectionState(lifecycle.ConnStateConnected)
+		a.lifecycle.SetConnState(lifecycle.ConnStateConnected)
 	}
 }
 
 func (a *application) Uninstall() error {
+	log.Info("[app] Uninstall requested: destroying things and resetting config")
+
 	err := a.ad.DestroyAllThings()
 	if err != nil {
 		log.Info("app: failed to destroy all things")
@@ -110,9 +124,9 @@ func (a *application) Uninstall() error {
 		return errors.New("failed to reset configuration")
 	}
 
-	a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
+	a.lifecycle.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
-	a.lifecycle.SetConnectionState(lifecycle.ConnStateDisconnected)
+	a.lifecycle.SetConnState(lifecycle.ConnStateDisconnected)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 
 	return nil
@@ -122,24 +136,24 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 	defer func() { _ = a.Check() }()
 
 	if err := a.auth.Login(credentials.Username, credentials.Password); err != nil {
-		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
+		a.lifecycle.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 
-		return errors.Wrap(err, fmt.Sprintf("failed to login as '%s'", credentials.Username))
+		return fmt.Errorf("failed to login as '%s': %w", credentials.Username, err)
 	}
 
 	defer a.RefreshToken() // Call only on success
 
 	if err := a.registerChargers(); err != nil {
-		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
+		a.lifecycle.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 
-		return errors.Wrap(err, "failed to register chargers on login")
+		return fmt.Errorf("failed to register chargers on login: %w", err)
 	}
 
-	a.lifecycle.SetAppState(lifecycle.AppStateRunning, nil)
+	a.lifecycle.SetAppHealth(lifecycle.AppHealthRunning, nil)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
 
@@ -148,21 +162,21 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 
 func (a *application) Initialize() error {
 	if err := a.ad.InitializeThings(); err != nil {
-		return errors.Wrap(err, "failed to initialize things")
+		return fmt.Errorf("failed to initialize things: %w", err)
 	}
 
 	if err := a.cfgService.Save(); err != nil {
-		return errors.Wrap(err, "failed to save configs at application initialization")
+		return fmt.Errorf("failed to save configs at application initialization: %w", err)
 	}
 
 	if a.cfgService.GetCredentials().Empty() {
-		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
+		a.lifecycle.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 		return nil
 	}
 
-	a.lifecycle.SetAppState(lifecycle.AppStateRunning, nil)
+	a.lifecycle.SetAppHealth(lifecycle.AppHealthRunning, nil)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
 
@@ -172,12 +186,14 @@ func (a *application) Initialize() error {
 }
 
 func (a *application) Logout() error {
+	log.Info("[app] Logout requested via cmd.auth.logout")
+
 	if err := a.signalRClient.Close(); err != nil {
 		log.WithError(err).Warn("logout: failed to disconnect signalR client")
 	}
 
 	if err := a.auth.Logout(); err != nil {
-		a.lifecycle.SetAppState(lifecycle.AppStateError, nil)
+		a.lifecycle.SetAppHealth(lifecycle.AppHealthError, nil)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 
@@ -186,7 +202,7 @@ func (a *application) Logout() error {
 
 	a.RefreshToken()
 
-	a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
+	a.lifecycle.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 
@@ -196,7 +212,7 @@ func (a *application) Logout() error {
 func (a *application) registerChargers() error {
 	chargers, err := a.client.Chargers()
 	if err != nil {
-		return errors.Wrap(err, "failed to fetch available chargers from Easee API")
+		return fmt.Errorf("failed to fetch available chargers from Easee API: %w", err)
 	}
 
 	seeds := make([]*adapter.ThingSeed, 0, len(chargers))
@@ -204,7 +220,7 @@ func (a *application) registerChargers() error {
 	for _, charger := range chargers {
 		chargerDetails, err := a.client.ChargerDetails(charger.ID)
 		if err != nil {
-			return errors.Wrap(err, "failed to fetch charger details from Easee API")
+			return fmt.Errorf("failed to fetch charger details from Easee API: %w", err)
 		}
 
 		seeds = append(seeds, &adapter.ThingSeed{
@@ -217,7 +233,7 @@ func (a *application) registerChargers() error {
 	}
 
 	if err := a.ad.EnsureThings(seeds); err != nil {
-		return errors.Wrap(err, "application: failed to ensure things")
+		return fmt.Errorf("application: failed to ensure things: %w", err)
 	}
 
 	if len(chargers) > 0 {

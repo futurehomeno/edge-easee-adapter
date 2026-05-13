@@ -2,9 +2,15 @@ define generate_mocks
     cd src && mockery --exported --packageprefix mocked --name=$(3) --recursive --case underscore --dir ./$(1) --output ./internal/test/mocks/$(2)
 endef
 
+# generate_external_mocks generates mocks against an upstream package found in the Go module cache.
+# Args: $(1) module path (e.g. github.com/futurehomeno/cliffhanger/storage), $(2) output dir, $(3) iface filter
+define generate_external_mocks
+    cd src && mockery --exported --packageprefix mocked --name=$(3) --case underscore --dir $$(go list -m -f '{{.Dir}}' $$(echo $(1) | awk -F/ '{print $$1"/"$$2"/"$$3}'))/$$(echo $(1) | awk -F/ '{for(i=4;i<=NF;i++) printf (i==4?"":"/")$$i}') --output ./internal/test/mocks/$(2)
+endef
+
 SHELL := /bin/bash
 
-VERSION := 2.6.8
+VERSION := 2.7.0
 APP_NAME := easee
 
 ARCH ?= armhf
@@ -22,16 +28,16 @@ REMOTE_HOST := fhtunnel@3.255.43.28
 PORT := 8000
 
 build-local:
-	cd src ; go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(APP_NAME) main.go
+	cd src ; go build -ldflags="-s -w -X main.Version=$(VERSION) -X main.PackageName=$(APP_NAME)" -o ../$(APP_NAME) main.go
 
 build-arm:
-	cd src ; GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(TARGET_BIN) main.go
+	cd src ; GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w -X main.Version=$(VERSION) -X main.PackageName=$(APP_NAME)" -o ../$(TARGET_BIN) main.go
 
 build-linux-amd64:
-	cd src ; GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(TARGET_BIN) main.go
+	cd src ; GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION) -X main.PackageName=$(APP_NAME)" -o ../$(TARGET_BIN) main.go
 
 build-mac-amd64:
-	cd src ; GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION)" -o ../$(TARGET_BIN) main.go
+	cd src ; GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION) -X main.PackageName=$(APP_NAME)" -o ../$(TARGET_BIN) main.go
 
 clean:
 	-rm -f $(OUT_DIR)/*
@@ -110,5 +116,7 @@ generate-mocks:
 	$(call generate_mocks,"internal/cache","cache","Cache")
 	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
 	$(call generate_mocks,"internal/signalr","signalr","Client|Manager")
+	$(call generate_external_mocks,"github.com/futurehomeno/cliffhanger/storage","storage","Storage")
+	$(call generate_external_mocks,"github.com/futurehomeno/cliffhanger/manifest","manifest","Loader")
 
 .PHONY: clean test generate-mocks configure package-deb deb-arm deb-amd build-mac-amd64 build-linux-amd64 build-arm build-local upload deploy install

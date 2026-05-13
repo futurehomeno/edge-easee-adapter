@@ -9,7 +9,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
 	mockedadapter "github.com/futurehomeno/cliffhanger/test/mocks/adapter"
-	mockedmanifest "github.com/futurehomeno/cliffhanger/test/mocks/manifest"
+	mockedmanifest "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/manifest"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -109,16 +109,16 @@ func TestApplication_Uninstall(t *testing.T) {
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateRunning, nil)
+				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
 				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateConnected)
+				lc.SetConnState(lifecycle.ConnStateConnected)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("DestroyAllThings").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
@@ -137,9 +137,9 @@ func TestApplication_Uninstall(t *testing.T) {
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateRunning, nil)
+				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
 				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateConnected)
+				lc.SetConnState(lifecycle.ConnStateConnected)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
@@ -154,7 +154,7 @@ func TestApplication_Uninstall(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			lc := lifecycle.New()
+			lc := lifecycle.New(nil)
 			if tt.setLifecycle != nil {
 				tt.setLifecycle(lc)
 			}
@@ -216,9 +216,9 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				Password: "test-password",
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
+				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
+				lc.SetConnState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
 			mockAuthenticator: func(a *mockapi.Authenticator) {
@@ -255,7 +255,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("Start")
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthRunning, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateConfigured, lc.ConfigState())
@@ -268,9 +268,9 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				Password: "test-password",
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateRunning, nil)
+				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
 				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateConnected)
+				lc.SetConnState(lifecycle.ConnStateConnected)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
 			},
 			mockAuthenticator: func(a *mockapi.Authenticator) {
@@ -280,7 +280,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			},
 			wantErr: true,
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
@@ -293,9 +293,9 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				Password: "test-password",
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
+				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
+				lc.SetConnState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
 			mockAuthenticator: func(a *mockapi.Authenticator) {
@@ -332,7 +332,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				c.On("Start")
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthRunning, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateConfigured, lc.ConfigState())
@@ -345,9 +345,9 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				Password: "test-password",
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
+				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
+				lc.SetConnState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
 			mockAuthenticator: func(a *mockapi.Authenticator) {
@@ -381,7 +381,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				}).Return(errors.New("oops"))
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
@@ -392,7 +392,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 
 	for _, tt := range tests { //nolint:paralleltest
 		t.Run(tt.name, func(t *testing.T) {
-			lc := lifecycle.New()
+			lc := lifecycle.New(nil)
 			if tt.setLifecycle != nil {
 				tt.setLifecycle(lc)
 			}
@@ -448,12 +448,12 @@ func TestApplication_Logout(t *testing.T) {
 		{
 			name: "successful config, lifecycle and adapter reset",
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateRunning, nil)
+				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
 				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
 				lc.SetConfigState(lifecycle.ConfigStateConfigured)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
@@ -465,13 +465,13 @@ func TestApplication_Logout(t *testing.T) {
 		{
 			name: "adapter error on destroying all things",
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
+				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
 			authLogoutError: errors.New("error"),
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateError, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthError, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 			},
@@ -488,7 +488,7 @@ func TestApplication_Logout(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			lc := lifecycle.New()
+			lc := lifecycle.New(nil)
 			tt.setLifecycle(lc)
 
 			clientMock := new(mockapi.Client)
@@ -533,9 +533,9 @@ func TestApplication_Initialize(t *testing.T) {
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
+				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
+				lc.SetConnState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
@@ -545,7 +545,7 @@ func TestApplication_Initialize(t *testing.T) {
 				c.On("Ping").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthRunning, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateConfigured, lc.ConfigState())
@@ -555,16 +555,16 @@ func TestApplication_Initialize(t *testing.T) {
 			name: "empty credentials - unconfigure lifecycle",
 			cfg:  &config.Config{},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
+				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
+				lc.SetConnState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(nil)
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
@@ -574,16 +574,16 @@ func TestApplication_Initialize(t *testing.T) {
 			name: "error on thing initialization",
 			cfg:  &config.Config{},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
+				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
+				lc.SetConnState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(errors.New("oops"))
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateNotConfigured, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
@@ -600,9 +600,9 @@ func TestApplication_Initialize(t *testing.T) {
 				},
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppState(lifecycle.AppStateNotConfigured, nil)
+				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-				lc.SetConnectionState(lifecycle.ConnStateDisconnected)
+				lc.SetConnState(lifecycle.ConnStateDisconnected)
 				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
 			},
 			mockAdapter: func(a *mockedadapter.Adapter) {
@@ -612,7 +612,7 @@ func TestApplication_Initialize(t *testing.T) {
 				c.On("Ping").Return(errors.New("oops"))
 			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppStateRunning, lc.AppState())
+				assert.Equal(t, lifecycle.AppHealthRunning, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateAuthenticated, lc.AuthState())
 				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateConfigured, lc.ConfigState())
@@ -625,7 +625,7 @@ func TestApplication_Initialize(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			lc := lifecycle.New()
+			lc := lifecycle.New(nil)
 			if tt.setLifecycle != nil {
 				tt.setLifecycle(lc)
 			}

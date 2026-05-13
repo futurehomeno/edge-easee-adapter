@@ -9,10 +9,13 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var Version string
+var (
+	Version     string
+	PackageName string
+)
 
 func main() {
-	err := cmd.Execute(Version)
+	err := cmd.Execute(PackageName, Version)
 	s := strings.Builder{}
 	if err := pprof.Lookup("goroutine").WriteTo(&s, 2); err == nil {
 		log.Infof("%s\n", filterGoroutinesByKeywords(s.String()))

@@ -12,6 +12,7 @@ import (
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/router"
+	"github.com/futurehomeno/fimpgo/fimptype"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
@@ -25,7 +26,6 @@ func New(
 ) []*router.Routing {
 	return router.Combine(
 		[]*router.Routing{
-			routeLogIncoming(),
 			cliffConfig.RouteCmdLogGetLevel(fimptype.EaseeService, cfgSrv.GetLogLevel),
 			cliffConfig.RouteCmdLogSetLevel(fimptype.EaseeService, cfgSrv.SetLogLevel),
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.GetPollingInterval),
@@ -59,7 +59,11 @@ func New(
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "signalr_invoke_timeout", cfgSrv.GetSignalRInvokeTimeout),
 			cliffConfig.RouteCmdConfigSetDuration(fimptype.EaseeService, "signalr_invoke_timeout", cfgSrv.SetSignalRInvokeTimeout),
 		},
+<<<<<<< HEAD
 		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, nil, application),
+=======
+		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, nil, application, nil),
+>>>>>>> v2.7
 		cliffAdapter.RouteAdapter(adapter),
 		thing.RouteCarCharger(adapter),
 		parameters.RouteService(adapter),
