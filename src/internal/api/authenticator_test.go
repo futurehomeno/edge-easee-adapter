@@ -75,7 +75,7 @@ func TestLogin(t *testing.T) {
 			storage.On("Model").Return(&cfg)
 			storage.On("Save").Return(v.saveError)
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			notificationManager := fakes.NewNotifier(t)
 
@@ -180,7 +180,7 @@ func TestAccessToken(t *testing.T) {
 			storage.On("Model").Return(&cfg)
 			storage.On("Save").Return(v.saveError)
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 			notificationManager := fakes.NewNotifier(t)
 
 			mqtt := fimpgo.NewMqttTransport(mqttAddr, "", "", "", true, 1, 1, nil)
@@ -290,14 +290,11 @@ func TestUnauthorizedDoesNotImmediatelyLogout(t *testing.T) {
 	storage.On("Save").Return(nil)
 
 	configService := config.NewService(storage)
-	require.NoError(t, configService.SetAuthenticatorBackoffCfg(config.BackoffCfg{
-		InitialBackoff:          time.Nanosecond,
-		RepeatedBackoff:         time.Nanosecond,
-		FinalBackoff:            time.Nanosecond,
-		InitialFailureCount:     1_000,
-		RepeatedFailureCount:    1_000,
-		MaxUnauthorizedDuration: 2 * time.Hour,
-	}))
+	require.NoError(t, configService.SetAuthenticatorBackoff(
+		time.Nanosecond, time.Nanosecond, time.Nanosecond,
+		1_000, 1_000,
+		2*time.Hour,
+	))
 
 	notificationManager := fakes.NewNotifier(t)
 
@@ -361,14 +358,11 @@ func TestUnauthorizedThenSuccessResetsThreshold(t *testing.T) {
 	storage.On("Save").Return(nil)
 
 	configService := config.NewService(storage)
-	require.NoError(t, configService.SetAuthenticatorBackoffCfg(config.BackoffCfg{
-		InitialBackoff:          time.Nanosecond,
-		RepeatedBackoff:         time.Nanosecond,
-		FinalBackoff:            time.Nanosecond,
-		InitialFailureCount:     1_000,
-		RepeatedFailureCount:    1_000,
-		MaxUnauthorizedDuration: 2 * time.Hour,
-	}))
+	require.NoError(t, configService.SetAuthenticatorBackoff(
+		time.Nanosecond, time.Nanosecond, time.Nanosecond,
+		1_000, 1_000,
+		2*time.Hour,
+	))
 
 	notificationManager := fakes.NewNotifier(t)
 
@@ -415,13 +409,11 @@ func TestHandleFailedRefreshToken(t *testing.T) {
 	storage.On("Save").Return(nil)
 
 	configService := config.NewService(storage)
-	err := configService.SetAuthenticatorBackoffCfg(config.BackoffCfg{
-		InitialBackoff:       time.Second,
-		RepeatedBackoff:      time.Second,
-		FinalBackoff:         time.Second,
-		InitialFailureCount:  1,
-		RepeatedFailureCount: 1,
-	})
+	err := configService.SetAuthenticatorBackoff(
+		time.Second, time.Second, time.Second,
+		1, 1,
+		0,
+	)
 	require.NoError(t, err)
 
 	notificationManager := fakes.NewNotifier(t)

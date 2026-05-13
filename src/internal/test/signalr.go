@@ -4,12 +4,12 @@ import (
 	"context"
 	"net"
 	"net/http"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	libsignalr "github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -65,13 +65,7 @@ func (s *SignalRServer) Start() {
 
 	started := make(chan error, 1)
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Error(r)
-				log.Error(string(debug.Stack()))
-				panic(r)
-			}
-		}()
+		defer telemetry.RecoverAndEmit(nil, "SignalRServer.Start", true)
 
 		defer s.running.Store(false)
 		ln, err := net.Listen("tcp", s.http.Addr)
@@ -116,13 +110,7 @@ func (s *SignalRServer) MockObservations(delay time.Duration, o []model.Observat
 }
 
 func (s *SignalRServer) scheduleObservations() {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Error(r)
-			log.Error(string(debug.Stack()))
-			panic(r)
-		}
-	}()
+	defer telemetry.RecoverAndEmit(nil, "SignalRServer.scheduleObservations", true)
 
 	for _, batch := range s.mockedObservations {
 		time.Sleep(batch.delay)

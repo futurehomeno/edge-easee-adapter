@@ -63,24 +63,14 @@ type authenticator struct {
 
 // NewAuthenticator creates a new instance of the Authenticator.
 func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify Notifier, mqtt *fimpgo.MqttTransport, serviceName fimptype.ServiceNameT) Authenticator {
-	backoffCfg := cfgSvc.GetAuthenticatorBackoffCfg()
-
-	statefulBackoff := backoff.NewStateful(
-		backoffCfg.InitialBackoff,
-		backoffCfg.RepeatedBackoff,
-		backoffCfg.FinalBackoff,
-		backoffCfg.InitialFailureCount,
-		backoffCfg.RepeatedFailureCount,
-	)
-
 	a := &authenticator{
 		cfg:                 cfgSvc,
 		http:                http,
 		notificationManager: notify,
 		mqtt:                mqtt,
 		serviceName:         serviceName,
-		backoff:             statefulBackoff,
-		maxUnauthorizedDur:  backoffCfg.MaxUnauthorizedDuration,
+		backoff:             cfgSvc.AuthenticatorBackoffStateful(),
+		maxUnauthorizedDur:  cfgSvc.AuthenticatorMaxUnauthorized(),
 	}
 
 	return a
@@ -188,7 +178,6 @@ func (a *authenticator) sendAppLogoutMessage() error {
 }
 
 func (a *authenticator) storeCredentials(credentials *model.Credentials) (config.Credentials, error) {
-	a.backoff.Reset()
 	ret := config.Credentials{}
 
 	accessTokenExpDate, err := jwt.ExpirationDate(credentials.AccessToken)
@@ -200,6 +189,8 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 	if err != nil {
 		return ret, fmt.Errorf("extract expiration date from refresh token err: %w", err)
 	}
+
+	a.backoff.Reset()
 
 	ret = config.Credentials{
 		AccessToken:           credentials.AccessToken,
@@ -238,10 +229,11 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 		newCred, err := a.http.RefreshToken(credentials.AccessToken, credentials.RefreshToken)
 		if err == nil {
 			ret, err := a.storeCredentials(newCred)
-
 			if err != nil {
-				log.Error("[auth] Store credentials err: " + err.Error())
-			} else if hours < 22 {
+				return nil, fmt.Errorf("store credentials err: %w", err)
+			}
+
+			if hours < 22 {
 				log.Infof("[auth] New AT expires_at=%s (%.1fmin)", ret.AccessTokenExpiresAt.Format(time.RFC3339), -time.Since(ret.AccessTokenExpiresAt).Minutes())
 			}
 

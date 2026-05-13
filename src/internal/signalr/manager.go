@@ -2,12 +2,12 @@ package signalr
 
 import (
 	"fmt"
-	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/root"
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -108,16 +108,10 @@ func (m *manager) Register(chargerID string, handler Handler) {
 		return
 	}
 
-	backoff := backoff.NewStateful(m.cfg.GetSignalRInitialBackoff(),
-		m.cfg.GetSignalRRepeatedBackoff(),
-		m.cfg.GetSignalRFinalBackoff(),
-		m.cfg.GetSignalRInitialFailureCount(),
-		m.cfg.GetSignalRRepeatedFailureCount())
-
 	m.chargers[chargerID] = &charger{
 		handler:      handler,
 		isSubscribed: false,
-		backoff:      backoff,
+		backoff:      m.cfg.SignalRBackoffStateful(),
 	}
 
 	m.ensureClientStarted()
@@ -171,13 +165,7 @@ func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
 }
 
 func (m *manager) run() {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Error(r)
-			log.Error(string(debug.Stack()))
-			panic(r)
-		}
-	}()
+	defer telemetry.RecoverAndEmit(nil, "manager.run", true)
 
 	states := m.client.StateC()
 	observations := m.client.ObservationC()

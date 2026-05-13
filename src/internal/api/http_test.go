@@ -112,7 +112,7 @@ func TestClient_Login(t *testing.T) {
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -175,7 +175,7 @@ func TestClient_RefreshToken(t *testing.T) {
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			client := api.NewHTTPClient(cfgSrv, server.Client(), server.URL+v.baseURLAdj)
 			creds, err := client.RefreshToken("", "")
@@ -268,7 +268,7 @@ func TestClient_UpdateMaxCurrent(t *testing.T) {
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -363,7 +363,7 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) {
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -453,7 +453,7 @@ func TestClient_StopCharging(t *testing.T) {
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -545,7 +545,7 @@ func TestClient_ChargerConfig(t *testing.T) {
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -628,7 +628,7 @@ func TestClient_Ping(t *testing.T) {
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -725,7 +725,7 @@ func TestClient_Chargers(t *testing.T) {
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)

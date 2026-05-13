@@ -143,8 +143,6 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 		return fmt.Errorf("failed to login as '%s': %w", credentials.Username, err)
 	}
 
-	defer a.RefreshToken() // Call only on success
-
 	if err := a.registerChargers(); err != nil {
 		a.lifecycle.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
@@ -156,6 +154,8 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 	a.lifecycle.SetAppHealth(lifecycle.AppHealthRunning, nil)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
+
+	a.RefreshToken()
 
 	return nil
 }
