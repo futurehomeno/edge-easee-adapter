@@ -1,9 +1,7 @@
 package routing
 
 import (
-	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
-	log "github.com/sirupsen/logrus"
 
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
@@ -12,7 +10,6 @@ import (
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/router"
-	"github.com/futurehomeno/fimpgo/fimptype"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
@@ -59,48 +56,9 @@ func New(
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "signalr_invoke_timeout", cfgSrv.GetSignalRInvokeTimeout),
 			cliffConfig.RouteCmdConfigSetDuration(fimptype.EaseeService, "signalr_invoke_timeout", cfgSrv.SetSignalRInvokeTimeout),
 		},
-<<<<<<< HEAD
-		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, nil, application),
-=======
 		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, nil, application, nil),
->>>>>>> v2.7
 		cliffAdapter.RouteAdapter(adapter),
 		thing.RouteCarCharger(adapter),
 		parameters.RouteService(adapter),
-	)
-}
-
-var sensitiveInterfaces = map[string]bool{
-	app.CmdAuthLogin:     true,
-	app.CmdAuthSetTokens: true,
-}
-
-func routeLogIncoming() *router.Routing {
-	return router.NewRouting(
-		router.MessageHandlerFn(func(message *fimpgo.Message) *fimpgo.Message {
-			if message.Payload.Source == fimptype.EaseeRn {
-				if len(message.Payload.Properties) > 0 {
-					log.Debugf("FMP <- %s %s %s %v %v", message.Addr.ServiceAddress, message.Payload.Service, message.Payload.Interface, message.Payload.Value, message.Payload.Properties)
-				} else {
-					log.Debugf("FMP <- %s %s %s %v", message.Addr.ServiceAddress, message.Payload.Service, message.Payload.Interface, message.Payload.Value)
-				}
-
-				return nil
-			}
-
-			if sensitiveInterfaces[message.Payload.Interface] {
-				log.Infof("FMP %s -> %s %s %s [REDACTED]", message.Payload.Source, message.Addr.ServiceAddress, message.Payload.Service, message.Payload.Interface)
-
-				return nil
-			}
-
-			if len(message.Payload.Properties) > 0 {
-				log.Infof("FMP %s -> %s %s %s %v %v", message.Payload.Source, message.Addr.ServiceAddress, message.Payload.Service, message.Payload.Interface, message.Payload.Value, message.Payload.Properties)
-			} else {
-				log.Infof("FMP %s -> %s %s %s %v", message.Payload.Source, message.Addr.ServiceAddress, message.Payload.Service, message.Payload.Interface, message.Payload.Value)
-			}
-
-			return nil
-		}),
 	)
 }

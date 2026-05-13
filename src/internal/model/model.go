@@ -154,25 +154,25 @@ const (
 	CableRating           ObservationID = 104
 	ChargerOPState        ObservationID = 109
 	OutputPhase           ObservationID = 110
-	ErrorString           ObservationID = 118 //TODO
-	ErrorCode             ObservationID = 119 //TODO
+	ErrorString           ObservationID = 118 // TODO
+	ErrorCode             ObservationID = 119 // TODO
 	TotalPower            ObservationID = 120
 	EnergySession         ObservationID = 121
 	LifetimeEnergy        ObservationID = 124
 	ChargingSessionStop   ObservationID = 129
-	CellRSSI              ObservationID = 130 //TODO
-	WiFiRSSI              ObservationID = 132 //TODO
-	RadioRSSI             ObservationID = 136 //TODO
-	ConnectionType        ObservationID = 141 //TODO
+	CellRSSI              ObservationID = 130 // TODO
+	WiFiRSSI              ObservationID = 132 // TODO
+	RadioRSSI             ObservationID = 136 // TODO
+	ConnectionType        ObservationID = 141 // TODO
 	InCurrentT3           ObservationID = 183
 	InCurrentT4           ObservationID = 184
 	InCurrentT5           ObservationID = 185
 	ChargingSessionStart  ObservationID = 223
 	CloudConnected        ObservationID = 250
-	CloudDisconnectReason ObservationID = 251 //TODO
+	CloudDisconnectReason ObservationID = 251 // TODO
 )
 
-//nolint:cyclop
+//nolint:cyclop,exhaustive
 func (o ObservationID) Str() string {
 	switch o {
 	case DetectedPowerGridType:
