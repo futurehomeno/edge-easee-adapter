@@ -34,21 +34,21 @@ func Execute(packageName, version string) error {
 
 func Build(cfg *config.Config, packageName, version string) (root.App, error) {
 	if err := debug.InitializeLogger(getDefaultStore()); err != nil {
-		log.Errorf("InitializeLogger err: %v", err)
+		log.Errorf("Initialize logger err: %v", err)
 	}
 
 	log.Infof("--- Start %s v%s ---", packageName, version)
 
 	path, err := filepath.Abs(bootstrap.GetWorkingDirectory())
 	if err != nil {
-		log.Errorf("get working directory err: %v", err)
+		log.Errorf("Working directory err: %v", err)
 	}
 
 	log.Infof("Working dir=%s", path)
 
 	cfgPath, err := filepath.Abs(bootstrap.GetConfigurationDirectory())
 	if err != nil {
-		log.Errorf("gt config directory err: %v", err)
+		log.Errorf("Config directory err: %v", err)
 	}
 
 	log.Infof("Config dir=%s", cfgPath)
