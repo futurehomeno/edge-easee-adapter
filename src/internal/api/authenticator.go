@@ -230,7 +230,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 		if err == nil {
 			ret, err := a.storeCredentials(newCred)
 			if err != nil {
-				return nil, fmt.Errorf("store credentials err: %w", err)
+				log.Errorf("Store credentials err: %v", err)
 			}
 
 			if hours < 22 {

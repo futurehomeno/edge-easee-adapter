@@ -9,6 +9,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/storage"
 	"github.com/michalkurzeja/go-clock"
+	log "github.com/sirupsen/logrus"
 )
 
 type PublicConfig struct {
@@ -76,9 +77,17 @@ func (b backoffSettings) stateful(initial, repeated, final time.Duration) backof
 		parseDuration(b.InitialBackoff, initial),
 		parseDuration(b.RepeatedBackoff, repeated),
 		parseDuration(b.FinalBackoff, final),
-		b.InitialFailureCount,
-		b.RepeatedFailureCount,
+		uint32OrDefault(b.InitialFailureCount, 1),
+		uint32OrDefault(b.RepeatedFailureCount, 1),
 	)
+}
+
+func uint32OrDefault(v, def uint32) uint32 {
+	if v == 0 {
+		return def
+	}
+
+	return v
 }
 
 type SignalR struct {
@@ -122,7 +131,13 @@ func (c *Config) MigrateAuthBackoff() error {
 	}
 
 	if err := json.Unmarshal(c.LegacyAuthenticatorBackoff, &legacy); err != nil {
-		return err
+		// Corrupt legacy data must not block migration progress - if we returned the error
+		// the version stays at 2 and the next startup retries with the same broken bytes.
+		// Drop the legacy field and let defaults seed the new shape.
+		log.Warnf("[config] drop corrupt legacy authenticatorBackoff: %v", err)
+		c.LegacyAuthenticatorBackoff = nil
+
+		return nil
 	}
 
 	c.AuthBackoff = backoffSettings{
