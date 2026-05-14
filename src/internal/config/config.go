@@ -160,14 +160,14 @@ func NewService(storage storage.Storage[*Config]) *Service {
 	}
 }
 
-func (cs *Service) GetPublicConfig() PublicConfig {
+func (cs *Service) PublicConfig() PublicConfig {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	return cs.Model().PublicConfig
 }
 
-func (cs *Service) GetEaseeBaseURL() string {
+func (cs *Service) EaseeBaseURL() string {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -184,7 +184,7 @@ func (cs *Service) SetEaseeBaseURL(url string) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetEnergyLifetimeInterval() time.Duration {
+func (cs *Service) EnergyLifetimeInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -206,7 +206,7 @@ func (cs *Service) SetEnergyLifetimeInterval(interval time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetCredentials() Credentials {
+func (cs *Service) Credentials() Credentials {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -232,7 +232,7 @@ func (cs *Service) ClearCredentials() error {
 	return cs.Save()
 }
 
-func (cs *Service) GetPollingInterval() time.Duration {
+func (cs *Service) PollingInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -254,7 +254,7 @@ func (cs *Service) SetPollingInterval(interval time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetCurrentWaitDuration() time.Duration {
+func (cs *Service) CurrentWaitDuration() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -276,7 +276,7 @@ func (cs *Service) SetCurrentWaitDuration(interval time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSlowChargingCurrentInAmperes() float64 {
+func (cs *Service) SlowChargingCurrentInAmperes() float64 {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -293,7 +293,7 @@ func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetHTTPTimeout() time.Duration {
+func (cs *Service) HTTPTimeout() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -315,7 +315,7 @@ func (cs *Service) SetHTTPTimeout(timeout time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSignalRBaseURL() string {
+func (cs *Service) SignalRBaseURL() string {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -332,7 +332,7 @@ func (cs *Service) SetSignalRBaseURL(url string) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSignalRConnCreationTimeout() time.Duration {
+func (cs *Service) SignalRConnCreationTimeout() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -354,7 +354,7 @@ func (cs *Service) SetSignalRConnCreationTimeout(timeout time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSignalRKeepAliveInterval() time.Duration {
+func (cs *Service) SignalRKeepAliveInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -376,7 +376,7 @@ func (cs *Service) SetSignalRKeepAliveInterval(interval time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSignalRTimeoutInterval() time.Duration {
+func (cs *Service) SignalRTimeoutInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -398,7 +398,7 @@ func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSignalRInitialBackoff() time.Duration {
+func (cs *Service) SignalRInitialBackoff() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -420,7 +420,7 @@ func (cs *Service) SetSignalRInitialBackoff(interval time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSignalRRepeatedBackoff() time.Duration {
+func (cs *Service) SignalRRepeatedBackoff() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -442,7 +442,7 @@ func (cs *Service) SetSignalRRepeatedBackoff(interval time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSignalRFinalBackoff() time.Duration {
+func (cs *Service) SignalRFinalBackoff() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -464,7 +464,7 @@ func (cs *Service) SetSignalRFinalBackoff(interval time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSignalRInitialFailureCount() uint32 {
+func (cs *Service) SignalRInitialFailureCount() uint32 {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -480,7 +480,7 @@ func (cs *Service) SetSignalRInitialFailureCount(n uint32) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSignalRRepeatedFailureCount() uint32 {
+func (cs *Service) SignalRRepeatedFailureCount() uint32 {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -496,7 +496,7 @@ func (cs *Service) SetSignalRRepeatedFailureCount(n uint32) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetSignalRInvokeTimeout() time.Duration {
+func (cs *Service) SignalRInvokeTimeout() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -518,7 +518,7 @@ func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 	return cs.Save()
 }
 
-func (cs *Service) GetOfferedCurrentWaitTime() time.Duration {
+func (cs *Service) OfferedCurrentWaitTime() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -583,7 +583,7 @@ func (cs *Service) SetAuthenticatorBackoff(
 	return cs.Save()
 }
 
-func (cs *Service) GetTokenRefreshInterval() time.Duration {
+func (cs *Service) TokenRefreshInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 

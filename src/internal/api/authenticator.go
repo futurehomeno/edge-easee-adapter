@@ -87,9 +87,8 @@ func (a *authenticator) Login(userName, password string) error {
 
 	a.unauthorizedSince = time.Time{}
 
-	_, err = a.storeCredentials(creds)
-	if err != nil {
-		log.Error("[auth] Store credentials err: " + err.Error())
+	if _, err = a.storeCredentials(creds); err != nil {
+		return fmt.Errorf("store credentials err: %w", err)
 	}
 
 	return nil
@@ -107,7 +106,7 @@ func (a *authenticator) AccessToken() (string, error) {
 		a.bcEnsured = true
 	}
 
-	credentials := a.cfg.GetCredentials()
+	credentials := a.cfg.Credentials()
 	if credentials.Empty() {
 		return "", ErrNotLoggedIn
 	}
@@ -230,7 +229,8 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 		if err == nil {
 			ret, err := a.storeCredentials(newCred)
 			if err != nil {
-				log.Errorf("Store credentials err: %v", err)
+				a.backoff.Fail()
+				return nil, fmt.Errorf("store credentials err: %w", err)
 			}
 
 			if hours < 22 {
@@ -309,7 +309,7 @@ func (a *authenticator) handleUnauthorized(reqErr error) (*config.Credentials, e
 func (a *authenticator) ensureBackwardsCompatibility() error {
 	log.Debug("[auth] Ensure backwards compatibility")
 
-	creds := a.cfg.GetCredentials()
+	creds := a.cfg.Credentials()
 
 	if creds.Empty() || !creds.RefreshTokenExpiresAt.IsZero() {
 		return nil
