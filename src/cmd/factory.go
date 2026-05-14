@@ -248,7 +248,7 @@ func getEaseeHTTPClient() api.HTTPClient {
 		services.easeeHTTPClient = api.NewHTTPClient(
 			getConfigService(),
 			getHTTPClient(),
-			getConfigService().GetEaseeBaseURL(),
+			getConfigService().EaseeBaseURL(),
 		)
 	}
 
@@ -269,7 +269,7 @@ func getEaseeAPIClient(cfg *config.Config) api.Client {
 func getHTTPClient() *http.Client {
 	if services.httpClient == nil {
 		services.httpClient = &http.Client{
-			Timeout: getConfigService().GetHTTPTimeout(),
+			Timeout: getConfigService().HTTPTimeout(),
 		}
 	}
 

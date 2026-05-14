@@ -623,7 +623,7 @@ func (h *energyHandler) manageEnergyObservation() { //nolint:funlen
 		h.energyObservationChan = nil
 	}()
 
-	timer := time.NewTimer(h.confSrv.GetEnergyLifetimeInterval())
+	timer := time.NewTimer(h.confSrv.EnergyLifetimeInterval())
 	defer timer.Stop()
 
 	var (

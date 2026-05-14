@@ -143,7 +143,7 @@ func (c *client) invoke(method string, args ...any) error {
 
 	c.mu.Unlock()
 
-	timer := time.NewTimer(c.cfg.GetSignalRInvokeTimeout())
+	timer := time.NewTimer(c.cfg.SignalRInvokeTimeout())
 	defer timer.Stop()
 
 	results := c.connection.Invoke(method, args...)
@@ -232,8 +232,8 @@ func (c *client) getClient(ctx context.Context) (signalr.Client, error) {
 
 	return signalr.NewClient(
 		ctx,
-		signalr.KeepAliveInterval(c.cfg.GetSignalRKeepAliveInterval()),
-		signalr.TimeoutInterval(c.cfg.GetSignalRTimeoutInterval()),
+		signalr.KeepAliveInterval(c.cfg.SignalRKeepAliveInterval()),
+		signalr.TimeoutInterval(c.cfg.SignalRTimeoutInterval()),
 		signalr.WithConnection(connection),
 		signalr.WithReceiver(c.receiver),
 		signalr.Logger(newLogger(), false),
@@ -260,10 +260,10 @@ func (c *client) getConnection() (signalr.Connection, error) {
 		return h
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.GetSignalRConnCreationTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.SignalRConnCreationTimeout())
 	defer cancel()
 
-	url := c.cfg.GetSignalRBaseURL() + signalRURI
+	url := c.cfg.SignalRBaseURL() + signalRURI
 
 	conn, err := signalr.NewHTTPConnection(ctx, url, signalr.WithHTTPHeaders(headers))
 	if err != nil {
