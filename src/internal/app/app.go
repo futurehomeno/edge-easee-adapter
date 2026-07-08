@@ -169,7 +169,7 @@ func (a *application) Initialize() error {
 		return fmt.Errorf("failed to save configs at application initialization: %w", err)
 	}
 
-	if a.cfgService.GetCredentials().Empty() {
+	if a.cfgService.Credentials().Empty() {
 		a.lifecycle.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)

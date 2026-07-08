@@ -2,40 +2,27 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/futurehomeno/cliffhanger/bootstrap"
+	"github.com/futurehomeno/cliffhanger/debug"
 	"github.com/futurehomeno/cliffhanger/discovery"
 	"github.com/futurehomeno/cliffhanger/root"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
+	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
-// Execute is an entry point to the edge application.
 func Execute(packageName, version string) error {
-	cfg := getConfigService().Model()
-
-	if cfg.LogFormat == "text" {
-		cfg.LogFormat = "budzik"
-
-		if err := getConfigService().Save(); err != nil {
-			log.Warnf("Save config err: %v", err)
-		}
-	}
-
-	if err := bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat); err != nil {
-		return err
-	}
-
-	log.Infof("\t--- Start Easee v%s ---", version)
-	defer log.Infof("\t+++ Stop Easee v%s +++", version)
-
-	rootApp, err := Build(cfg, packageName, version)
+	rootApp, err := Build(getConfigService().Model(), packageName, version)
 	if err != nil {
 		return fmt.Errorf("build app err: %w", err)
 	}
+
+	defer log.Infof("+++ Stop %s v%s +++", packageName, version)
 
 	err = rootApp.Run()
 	if err != nil {
@@ -46,16 +33,46 @@ func Execute(packageName, version string) error {
 }
 
 func Build(cfg *config.Config, packageName, version string) (root.App, error) {
+	if err := debug.InitializeLogger(getDefaultStore()); err != nil {
+		log.Errorf("Initialize logger err: %v", err)
+	}
+
+	log.Infof("--- Start %s v%s ---", packageName, version)
+
+	path, err := filepath.Abs(bootstrap.GetWorkingDirectory())
+	if err != nil {
+		log.Errorf("Working directory err: %v", err)
+	}
+
+	log.Infof("Working dir=%s", path)
+
+	cfgPath, err := filepath.Abs(bootstrap.GetConfigurationDirectory())
+	if err != nil {
+		log.Errorf("Config directory err: %v", err)
+	}
+
+	log.Infof("Config dir=%s", cfgPath)
+
 	return root.NewEdgeAppBuilder().
 		WithMQTT(getMQTT(cfg)).
 		WithServiceDiscovery(fimptype.EaseeRn, discovery.ResourceTypeAd, packageName, "1", version).
 		WithLifecycle(getLifecycle()).
 		WithTopicSubscription(
-			cliffRouter.TopicPatternAdapter(fimptype.EaseeRn),
-			cliffRouter.TopicPatternDevices(fimptype.EaseeRn),
+			cmdTopic(fimptype.ResourceTypeAdapter),
+			cmdTopic(fimptype.ResourceTypeDevice),
 		).
 		WithRouting(newRouting(cfg)...).
 		WithTask(newTasks(cfg)...).
 		WithServices(getSignalRManager(cfg), getEventListener(cfg), getSessionStorage(cfg)).
 		Build()
+}
+
+func cmdTopic(resourceType fimptype.ResourceTypeT) string {
+	return (&cliffRouter.TopicPattern{
+		PayloadType:     fimpgo.DefaultPayload,
+		MessageType:     fimptype.MsgTypeCmd,
+		ResourceType:    resourceType,
+		ResourceName:    fimptype.EaseeRn,
+		ResourceAddress: "1",
+	}).String()
 }

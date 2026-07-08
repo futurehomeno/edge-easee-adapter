@@ -1,52 +1,50 @@
 package config
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/storage"
 	"github.com/michalkurzeja/go-clock"
+	log "github.com/sirupsen/logrus"
 )
 
-// Config is a model containing all application configuration settings.
-type Config struct {
-	config.Default
-	Credentials
+type PublicConfig struct {
+	EaseeBaseURL                 string  `json:"easeeBaseURL2"`
+	PollingInterval              string  `json:"pollingInterval"`
+	TokenRefreshInterval         string  `json:"token_refresh_interval"`
+	CurrentWaitDuration          string  `json:"currentWaitDuration"`
+	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
+	HTTPTimeout                  string  `json:"httpTimeout"`
+	SignalR                      SignalR `json:"signalR"`
+	OfferedCurrentWaitTime       string  `json:"offered_current_wait_time"`
+	EnergyLifetimeInterval       string  `json:"energyLifetimeInterval"`
 
-	EaseeBaseURL                 string     `json:"easeeBaseURL2"`
-	PollingInterval              string     `json:"pollingInterval"`
-	TokenRefreshInterval         string     `json:"token_refresh_interval"`
-	CurrentWaitDuration          string     `json:"currentWaitDuration"`
-	SlowChargingCurrentInAmperes float64    `json:"slowChargingCurrentInAmperes"`
-	HTTPTimeout                  string     `json:"httpTimeout"`
-	SignalR                      SignalR    `json:"signalR"`
-	AuthenticatorBackoff         backoffCfg `json:"authenticatorBackoff"`
-	OfferedCurrentWaitTime       string     `json:"offered_current_wait_time"`
-	EnergyLifetimeInterval       string     `json:"energyLifetimeInterval"`
+	AuthBackoff         backoffSettings `json:"auth_backoff"`
+	AuthMaxUnauthorized string          `json:"auth_max_unauthorized,omitempty"`
+
+	LegacyAuthenticatorBackoff json.RawMessage `json:"authenticatorBackoff,omitempty"`
 }
 
-// New creates new instance of a configuration object.
+type Config struct {
+	config.Default
+	PublicConfig
+	Credentials
+}
+
 func New(workDir string) *Config {
 	return &Config{
 		Default: config.NewDefault(workDir),
 	}
 }
 
-// NewConfigServiceWithStorage creates a new configuration service.
-func NewConfigServiceWithStorage(storage storage.Storage[*Config]) *Service {
-	return &Service{
-		Storage: storage,
-		lock:    &sync.RWMutex{},
-	}
-}
-
-// Factory is a factory method returning the configuration object without default settings.
 func Factory() *Config {
 	return &Config{}
 }
 
-// Credentials represent Easee API credentials.
 type Credentials struct {
 	AccessToken           string    `json:"accessToken"`
 	RefreshToken          string    `json:"refreshToken"`
@@ -54,33 +52,51 @@ type Credentials struct {
 	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt,omitzero"`
 }
 
-// Empty checks if credentials are empty.
 func (c Credentials) Empty() bool {
 	return c == Credentials{}
 }
 
-// AccessTokenExpired checks if credentials are expired.
 func (c Credentials) AccessTokenExpired() bool {
 	return clock.Now().After(c.AccessTokenExpiresAt)
 }
 
-// RefreshTokenExpired checks if credentials are expired.
 func (c Credentials) RefreshTokenExpired() bool {
 	return clock.Now().After(c.RefreshTokenExpiresAt)
 }
 
-// SignalR represents SignalR configuration settings.
-type SignalR struct {
-	BaseURL              string `json:"baseURL"`
-	ConnCreationTimeout  string `json:"connCreationTimeout"`
-	KeepAliveInterval    string `json:"keepAliveInterval2"`
-	TimeoutInterval      string `json:"timeoutInterval2"`
+type backoffSettings struct {
 	InitialBackoff       string `json:"initialBackoff"`
 	RepeatedBackoff      string `json:"repeatedBackoff"`
 	FinalBackoff         string `json:"finalBackoff"`
 	InitialFailureCount  uint32 `json:"initialFailureCount"`
 	RepeatedFailureCount uint32 `json:"repeatedFailureCount"`
-	InvokeTimeout        string `json:"invokeTimeout"`
+}
+
+func (b backoffSettings) stateful(initial, repeated, final time.Duration) backoff.Stateful {
+	return backoff.NewStateful(
+		parseDuration(b.InitialBackoff, initial),
+		parseDuration(b.RepeatedBackoff, repeated),
+		parseDuration(b.FinalBackoff, final),
+		uint32OrDefault(b.InitialFailureCount, 1),
+		uint32OrDefault(b.RepeatedFailureCount, 1),
+	)
+}
+
+func uint32OrDefault(v, def uint32) uint32 {
+	if v == 0 {
+		return def
+	}
+
+	return v
+}
+
+type SignalR struct {
+	BaseURL             string `json:"baseURL"`
+	ConnCreationTimeout string `json:"connCreationTimeout"`
+	KeepAliveInterval   string `json:"keepAliveInterval2"`
+	TimeoutInterval     string `json:"timeoutInterval2"`
+	backoffSettings            // anonymous embed - fields promoted to top level of "signalR" JSON object; wire-compatible
+	InvokeTimeout       string `json:"invokeTimeout"`
 }
 
 // Service is a configuration service responsible for:
@@ -91,30 +107,52 @@ type Service struct {
 	lock *sync.RWMutex
 }
 
-// backoffCfg represents a file storage representation of BackoffCfg.
-type backoffCfg struct {
-	InitialBackoff          string `json:"initialBackoff"`
-	RepeatedBackoff         string `json:"repeatedBackoff"`
-	FinalBackoff            string `json:"finalBackoff"`
-	InitialFailureCount     uint32 `json:"initialFailureCount"`
-	RepeatedFailureCount    uint32 `json:"repeatedFailureCount"`
-	MaxUnauthorizedDuration string `json:"maxUnauthorizedDuration"`
+func parseDuration(s string, def time.Duration) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return def
+	}
+
+	return d
 }
 
-// BackoffCfg represents values used to configure backoff.
-type BackoffCfg struct {
-	InitialBackoff       time.Duration
-	RepeatedBackoff      time.Duration
-	FinalBackoff         time.Duration
-	InitialFailureCount  uint32
-	RepeatedFailureCount uint32
-	// MaxUnauthorizedDuration bounds how long the authenticator keeps
-	// retrying refresh after the API responds with 401 (InvalidRefreshToken)
-	// before forcing an app logout. A single transient 401 should not nuke credentials.
-	MaxUnauthorizedDuration time.Duration
+func (c *Config) MigrateAuthBackoff() error {
+	if len(c.LegacyAuthenticatorBackoff) == 0 {
+		return nil
+	}
+
+	var legacy struct {
+		InitialBackoff          string `json:"initialBackoff"`
+		RepeatedBackoff         string `json:"repeatedBackoff"`
+		FinalBackoff            string `json:"finalBackoff"`
+		InitialFailureCount     uint32 `json:"initialFailureCount"`
+		RepeatedFailureCount    uint32 `json:"repeatedFailureCount"`
+		MaxUnauthorizedDuration string `json:"maxUnauthorizedDuration"`
+	}
+
+	if err := json.Unmarshal(c.LegacyAuthenticatorBackoff, &legacy); err != nil {
+		// Corrupt legacy data must not block migration progress - if we returned the error
+		// the version stays at 2 and the next startup retries with the same broken bytes.
+		// Drop the legacy field and let defaults seed the new shape.
+		log.Warnf("[config] drop corrupt legacy authenticatorBackoff: %v", err)
+		c.LegacyAuthenticatorBackoff = nil
+
+		return nil
+	}
+
+	c.AuthBackoff = backoffSettings{
+		InitialBackoff:       legacy.InitialBackoff,
+		RepeatedBackoff:      legacy.RepeatedBackoff,
+		FinalBackoff:         legacy.FinalBackoff,
+		InitialFailureCount:  legacy.InitialFailureCount,
+		RepeatedFailureCount: legacy.RepeatedFailureCount,
+	}
+	c.AuthMaxUnauthorized = legacy.MaxUnauthorizedDuration
+	c.LegacyAuthenticatorBackoff = nil
+
+	return nil
 }
 
-// NewService creates a new configuration service.
 func NewService(storage storage.Storage[*Config]) *Service {
 	return &Service{
 		Storage: storage,
@@ -122,23 +160,20 @@ func NewService(storage storage.Storage[*Config]) *Service {
 	}
 }
 
-// GetWorkDir allows to safely access a configuration setting.
-func (cs *Service) GetWorkDir() string {
+func (cs *Service) PublicConfig() PublicConfig {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Model().WorkDir
+	return cs.Model().PublicConfig
 }
 
-// GetEaseeBaseURL allows to safely access a configuration setting.
-func (cs *Service) GetEaseeBaseURL() string {
+func (cs *Service) EaseeBaseURL() string {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	return cs.Model().EaseeBaseURL
 }
 
-// SetEaseeBaseURL allows to safely set and persist configuration settings.
 func (cs *Service) SetEaseeBaseURL(url string) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -149,8 +184,7 @@ func (cs *Service) SetEaseeBaseURL(url string) error {
 	return cs.Save()
 }
 
-// GetEnergyLifetimeInterval allows to safely access a configuration setting.
-func (cs *Service) GetEnergyLifetimeInterval() time.Duration {
+func (cs *Service) EnergyLifetimeInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -162,7 +196,6 @@ func (cs *Service) GetEnergyLifetimeInterval() time.Duration {
 	return duration
 }
 
-// SetEnergyLifetimeInterval allows to safely set and persist configuration settings.
 func (cs *Service) SetEnergyLifetimeInterval(interval time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -173,34 +206,13 @@ func (cs *Service) SetEnergyLifetimeInterval(interval time.Duration) error {
 	return cs.Save()
 }
 
-// GetLogLevel allows to safely access a configuration setting.
-func (cs *Service) GetLogLevel() string {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().LogLevel
-}
-
-// SetLogLevel allows to safely set and persist configuration settings.
-func (cs *Service) SetLogLevel(logLevel string) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().LogLevel = logLevel
-
-	return cs.Save()
-}
-
-// GetCredentials allows to safely access a configuration setting.
-func (cs *Service) GetCredentials() Credentials {
+func (cs *Service) Credentials() Credentials {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	return cs.Model().Credentials
 }
 
-// SetCredentials allows to safely set and persist configuration settings.
 func (cs *Service) SetCredentials(credentials Credentials) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -211,7 +223,6 @@ func (cs *Service) SetCredentials(credentials Credentials) error {
 	return cs.Save()
 }
 
-// ClearCredentials resets credentials to empty.
 func (cs *Service) ClearCredentials() error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -221,8 +232,7 @@ func (cs *Service) ClearCredentials() error {
 	return cs.Save()
 }
 
-// GetPollingInterval allows to safely access a configuration setting.
-func (cs *Service) GetPollingInterval() time.Duration {
+func (cs *Service) PollingInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -234,7 +244,6 @@ func (cs *Service) GetPollingInterval() time.Duration {
 	return duration
 }
 
-// SetPollingInterval allows to safely set and persist configuration settings.
 func (cs *Service) SetPollingInterval(interval time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -245,8 +254,7 @@ func (cs *Service) SetPollingInterval(interval time.Duration) error {
 	return cs.Save()
 }
 
-// GetCurrentWaitDuration allows to safely access a configuration setting.
-func (cs *Service) GetCurrentWaitDuration() time.Duration {
+func (cs *Service) CurrentWaitDuration() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -258,7 +266,6 @@ func (cs *Service) GetCurrentWaitDuration() time.Duration {
 	return duration
 }
 
-// SetCurrentWaitDuration allows to safely set and persist configuration settings.
 func (cs *Service) SetCurrentWaitDuration(interval time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -269,15 +276,13 @@ func (cs *Service) SetCurrentWaitDuration(interval time.Duration) error {
 	return cs.Save()
 }
 
-// GetSlowChargingCurrentInAmperes allows to safely access a configuration setting.
-func (cs *Service) GetSlowChargingCurrentInAmperes() float64 {
+func (cs *Service) SlowChargingCurrentInAmperes() float64 {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	return cs.Model().SlowChargingCurrentInAmperes
 }
 
-// SetSlowChargingCurrentInAmperes allows to safely set and persist configuration settings.
 func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -288,8 +293,7 @@ func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 	return cs.Save()
 }
 
-// GetHTTPTimeout allows to safely access a configuration setting.
-func (cs *Service) GetHTTPTimeout() time.Duration {
+func (cs *Service) HTTPTimeout() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -301,7 +305,6 @@ func (cs *Service) GetHTTPTimeout() time.Duration {
 	return timeout
 }
 
-// SetHTTPTimeout allows to safely set and persist configuration settings.
 func (cs *Service) SetHTTPTimeout(timeout time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -312,15 +315,13 @@ func (cs *Service) SetHTTPTimeout(timeout time.Duration) error {
 	return cs.Save()
 }
 
-// GetSignalRBaseURL allows to safely access a configuration setting.
-func (cs *Service) GetSignalRBaseURL() string {
+func (cs *Service) SignalRBaseURL() string {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	return cs.Model().SignalR.BaseURL
 }
 
-// SetSignalRBaseURL allows to safely set and persist configuration settings.
 func (cs *Service) SetSignalRBaseURL(url string) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -331,8 +332,7 @@ func (cs *Service) SetSignalRBaseURL(url string) error {
 	return cs.Save()
 }
 
-// GetSignalRConnCreationTimeout allows to safely access a configuration setting.
-func (cs *Service) GetSignalRConnCreationTimeout() time.Duration {
+func (cs *Service) SignalRConnCreationTimeout() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -344,7 +344,6 @@ func (cs *Service) GetSignalRConnCreationTimeout() time.Duration {
 	return timeout
 }
 
-// SetSignalRConnCreationTimeout allows to safely set and persist configuration settings.
 func (cs *Service) SetSignalRConnCreationTimeout(timeout time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -355,8 +354,7 @@ func (cs *Service) SetSignalRConnCreationTimeout(timeout time.Duration) error {
 	return cs.Save()
 }
 
-// GetSignalRKeepAliveInterval allows to safely access a configuration setting.
-func (cs *Service) GetSignalRKeepAliveInterval() time.Duration {
+func (cs *Service) SignalRKeepAliveInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -368,7 +366,6 @@ func (cs *Service) GetSignalRKeepAliveInterval() time.Duration {
 	return interval
 }
 
-// SetSignalRKeepAliveInterval allows to safely set and persist configuration settings.
 func (cs *Service) SetSignalRKeepAliveInterval(interval time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -379,8 +376,7 @@ func (cs *Service) SetSignalRKeepAliveInterval(interval time.Duration) error {
 	return cs.Save()
 }
 
-// GetSignalRTimeoutInterval allows to safely access a configuration setting.
-func (cs *Service) GetSignalRTimeoutInterval() time.Duration {
+func (cs *Service) SignalRTimeoutInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -392,7 +388,6 @@ func (cs *Service) GetSignalRTimeoutInterval() time.Duration {
 	return interval
 }
 
-// SetSignalRTimeoutInterval allows to safely set and persist configuration settings.
 func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -403,8 +398,7 @@ func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
 	return cs.Save()
 }
 
-// GetSignalRInitialBackoff allows to safely access a configuration setting.
-func (cs *Service) GetSignalRInitialBackoff() time.Duration {
+func (cs *Service) SignalRInitialBackoff() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -416,7 +410,6 @@ func (cs *Service) GetSignalRInitialBackoff() time.Duration {
 	return interval
 }
 
-// SetSignalRInitialBackoff allows to safely set and persist configuration settings.
 func (cs *Service) SetSignalRInitialBackoff(interval time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -427,8 +420,7 @@ func (cs *Service) SetSignalRInitialBackoff(interval time.Duration) error {
 	return cs.Save()
 }
 
-// GetSignalRRepeatedBackoff allows to safely access a configuration setting.
-func (cs *Service) GetSignalRRepeatedBackoff() time.Duration {
+func (cs *Service) SignalRRepeatedBackoff() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -440,7 +432,6 @@ func (cs *Service) GetSignalRRepeatedBackoff() time.Duration {
 	return interval
 }
 
-// SetSignalRRepeatedBackoff allows to safely set and persist configuration settings.
 func (cs *Service) SetSignalRRepeatedBackoff(interval time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -451,8 +442,7 @@ func (cs *Service) SetSignalRRepeatedBackoff(interval time.Duration) error {
 	return cs.Save()
 }
 
-// GetSignalRFinalBackoff allows to safely access a configuration setting.
-func (cs *Service) GetSignalRFinalBackoff() time.Duration {
+func (cs *Service) SignalRFinalBackoff() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -464,7 +454,6 @@ func (cs *Service) GetSignalRFinalBackoff() time.Duration {
 	return interval
 }
 
-// SetSignalRFinalBackoff allows to safely set and persist configuration settings.
 func (cs *Service) SetSignalRFinalBackoff(interval time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -475,15 +464,13 @@ func (cs *Service) SetSignalRFinalBackoff(interval time.Duration) error {
 	return cs.Save()
 }
 
-// GetSignalRInitialFailureCount allows to safely access signalr initial failure count.
-func (cs *Service) GetSignalRInitialFailureCount() uint32 {
+func (cs *Service) SignalRInitialFailureCount() uint32 {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	return cs.Model().SignalR.InitialFailureCount
 }
 
-// SetSignalRInitialFailureCount allows to safely alter signalr initial failure count.
 func (cs *Service) SetSignalRInitialFailureCount(n uint32) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -493,15 +480,13 @@ func (cs *Service) SetSignalRInitialFailureCount(n uint32) error {
 	return cs.Save()
 }
 
-// GetSignalRRepeatedFailureCount allows to safely access repeated failure count.
-func (cs *Service) GetSignalRRepeatedFailureCount() uint32 {
+func (cs *Service) SignalRRepeatedFailureCount() uint32 {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
 	return cs.Model().SignalR.RepeatedFailureCount
 }
 
-// SetSignalRRepeatedFailureCount allows to safely alter repeated failure count.
 func (cs *Service) SetSignalRRepeatedFailureCount(n uint32) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -511,8 +496,7 @@ func (cs *Service) SetSignalRRepeatedFailureCount(n uint32) error {
 	return cs.Save()
 }
 
-// GetSignalRInvokeTimeout allows to safely access a configuration setting.
-func (cs *Service) GetSignalRInvokeTimeout() time.Duration {
+func (cs *Service) SignalRInvokeTimeout() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -524,7 +508,6 @@ func (cs *Service) GetSignalRInvokeTimeout() time.Duration {
 	return timeout
 }
 
-// SetSignalRInvokeTimeout allows to safely set and persist configuration settings.
 func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -535,8 +518,7 @@ func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 	return cs.Save()
 }
 
-// GetOfferedCurrentWaitTime allows to safely access a configuration setting.
-func (cs *Service) GetOfferedCurrentWaitTime() time.Duration {
+func (cs *Service) OfferedCurrentWaitTime() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
@@ -548,7 +530,6 @@ func (cs *Service) GetOfferedCurrentWaitTime() time.Duration {
 	return duration
 }
 
-// SetOfferedCurrentWaitTime allows to safely set and persist a configuration setting.
 func (cs *Service) SetOfferedCurrentWaitTime(duration time.Duration) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
@@ -559,60 +540,50 @@ func (cs *Service) SetOfferedCurrentWaitTime(duration time.Duration) error {
 	return cs.Save()
 }
 
-// GetAuthenticatorBackoffCfg allows to safely access api backoff settings.
-func (cs *Service) GetAuthenticatorBackoffCfg() BackoffCfg {
+func (cs *Service) AuthenticatorBackoffStateful() backoff.Stateful {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	initial, err := time.ParseDuration(cs.Model().AuthenticatorBackoff.InitialBackoff)
-	if err != nil {
-		initial = 1 * time.Minute
-	}
-
-	repeated, err := time.ParseDuration(cs.Model().AuthenticatorBackoff.RepeatedBackoff)
-	if err != nil {
-		repeated = 5 * time.Minute
-	}
-
-	final, err := time.ParseDuration(cs.Model().AuthenticatorBackoff.FinalBackoff)
-	if err != nil {
-		final = 10 * time.Minute
-	}
-
-	maxUnauthorized, err := time.ParseDuration(cs.Model().AuthenticatorBackoff.MaxUnauthorizedDuration)
-	if err != nil {
-		maxUnauthorized = 2 * time.Hour
-	}
-
-	return BackoffCfg{
-		InitialBackoff:          initial,
-		RepeatedBackoff:         repeated,
-		FinalBackoff:            final,
-		InitialFailureCount:     cs.Model().AuthenticatorBackoff.InitialFailureCount,
-		RepeatedFailureCount:    cs.Model().AuthenticatorBackoff.RepeatedFailureCount,
-		MaxUnauthorizedDuration: maxUnauthorized,
-	}
+	return cs.Model().AuthBackoff.stateful(time.Minute, 5*time.Minute, 10*time.Minute)
 }
 
-// SetAuthenticatorBackoffCfg allows to safely alter repeated failure count.
-func (cs *Service) SetAuthenticatorBackoffCfg(cfg BackoffCfg) error {
+func (cs *Service) SignalRBackoffStateful() backoff.Stateful {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return cs.Model().SignalR.stateful(5*time.Second, 30*time.Second, 2*time.Minute)
+}
+
+func (cs *Service) AuthenticatorMaxUnauthorized() time.Duration {
+	cs.lock.RLock()
+	defer cs.lock.RUnlock()
+
+	return parseDuration(cs.Model().AuthMaxUnauthorized, 2*time.Hour)
+}
+
+func (cs *Service) SetAuthenticatorBackoff(
+	initial, repeated, final time.Duration,
+	initialFailureCount, repeatedFailureCount uint32,
+	maxUnauthorized time.Duration,
+) error {
 	cs.lock.Lock()
 	defer cs.lock.Unlock()
 
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().AuthenticatorBackoff = backoffCfg{
-		InitialBackoff:          cfg.InitialBackoff.String(),
-		RepeatedBackoff:         cfg.RepeatedBackoff.String(),
-		FinalBackoff:            cfg.FinalBackoff.String(),
-		InitialFailureCount:     cfg.InitialFailureCount,
-		RepeatedFailureCount:    cfg.RepeatedFailureCount,
-		MaxUnauthorizedDuration: cfg.MaxUnauthorizedDuration.String(),
+	c := cs.Model()
+	c.ConfiguredAt = time.Now().Format(time.RFC3339)
+	c.AuthBackoff = backoffSettings{
+		InitialBackoff:       initial.String(),
+		RepeatedBackoff:      repeated.String(),
+		FinalBackoff:         final.String(),
+		InitialFailureCount:  initialFailureCount,
+		RepeatedFailureCount: repeatedFailureCount,
 	}
+	c.AuthMaxUnauthorized = maxUnauthorized.String()
 
 	return cs.Save()
 }
 
-func (cs *Service) GetTokenRefreshInterval() time.Duration {
+func (cs *Service) TokenRefreshInterval() time.Duration {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 

@@ -5,11 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	"github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 
@@ -61,17 +61,11 @@ type client struct {
 func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
 	observations := make(chan model.Observation, 100)
 
-	backoff := backoff.NewStateful(cfg.GetSignalRInitialBackoff(),
-		cfg.GetSignalRRepeatedBackoff(),
-		cfg.GetSignalRFinalBackoff(),
-		cfg.GetSignalRInitialFailureCount(),
-		cfg.GetSignalRRepeatedFailureCount())
-
 	return &client{
 		cfg:           cfg,
 		tokenProvider: tokenProvider,
 		receiver:      newReceiver(observations),
-		backoff:       backoff,
+		backoff:       cfg.SignalRBackoffStateful(),
 		states:        make(chan model.ClientState, 10),
 		observations:  observations,
 	}
@@ -149,7 +143,7 @@ func (c *client) invoke(method string, args ...any) error {
 
 	c.mu.Unlock()
 
-	timer := time.NewTimer(c.cfg.GetSignalRInvokeTimeout())
+	timer := time.NewTimer(c.cfg.SignalRInvokeTimeout())
 	defer timer.Stop()
 
 	results := c.connection.Invoke(method, args...)
@@ -163,13 +157,7 @@ func (c *client) invoke(method string, args ...any) error {
 }
 
 func (c *client) handleConnection(ctx context.Context) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Error(r)
-			log.Error(string(debug.Stack()))
-			panic(r)
-		}
-	}()
+	defer telemetry.RecoverAndEmit(nil, "handleConnection", true)
 
 	for {
 		if client, err := c.getClient(ctx); err != nil {
@@ -244,8 +232,8 @@ func (c *client) getClient(ctx context.Context) (signalr.Client, error) {
 
 	return signalr.NewClient(
 		ctx,
-		signalr.KeepAliveInterval(c.cfg.GetSignalRKeepAliveInterval()),
-		signalr.TimeoutInterval(c.cfg.GetSignalRTimeoutInterval()),
+		signalr.KeepAliveInterval(c.cfg.SignalRKeepAliveInterval()),
+		signalr.TimeoutInterval(c.cfg.SignalRTimeoutInterval()),
 		signalr.WithConnection(connection),
 		signalr.WithReceiver(c.receiver),
 		signalr.Logger(newLogger(), false),
@@ -272,10 +260,10 @@ func (c *client) getConnection() (signalr.Connection, error) {
 		return h
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.GetSignalRConnCreationTimeout())
+	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.SignalRConnCreationTimeout())
 	defer cancel()
 
-	url := c.cfg.GetSignalRBaseURL() + signalRURI
+	url := c.cfg.SignalRBaseURL() + signalRURI
 
 	conn, err := signalr.NewHTTPConnection(ctx, url, signalr.WithHTTPHeaders(headers))
 	if err != nil {

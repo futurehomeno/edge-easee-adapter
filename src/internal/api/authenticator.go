@@ -63,24 +63,14 @@ type authenticator struct {
 
 // NewAuthenticator creates a new instance of the Authenticator.
 func NewAuthenticator(http HTTPClient, cfgSvc *config.Service, notify Notifier, mqtt *fimpgo.MqttTransport, serviceName fimptype.ServiceNameT) Authenticator {
-	backoffCfg := cfgSvc.GetAuthenticatorBackoffCfg()
-
-	statefulBackoff := backoff.NewStateful(
-		backoffCfg.InitialBackoff,
-		backoffCfg.RepeatedBackoff,
-		backoffCfg.FinalBackoff,
-		backoffCfg.InitialFailureCount,
-		backoffCfg.RepeatedFailureCount,
-	)
-
 	a := &authenticator{
 		cfg:                 cfgSvc,
 		http:                http,
 		notificationManager: notify,
 		mqtt:                mqtt,
 		serviceName:         serviceName,
-		backoff:             statefulBackoff,
-		maxUnauthorizedDur:  backoffCfg.MaxUnauthorizedDuration,
+		backoff:             cfgSvc.AuthenticatorBackoffStateful(),
+		maxUnauthorizedDur:  cfgSvc.AuthenticatorMaxUnauthorized(),
 	}
 
 	return a
@@ -97,9 +87,8 @@ func (a *authenticator) Login(userName, password string) error {
 
 	a.unauthorizedSince = time.Time{}
 
-	_, err = a.storeCredentials(creds)
-	if err != nil {
-		log.Error("[auth] Store credentials err: " + err.Error())
+	if _, err = a.storeCredentials(creds); err != nil {
+		return fmt.Errorf("store credentials err: %w", err)
 	}
 
 	return nil
@@ -117,7 +106,7 @@ func (a *authenticator) AccessToken() (string, error) {
 		a.bcEnsured = true
 	}
 
-	credentials := a.cfg.GetCredentials()
+	credentials := a.cfg.Credentials()
 	if credentials.Empty() {
 		return "", ErrNotLoggedIn
 	}
@@ -188,7 +177,6 @@ func (a *authenticator) sendAppLogoutMessage() error {
 }
 
 func (a *authenticator) storeCredentials(credentials *model.Credentials) (config.Credentials, error) {
-	a.backoff.Reset()
 	ret := config.Credentials{}
 
 	accessTokenExpDate, err := jwt.ExpirationDate(credentials.AccessToken)
@@ -200,6 +188,8 @@ func (a *authenticator) storeCredentials(credentials *model.Credentials) (config
 	if err != nil {
 		return ret, fmt.Errorf("extract expiration date from refresh token err: %w", err)
 	}
+
+	a.backoff.Reset()
 
 	ret = config.Credentials{
 		AccessToken:           credentials.AccessToken,
@@ -239,6 +229,7 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 		if err == nil {
 			ret, err := a.storeCredentials(newCred)
 			if err != nil {
+				a.backoff.Fail()
 				return nil, fmt.Errorf("store credentials err: %w", err)
 			}
 
@@ -318,7 +309,7 @@ func (a *authenticator) handleUnauthorized(reqErr error) (*config.Credentials, e
 func (a *authenticator) ensureBackwardsCompatibility() error {
 	log.Debug("[auth] Ensure backwards compatibility")
 
-	creds := a.cfg.GetCredentials()
+	creds := a.cfg.Credentials()
 
 	if creds.Empty() || !creds.RefreshTokenExpiresAt.IsZero() {
 		return nil

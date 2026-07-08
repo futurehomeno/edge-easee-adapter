@@ -189,7 +189,7 @@ func (c *controller) SetChargepointMaxCurrent(current int) error {
 		return err
 	}
 
-	c.cache.WaitForMaxCurrent(current, c.cfgService.GetCurrentWaitDuration())
+	c.cache.WaitForMaxCurrent(current, c.cfgService.CurrentWaitDuration())
 
 	return nil
 }
@@ -226,7 +226,7 @@ func (c *controller) setOfferedCurrent(current int, force bool) error {
 	if !force {
 		lastValue, lastSet := c.cache.RequestedOfferedCurrent()
 
-		if time.Since(lastSet) < c.cfgService.GetOfferedCurrentWaitTime() && current == lastValue {
+		if time.Since(lastSet) < c.cfgService.OfferedCurrentWaitTime() && current == lastValue {
 			return nil
 		}
 	}
@@ -238,7 +238,7 @@ func (c *controller) setOfferedCurrent(current int, force bool) error {
 
 	c.cache.SetRequestedOfferedCurrent(current, time.Now())
 
-	c.cache.WaitForOfferedCurrent(current, c.cfgService.GetCurrentWaitDuration())
+	c.cache.WaitForOfferedCurrent(current, c.cfgService.CurrentWaitDuration())
 
 	return nil
 }
@@ -252,7 +252,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	}
 
 	if strings.ToLower(settings.Mode) == model.ChargingModeSlow {
-		slowCurrent := c.cfgService.GetSlowChargingCurrentInAmperes()
+		slowCurrent := c.cfgService.SlowChargingCurrentInAmperes()
 
 		if slowCurrent > 0 {
 			startCurrent = int(math.Round(slowCurrent))

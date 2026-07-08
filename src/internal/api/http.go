@@ -445,7 +445,7 @@ func (c *httpClient) shouldBackoffWithMaxCurrentChange(chargerID string) bool {
 		return false
 	}
 
-	if clock.Now().Sub(lastMaxCurrentSet) >= c.cfgSrv.GetOfferedCurrentWaitTime() {
+	if clock.Now().Sub(lastMaxCurrentSet) >= c.cfgSrv.OfferedCurrentWaitTime() {
 		return false
 	}
 

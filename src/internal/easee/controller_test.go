@@ -14,11 +14,11 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
 	mockedcache "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/cache"
 	mockeddb "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/db"
 	mockedsignalr "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/signalr"
-	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 )
 
 func newTestController(
@@ -223,7 +223,7 @@ func TestController_StartChargepointCharging_BypassesOfferedCurrentDedup(t *test
 	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
 	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(true)
 
-	cfg := &config.Config{OfferedCurrentWaitTime: "15s"}
+	cfg := &config.Config{PublicConfig: config.PublicConfig{OfferedCurrentWaitTime: "15s"}}
 
 	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
 
@@ -243,7 +243,7 @@ func TestController_SetChargepointOfferedCurrent_KeepsDedup(t *testing.T) {
 	cacheMock.On("MaxCurrent").Return(16, time.Time{})
 	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Now())
 
-	cfg := &config.Config{OfferedCurrentWaitTime: "15s"}
+	cfg := &config.Config{PublicConfig: config.PublicConfig{OfferedCurrentWaitTime: "15s"}}
 
 	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
 
@@ -256,11 +256,11 @@ func TestController_UpdateState(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name               string
-		initialState       *easee.State
-		mockClient         func(c *mockapi.Client)
-		wantState          *easee.State
-		wantErr            bool
+		name         string
+		initialState *easee.State
+		mockClient   func(c *mockapi.Client)
+		wantState    *easee.State
+		wantErr      bool
 	}{
 		{
 			name:         "rated current above 32 is clamped to 32",
@@ -393,7 +393,7 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) {
 			sessions: db.ChargingSessions{
 				{Start: now, Stop: now.Add(time.Hour), Energy: 5},
 			},
-			energy:     5.0,
+			energy: 5.0,
 			wantReport: &chargepoint.SessionReport{
 				SessionEnergy: 5.0,
 				StartedAt:     now,

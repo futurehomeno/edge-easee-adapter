@@ -23,7 +23,7 @@ func New(
 	application easeeapp.ApplicationWithToken,
 	ad adapter.Adapter,
 ) []*task.Task {
-	interval := cfgSrv.GetTokenRefreshInterval()
+	interval := cfgSrv.TokenRefreshInterval()
 
 	if interval > 1000*time.Millisecond {
 		maxValue := big.NewInt(5000)
@@ -39,8 +39,8 @@ func New(
 	return task.Combine(
 		[]*task.Task{task.New(refreshTokenFn(application, appLifecycle), interval)},
 		app.TaskApp(application, appLifecycle),
-		adapter.TaskAdapter(ad, cfgSrv.GetPollingInterval()),
-		thing.TaskCarCharger(ad, cfgSrv.GetPollingInterval(), task.WhenAppIsConnected(appLifecycle)),
+		adapter.TaskAdapter(ad, cfgSrv.PollingInterval()),
+		thing.TaskCarCharger(ad, cfgSrv.PollingInterval(), task.WhenAppIsConnected(appLifecycle)),
 	)
 }
 
