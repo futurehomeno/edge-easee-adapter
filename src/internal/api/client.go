@@ -3,8 +3,9 @@ package api
 import (
 	"fmt"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
 // Client is a wrapper around the Easee HTTP Client with authentication capabilities.

@@ -16,3 +16,4 @@ src/scratch
 edge-easee-adapter
 src/profile_full.cov
 test_coverage.out
+/src/cmd/data.db

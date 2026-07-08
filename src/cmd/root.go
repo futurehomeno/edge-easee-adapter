@@ -9,6 +9,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/discovery"
 	"github.com/futurehomeno/cliffhanger/root"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
+	"github.com/futurehomeno/cliffhanger/utils"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
@@ -17,6 +18,8 @@ import (
 )
 
 func Execute(packageName, version string) error {
+	defer utils.PrintStackOnRecover("Execute", true)
+
 	rootApp, err := Build(getConfigService().Model(), packageName, version)
 	if err != nil {
 		return fmt.Errorf("build app err: %w", err)

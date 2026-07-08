@@ -10,7 +10,7 @@ endef
 
 SHELL := /bin/bash
 
-VERSION := 2.7.1
+VERSION := 2.7.2
 APP_NAME := easee
 
 ARCH ?= armhf
@@ -44,6 +44,7 @@ clean:
 	-rm -f $(TARGET_BIN)
 	-rm -f $(APP_NAME)
 	-rm -f $(LOG_DIR)/*
+	-rm -f test_coverage.out
 
 configure:
 	mkdir -p $(BIN_DIR)

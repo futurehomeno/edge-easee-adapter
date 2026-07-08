@@ -9,7 +9,6 @@ import (
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
 	mockedadapter "github.com/futurehomeno/cliffhanger/test/mocks/adapter"
-	mockedmanifest "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/manifest"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -21,6 +20,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
+	mockedmanifest "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/manifest"
 	mocksignalr "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/signalr"
 )
 

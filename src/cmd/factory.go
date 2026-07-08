@@ -150,7 +150,8 @@ func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 	if services.mqtt == nil {
 		errHandler := func(err error) {
-			log.Fatalf("Unrecoverable MQTT err: %v", err)
+			log.Errorf("unrecoverable MQTT error: err=%v", err)
+			panic(err)
 		}
 
 		services.mqtt = fimpgo.NewMqttTransport(
