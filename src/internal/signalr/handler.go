@@ -602,25 +602,30 @@ func (h *energyHandler) handle(observation model.Observation) error {
 		return nil
 	}
 
+	h.lock.Lock()
 	if h.energyObservationChan == nil {
-		h.lock.Lock()
 		h.energyObservationChan = make(chan model.Observation, 10)
-		h.lock.Unlock()
-
-		go h.manageEnergyObservation()
+		go h.manageEnergyObservation(h.energyObservationChan)
 	}
+	ch := h.energyObservationChan
+	h.lock.Unlock()
 
-	h.energyObservationChan <- observation
+	select {
+	case ch <- observation:
+	default:
+	}
 
 	return nil
 }
 
-func (h *energyHandler) manageEnergyObservation() { //nolint:funlen
+func (h *energyHandler) manageEnergyObservation(ch chan model.Observation) { //nolint:funlen
 	defer func() {
 		h.lock.Lock()
 		defer h.lock.Unlock()
 
-		h.energyObservationChan = nil
+		if h.energyObservationChan == ch {
+			h.energyObservationChan = nil
+		}
 	}()
 
 	timer := time.NewTimer(h.confSrv.EnergyLifetimeInterval())
@@ -633,7 +638,7 @@ func (h *energyHandler) manageEnergyObservation() { //nolint:funlen
 
 	for {
 		select {
-		case val := <-h.energyObservationChan:
+		case val := <-ch:
 			v, err := val.Float64Value()
 			if err != nil {
 				log.WithError(err)

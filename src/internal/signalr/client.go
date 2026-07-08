@@ -42,6 +42,7 @@ type Client interface {
 
 type client struct {
 	mu      sync.Mutex
+	wg      sync.WaitGroup
 	running bool
 	cancel  context.CancelFunc
 
@@ -109,16 +110,23 @@ func (c *client) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 
-	go c.handleConnection(ctx)
+	c.wg.Add(1)
+
+	go func() {
+		defer c.wg.Done()
+
+		c.handleConnection(ctx)
+	}()
 
 	c.running = true
 }
 
 func (c *client) Close() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
 	if !c.running {
+		c.mu.Unlock()
+
 		return nil
 	}
 
@@ -129,24 +137,27 @@ func (c *client) Close() error {
 
 	c.backoff.Reset()
 	c.running = false
+	c.mu.Unlock()
+
+	c.wg.Wait()
 
 	return nil
 }
 
 func (c *client) invoke(method string, args ...any) error {
 	c.mu.Lock()
-	if !c.running || c.connection == nil {
-		c.mu.Unlock()
+	conn := c.connection
+	running := c.running
+	c.mu.Unlock()
 
+	if !running || conn == nil {
 		return errors.New("client is not running")
 	}
-
-	c.mu.Unlock()
 
 	timer := time.NewTimer(c.cfg.SignalRInvokeTimeout())
 	defer timer.Stop()
 
-	results := c.connection.Invoke(method, args...)
+	results := conn.Invoke(method, args...)
 
 	select {
 	case result := <-results:
@@ -160,16 +171,16 @@ func (c *client) handleConnection(ctx context.Context) {
 	defer telemetry.RecoverAndEmit(nil, "handleConnection", true)
 
 	for {
-		if client, err := c.getClient(ctx); err != nil {
+		if conn, err := c.getClient(ctx); err != nil {
 			log.Errorf("Unable to start signalr client err: %v", err)
 		} else {
-			c.connection = client
-			c.connection.Start()
+			c.setConnection(conn)
+			conn.Start()
 
-			c.notifyState(ctx)
+			c.notifyState(ctx, conn)
 		}
 
-		c.connection = nil
+		c.setConnection(nil)
 
 		select {
 		case <-ctx.Done():
@@ -179,10 +190,17 @@ func (c *client) handleConnection(ctx context.Context) {
 	}
 }
 
-func (c *client) notifyState(ctx context.Context) {
+func (c *client) setConnection(conn signalr.Client) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.connection = conn
+}
+
+func (c *client) notifyState(ctx context.Context, conn signalr.Client) {
 	ch := make(chan signalr.ClientState, 1)
 
-	cancel := c.connection.ObserveStateChanged(ch)
+	cancel := conn.ObserveStateChanged(ch)
 	defer cancel()
 
 	for {
@@ -200,7 +218,10 @@ func (c *client) notifyState(ctx context.Context) {
 			}
 
 			if c.updateState(state) {
-				c.states <- state
+				select {
+				case c.states <- state:
+				case <-ctx.Done():
+				}
 			}
 
 			if clientState == signalr.ClientClosed {
@@ -225,7 +246,7 @@ func (c *client) updateState(state model.ClientState) bool {
 }
 
 func (c *client) getClient(ctx context.Context) (signalr.Client, error) {
-	connection, err := c.getConnection()
+	connection, err := c.getConnection(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +261,17 @@ func (c *client) getClient(ctx context.Context) (signalr.Client, error) {
 	)
 }
 
-func (c *client) getConnection() (signalr.Connection, error) {
+func sleepCtx(ctx context.Context, d time.Duration) {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
+func (c *client) getConnection(ctx context.Context) (signalr.Connection, error) {
 	token, err := c.tokenProvider()
 	if err != nil {
 		// Currently we have a bug, when authorization gets broken the signalR library may start
@@ -248,7 +279,7 @@ func (c *client) getConnection() (signalr.Connection, error) {
 		// when error returned - it is being logged.
 		// Implementing a proper start up -> shutdown should be done, but require a bit more thought.
 		// This is a hacky solution to avoid spam of logs.
-		time.Sleep(time.Minute)
+		sleepCtx(ctx, time.Minute)
 
 		return nil, fmt.Errorf("unable to get access token (signalR): %w", err)
 	}
@@ -260,15 +291,15 @@ func (c *client) getConnection() (signalr.Connection, error) {
 		return h
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.SignalRConnCreationTimeout())
+	connCtx, cancel := context.WithTimeout(ctx, c.cfg.SignalRConnCreationTimeout())
 	defer cancel()
 
 	url := c.cfg.SignalRBaseURL() + signalRURI
 
-	conn, err := signalr.NewHTTPConnection(ctx, url, signalr.WithHTTPHeaders(headers))
+	conn, err := signalr.NewHTTPConnection(connCtx, url, signalr.WithHTTPHeaders(headers))
 	if err != nil {
 		// See the comment above for another sleep.
-		time.Sleep(30 * time.Second)
+		sleepCtx(ctx, 30*time.Second)
 
 		return nil, fmt.Errorf("unable to instantiate signalR connection: %w", err)
 	}

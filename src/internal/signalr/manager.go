@@ -1,6 +1,7 @@
 package signalr
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -54,9 +55,10 @@ type manager struct {
 
 func NewManager(cfg *config.Service, client Client) Manager {
 	return &manager{
-		cfg:      cfg,
-		client:   client,
-		chargers: make(map[string]*charger),
+		cfg:           cfg,
+		client:        client,
+		chargers:      make(map[string]*charger),
+		subscriptions: make(chan string, 32),
 	}
 }
 
@@ -66,10 +68,6 @@ func (m *manager) Start() error {
 
 	if m.running {
 		return nil
-	}
-
-	if m.done != nil {
-		close(m.done)
 	}
 
 	m.done = make(chan struct{})
@@ -83,26 +81,28 @@ func (m *manager) Start() error {
 
 func (m *manager) Stop() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if !m.running {
+		m.mu.Unlock()
+
 		return nil
 	}
 
-	if m.done != nil {
-		close(m.done)
-	}
-
 	m.running = false
+	done := m.done
+	m.mu.Unlock()
 
-	return nil
+	err := m.client.Close()
+
+	close(done)
+
+	return err
 }
 
 func (m *manager) Register(chargerID string, handler Handler) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if _, ok := m.chargers[chargerID]; ok {
+		m.mu.Unlock()
 		log.Warnf("Charger '%s' is already registered", chargerID)
 
 		return
@@ -115,9 +115,21 @@ func (m *manager) Register(chargerID string, handler Handler) {
 	}
 
 	m.ensureClientStarted()
+	m.mu.Unlock()
 
-	if m.subscriptions != nil {
-		m.subscriptions <- chargerID
+	m.enqueueSubscription(chargerID)
+}
+
+// enqueueSubscription hands a charger ID to the run loop for (re)subscription.
+// The send never happens under m.mu and always has a cancellation escape via done.
+func (m *manager) enqueueSubscription(chargerID string) {
+	m.mu.RLock()
+	done := m.done
+	m.mu.RUnlock()
+
+	select {
+	case m.subscriptions <- chargerID:
+	case <-done:
 	}
 }
 
@@ -131,17 +143,19 @@ func (m *manager) Unregister(chargerID string) error {
 
 	delete(m.chargers, chargerID)
 
+	var errs error
+
 	if err := m.client.UnsubscribeCharger(chargerID); err != nil {
-		return err
+		errs = errors.Join(errs, err)
 	}
 
 	if len(m.chargers) == 0 {
 		if err := m.client.Close(); err != nil {
-			return err
+			errs = errors.Join(errs, err)
 		}
 	}
 
-	return nil
+	return errs
 }
 
 func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
@@ -167,19 +181,19 @@ func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
 func (m *manager) run() {
 	defer telemetry.RecoverAndEmit(nil, "manager.run", true)
 
+	m.mu.RLock()
+	done := m.done
+	m.mu.RUnlock()
+
 	states := m.client.StateC()
 	observations := m.client.ObservationC()
 
 	for {
 		select {
-		case <-m.done:
+		case <-done:
 			return
 
-		case chargerID, ok := <-m.subscriptions:
-			if !ok {
-				continue
-			}
-
+		case chargerID := <-m.subscriptions:
 			if err := m.handleSubscription(chargerID); err != nil {
 				log.Warnf("Handle subscription chargerID=%s err: %v", chargerID, err)
 			}
@@ -207,10 +221,6 @@ func (m *manager) handleSubscription(chargerID string) error {
 	if err := m.client.SubscribeCharger(chargerID); err != nil {
 		log.Warnf("Failed to subscribe charger '%s'", chargerID)
 
-		if m.subscriptions == nil {
-			return fmt.Errorf("subscriptions channel closed")
-		}
-
 		go m.addChargerSubscription(chargerID, charger)
 
 		return nil
@@ -226,20 +236,15 @@ func (m *manager) handleSubscription(chargerID string) error {
 func (m *manager) addChargerSubscription(chargerID string, charger *charger) {
 	m.mu.Lock()
 	timer := time.NewTimer(charger.backoff.Next())
+	done := m.done
 	m.mu.Unlock()
 
 	defer timer.Stop()
 
 	select {
-	case <-m.done:
+	case <-done:
 	case <-timer.C:
-		m.mu.Lock()
-		ok := m.subscriptions != nil
-		m.mu.Unlock()
-
-		if ok {
-			m.subscriptions <- chargerID
-		}
+		m.enqueueSubscription(chargerID)
 	}
 }
 
@@ -249,7 +254,6 @@ func (m *manager) handleClientState(state model.ClientState) {
 		log.Info("signalR: client connected")
 
 		m.mu.Lock()
-		m.subscriptions = make(chan string, 1+len(m.chargers))
 		chargersIDs := make([]string, 0, len(m.chargers))
 
 		for chargerID := range m.chargers {
@@ -258,12 +262,13 @@ func (m *manager) handleClientState(state model.ClientState) {
 
 		m.mu.Unlock()
 
-		for _, chargerID := range chargersIDs {
-			select {
-			case <-m.done:
-			case m.subscriptions <- chargerID:
+		// Offload the re-subscription sends: this runs on the run() goroutine, which is
+		// also the only drainer of m.subscriptions, so sending inline could self-block.
+		go func() {
+			for _, chargerID := range chargersIDs {
+				m.enqueueSubscription(chargerID)
 			}
-		}
+		}()
 
 	case model.ClientStateDisconnected:
 		log.Warn("signalR: client disconnected")
@@ -272,11 +277,6 @@ func (m *manager) handleClientState(state model.ClientState) {
 		for _, charger := range m.chargers {
 			charger.backoff.Reset()
 			charger.isSubscribed = false
-		}
-
-		if m.subscriptions != nil {
-			close(m.subscriptions)
-			m.subscriptions = nil
 		}
 
 		m.mu.Unlock()
