@@ -16,7 +16,13 @@ checkfmt() {
     IFS='
 '
 
-    unformatted=$(gofmt -l $gofiles)
+    if ! unformatted=$(gofmt -l $gofiles); then
+        # gofmt reports parse errors on stderr with a non-zero exit and nothing on
+        # stdout, so without this check syntax-invalid files would pass the hook.
+        echo >&2 "pre-commit hook: gofmt failed - fix the syntax errors above. Changes not committed!!"
+        exit 1
+    fi
+
     # Return if no files need formatting
     [ -z "$unformatted" ] && return 0
 
