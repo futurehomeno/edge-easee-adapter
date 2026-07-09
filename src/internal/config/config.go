@@ -160,6 +160,21 @@ func NewService(storage storage.Storage[*Config]) *Service {
 	}
 }
 
+// DefaultStore exposes the config as a cliffhanger DefaultStore whose Save runs
+// under cs.lock, so debug-route log mutations serialize with credential writes on
+// the shared config instead of racing under the store's separate mutex.
+func (cs *Service) DefaultStore() *config.DefaultStore {
+	return config.NewDefaultStore(
+		func() *config.Default { return &cs.Model().Default },
+		func() error {
+			cs.lock.Lock()
+			defer cs.lock.Unlock()
+
+			return cs.Save()
+		},
+	)
+}
+
 func (cs *Service) PublicConfig() PublicConfig {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()

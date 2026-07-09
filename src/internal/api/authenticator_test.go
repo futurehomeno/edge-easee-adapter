@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/michalkurzeja/go-clock"
@@ -19,6 +18,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
+	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 )
 
 //nolint:godox

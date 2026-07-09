@@ -13,9 +13,9 @@ import (
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/debug"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
-	cliffStorage "github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/prime"
 	"github.com/futurehomeno/cliffhanger/router"
+	cliffStorage "github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/test/suite"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
@@ -1422,7 +1422,7 @@ func cleanUpTestData(t *testing.T, configSet string) {
 	}
 
 	// recreate 'data' path
-	if err = os.Mkdir(dataPath, 0750); err != nil {
+	if err = os.Mkdir(dataPath, 0o750); err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
 

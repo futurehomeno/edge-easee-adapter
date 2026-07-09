@@ -258,7 +258,24 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			}
 			retryAfter := time.Duration(retries)*timeout + time.Second*time.Duration(randomDelay.Int64())
 			log.Warnf("[auth] AT refresh err=%v retry in %ds", err, int(retryAfter.Seconds()))
+
+			// Release a.lock during the backoff sleep so other API calls and the SignalR
+			// token fetch are not blocked for the whole retry window. Caller (AccessToken)
+			// holds the lock, so we must re-acquire before returning/continuing.
+			a.lock.Unlock()
 			time.Sleep(retryAfter)
+			a.lock.Lock()
+
+			// A concurrent Logout may have cleared credentials while we slept; retrying with
+			// the stale tokens captured before the sleep would silently undo that logout.
+			fresh := a.cfg.Credentials()
+			if fresh.Empty() {
+				return nil, ErrNotLoggedIn
+			}
+
+			if !fresh.AccessTokenExpired() {
+				return &fresh, nil
+			}
 
 		default:
 			a.backoff.Fail()

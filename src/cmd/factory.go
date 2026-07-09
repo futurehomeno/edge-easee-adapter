@@ -104,10 +104,7 @@ func migrateConfig(cfgSvc *config.Service) {
 
 func getDefaultStore() *cliffCfg.DefaultStore {
 	if services.defaultStore == nil {
-		services.defaultStore = cliffCfg.NewDefaultStoreFromStorage(
-			getConfigService().Storage,
-			func(c *config.Config) *cliffCfg.Default { return &c.Default },
-		)
+		services.defaultStore = getConfigService().DefaultStore()
 	}
 
 	return services.defaultStore
@@ -150,7 +147,8 @@ func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 	if services.mqtt == nil {
 		errHandler := func(err error) {
-			log.Fatalf("Unrecoverable MQTT err: %v", err)
+			log.Errorf("unrecoverable MQTT error: err=%v", err)
+			panic(err)
 		}
 
 		services.mqtt = fimpgo.NewMqttTransport(

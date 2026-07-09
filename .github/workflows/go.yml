@@ -16,6 +16,7 @@ permissions:
 jobs:
   setup:
     runs-on: ubuntu-24.04
+    timeout-minutes: 3
 
     steps:
       - uses: actions/checkout@v4
@@ -47,6 +48,7 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     needs: setup
+    timeout-minutes: 3
 
     steps:
       - uses: actions/checkout@v4
@@ -71,7 +73,7 @@ jobs:
   linter:
     runs-on: ubuntu-24.04
     needs: setup
-    timeout-minutes: 2
+    timeout-minutes: 3
 
     steps:
       - uses: actions/checkout@v4
@@ -85,6 +87,13 @@ jobs:
         with:
           name: generated-mocks
           path: src/internal/test/mocks/
+
+      - name: Configure git for private modules
+        run: |
+          git config --global url."https://${{ secrets.GH_OAUTH_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Configure Go private modules
+        run: go env -w GOPRIVATE=github.com/futurehomeno/*
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
@@ -100,6 +109,7 @@ jobs:
 
   test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     needs:
       - setup
       - build
