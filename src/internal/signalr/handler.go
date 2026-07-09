@@ -613,6 +613,8 @@ func (h *energyHandler) handle(observation model.Observation) error {
 	select {
 	case ch <- observation:
 	default:
+		log.WithField("thing_address", h.thing.Address()).
+			Warn("lifetime energy handler: observation buffer full, dropping observation")
 	}
 
 	return nil

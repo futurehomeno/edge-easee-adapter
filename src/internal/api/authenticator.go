@@ -266,7 +266,14 @@ func (a *authenticator) updateCredentials(credentials config.Credentials, retrie
 			time.Sleep(retryAfter)
 			a.lock.Lock()
 
-			if fresh := a.cfg.Credentials(); !fresh.AccessTokenExpired() {
+			// A concurrent Logout may have cleared credentials while we slept; retrying with
+			// the stale tokens captured before the sleep would silently undo that logout.
+			fresh := a.cfg.Credentials()
+			if fresh.Empty() {
+				return nil, ErrNotLoggedIn
+			}
+
+			if !fresh.AccessTokenExpired() {
 				return &fresh, nil
 			}
 
