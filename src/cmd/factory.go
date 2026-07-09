@@ -104,10 +104,7 @@ func migrateConfig(cfgSvc *config.Service) {
 
 func getDefaultStore() *cliffCfg.DefaultStore {
 	if services.defaultStore == nil {
-		services.defaultStore = cliffCfg.NewDefaultStoreFromStorage(
-			getConfigService().Storage,
-			func(c *config.Config) *cliffCfg.Default { return &c.Default },
-		)
+		services.defaultStore = getConfigService().DefaultStore()
 	}
 
 	return services.defaultStore
