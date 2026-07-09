@@ -559,13 +559,13 @@ type TimestampedValue[T any] struct {
 }
 
 type StartChargingSession struct {
-	ID         int       `json:"Id"`
+	ID         int64     `json:"Id"`
 	MeterValue float64   `json:"MeterValue"`
 	Start      time.Time `json:"Start"`
 }
 
 type StopChargingSession struct {
-	ID              int       `json:"Id"`
+	ID              int64     `json:"Id"`
 	Energy          float64   `json:"EnergyKwh"`
 	MeterValueStart float64   `json:"MeterValueStart"`
 	MeterValueStop  float64   `json:"MeterValueStop"`

@@ -36,6 +36,27 @@ func (suite *SessionStorageSuite) SetupTest() {
 	suite.storage = db.NewSessionStorage(fileDB)
 }
 
+// Regression: Easee session IDs can exceed the 32-bit range. The release builds for
+// armhf (GOARCH=arm), where a narrowed int would overflow on JSON unmarshal and on the
+// bbolt key round-trip. Large IDs must survive intact.
+func (suite *SessionStorageSuite) TestRegister_LargeSessionID() {
+	const largeID int64 = 5_000_000_000 // > math.MaxInt32
+
+	startTime := time.Date(2026, time.January, 1, 12, 0, 0, 0, time.UTC)
+
+	err := suite.storage.RegisterSessionStart(suite.chargerID, model.StartChargingSession{
+		ID:         largeID,
+		Start:      startTime,
+		MeterValue: 10,
+	})
+	suite.Require().NoError(err)
+
+	got, err := suite.storage.LatestSessionsByChargerID(suite.chargerID)
+	suite.Require().NoError(err)
+	suite.Require().NotEmpty(got)
+	suite.Equal(largeID, got.Latest().ID)
+}
+
 func (suite *SessionStorageSuite) TestRegister_StartAndStopSession() {
 	startTime := time.Date(1997, time.February, 17, 18, 0, 0, 0, time.UTC)
 	stopTime := startTime.Add(time.Hour)
