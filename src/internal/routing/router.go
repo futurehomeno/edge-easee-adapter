@@ -10,9 +10,26 @@ import (
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/fimpgo/fimptype"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
+
+func LogStats(stats router.Stats) {
+	if stats.InputMessage != nil && stats.InputMessage.Payload != nil {
+		log.Infof("FMP %s -> %s %s %v",
+			stats.InputMessage.Payload.Source,
+			stats.InputMessage.Payload.Service,
+			stats.InputMessage.Payload.Interface,
+			stats.InputMessage.Payload.Value)
+	}
+
+	if stats.OutputMessage != nil && stats.OutputMessage.Payload != nil {
+		log.Debugf("FMP <- %s %s",
+			stats.OutputMessage.Payload.Service,
+			stats.OutputMessage.Payload.Interface)
+	}
+}
 
 // New returns a new routing table.
 func New(

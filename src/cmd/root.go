@@ -15,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 )
 
 func Execute(packageName, version string) error {
@@ -64,6 +65,7 @@ func Build(cfg *config.Config, packageName, version string) (root.App, error) {
 			cmdTopic(fimptype.ResourceTypeAdapter),
 			cmdTopic(fimptype.ResourceTypeDevice),
 		).
+		WithRouterOptions(cliffRouter.WithStatsCallback(routing.LogStats)).
 		WithRouting(newRouting(cfg)...).
 		WithTask(newTasks(cfg)...).
 		WithServices(getSignalRManager(cfg), getEventListener(cfg), getSessionStorage(cfg)).
