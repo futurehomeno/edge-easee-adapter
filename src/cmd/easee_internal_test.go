@@ -5,6 +5,7 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
@@ -33,6 +35,10 @@ const (
 	evtDeviceChargepointTopic = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1"
 	evtDeviceMeterElecTopic   = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1"
 )
+
+// refreshTaskPings counts Ping calls made by the token-refresh task in the
+// "Token refresh task..." case; read/written atomically since the task runs on its own goroutine.
+var refreshTaskPings atomic.Int32
 
 func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 	mqttAddr := test.SetupMQTTContainer(t)
@@ -1333,7 +1339,8 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				Setup: serviceSetup(testContainer, "configured", mqttAddr, func(client *mockapi.Client) {
 					client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 					client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
-					client.On("Ping").Return(nil).Maybe()
+					refreshTaskPings.Store(0)
+					client.On("Ping").Return(nil).Run(func(mock.Arguments) { refreshTaskPings.Add(1) }).Maybe()
 				}, signalRSetup(test.DefaultSignalRAddr, nil)),
 				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
 				Nodes: []*suite.Node{
@@ -1342,15 +1349,16 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							waitForRunning(),
 							func(t *testing.T) {
 								t.Helper()
-								time.Sleep(400 * time.Millisecond)
-							},
-							func(t *testing.T) {
-								t.Helper()
-								client, ok := services.easeeAPIClient.(*mockapi.Client)
-								if !ok {
-									t.Fatalf("expected easeeAPIClient to be of type *mockapi.Client")
+								// Poll for repeated Ping calls instead of asserting an exact, timing-dependent
+								// count: the refresh task fires more than once, but the number depends on
+								// scheduler and CI jitter.
+								deadline := time.Now().Add(2 * time.Second)
+								for refreshTaskPings.Load() < 3 {
+									if time.Now().After(deadline) {
+										t.Fatalf("expected repeated Ping calls at the configured interval, got %d", refreshTaskPings.Load())
+									}
+									time.Sleep(20 * time.Millisecond)
 								}
-								client.AssertNumberOfCalls(t, "Ping", 6)
 							},
 						},
 					},

@@ -93,10 +93,10 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 		return nil, err
 	}
 
-	keys := make([]int, 0, len(stringKeys))
+	keys := make([]int64, 0, len(stringKeys))
 
 	for _, k := range stringKeys {
-		key, _ := strconv.Atoi(k)
+		key, _ := strconv.ParseInt(k, 10, 64)
 		keys = append(keys, key)
 	}
 
@@ -110,7 +110,7 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 	for _, k := range keys {
 		var session *ChargingSession
 
-		ok, err := s.db.Get(bucket, strconv.Itoa(k), &session)
+		ok, err := s.db.Get(bucket, strconv.FormatInt(k, 10), &session)
 		if !ok || err != nil {
 			return nil, err
 		}
@@ -130,14 +130,14 @@ func (s *sessionStorage) bucketName(chargerID string) string {
 }
 
 type ChargingSession struct {
-	ID     int       `json:"id"`
+	ID     int64     `json:"id"`
 	Start  time.Time `json:"start"`
 	Stop   time.Time `json:"stop"`
 	Energy float64   `json:"energy"`
 }
 
-func idString(id int) string {
-	return strconv.FormatInt(int64(id), 10)
+func idString(id int64) string {
+	return strconv.FormatInt(id, 10)
 }
 
 type ChargingSessions []*ChargingSession
