@@ -205,7 +205,7 @@ func (cs *Service) EnergyLifetimeInterval() time.Duration {
 
 	duration, err := time.ParseDuration(cs.Model().EnergyLifetimeInterval)
 	if err != nil {
-		return 5 * time.Minute
+		return 10 * time.Second
 	}
 
 	return duration
