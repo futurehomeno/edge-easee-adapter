@@ -218,6 +218,12 @@ func (m *manager) handleSubscription(chargerID string) error {
 		return fmt.Errorf("unknown charger")
 	}
 
+	// A retry armed before a disconnect can fire after the reconnect sweep already
+	// re-subscribed this charger; don't subscribe twice on the same connection.
+	if charger.isSubscribed {
+		return nil
+	}
+
 	if err := m.client.SubscribeCharger(chargerID); err != nil {
 		log.Warnf("Failed to subscribe charger '%s'", chargerID)
 
