@@ -8,7 +8,7 @@
 # This hook runs 'go fmt ./...' on staged Go files.
 # It will NOT proceed to commit the files if formatting has been applied.
 
-gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '.go$')
+gofiles=$(git diff --cached --name-only --diff-filter=ACM | grep '\.go$')
 [ -z "$gofiles" ] && exit 0
 
 checkfmt() {
