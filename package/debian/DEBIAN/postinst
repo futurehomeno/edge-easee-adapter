@@ -24,7 +24,6 @@ add_user_and_group() {
 
 create_dirs_and_files() {
 	echo "Create directories and files"
-	touch /opt/thingsplex/easee/data/config.json
 	touch /var/log/thingsplex/easee/easee.log
 }
 
