@@ -7,6 +7,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/database"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
@@ -96,7 +97,13 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 	keys := make([]int64, 0, len(stringKeys))
 
 	for _, k := range stringKeys {
-		key, _ := strconv.ParseInt(k, 10, 64)
+		key, err := strconv.ParseInt(k, 10, 64)
+		if err != nil {
+			log.Errorf("session storage: skipping unparsable session key %q in bucket %s: %v", k, bucket, err)
+
+			continue
+		}
+
 		keys = append(keys, key)
 	}
 
