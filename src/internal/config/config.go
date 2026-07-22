@@ -566,7 +566,7 @@ func (cs *Service) SignalRBackoffStateful() backoff.Stateful {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Model().SignalR.stateful(5*time.Second, 30*time.Second, 2*time.Minute)
+	return cs.Model().SignalR.stateful(5*time.Second, 30*time.Second, 10*time.Minute)
 }
 
 func (cs *Service) AuthenticatorMaxUnauthorized() time.Duration {
