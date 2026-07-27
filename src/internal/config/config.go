@@ -182,6 +182,15 @@ func (cs *Service) PublicConfig() PublicConfig {
 	return cs.Model().PublicConfig
 }
 
+// PublicModel implements cliffhanger's app.PublicModeler so
+// cmd.config.get_extended_report and the manifest expose only the FIMP-safe
+// PublicConfig. Without it publicConfigState falls back to the full model,
+// leaking config.Default (log level/format, MQTT credentials, telemetry, ...)
+// and the access/refresh tokens.
+func (cs *Service) PublicModel() any {
+	return cs.PublicConfig()
+}
+
 func (cs *Service) EaseeBaseURL() string {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
