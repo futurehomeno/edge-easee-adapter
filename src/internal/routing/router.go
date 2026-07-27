@@ -9,6 +9,7 @@ import (
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/router"
+	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
@@ -16,19 +17,31 @@ import (
 )
 
 func LogStats(stats router.Stats) {
-	if stats.InputMessage != nil && stats.InputMessage.Payload != nil {
-		log.Infof("FMP %s -> %s %s %v",
-			stats.InputMessage.Payload.Source,
-			stats.InputMessage.Payload.Service,
-			stats.InputMessage.Payload.Interface,
-			stats.InputMessage.Payload.Value)
-	}
-
 	if stats.OutputMessage != nil && stats.OutputMessage.Payload != nil {
 		log.Debugf("FMP <- %s %s",
 			stats.OutputMessage.Payload.Service,
 			stats.OutputMessage.Payload.Interface)
 	}
+}
+
+// routeLogIncoming logs every incoming message. It must stay first in the routing table,
+// as the router runs routings in order and the stats callback fires only after handling.
+func routeLogIncoming() *router.Routing {
+	return router.NewRouting(
+		router.NewMessageHandler(
+			router.MessageProcessorFn(func(message *fimpgo.Message) (*fimpgo.FimpMessage, error) {
+				if message.Payload != nil {
+					log.Infof("FMP %s -> %s %s %v",
+						message.Payload.Source,
+						message.Payload.Service,
+						message.Payload.Interface,
+						message.Payload.Value)
+				}
+
+				return nil, nil
+			}),
+		),
+	)
 }
 
 // New returns a new routing table.
@@ -39,6 +52,7 @@ func New(
 	adapter cliffAdapter.Adapter,
 ) []*router.Routing {
 	return router.Combine(
+		[]*router.Routing{routeLogIncoming()},
 		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.PublicConfig() }, nil),
 		[]*router.Routing{
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.PollingInterval),
