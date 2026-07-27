@@ -1,6 +1,7 @@
 package easee
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -82,7 +83,11 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	if err := controller.UpdateState(info.ChargerID, state); err != nil {
-		return nil, err
+		if !errors.Is(err, api.ErrNotLoggedIn) {
+			return nil, err
+		}
+
+		log.Warnf("factory: [%s] not logged in, creating thing with stored state", info.ChargerID)
 	}
 
 	if err := thingState.SetState(state); err != nil {
