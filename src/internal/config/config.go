@@ -472,7 +472,7 @@ func (cs *Service) SignalRFinalBackoff() time.Duration {
 
 	interval, err := time.ParseDuration(cs.Model().SignalR.FinalBackoff)
 	if err != nil {
-		return 2 * time.Minute
+		return 10 * time.Minute
 	}
 
 	return interval

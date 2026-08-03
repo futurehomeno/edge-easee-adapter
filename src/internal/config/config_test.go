@@ -3,6 +3,7 @@ package config_test
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,4 +39,17 @@ func TestService_PublicModel_NoSecrets(t *testing.T) {
 	assert.NotContains(t, string(body), "mqtt-pass")
 	assert.NotContains(t, string(body), "log_level")
 	assert.NotContains(t, string(body), "telemetry")
+}
+
+// TestService_SignalRFinalBackoff_MatchesStatefulDefault locks the getter's unset-config
+// default to the final backoff SignalRBackoffStateful actually applies, so cmd.config.get
+// signalr_final_backoff can't silently drift from runtime behavior again.
+func TestService_SignalRFinalBackoff_MatchesStatefulDefault(t *testing.T) {
+	cfg := &config.Config{}
+
+	st := &mockedstorage.Storage[*config.Config]{}
+	st.On("Model").Return(cfg)
+	cs := config.NewService(st)
+
+	assert.Equal(t, 10*time.Minute, cs.SignalRFinalBackoff())
 }
