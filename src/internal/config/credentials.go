@@ -41,6 +41,10 @@ func (s *CredentialsStore) Credentials() Credentials {
 	return *s.storage.Model()
 }
 
+// SetCredentials deliberately keeps the new credentials in memory when the write fails.
+// Easee rotates the refresh token on every exchange, so rolling back would leave the
+// process holding a token the API has already retired - a transient disk error would
+// then cost the session. Disk catches up on the next successful save.
 func (s *CredentialsStore) SetCredentials(credentials Credentials) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()

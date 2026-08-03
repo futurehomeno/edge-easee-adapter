@@ -63,10 +63,6 @@ func (c Credentials) AccessTokenExpired() bool {
 	return clock.Now().After(c.AccessTokenExpiresAt)
 }
 
-func (c Credentials) RefreshTokenExpired() bool {
-	return clock.Now().After(c.RefreshTokenExpiresAt)
-}
-
 type backoffSettings struct {
 	InitialBackoff       string `json:"initialBackoff"`
 	RepeatedBackoff      string `json:"repeatedBackoff"`
