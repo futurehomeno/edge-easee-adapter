@@ -172,7 +172,7 @@ func (c *client) handleConnection(ctx context.Context) {
 
 	for {
 		if conn, err := c.getClient(ctx); err != nil {
-			log.Errorf("Unable to start signalr client err: %v", err)
+			log.Warnf("Unable to start signalr client err: %v", err)
 		} else {
 			c.setConnection(conn)
 			conn.Start()

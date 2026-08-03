@@ -154,10 +154,22 @@ func (c *Config) MigrateAuthBackoff() error {
 }
 
 // MigrateOfferedCurrentWaitTime lifts installs still carrying the superseded packaged
-// default onto the rate-limit-safe wait time; an explicitly tuned value is left alone.
+// default ("15s") onto the rate-limit-safe wait time. Any other value is left alone; a
+// "15s" chosen deliberately is indistinguishable from the old default and is rewritten too.
 func (c *Config) MigrateOfferedCurrentWaitTime() error {
 	if c.OfferedCurrentWaitTime == "15s" {
 		c.OfferedCurrentWaitTime = "20s"
+	}
+
+	return nil
+}
+
+// MigrateSignalRFinalBackoff lifts installs still carrying the superseded packaged
+// default ("2m") onto the calmer ceiling. Any other value is left alone; a "2m" chosen
+// deliberately is indistinguishable from the old default and is rewritten too.
+func (c *Config) MigrateSignalRFinalBackoff() error {
+	if c.SignalR.FinalBackoff == "2m" {
+		c.SignalR.FinalBackoff = "10m"
 	}
 
 	return nil
@@ -482,7 +494,7 @@ func (cs *Service) SignalRFinalBackoff() time.Duration {
 
 	interval, err := time.ParseDuration(cs.Model().SignalR.FinalBackoff)
 	if err != nil {
-		return 2 * time.Minute
+		return 10 * time.Minute
 	}
 
 	return interval
@@ -585,7 +597,7 @@ func (cs *Service) SignalRBackoffStateful() backoff.Stateful {
 	cs.lock.RLock()
 	defer cs.lock.RUnlock()
 
-	return cs.Model().SignalR.stateful(5*time.Second, 30*time.Second, 2*time.Minute)
+	return cs.Model().SignalR.stateful(5*time.Second, 30*time.Second, 10*time.Minute)
 }
 
 func (cs *Service) AuthenticatorMaxUnauthorized() time.Duration {

@@ -24,7 +24,7 @@
     "timeoutInterval2": "1m",
     "initialBackoff": "10s",
     "repeatedBackoff": "30s",
-    "finalBackoff": "2m",
+    "finalBackoff": "10m",
     "initialFailureCount": 2,
     "repeatedFailureCount": 3,
     "invokeTimeout": "10s"
