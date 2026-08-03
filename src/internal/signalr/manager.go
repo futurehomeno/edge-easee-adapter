@@ -230,7 +230,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 		if charger.subscribeFailed {
 			log.Debugf("Failed to subscribe charger '%s'", chargerID)
 		} else {
-			log.Warnf("Failed to subscribe charger '%s'", chargerID)
+			log.Warnf("Failed to subscribe charger '%s': %v", chargerID, err)
 			charger.subscribeFailed = true
 		}
 
