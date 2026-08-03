@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -52,4 +53,42 @@ func TestService_SignalRFinalBackoff_MatchesStatefulDefault(t *testing.T) {
 	cs := config.NewService(st)
 
 	assert.Equal(t, 10*time.Minute, cs.SignalRFinalBackoff())
+}
+
+// TestService_SignalRFinalBackoff_MatchesPackagedDefault ties the ceiling to the value the
+// packaged config actually ships. Without it the getter/stateful fallbacks can be raised while
+// every real install keeps reading the old value from disk, leaving the bump a no-op.
+func TestService_SignalRFinalBackoff_MatchesPackagedDefault(t *testing.T) {
+	body, err := os.ReadFile("../../../package/debian/opt/thingsplex/easee/defaults/config.json")
+	require.NoError(t, err)
+
+	cfg := &config.Config{}
+	require.NoError(t, json.Unmarshal(body, cfg))
+
+	st := &mockedstorage.Storage[*config.Config]{}
+	st.On("Model").Return(cfg)
+
+	assert.Equal(t, 10*time.Minute, config.NewService(st).SignalRFinalBackoff())
+}
+
+func TestConfig_MigrateSignalRFinalBackoff(t *testing.T) {
+	tests := []struct {
+		name     string
+		current  string
+		expected string
+	}{
+		{name: "superseded packaged default is lifted", current: "2m", expected: "10m"},
+		{name: "tuned value is preserved", current: "5m", expected: "5m"},
+		{name: "unset value is left to the getter fallback", current: "", expected: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.SignalR.FinalBackoff = tt.current
+
+			require.NoError(t, cfg.MigrateSignalRFinalBackoff())
+			assert.Equal(t, tt.expected, cfg.SignalR.FinalBackoff)
+		})
+	}
 }

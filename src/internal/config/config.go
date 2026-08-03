@@ -153,6 +153,16 @@ func (c *Config) MigrateAuthBackoff() error {
 	return nil
 }
 
+// MigrateSignalRFinalBackoff lifts installs still carrying the superseded packaged
+// default onto the calmer ceiling; an explicitly tuned value is left alone.
+func (c *Config) MigrateSignalRFinalBackoff() error {
+	if c.SignalR.FinalBackoff == "2m" {
+		c.SignalR.FinalBackoff = "10m"
+	}
+
+	return nil
+}
+
 func NewService(storage storage.Storage[*Config]) *Service {
 	return &Service{
 		Storage: storage,
