@@ -420,6 +420,9 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				tt.mockSignalRClient(signalRClientMock)
 			}
 
+			// Read by the selection adoption on login.
+			adapterMock.On("Things").Return([]adapter.Thing{}).Maybe()
+
 			cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
 			application := app.New(adapterMock, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}))
 
@@ -710,9 +713,10 @@ func TestApplication_Configure_Selection(t *testing.T) {
 			wantSelected: []string{"456"},
 		},
 		{
-			name:       "empty selection includes every charger and stays empty",
-			chargers:   []model.Charger{{ID: "123"}, {ID: "456"}},
-			wantSeeded: []string{"123", "456"},
+			name:         "empty selection includes every charger and is materialised",
+			chargers:     []model.Charger{{ID: "123"}, {ID: "456"}},
+			wantSeeded:   []string{"123", "456"},
+			wantSelected: []string{"123", "456"},
 		},
 		{
 			name:         "empty selection keeps the chargers already seeded",
@@ -792,9 +796,12 @@ func TestApplication_Login_Selection(t *testing.T) {
 		wantSelected []string
 	}{
 		{
-			name:       "no selection seeds every charger",
-			chargers:   []model.Charger{{ID: "123"}, {ID: "456"}},
-			wantSeeded: []string{"123", "456"},
+			// Materialised rather than left empty, so a later cmd.thing.delete can
+			// express the exclusion instead of being undone by the next login.
+			name:         "no selection seeds every charger and is materialised",
+			chargers:     []model.Charger{{ID: "123"}, {ID: "456"}},
+			wantSeeded:   []string{"123", "456"},
+			wantSelected: []string{"123", "456"},
 		},
 		{
 			name:         "a persisted selection is honoured",
@@ -1022,4 +1029,44 @@ func (h *selectionHarness) seeded() []string {
 	defer h.lock.Unlock()
 
 	return h.ids
+}
+
+// An upgrade that happens while logged out never reaches the boot-time adoption, so the
+// first login must adopt before the cap runs - otherwise chargers this hub already had,
+// but which sit outside the first maxAutoSelected of the account, are destroyed.
+func TestApplication_Login_AdoptsSeededSelectionWhenLoggedOut(t *testing.T) {
+	t.Parallel()
+
+	chargers := make([]model.Charger, 0, 12)
+	for i := range 12 {
+		chargers = append(chargers, model.Charger{ID: strconv.Itoa(i)})
+	}
+
+	owned := []string{"0", "11"}
+
+	h := newSelectionHarness(t, chargers, nil, owned, nil)
+
+	require.NoError(t, h.login())
+
+	assert.Equal(t, owned, h.seeded(), "the chargers this hub already had must survive the cap")
+	assert.Equal(t, owned, h.cfg.SelectedDevices())
+}
+
+// The budget keys on the set of missing chargers, not on the order the selection happens
+// to be stored in - re-ticking the same devices in another order must not hand back a
+// fresh set of attempts.
+func TestApplication_Login_MissingSelectedBudgetIsOrderIndependent(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, []model.Charger{{ID: "123"}}, nil, nil, nil)
+	require.NoError(t, h.cfg.SetSelectedDevices([]string{"123", "gone", "other"}))
+
+	for range 3 {
+		require.ErrorContains(t, h.login(), "gone")
+	}
+
+	require.NoError(t, h.cfg.SetSelectedDevices([]string{"other", "123", "gone"}))
+
+	require.NoError(t, h.login(), "the same missing set reordered must not reset the budget")
+	assert.Equal(t, []string{"123"}, h.seeded())
 }

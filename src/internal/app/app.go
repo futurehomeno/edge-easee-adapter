@@ -226,6 +226,12 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 		return fmt.Errorf("failed to login as '%s': %w", credentials.Username, err)
 	}
 
+	// A hub upgraded while logged out never reached the boot-time adoption, because
+	// Initialize returns before it when the secrets store is empty. Without this the
+	// selection would still be empty here and the cap below could drop chargers this
+	// hub already had.
+	a.adoptSeededSelection()
+
 	if err := a.configureChargers(a.cfgService.SelectedDevices()); err != nil {
 		a.lifecycle.MarkNotConfigured()
 
@@ -298,7 +304,10 @@ func (a *application) configureChargers(selected []string) error {
 	// them so a legitimately removed charger cannot block startup.
 	if missing := missingSelected(chargers, selected); len(missing) > 0 {
 		// Reset the budget when the missing set changes, so a newly missing charger
-		// gets full retries instead of inheriting an exhausted counter.
+		// gets full retries instead of inheriting an exhausted counter. Sorted, or
+		// re-ticking the same devices in another order would look like a new set.
+		slices.Sort(missing)
+
 		if key := strings.Join(missing, ","); key != a.lastMissing {
 			a.lastMissing = key
 			a.missingRetries = 0
@@ -443,16 +452,17 @@ func missingSelected(chargers []model.Charger, selected []string) []string {
 	return missing
 }
 
-// effectiveSelection caps an unconfigured (empty) selection to the first maxAutoSelected
-// chargers. Installer accounts expose hundreds of chargers, and seeding every one of them
-// floods the hub with things nobody asked for. Below the cap an empty selection still
-// means "all", as before.
+// effectiveSelection turns an unconfigured (empty) selection into the concrete charger
+// list, capped at maxAutoSelected. Materialising it is what makes cmd.thing.delete stick:
+// an empty selection means "every charger" and cannot express an exclusion, so the next
+// sync would recreate the deleted thing. The cap keeps installer accounts, which expose
+// hundreds of chargers, from flooding the hub with things nobody asked for.
 func effectiveSelection(chargers []model.Charger, selected []string) []string {
-	if len(selected) > 0 || len(chargers) <= maxAutoSelected {
+	if len(selected) > 0 {
 		return selected
 	}
 
-	auto := make([]string, 0, maxAutoSelected)
+	auto := make([]string, 0, min(len(chargers), maxAutoSelected))
 
 	for _, charger := range chargers {
 		if charger.ID == "" {
@@ -466,7 +476,9 @@ func effectiveSelection(chargers []model.Charger, selected []string) []string {
 		}
 	}
 
-	log.Warnf("[app] No devices selected out of %d available, auto-select first %d: %v", len(chargers), len(auto), auto)
+	if len(chargers) > maxAutoSelected {
+		log.Warnf("[app] No devices selected out of %d available, auto-select first %d: %v", len(chargers), len(auto), auto)
+	}
 
 	return auto
 }
