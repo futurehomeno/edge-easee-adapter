@@ -153,6 +153,16 @@ func (c *Config) MigrateAuthBackoff() error {
 	return nil
 }
 
+// MigrateOfferedCurrentWaitTime lifts installs still carrying the superseded packaged
+// default onto the rate-limit-safe wait time; an explicitly tuned value is left alone.
+func (c *Config) MigrateOfferedCurrentWaitTime() error {
+	if c.OfferedCurrentWaitTime == "15s" {
+		c.OfferedCurrentWaitTime = "20s"
+	}
+
+	return nil
+}
+
 func NewService(storage storage.Storage[*Config]) *Service {
 	return &Service{
 		Storage: storage,
@@ -548,7 +558,7 @@ func (cs *Service) OfferedCurrentWaitTime() time.Duration {
 
 	duration, err := time.ParseDuration(cs.Model().OfferedCurrentWaitTime)
 	if err != nil {
-		return 15 * time.Second
+		return 20 * time.Second
 	}
 
 	return duration

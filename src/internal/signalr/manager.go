@@ -225,7 +225,14 @@ func (m *manager) handleSubscription(chargerID string) error {
 	}
 
 	if err := m.client.SubscribeCharger(chargerID); err != nil {
-		log.Warnf("Failed to subscribe charger '%s'", chargerID)
+		// A sustained outage (e.g. not logged in) retries forever; warn on the first
+		// failure of a streak only, so it does not accumulate thousands of lines.
+		if charger.subscribeFailed {
+			log.Debugf("Failed to subscribe charger '%s'", chargerID)
+		} else {
+			log.Warnf("Failed to subscribe charger '%s': %v", chargerID, err)
+			charger.subscribeFailed = true
+		}
 
 		go m.addChargerSubscription(chargerID, charger)
 
@@ -234,6 +241,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 	charger.backoff.Reset()
 	charger.isSubscribed = true
+	charger.subscribeFailed = false
 
 	log.Debugf("signalR: subscribed charger '%s'", chargerID)
 	return nil
@@ -340,7 +348,8 @@ func (m *manager) ensureClientStarted() {
 }
 
 type charger struct {
-	handler      Handler
-	isSubscribed bool
-	backoff      backoff.Stateful
+	handler         Handler
+	isSubscribed    bool
+	subscribeFailed bool
+	backoff         backoff.Stateful
 }
