@@ -322,6 +322,8 @@ func (a *application) configureChargers(selected []string) error {
 		})
 
 		if len(remaining) > 0 {
+			log.Infof("[app] Remove vanished chargers %v from the saved selection", missing)
+
 			selected = remaining
 
 			if err := a.cfgService.SetSelectedDevices(selected); err != nil {
