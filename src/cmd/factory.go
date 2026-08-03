@@ -90,7 +90,8 @@ func migrateConfig(cfgSvc *config.Service) {
 		cliffCfg.Migration{From: 0, To: 2, Do: resetLogDefaults},
 		cliffCfg.Migration{From: 1, To: 2, Do: resetLogDefaults},
 		cliffCfg.Migration{From: 2, To: 3, Do: cfg.MigrateAuthBackoff},
-		cliffCfg.Migration{From: 3, To: 4, Do: cfg.MigrateSignalRFinalBackoff},
+		cliffCfg.Migration{From: 3, To: 4, Do: cfg.MigrateOfferedCurrentWaitTime},
+		cliffCfg.Migration{From: 4, To: 5, Do: cfg.MigrateSignalRFinalBackoff},
 	)
 	if err != nil {
 		log.Errorf("Migrate config err: %v", err)
