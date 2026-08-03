@@ -312,6 +312,24 @@ func (a *application) configureChargers(selected []string) error {
 		}
 
 		log.Warnf("[app] Selected devices %v still missing after %d retries, seed without them", missing, maxMissingSelectedRetries)
+
+		// Drop them from the persisted selection too, or the budget is spent again on
+		// every later login. Never down to an empty selection: empty means "every
+		// charger", so cleaning the last entry would widen a selection the user
+		// narrowed. That case keeps the stale ID and pays the retries again.
+		remaining := slices.DeleteFunc(slices.Clone(selected), func(id string) bool {
+			return slices.Contains(missing, id)
+		})
+
+		if len(remaining) > 0 {
+			log.Infof("[app] Remove vanished chargers %v from the saved selection", missing)
+
+			selected = remaining
+
+			if err := a.cfgService.SetSelectedDevices(selected); err != nil {
+				return fmt.Errorf("persist cleaned selection: %w", err)
+			}
+		}
 	}
 
 	a.missingRetries = 0

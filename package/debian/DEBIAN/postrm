@@ -3,11 +3,16 @@ set -e
 
 DATA_DIR=/var/lib/futurehome/easee
 LOG_DIR=/var/log/futurehome/easee
+OLD_DATA=/opt/thingsplex/easee
+OLD_LOGS=/var/log/thingsplex/easee
 
 if [ -d /run/systemd/system ]; then
   systemctl --system daemon-reload >/dev/null || true
 fi
 
 if [ "$1" = "purge" ]; then
-  rm -rf "$LOG_DIR" "$DATA_DIR"
+  # migrate.sh leaves the legacy tree in place so a downgrade still finds its state,
+  # which makes purge the only path that removes it - it still holds the credentials
+  # and charging sessions copied out of it.
+  rm -rf "$LOG_DIR" "$DATA_DIR" "$OLD_LOGS" "$OLD_DATA"
 fi

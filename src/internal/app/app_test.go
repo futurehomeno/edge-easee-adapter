@@ -853,6 +853,29 @@ func TestApplication_Login_MissingSelectedRetriesThenProceeds(t *testing.T) {
 
 	require.NoError(t, h.login())
 	assert.Equal(t, []string{"123"}, h.seeded())
+
+	// The vanished charger is dropped from the selection, so the next login does not
+	// spend the budget on it all over again.
+	assert.Equal(t, []string{"123"}, h.cfg.SelectedDevices())
+	require.NoError(t, h.login())
+	assert.Equal(t, []string{"123"}, h.seeded())
+}
+
+// Cleaning the last entry would leave an empty selection, which means "every charger" -
+// the stale ID is kept instead so a narrowed selection is never silently widened.
+func TestApplication_Login_MissingSelectedKeepsLastEntry(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, []model.Charger{{ID: "123"}}, nil, nil, nil)
+	require.NoError(t, h.cfg.SetSelectedDevices([]string{"gone"}))
+
+	for range 3 {
+		require.ErrorContains(t, h.login(), "gone")
+	}
+
+	require.NoError(t, h.login())
+	assert.Empty(t, h.seeded(), "the only selected charger is gone, so nothing may be seeded")
+	assert.Equal(t, []string{"gone"}, h.cfg.SelectedDevices())
 }
 
 func TestApplication_Initialize_AdoptSeededSelection(t *testing.T) {
