@@ -12,6 +12,7 @@ import (
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/app"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -62,7 +63,7 @@ func TestApplication_GetManifest(t *testing.T) {
 				tt.mockLoader(loaderMock)
 			}
 
-			a := app.New(nil, nil, nil, loaderMock, nil, nil, nil)
+			a := app.New(nil, nil, lifecycle.New(nil), loaderMock, nil, nil, nil, nil)
 
 			got, err := a.GetManifest()
 
@@ -78,13 +79,12 @@ func TestApplication_GetManifest(t *testing.T) {
 	}
 }
 
-func TestApplication_Configure_NOOP(t *testing.T) {
+func TestApplication_Configure_RejectsWrongModelType(t *testing.T) {
 	t.Parallel()
 
-	a := app.New(nil, nil, nil, nil, nil, nil, nil)
-	err := a.Configure("anything")
+	a := app.New(nil, nil, nil, nil, nil, nil, nil, nil)
 
-	assert.NoError(t, err)
+	assert.Error(t, a.Configure("anything"))
 }
 
 func TestApplication_Uninstall(t *testing.T) {
@@ -93,6 +93,7 @@ func TestApplication_Uninstall(t *testing.T) {
 	tests := []struct {
 		name                string
 		cfg                 *config.Config
+		credentials         config.Credentials
 		setLifecycle        func(lc *lifecycle.Lifecycle)
 		mockAdapter         func(a *mockedadapter.Adapter)
 		wantErr             bool
@@ -101,12 +102,11 @@ func TestApplication_Uninstall(t *testing.T) {
 	}{
 		{
 			name: "successful config, lifecycle and adapter reset",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:          "access-token",
-					RefreshToken:         "refresh-token",
-					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
-				},
+			cfg:  &config.Config{},
+			credentials: config.Credentials{
+				AccessToken:          "access-token",
+				RefreshToken:         "refresh-token",
+				AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
@@ -129,12 +129,11 @@ func TestApplication_Uninstall(t *testing.T) {
 		},
 		{
 			name: "adapter error on destroying all things",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:          "access-token",
-					RefreshToken:         "refresh-token",
-					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
-				},
+			cfg:  &config.Config{},
+			credentials: config.Credentials{
+				AccessToken:          "access-token",
+				RefreshToken:         "refresh-token",
+				AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
@@ -169,7 +168,8 @@ func TestApplication_Uninstall(t *testing.T) {
 			storage := fakes.NewConfigStorage(t, tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
-			application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil)
+			credentials := newCredentialsStore(t, tt.credentials)
+			application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil, credentials)
 
 			err := application.Uninstall()
 
@@ -282,7 +282,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
+				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
 			},
 		},
@@ -416,7 +416,8 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 				tt.mockSignalRClient(signalRClientMock)
 			}
 
-			application := app.New(adapterMock, nil, lc, nil, clientMock, authMock, signalRClientMock)
+			cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+			application := app.New(adapterMock, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}))
 
 			err := application.Login(tt.loginData)
 
@@ -501,7 +502,8 @@ func TestApplication_Logout(t *testing.T) {
 				tt.mockSignalRClient(signalRClientMock)
 			}
 
-			application := app.New(nil, nil, lc, nil, clientMock, authMock, signalRClientMock)
+			cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+			application := app.New(nil, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}))
 			err := application.Logout()
 
 			assert.Equal(t, tt.wantErr, err != nil, "failed error expectation")
@@ -516,6 +518,7 @@ func TestApplication_Initialize(t *testing.T) {
 	tests := []struct {
 		name                string
 		cfg                 *config.Config
+		credentials         config.Credentials
 		setLifecycle        func(lc *lifecycle.Lifecycle)
 		mockAdapter         func(a *mockedadapter.Adapter)
 		mockClient          func(c *mockapi.Client)
@@ -524,12 +527,11 @@ func TestApplication_Initialize(t *testing.T) {
 	}{
 		{
 			name: "successful thing initialization",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:          "access-token",
-					RefreshToken:         "refresh-token",
-					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
-				},
+			cfg:  &config.Config{},
+			credentials: config.Credentials{
+				AccessToken:          "access-token",
+				RefreshToken:         "refresh-token",
+				AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
@@ -591,12 +593,11 @@ func TestApplication_Initialize(t *testing.T) {
 		},
 		{
 			name: "successful thing initialization, but ping failed",
-			cfg: &config.Config{
-				Credentials: config.Credentials{
-					AccessToken:          "access-token",
-					RefreshToken:         "refresh-token",
-					AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
-				},
+			cfg:  &config.Config{},
+			credentials: config.Credentials{
+				AccessToken:          "access-token",
+				RefreshToken:         "refresh-token",
+				AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
 			},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
@@ -634,6 +635,9 @@ func TestApplication_Initialize(t *testing.T) {
 				tt.mockAdapter(adapterMock)
 			}
 
+			// Read by the boot-time selection adoption.
+			adapterMock.On("Things").Return([]adapter.Thing{}).Maybe()
+
 			clientMock := new(mockapi.Client)
 			if tt.mockClient != nil {
 				tt.mockClient(clientMock)
@@ -647,7 +651,8 @@ func TestApplication_Initialize(t *testing.T) {
 			storage := fakes.NewConfigStorage(t, tt.cfg, config.Factory)
 			cfgService := config.NewService(storage)
 
-			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil, nil)
+			credentials := newCredentialsStore(t, tt.credentials)
+			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil, nil, credentials)
 
 			err := application.Initialize()
 
@@ -662,6 +667,95 @@ func TestApplication_Initialize(t *testing.T) {
 			if tt.lifecycleAssertions != nil {
 				tt.lifecycleAssertions(lc)
 			}
+		})
+	}
+}
+
+func newCredentialsStore(t *testing.T, credentials config.Credentials) *config.CredentialsStore {
+	t.Helper()
+
+	return config.NewCredentialsStoreWithStorage(
+		fakes.NewConfigStorage(t, &credentials, func() *config.Credentials { return &config.Credentials{} }),
+	)
+}
+
+func TestApplication_Configure_Selection(t *testing.T) {
+	t.Parallel()
+
+	chargers := []model.Charger{{ID: "123"}, {ID: "456"}}
+
+	tests := []struct {
+		name         string
+		selected     []string
+		owned        []adapter.Thing
+		wantErr      string
+		wantSeeded   []string
+		wantSelected []string
+	}{
+		{
+			name:         "valid subset is seeded and persisted",
+			selected:     []string{"456"},
+			wantSeeded:   []string{"456"},
+			wantSelected: []string{"456"},
+		},
+		{
+			name:     "unknown device id is rejected before anything is mutated",
+			selected: []string{"unknown"},
+			wantErr:  "unknown device IDs",
+		},
+		{
+			name:         "empty selection includes every charger",
+			wantSeeded:   []string{"123", "456"},
+			wantSelected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("Chargers").Return(chargers, nil)
+
+			adapterMock := mockedadapter.NewAdapter(t)
+			adapterMock.On("Things").Return(tt.owned).Maybe()
+
+			var seeded []string
+
+			for _, id := range tt.wantSeeded {
+				clientMock.On("ChargerDetails", id).Return(model.ChargerDetails{}, nil)
+			}
+
+			if tt.wantErr == "" {
+				adapterMock.On("EnsureThings", mock.Anything).Run(func(args mock.Arguments) {
+					for _, seed := range args.Get(0).(adapter.ThingSeeds) { //nolint:forcetypeassert
+						seeded = append(seeded, seed.ID)
+					}
+				}).Return(nil)
+			}
+
+			cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+			signalRClientMock := mocksignalr.NewClient(t)
+			signalRClientMock.On("Start").Maybe()
+
+			application := app.New(adapterMock, cfgService, lifecycle.New(nil), nil, clientMock, nil, signalRClientMock,
+				newCredentialsStore(t, config.Credentials{}))
+
+			err := application.Configure(&config.Config{
+				PublicConfig: config.PublicConfig{SelectedDevices: tt.selected},
+			})
+
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				assert.Empty(t, cfgService.SelectedDevices(), "a rejected configure must not persist a selection")
+
+				return
+			}
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.wantSeeded, seeded)
+			assert.Equal(t, tt.wantSelected, cfgService.SelectedDevices())
 		})
 	}
 }

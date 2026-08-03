@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"strings"
+
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
@@ -9,6 +11,7 @@ import (
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/router"
+	"github.com/futurehomeno/cliffhanger/selection"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
@@ -31,11 +34,16 @@ func routeLogIncoming() *router.Routing {
 		router.NewMessageHandler(
 			router.MessageProcessorFn(func(message *fimpgo.Message) (*fimpgo.FimpMessage, error) {
 				if message.Payload != nil {
+					value := message.Payload.Value
+					if strings.HasPrefix(message.Payload.Interface, "cmd.auth.") {
+						value = "***" // credentials
+					}
+
 					log.Infof("FMP %s -> %s %s %v",
 						message.Payload.Source,
 						message.Payload.Service,
 						message.Payload.Interface,
-						message.Payload.Value)
+						value)
 				}
 
 				return nil, nil
@@ -51,6 +59,15 @@ func New(
 	application app.App,
 	adapter cliffAdapter.Adapter,
 ) []*router.Routing {
+	// Shared by the app and adapter routes so cmd.thing.delete cannot interleave with
+	// cmd.config.extended_set rewriting the selection it reads.
+	locker := router.NewMessageHandlerLocker()
+
+	devices := selection.NewStore(
+		func() selection.Selection { return cfgSrv.SelectedDevices() },
+		func(next selection.Selection) error { return cfgSrv.SetSelectedDevices(next) },
+	)
+
 	return router.Combine(
 		[]*router.Routing{routeLogIncoming()},
 		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.PublicConfig() }, nil),
@@ -86,8 +103,8 @@ func New(
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "signalr_invoke_timeout", cfgSrv.SignalRInvokeTimeout),
 			cliffConfig.RouteCmdConfigSetDuration(fimptype.EaseeService, "signalr_invoke_timeout", cfgSrv.SetSignalRInvokeTimeout),
 		},
-		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, nil, application, nil),
-		cliffAdapter.RouteAdapter(adapter),
+		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, locker, application, nil),
+		cliffAdapter.RouteAdapter(adapter, cliffAdapter.WithSelection(devices, locker)),
 		thing.RouteCarCharger(adapter),
 		parameters.RouteService(adapter),
 	)

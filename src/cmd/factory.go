@@ -34,10 +34,11 @@ var services = &serviceContainer{}
 
 // serviceContainer is a type representing a dependency injection container to be used during bootstrap of the application.
 type serviceContainer struct {
-	configService *config.Service
-	defaultStore  *cliffCfg.DefaultStore
-	lifecycle     *lifecycle.Lifecycle
-	mqtt          *fimpgo.MqttTransport
+	configService    *config.Service
+	credentialsStore *config.CredentialsStore
+	defaultStore     *cliffCfg.DefaultStore
+	lifecycle        *lifecycle.Lifecycle
+	mqtt             *fimpgo.MqttTransport
 
 	application     app.ApplicationWithToken
 	manifestLoader  manifest.Loader
@@ -67,16 +68,28 @@ func getConfigService() *config.Service {
 
 		err := services.configService.Load()
 		if err != nil {
-			log.Fatalf("Config load err: %v", err)
+			log.Fatalf("[config] Load config. err: %v", err)
 		}
 
-		migrateConfig(services.configService)
+		migrateConfig(services.configService, getCredentialsStore())
 	}
 
 	return services.configService
 }
 
-func migrateConfig(cfgSvc *config.Service) {
+func getCredentialsStore() *config.CredentialsStore {
+	if services.credentialsStore == nil {
+		services.credentialsStore = config.NewCredentialsStore(bootstrap.GetConfigurationDirectory())
+
+		if err := services.credentialsStore.Load(); err != nil {
+			log.Fatalf("[config] Load credentials. err: %v", err)
+		}
+	}
+
+	return services.credentialsStore
+}
+
+func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore) {
 	cfg := cfgSvc.Model()
 
 	resetLogDefaults := func() error {
@@ -86,21 +99,16 @@ func migrateConfig(cfgSvc *config.Service) {
 		return nil
 	}
 
-	applied, err := cfg.Migrate(
+	err := cfgSvc.Migrate(
 		cliffCfg.Migration{From: 0, To: 2, Do: resetLogDefaults},
 		cliffCfg.Migration{From: 1, To: 2, Do: resetLogDefaults},
 		cliffCfg.Migration{From: 2, To: 3, Do: cfg.MigrateAuthBackoff},
 		cliffCfg.Migration{From: 3, To: 4, Do: cfg.MigrateOfferedCurrentWaitTime},
 		cliffCfg.Migration{From: 4, To: 5, Do: cfg.MigrateSignalRFinalBackoff},
+		cliffCfg.Migration{From: 5, To: 6, Do: func() error { return config.MigrateCredentials(cfg, credentials) }},
 	)
 	if err != nil {
-		log.Errorf("Migrate config err: %v", err)
-	}
-
-	if applied > 0 {
-		if err := cfgSvc.Save(); err != nil {
-			log.Warnf("Save migrated config err: %v", err)
-		}
+		log.Errorf("[config] Migrate config. err: %v", err)
 	}
 }
 
@@ -135,7 +143,7 @@ func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 	if services.sessionStorage == nil {
 		dataBase, err := database.NewDatabase(cfg.WorkDir)
 		if err != nil {
-			log.WithError(err).Error("can't create db")
+			log.Errorf("[db] Create database. err: %v", err)
 
 			return nil
 		}
@@ -149,7 +157,7 @@ func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 	if services.mqtt == nil {
 		errHandler := func(err error) {
-			log.Errorf("unrecoverable MQTT error: err=%v", err)
+			log.Errorf("[mqtt] Unrecoverable error. err: %v", err)
 			panic(err)
 		}
 
@@ -180,6 +188,7 @@ func getApplication(cfg *config.Config) app.ApplicationWithToken {
 			getEaseeAPIClient(cfg),
 			getAuthenticator(cfg),
 			getSignalRClient(cfg),
+			getCredentialsStore(),
 		)
 	}
 
@@ -223,7 +232,7 @@ func getAdapterState() adapter.State {
 
 		services.adapterState, err = adapter.NewState(getConfigService().Model().WorkDir)
 		if err != nil {
-			log.WithError(err).Fatal("failed to initialize adapter state")
+			log.Fatalf("[adapter] Initialize adapter state. err: %v", err)
 		}
 	}
 
@@ -280,6 +289,7 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 	if services.authenticator == nil {
 		services.authenticator = api.NewAuthenticator(
 			getEaseeHTTPClient(),
+			getCredentialsStore(),
 			getConfigService(),
 			notification.NewNotification(getMQTT(cfg)),
 			getMQTT(cfg),

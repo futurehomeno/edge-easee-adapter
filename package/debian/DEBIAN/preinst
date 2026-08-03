@@ -1,19 +1,11 @@
 #!/bin/sh
 set -e
 
-case "$1" in
-	upgrade)
-		echo "Pause service if running"
-		systemctl stop easee.service > /dev/null 2>&1 || true
-	;;
-
-	install|abort-upgrade)
-	;;
-
-	*)
-		echo "preinst called with an unknown argument \`$1'" >&2
-		exit 1
-	;;
-esac
+# Stop any running instance before the package contents are replaced.
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  if systemctl is-active --quiet easee.service 2>/dev/null; then
+    systemctl stop easee.service || true
+  fi
+fi
 
 exit 0

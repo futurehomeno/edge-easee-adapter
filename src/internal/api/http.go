@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/auth"
+	"github.com/futurehomeno/cliffhanger/httpclient"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
@@ -19,13 +22,8 @@ import (
 )
 
 var (
-	ErrUnauthorized = errors.New("unauthorized")
-	ErrTimeout      = errors.New("timeout")
-	ErrServer       = errors.New("server_error")
-	ErrUnexpected   = errors.New("unexpected")
-	ErrTransport    = errors.New("transport_error")
 	// ErrNotLoggedIn is returned when no credentials are stored locally so callers can downgrade their logging.
-	ErrNotLoggedIn = errors.New("credentials are empty: login first")
+	ErrNotLoggedIn = auth.ErrNotLoggedIn
 	// ErrRefreshBackoff is returned while the authenticator is in backoff after refresh-token failures, to avoid hammering the API.
 	ErrRefreshBackoff = errors.New("too many requests: backoff")
 )
@@ -101,17 +99,15 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 		Password: strings.TrimSpace(password),
 	}
 
-	req, err := newRequestBuilder(http.MethodPost, c.buildURL(loginURI)).
-		withBody(body).
-		addHeader(contentTypeHeader, jsonContentType).
-		build()
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, c.buildURL(loginURI), body,
+		map[string]string{contentTypeHeader: jsonContentType})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create login request")
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
+		return nil, fmt.Errorf("transport error: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -138,65 +134,46 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 		RefreshToken: refreshToken,
 	}
 
-	req, err := newRequestBuilder(http.MethodPost, c.buildURL(tokenRefreshURI)).
-		withBody(body).
-		addHeader(contentTypeHeader, jsonContentType).
-		build()
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, c.buildURL(tokenRefreshURI), body,
+		map[string]string{contentTypeHeader: jsonContentType})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create token refresh request")
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
+		return nil, fmt.Errorf("transport error: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
-	var reason error
 
-	switch resp.StatusCode {
-	case http.StatusOK:
-		loginData := &model.Credentials{}
+	if resp.StatusCode != http.StatusOK {
+		c.logFailedResponse(resp)
 
-		err = c.readResponseBody(resp, loginData)
-		if err != nil {
-			return nil, errors.Wrap(err, "could not read token refresh response body")
-		}
-
-		return loginData, nil
-
-	case http.StatusUnauthorized:
-		reason = ErrUnauthorized
-
-	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		reason = ErrTimeout
-
-	case http.StatusInternalServerError:
-		reason = ErrServer
-
-	default:
-		reason = ErrUnexpected
+		return nil, c.handleFailedResponse(resp, "token refresh request failed")
 	}
 
-	c.logFailedResponse(resp)
-	return nil, fmt.Errorf("%w status code=%d", reason, resp.StatusCode)
+	loginData := &model.Credentials{}
+
+	if err = c.readResponseBody(resp, loginData); err != nil {
+		return nil, errors.Wrap(err, "could not read token refresh response body")
+	}
+
+	return loginData, nil
 }
 
 func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current float64) error {
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(maxCurrentBody{MaxChargerCurrent: current}).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		addHeader(contentTypeHeader, jsonContentType).
-		build()
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, maxCurrentBody{MaxChargerCurrent: current},
+		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken), contentTypeHeader: jsonContentType})
 	if err != nil {
 		return errors.Wrap(err, "failed to create max current request")
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrTransport, err)
+		return fmt.Errorf("transport error: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -217,18 +194,15 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(dynamicCurrentBody{DynamicChargerCurrent: current}).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		addHeader(contentTypeHeader, jsonContentType).
-		build()
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, dynamicCurrentBody{DynamicChargerCurrent: current},
+		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken), contentTypeHeader: jsonContentType})
 	if err != nil {
 		return errors.Wrap(err, "failed to create dynamic current request")
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrTransport, err)
+		return fmt.Errorf("transport error: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -253,16 +227,15 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 
 	u := c.buildURL(chargerStopURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodPost, u).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		build()
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, nil,
+		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken)})
 	if err != nil {
 		return errors.Wrap(err, "failed to create stop charging request")
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrTransport, err)
+		return fmt.Errorf("transport error: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -279,18 +252,15 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked bool) error {
 	u := c.buildURL(cableLockURITemplate, chargerID)
 
-	req, err := newRequestBuilder(http.MethodPost, u).
-		withBody(cableLockStateBody{State: locked}).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		addHeader(contentTypeHeader, jsonContentType).
-		build()
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, cableLockStateBody{State: locked},
+		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken), contentTypeHeader: jsonContentType})
 	if err != nil {
 		return errors.Wrap(err, "failed to create cable lock request")
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrTransport, err)
+		return fmt.Errorf("transport error: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -365,16 +335,15 @@ func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (model
 }
 
 func (c *httpClient) Ping(accessToken string) error {
-	req, err := newRequestBuilder(http.MethodGet, c.buildURL(healthURI)).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		build()
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodGet, c.buildURL(healthURI), nil,
+		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken)})
 	if err != nil {
 		return errors.Wrap(err, "failed to create ping request")
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrTransport, err)
+		return fmt.Errorf("transport error: %w", err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -393,13 +362,7 @@ func (c *httpClient) buildURL(path string, args ...any) string {
 }
 
 func (c *httpClient) handleFailedResponse(resp *http.Response, message string) error {
-	e := HTTPError{Message: message}
-
-	if resp != nil {
-		e.StatusCode = resp.StatusCode
-	}
-
-	return e
+	return fmt.Errorf("%s, status code: %d: %w", message, resp.StatusCode, httpclient.ErrorFromResponse(resp))
 }
 
 func (c *httpClient) logFailedResponse(resp *http.Response) {
@@ -460,16 +423,15 @@ func (c *httpClient) registerMaxCurrentChange(chargerID string) {
 }
 
 func (c *httpClient) getResponse(state any, url, accessToken string) (any, error) {
-	req, err := newRequestBuilder(http.MethodGet, url).
-		addHeader(authorizationHeader, c.bearerTokenHeader(accessToken)).
-		build()
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodGet, url, nil,
+		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken)})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create request")
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrTransport, err)
+		return nil, fmt.Errorf("transport error: %w", err)
 	}
 
 	defer func() {

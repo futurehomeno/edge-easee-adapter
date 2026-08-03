@@ -7,7 +7,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
-	"github.com/futurehomeno/cliffhanger/app"
+	"github.com/futurehomeno/cliffhanger/bootstrap"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/task"
 	log "github.com/sirupsen/logrus"
@@ -36,10 +36,12 @@ func New(
 
 	log.Infof("Refresh token interval=%s", interval)
 
-	return task.Combine(
+	return bootstrap.EdgeTasks(
+		application,
+		appLifecycle,
+		ad,
+		cfgSrv.PollingInterval(),
 		[]*task.Task{task.New(refreshTokenFn(application, appLifecycle), interval)},
-		app.TaskApp(application, appLifecycle),
-		adapter.TaskAdapter(ad, cfgSrv.PollingInterval()),
 		thing.TaskCarCharger(ad, cfgSrv.PollingInterval(), task.WhenAppIsConnected(appLifecycle)),
 	)
 }

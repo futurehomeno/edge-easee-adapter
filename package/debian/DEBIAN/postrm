@@ -1,24 +1,13 @@
 #!/bin/sh
 set -e
 
-case "$1" in
-	remove|purge)
-		echo "Remove logs"
-		rm -rf /var/log/thingsplex/easee || true
-		echo "Remove config files"
-		rm -rf /opt/thingsplex/easee || true
-	;;
+DATA_DIR=/var/lib/futurehome/easee
+LOG_DIR=/var/log/futurehome/easee
 
-	bootstrap)
-	;;
+if [ -d /run/systemd/system ]; then
+  systemctl --system daemon-reload >/dev/null || true
+fi
 
-	upgrade|abort-upgrade|abort-install|failed-upgrade|disappear)
-	;;
-
-	*)
-		echo "postrm called with an unknown argument \`$1'" >&2
-		exit 1
-	;;
-esac
-
-exit 0
+if [ "$1" = "purge" ]; then
+  rm -rf "$LOG_DIR" "$DATA_DIR"
+fi
