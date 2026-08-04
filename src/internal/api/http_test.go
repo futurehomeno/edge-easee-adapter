@@ -147,7 +147,7 @@ func TestClient_RefreshToken(t *testing.T) {
 		{
 			name:          "should fail due to 401 error",
 			statusCode:    http.StatusUnauthorized,
-			errorContains: "unauthorized status code=401",
+			errorContains: "token refresh request failed, status code: 401",
 		},
 		{
 			name:          "should fail when invalid body",

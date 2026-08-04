@@ -2,7 +2,6 @@ package config
 
 import (
 	"encoding/json"
-	"sync"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
@@ -25,6 +24,10 @@ type PublicConfig struct {
 
 	AuthBackoff         backoffSettings `json:"auth_backoff"`
 	AuthMaxUnauthorized string          `json:"auth_max_unauthorized,omitempty"`
+
+	// SelectedDevices is the user's chosen subset of charger IDs from the
+	// Configure step. Empty means "include all chargers" (legacy behavior).
+	SelectedDevices []string `json:"selected_devices"`
 
 	LegacyAuthenticatorBackoff json.RawMessage `json:"authenticatorBackoff,omitempty"`
 }
@@ -58,10 +61,6 @@ func (c Credentials) Empty() bool {
 
 func (c Credentials) AccessTokenExpired() bool {
 	return clock.Now().After(c.AccessTokenExpiresAt)
-}
-
-func (c Credentials) RefreshTokenExpired() bool {
-	return clock.Now().After(c.RefreshTokenExpiresAt)
 }
 
 type backoffSettings struct {
@@ -103,8 +102,7 @@ type SignalR struct {
 // - providing concurrency safe access to settings
 // - persistence of settings.
 type Service struct {
-	storage.Storage[*Config]
-	lock *sync.RWMutex
+	*config.Service[*Config]
 }
 
 func parseDuration(s string, def time.Duration) time.Duration {
@@ -177,434 +175,180 @@ func (c *Config) MigrateSignalRFinalBackoff() error {
 
 func NewService(storage storage.Storage[*Config]) *Service {
 	return &Service{
-		Storage: storage,
-		lock:    &sync.RWMutex{},
+		// The redact function must return a copy: PublicModel would otherwise alias the
+		// live model and race a concurrent Update while the report is marshalled.
+		config.NewService(
+			storage,
+			func(c *Config) *config.Default { return &c.Default },
+			func(c *Config) any { return c.PublicConfig },
+		),
 	}
-}
-
-// DefaultStore exposes the config as a cliffhanger DefaultStore whose Save runs
-// under cs.lock, so debug-route log mutations serialize with credential writes on
-// the shared config instead of racing under the store's separate mutex.
-func (cs *Service) DefaultStore() *config.DefaultStore {
-	return config.NewDefaultStore(
-		func() *config.Default { return &cs.Model().Default },
-		func() error {
-			cs.lock.Lock()
-			defer cs.lock.Unlock()
-
-			return cs.Save()
-		},
-	)
 }
 
 func (cs *Service) PublicConfig() PublicConfig {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().PublicConfig
-}
-
-// PublicModel implements cliffhanger's app.PublicModeler so
-// cmd.config.get_extended_report and the manifest expose only the FIMP-safe
-// PublicConfig. Without it publicConfigState falls back to the full model,
-// leaking config.Default (log level/format, MQTT credentials, telemetry, ...)
-// and the access/refresh tokens.
-func (cs *Service) PublicModel() any {
-	return cs.PublicConfig()
+	return config.Get(cs.Service, func(c *Config) PublicConfig { return c.PublicConfig })
 }
 
 func (cs *Service) EaseeBaseURL() string {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().EaseeBaseURL
+	return config.Get(cs.Service, func(c *Config) string { return c.EaseeBaseURL })
 }
 
 func (cs *Service) SetEaseeBaseURL(url string) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().EaseeBaseURL = url
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.EaseeBaseURL = url })
 }
 
 func (cs *Service) EnergyLifetimeInterval() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	duration, err := time.ParseDuration(cs.Model().EnergyLifetimeInterval)
-	if err != nil {
-		return 10 * time.Second
-	}
-
-	return duration
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.EnergyLifetimeInterval }, 10*time.Second)
 }
 
 func (cs *Service) SetEnergyLifetimeInterval(interval time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().EnergyLifetimeInterval = interval.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.EnergyLifetimeInterval = interval.String() })
 }
 
-func (cs *Service) Credentials() Credentials {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().Credentials
+func (cs *Service) SelectedDevices() []string {
+	return config.Get(cs.Service, func(c *Config) []string {
+		return append([]string(nil), c.SelectedDevices...)
+	})
 }
 
-func (cs *Service) SetCredentials(credentials Credentials) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().Credentials = credentials
-
-	return cs.Save()
-}
-
-func (cs *Service) ClearCredentials() error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().Credentials = Credentials{}
-
-	return cs.Save()
+func (cs *Service) SetSelectedDevices(devices []string) error {
+	return cs.Update(func(c *Config) { c.SelectedDevices = append([]string(nil), devices...) })
 }
 
 func (cs *Service) PollingInterval() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	duration, err := time.ParseDuration(cs.Model().PollingInterval)
-	if err != nil {
-		return 10 * time.Minute
-	}
-
-	return duration
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.PollingInterval }, 10*time.Minute)
 }
 
 func (cs *Service) SetPollingInterval(interval time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().PollingInterval = interval.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.PollingInterval = interval.String() })
 }
 
 func (cs *Service) CurrentWaitDuration() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	duration, err := time.ParseDuration(cs.Model().CurrentWaitDuration)
-	if err != nil {
-		return 3 * time.Second
-	}
-
-	return duration
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.CurrentWaitDuration }, 3*time.Second)
 }
 
 func (cs *Service) SetCurrentWaitDuration(interval time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().CurrentWaitDuration = interval.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.CurrentWaitDuration = interval.String() })
 }
 
 func (cs *Service) SlowChargingCurrentInAmperes() float64 {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().SlowChargingCurrentInAmperes
+	return config.Get(cs.Service, func(c *Config) float64 { return c.SlowChargingCurrentInAmperes })
 }
 
 func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().SlowChargingCurrentInAmperes = current
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.SlowChargingCurrentInAmperes = current })
 }
 
 func (cs *Service) HTTPTimeout() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	timeout, err := time.ParseDuration(cs.Model().HTTPTimeout)
-	if err != nil {
-		return 30 * time.Second
-	}
-
-	return timeout
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.HTTPTimeout }, 30*time.Second)
 }
 
 func (cs *Service) SetHTTPTimeout(timeout time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().HTTPTimeout = timeout.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.HTTPTimeout = timeout.String() })
 }
 
 func (cs *Service) SignalRBaseURL() string {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().SignalR.BaseURL
+	return config.Get(cs.Service, func(c *Config) string { return c.SignalR.BaseURL })
 }
 
 func (cs *Service) SetSignalRBaseURL(url string) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().SignalR.BaseURL = url
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.SignalR.BaseURL = url })
 }
 
 func (cs *Service) SignalRConnCreationTimeout() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	timeout, err := time.ParseDuration(cs.Model().SignalR.ConnCreationTimeout)
-	if err != nil {
-		return 30 * time.Second
-	}
-
-	return timeout
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.ConnCreationTimeout }, 30*time.Second)
 }
 
 func (cs *Service) SetSignalRConnCreationTimeout(timeout time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().SignalR.ConnCreationTimeout = timeout.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.SignalR.ConnCreationTimeout = timeout.String() })
 }
 
 func (cs *Service) SignalRKeepAliveInterval() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	interval, err := time.ParseDuration(cs.Model().SignalR.KeepAliveInterval)
-	if err != nil {
-		return 30 * time.Second
-	}
-
-	return interval
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.KeepAliveInterval }, 30*time.Second)
 }
 
 func (cs *Service) SetSignalRKeepAliveInterval(interval time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().SignalR.KeepAliveInterval = interval.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.SignalR.KeepAliveInterval = interval.String() })
 }
 
 func (cs *Service) SignalRTimeoutInterval() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	interval, err := time.ParseDuration(cs.Model().SignalR.TimeoutInterval)
-	if err != nil {
-		return 1 * time.Minute
-	}
-
-	return interval
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.TimeoutInterval }, time.Minute)
 }
 
 func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().SignalR.TimeoutInterval = interval.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.SignalR.TimeoutInterval = interval.String() })
 }
 
 func (cs *Service) SignalRInitialBackoff() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	interval, err := time.ParseDuration(cs.Model().SignalR.InitialBackoff)
-	if err != nil {
-		return 5 * time.Second
-	}
-
-	return interval
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.InitialBackoff }, 5*time.Second)
 }
 
 func (cs *Service) SetSignalRInitialBackoff(interval time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().SignalR.InitialBackoff = interval.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.SignalR.InitialBackoff = interval.String() })
 }
 
 func (cs *Service) SignalRRepeatedBackoff() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	interval, err := time.ParseDuration(cs.Model().SignalR.RepeatedBackoff)
-	if err != nil {
-		return 30 * time.Second
-	}
-
-	return interval
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.RepeatedBackoff }, 30*time.Second)
 }
 
 func (cs *Service) SetSignalRRepeatedBackoff(interval time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().SignalR.RepeatedBackoff = interval.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.SignalR.RepeatedBackoff = interval.String() })
 }
 
 func (cs *Service) SignalRFinalBackoff() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	interval, err := time.ParseDuration(cs.Model().SignalR.FinalBackoff)
-	if err != nil {
-		return 10 * time.Minute
-	}
-
-	return interval
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.FinalBackoff }, 10*time.Minute)
 }
 
 func (cs *Service) SetSignalRFinalBackoff(interval time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().SignalR.FinalBackoff = interval.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.SignalR.FinalBackoff = interval.String() })
 }
 
 func (cs *Service) SignalRInitialFailureCount() uint32 {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().SignalR.InitialFailureCount
+	return config.Get(cs.Service, func(c *Config) uint32 { return c.SignalR.InitialFailureCount })
 }
 
 func (cs *Service) SetSignalRInitialFailureCount(n uint32) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().SignalR.InitialFailureCount = n
-
-	return cs.Save()
+	return cs.Persist(func(c *Config) { c.SignalR.InitialFailureCount = n })
 }
 
 func (cs *Service) SignalRRepeatedFailureCount() uint32 {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().SignalR.RepeatedFailureCount
+	return config.Get(cs.Service, func(c *Config) uint32 { return c.SignalR.RepeatedFailureCount })
 }
 
 func (cs *Service) SetSignalRRepeatedFailureCount(n uint32) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().SignalR.RepeatedFailureCount = n
-
-	return cs.Save()
+	return cs.Persist(func(c *Config) { c.SignalR.RepeatedFailureCount = n })
 }
 
 func (cs *Service) SignalRInvokeTimeout() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	timeout, err := time.ParseDuration(cs.Model().SignalR.InvokeTimeout)
-	if err != nil {
-		return 10 * time.Second
-	}
-
-	return timeout
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.InvokeTimeout }, 10*time.Second)
 }
 
 func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().SignalR.InvokeTimeout = timeout.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.SignalR.InvokeTimeout = timeout.String() })
 }
 
 func (cs *Service) OfferedCurrentWaitTime() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	duration, err := time.ParseDuration(cs.Model().OfferedCurrentWaitTime)
-	if err != nil {
-		return 20 * time.Second
-	}
-
-	return duration
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.OfferedCurrentWaitTime }, 20*time.Second)
 }
 
 func (cs *Service) SetOfferedCurrentWaitTime(duration time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().OfferedCurrentWaitTime = duration.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.OfferedCurrentWaitTime = duration.String() })
 }
 
 func (cs *Service) AuthenticatorBackoffStateful() backoff.Stateful {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().AuthBackoff.stateful(time.Minute, 5*time.Minute, 10*time.Minute)
+	return config.Get(cs.Service, func(c *Config) backoff.Stateful {
+		return c.AuthBackoff.stateful(time.Minute, 5*time.Minute, 10*time.Minute)
+	})
 }
 
 func (cs *Service) SignalRBackoffStateful() backoff.Stateful {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return cs.Model().SignalR.stateful(5*time.Second, 30*time.Second, 10*time.Minute)
+	return config.Get(cs.Service, func(c *Config) backoff.Stateful {
+		return c.SignalR.stateful(5*time.Second, 30*time.Second, 10*time.Minute)
+	})
 }
 
 func (cs *Service) AuthenticatorMaxUnauthorized() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	return parseDuration(cs.Model().AuthMaxUnauthorized, 2*time.Hour)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.AuthMaxUnauthorized }, 2*time.Hour)
 }
 
 func (cs *Service) SetAuthenticatorBackoff(
@@ -612,41 +356,22 @@ func (cs *Service) SetAuthenticatorBackoff(
 	initialFailureCount, repeatedFailureCount uint32,
 	maxUnauthorized time.Duration,
 ) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	c := cs.Model()
-	c.ConfiguredAt = time.Now().Format(time.RFC3339)
-	c.AuthBackoff = backoffSettings{
-		InitialBackoff:       initial.String(),
-		RepeatedBackoff:      repeated.String(),
-		FinalBackoff:         final.String(),
-		InitialFailureCount:  initialFailureCount,
-		RepeatedFailureCount: repeatedFailureCount,
-	}
-	c.AuthMaxUnauthorized = maxUnauthorized.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) {
+		c.AuthBackoff = backoffSettings{
+			InitialBackoff:       initial.String(),
+			RepeatedBackoff:      repeated.String(),
+			FinalBackoff:         final.String(),
+			InitialFailureCount:  initialFailureCount,
+			RepeatedFailureCount: repeatedFailureCount,
+		}
+		c.AuthMaxUnauthorized = maxUnauthorized.String()
+	})
 }
 
 func (cs *Service) TokenRefreshInterval() time.Duration {
-	cs.lock.RLock()
-	defer cs.lock.RUnlock()
-
-	interval, err := time.ParseDuration(cs.Model().TokenRefreshInterval)
-	if err != nil {
-		return 30 * time.Minute
-	}
-
-	return interval
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.TokenRefreshInterval }, 30*time.Minute)
 }
 
 func (cs *Service) SetTokenRefreshInterval(interval time.Duration) error {
-	cs.lock.Lock()
-	defer cs.lock.Unlock()
-
-	cs.Model().ConfiguredAt = time.Now().Format(time.RFC3339)
-	cs.Model().TokenRefreshInterval = interval.String()
-
-	return cs.Save()
+	return cs.Update(func(c *Config) { c.TokenRefreshInterval = interval.String() })
 }
