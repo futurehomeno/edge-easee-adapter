@@ -32,9 +32,26 @@ func TestCredentialsStore_RefreshDoesNotResurrectClearedCredentials(t *testing.T
 		store := newCredentialsStore(t, config.Credentials{AccessToken: "old", RefreshToken: "old-refresh"})
 
 		require.NoError(t, store.ClearCredentials())
-		require.NoError(t, store.RefreshCredentials(fresh))
+		require.NoError(t, store.RefreshCredentials(fresh, "old-refresh"))
 
 		assert.True(t, store.Credentials().Empty(), "logout must not be undone by an in-flight refresh")
+	})
+
+	// Logging back in between the exchange and its result leaves a non-empty store, so
+	// emptiness alone would let the old session overwrite the new one - with another
+	// account's tokens, if the user switched.
+	t.Run("a refresh from a replaced session is dropped", func(t *testing.T) {
+		t.Parallel()
+
+		store := newCredentialsStore(t, config.Credentials{AccessToken: "a", RefreshToken: "a-refresh"})
+		session := config.Credentials{AccessToken: "b", RefreshToken: "b-refresh"}
+
+		require.NoError(t, store.ClearCredentials())
+		require.NoError(t, store.SetCredentials(session))
+
+		require.NoError(t, store.RefreshCredentials(fresh, "a-refresh"))
+
+		assert.Equal(t, session, store.Credentials(), "the newer session must survive")
 	})
 
 	t.Run("a refresh during a live session is stored", func(t *testing.T) {
@@ -42,7 +59,7 @@ func TestCredentialsStore_RefreshDoesNotResurrectClearedCredentials(t *testing.T
 
 		store := newCredentialsStore(t, config.Credentials{AccessToken: "old", RefreshToken: "old-refresh"})
 
-		require.NoError(t, store.RefreshCredentials(fresh))
+		require.NoError(t, store.RefreshCredentials(fresh, "old-refresh"))
 
 		assert.Equal(t, fresh, store.Credentials())
 	})

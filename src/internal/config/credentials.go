@@ -54,17 +54,19 @@ func (s *CredentialsStore) SetCredentials(credentials Credentials) error {
 	return s.storage.Save()
 }
 
-// RefreshCredentials stores tokens produced by a background refresh. It is a no-op once the
-// credentials are gone, because a refresh that started before an explicit logout completes
-// after it and would otherwise write the session back to disk - leaving a hub that reports
-// itself logged out but authenticates again on the next boot. The check shares this store's
-// lock with ClearCredentials, so the two cannot interleave.
-func (s *CredentialsStore) RefreshCredentials(credentials Credentials) error {
+// RefreshCredentials stores tokens produced by a background refresh, provided the session it
+// started from is still the one on disk. expected is the refresh token the exchange began
+// with: a logout empties the store and a new login replaces it, and in both cases the refresh
+// is finishing on behalf of a session that no longer exists. Writing it would resurrect a
+// logged-out hub, or overwrite the newer session - with another account's tokens, if the user
+// logged back in elsewhere. The comparison shares this store's lock with SetCredentials and
+// ClearCredentials, so the three cannot interleave.
+func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected string) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	if s.storage.Model().Empty() {
-		log.Info("[auth] Skip refreshed credentials, the session was cleared meanwhile")
+	if current := s.storage.Model(); current.Empty() || current.RefreshToken != expected {
+		log.Info("[auth] Skip refreshed credentials, the session changed meanwhile")
 
 		return nil
 	}
