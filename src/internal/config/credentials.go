@@ -54,6 +54,28 @@ func (s *CredentialsStore) SetCredentials(credentials Credentials) error {
 	return s.storage.Save()
 }
 
+// RefreshCredentials stores tokens produced by a background refresh, provided the session it
+// started from is still the one on disk. expected is the refresh token the exchange began
+// with: a logout empties the store and a new login replaces it, and in both cases the refresh
+// is finishing on behalf of a session that no longer exists. Writing it would resurrect a
+// logged-out hub, or overwrite the newer session - with another account's tokens, if the user
+// logged back in elsewhere. The comparison shares this store's lock with SetCredentials and
+// ClearCredentials, so the three cannot interleave.
+func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected string) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if current := s.storage.Model(); current.Empty() || current.RefreshToken != expected {
+		log.Info("[auth] Skip refreshed credentials, the session changed meanwhile")
+
+		return nil
+	}
+
+	*s.storage.Model() = credentials
+
+	return s.storage.Save()
+}
+
 func (s *CredentialsStore) ClearCredentials() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -66,6 +88,18 @@ func (s *CredentialsStore) ClearCredentials() error {
 // the config version does not advance and the next startup retries with the tokens still in place.
 func MigrateCredentials(cfg *Config, store *CredentialsStore) error {
 	if cfg.Empty() {
+		return nil
+	}
+
+	// An earlier run may have written the secrets and then failed to save the version bump,
+	// leaving this migration to run again. Its tokens have been refreshed since, and Easee
+	// retires a refresh token as soon as it is exchanged, so restoring the pair the config
+	// still carries would cost the session.
+	if !store.Credentials().Empty() {
+		cfg.Credentials = Credentials{}
+
+		log.Info("[config] Credentials already in the secrets storage, drop the config copy")
+
 		return nil
 	}
 

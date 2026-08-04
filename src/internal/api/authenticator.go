@@ -34,6 +34,7 @@ type Notifier interface {
 type CredentialsStore interface {
 	Credentials() config.Credentials
 	SetCredentials(config.Credentials) error
+	RefreshCredentials(config.Credentials, string) error
 	ClearCredentials() error
 }
 
@@ -137,10 +138,15 @@ func authLossHandler(notify Notifier, mqtt *fimpgo.MqttTransport, serviceName fi
 // credentialsAdapter translates between the persisted Easee credentials and the framework model.
 type credentialsAdapter struct {
 	store CredentialsStore
+	// refreshing is the refresh token handed to the framework for the exchange in progress.
+	// The framework reads the credentials and writes them back under a single lock, so one
+	// field is enough to tell a refresh that still owns the session from one that does not.
+	refreshing string
 }
 
 func (c *credentialsAdapter) Credentials() auth.Credentials {
 	creds := c.store.Credentials()
+	c.refreshing = creds.RefreshToken
 
 	return auth.Credentials{
 		AccessToken:      creds.AccessToken,
@@ -153,13 +159,15 @@ func (c *credentialsAdapter) Credentials() auth.Credentials {
 // SetCredentials derives both expiry times from the JWTs themselves: Easee rotates the refresh
 // token on every exchange and its response carries no refresh expiry, so without this the local
 // "refresh token expired" check would go blind after the first refresh.
+// It writes through RefreshCredentials with the refresh token the exchange started from, so a
+// refresh landing after a logout or a new login cannot bring back the session it belonged to.
 func (c *credentialsAdapter) SetCredentials(creds auth.Credentials) error {
-	return c.store.SetCredentials(config.Credentials{
+	return c.store.RefreshCredentials(config.Credentials{
 		AccessToken:           creds.AccessToken,
 		RefreshToken:          creds.RefreshToken,
 		AccessTokenExpiresAt:  tokenExpiration(creds.AccessToken, creds.ExpiresAt),
 		RefreshTokenExpiresAt: tokenExpiration(creds.RefreshToken, creds.RefreshExpiresAt),
-	})
+	}, c.refreshing)
 }
 
 func (c *credentialsAdapter) ClearCredentials() error {
