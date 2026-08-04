@@ -52,14 +52,18 @@ if [ ! -e "$NEW_DATA/data.db" ] && [ -f "$OLD_DATA/data.db" ] && [ ! -L "$OLD_DA
 	mv "$DB_TMP" "$NEW_DATA/data.db"
 fi
 
-# Rewrite legacy absolute paths in a migrated config.json. Idempotent.
-CONF="$NEW_DATA/data/config.json"
-if [ -f "$CONF" ] && [ ! -L "$CONF" ]; then
-	sed -i \
-		-e "s|$OLD_DATA|$NEW_DATA|g" \
-		-e "s|$OLD_LOGS|$NEW_LOGS|g" \
-		"$CONF"
-fi
+# Rewrite legacy absolute paths in a migrated config.json. Idempotent. The .bak is
+# rewritten too: the service falls back to it when config.json is unreadable, and an
+# untouched copy would point work_dir and log_file back at the legacy tree exactly
+# when corruption recovery needs them right.
+for CONF in "$NEW_DATA/data/config.json" "$NEW_DATA/data/config.json.bak"; do
+	if [ -f "$CONF" ] && [ ! -L "$CONF" ]; then
+		sed -i \
+			-e "s|$OLD_DATA|$NEW_DATA|g" \
+			-e "s|$OLD_LOGS|$NEW_LOGS|g" \
+			"$CONF"
+	fi
+done
 
 # Migrate the old log file. Best-effort and non-fatal: the log is history, not
 # state, so failing to copy it must not block the upgrade. Copy when the
