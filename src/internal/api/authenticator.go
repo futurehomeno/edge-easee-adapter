@@ -34,6 +34,7 @@ type Notifier interface {
 type CredentialsStore interface {
 	Credentials() config.Credentials
 	SetCredentials(config.Credentials) error
+	RefreshCredentials(config.Credentials) error
 	ClearCredentials() error
 }
 
@@ -153,8 +154,10 @@ func (c *credentialsAdapter) Credentials() auth.Credentials {
 // SetCredentials derives both expiry times from the JWTs themselves: Easee rotates the refresh
 // token on every exchange and its response carries no refresh expiry, so without this the local
 // "refresh token expired" check would go blind after the first refresh.
+// It writes through RefreshCredentials, so a refresh landing after an explicit logout cannot
+// bring the cleared session back.
 func (c *credentialsAdapter) SetCredentials(creds auth.Credentials) error {
-	return c.store.SetCredentials(config.Credentials{
+	return c.store.RefreshCredentials(config.Credentials{
 		AccessToken:           creds.AccessToken,
 		RefreshToken:          creds.RefreshToken,
 		AccessTokenExpiresAt:  tokenExpiration(creds.AccessToken, creds.ExpiresAt),

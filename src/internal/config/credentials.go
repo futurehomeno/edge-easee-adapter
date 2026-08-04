@@ -54,6 +54,26 @@ func (s *CredentialsStore) SetCredentials(credentials Credentials) error {
 	return s.storage.Save()
 }
 
+// RefreshCredentials stores tokens produced by a background refresh. It is a no-op once the
+// credentials are gone, because a refresh that started before an explicit logout completes
+// after it and would otherwise write the session back to disk - leaving a hub that reports
+// itself logged out but authenticates again on the next boot. The check shares this store's
+// lock with ClearCredentials, so the two cannot interleave.
+func (s *CredentialsStore) RefreshCredentials(credentials Credentials) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if s.storage.Model().Empty() {
+		log.Info("[auth] Skip refreshed credentials, the session was cleared meanwhile")
+
+		return nil
+	}
+
+	*s.storage.Model() = credentials
+
+	return s.storage.Save()
+}
+
 func (s *CredentialsStore) ClearCredentials() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -66,6 +86,18 @@ func (s *CredentialsStore) ClearCredentials() error {
 // the config version does not advance and the next startup retries with the tokens still in place.
 func MigrateCredentials(cfg *Config, store *CredentialsStore) error {
 	if cfg.Empty() {
+		return nil
+	}
+
+	// An earlier run may have written the secrets and then failed to save the version bump,
+	// leaving this migration to run again. Its tokens have been refreshed since, and Easee
+	// retires a refresh token as soon as it is exchanged, so restoring the pair the config
+	// still carries would cost the session.
+	if !store.Credentials().Empty() {
+		cfg.Credentials = Credentials{}
+
+		log.Info("[config] Credentials already in the secrets storage, drop the config copy")
+
 		return nil
 	}
 
