@@ -292,13 +292,15 @@ func (a *application) configureChargers(selected []string) error {
 	}
 
 	// A hub upgraded while logged out never reached the boot-time adoption, because
-	// Initialize returns before it when the secrets store is empty. Catch up here, but
-	// only with chargers this account still lists: logging into a different Easee
-	// account would otherwise adopt the previous account's thing IDs and leave the hub
-	// selecting devices it can never see.
+	// Initialize returns before it when the secrets store is empty. Catch up here.
+	// Adopt every owned charger, not just the listed ones: a selection filtered against
+	// this response is a subset of it by construction, so the retry budget below would
+	// never see a partial list and a transiently absent charger would lose its thing.
+	// Nothing owned being listed is a different Easee account rather than a short list,
+	// and adopting there would leave the hub selecting devices it can never see.
 	if len(selected) == 0 {
-		if adopted := a.ownedListedChargers(chargers); len(adopted) > 0 {
-			selected = adopted
+		if len(a.ownedListedChargers(chargers)) > 0 {
+			selected = a.ownedDeviceIDs()
 
 			if err := a.cfgService.SetSelectedDevices(selected); err != nil {
 				return fmt.Errorf("persist adopted selection: %w", err)

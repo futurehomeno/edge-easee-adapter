@@ -1071,6 +1071,18 @@ func TestApplication_Login_MissingSelectedBudgetIsOrderIndependent(t *testing.T)
 	assert.Equal(t, []string{"123"}, h.seeded())
 }
 
+// Adoption must not filter the owned chargers against the response it was handed: the
+// result would be a subset of that response by construction, so a transiently short list
+// would silently prune the selection where the retry budget can no longer see it.
+func TestApplication_Login_PartialChargerListDoesNotPruneAdoptedSelection(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, []model.Charger{{ID: "A1"}}, nil, []string{"A1", "A2"}, nil)
+
+	require.ErrorContains(t, h.login(), "A2", "a partial list must spend the retry budget, not prune")
+	assert.Equal(t, []string{"A1", "A2"}, h.cfg.SelectedDevices(), "the absent charger keeps its place")
+}
+
 // Logging into a different Easee account must not adopt the previous account's thing IDs:
 // they are absent from the new account's charger list, so the hub would end up selecting
 // devices it can never see and seeding nothing.
