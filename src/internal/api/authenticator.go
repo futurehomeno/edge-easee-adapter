@@ -72,9 +72,11 @@ func NewAuthenticator(
 		backoff: cfgSvc.AuthenticatorBackoffStateful(),
 	}
 
+	adapter := &credentialsAdapter{store: creds}
+
 	a.authenticator = auth.NewAuthenticator(
-		&credentialsAdapter{store: creds},
-		&tokenExchanger{http: http, creds: creds},
+		adapter,
+		&tokenExchanger{http: http, snapshot: adapter},
 		auth.AuthenticatorConfig{
 			Backoff: a.backoff,
 			// Easee has historically returned transient 401s on a still-valid refresh token,
@@ -138,15 +140,16 @@ func authLossHandler(notify Notifier, mqtt *fimpgo.MqttTransport, serviceName fi
 // credentialsAdapter translates between the persisted Easee credentials and the framework model.
 type credentialsAdapter struct {
 	store CredentialsStore
-	// refreshing is the refresh token handed to the framework for the exchange in progress.
-	// The framework reads the credentials and writes them back under a single lock, so one
-	// field is enough to tell a refresh that still owns the session from one that does not.
-	refreshing string
+	// refreshing is the session handed to the framework for the exchange in progress. The
+	// framework reads the credentials and writes them back under a single lock, so one copy
+	// is enough to tell a refresh that still owns the session from one that does not, and to
+	// keep both tokens of an exchange request drawn from the same session.
+	refreshing config.Credentials
 }
 
 func (c *credentialsAdapter) Credentials() auth.Credentials {
 	creds := c.store.Credentials()
-	c.refreshing = creds.RefreshToken
+	c.refreshing = creds
 
 	return auth.Credentials{
 		AccessToken:      creds.AccessToken,
@@ -167,7 +170,7 @@ func (c *credentialsAdapter) SetCredentials(creds auth.Credentials) error {
 		RefreshToken:          creds.RefreshToken,
 		AccessTokenExpiresAt:  tokenExpiration(creds.AccessToken, creds.ExpiresAt),
 		RefreshTokenExpiresAt: tokenExpiration(creds.RefreshToken, creds.RefreshExpiresAt),
-	}, c.refreshing)
+	}, c.refreshing.RefreshToken)
 }
 
 func (c *credentialsAdapter) ClearCredentials() error {
@@ -187,14 +190,16 @@ func tokenExpiration(token string, fallback time.Time) time.Time {
 }
 
 // tokenExchanger refreshes the access token. Easee requires the expired access token
-// alongside the refresh token, so it is read back from the store.
+// alongside the refresh token, and rejects the pair unless both belong to the same session,
+// so it comes from the snapshot the exchange started from rather than a second read of the
+// store - a login landing in between would otherwise pair the two sessions.
 type tokenExchanger struct {
-	http  HTTPClient
-	creds CredentialsStore
+	http     HTTPClient
+	snapshot *credentialsAdapter
 }
 
 func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2TokenResponse, error) {
-	credentials, err := e.http.RefreshToken(e.creds.Credentials().AccessToken, refreshToken)
+	credentials, err := e.http.RefreshToken(e.snapshot.refreshing.AccessToken, refreshToken)
 	if err != nil {
 		return nil, err
 	}

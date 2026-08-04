@@ -250,6 +250,68 @@ func TestExpiredRefreshTokenLogsOut(t *testing.T) {
 	assert.True(t, notifier.IsEventReceived("easee_status_offline"))
 }
 
+// TestRefreshUsesOneSessionForBothTokens asserts that a login landing between the framework's
+// credentials snapshot and the exchange request cannot pair the new session's access token with
+// the old session's refresh token - Easee rejects such a pair, and the 401 would be charged to
+// a session that never made the request.
+func TestRefreshUsesOneSessionForBothTokens(t *testing.T) {
+	t.Parallel()
+
+	refreshing := config.Credentials{
+		AccessToken:           "session A access token",
+		RefreshToken:          jwtWithExpiry(time.Now().Add(24 * time.Hour)),
+		AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
+		RefreshTokenExpiresAt: time.Now().Add(24 * time.Hour),
+	}
+
+	loggedIn := config.Credentials{
+		AccessToken:           "session B access token",
+		RefreshToken:          jwtWithExpiry(time.Now().Add(48 * time.Hour)),
+		AccessTokenExpiresAt:  time.Now().Add(time.Hour),
+		RefreshTokenExpiresAt: time.Now().Add(48 * time.Hour),
+	}
+
+	credentials := &loginDuringRefreshStore{
+		CredentialsStore: newCredentialsStore(t, refreshing),
+		loginWith:        &loggedIn,
+	}
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("RefreshToken", refreshing.AccessToken, refreshing.RefreshToken).
+		Return(&model.Credentials{
+			AccessToken:  jwtWithExpiry(time.Now().Add(time.Hour)),
+			RefreshToken: jwtWithExpiry(time.Now().Add(24 * time.Hour)),
+		}, nil)
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+	_, err := authenticator.AccessToken()
+	require.NoError(t, err)
+
+	assert.Equal(t, loggedIn, credentials.Credentials(), "the refresh must not write over the session that replaced it")
+}
+
+// loginDuringRefreshStore replaces the stored session right after the framework has read it,
+// which is the window a concurrent Login occupies.
+type loginDuringRefreshStore struct {
+	*config.CredentialsStore
+
+	loginWith *config.Credentials
+}
+
+func (s *loginDuringRefreshStore) Credentials() config.Credentials {
+	credentials := s.CredentialsStore.Credentials()
+
+	if s.loginWith != nil {
+		login := *s.loginWith
+		s.loginWith = nil
+
+		_ = s.SetCredentials(login)
+	}
+
+	return credentials
+}
+
 // TestRefreshBackoff asserts that repeated failures suspend further refresh attempts and that
 // the suspension is reported as ErrRefreshBackoff, which callers downgrade to a debug log.
 func TestRefreshBackoff(t *testing.T) {
@@ -279,7 +341,7 @@ func TestRefreshBackoff(t *testing.T) {
 func newAuthenticator(
 	t *testing.T,
 	httpClient api.HTTPClient,
-	credentials *config.CredentialsStore,
+	credentials api.CredentialsStore,
 	notifier api.Notifier,
 	grace time.Duration,
 ) api.Authenticator {
