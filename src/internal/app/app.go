@@ -145,9 +145,7 @@ func (a *application) Configure(model any) error {
 	// retries before it gives up on them.
 	selected := cfg.SelectedDevices
 	if len(selected) == 0 {
-		owned := a.ownedDeviceIDs()
-		stale := missingSelected(chargers, owned)
-		selected = slices.DeleteFunc(owned, func(id string) bool { return slices.Contains(stale, id) })
+		selected = a.ownedListedChargers(chargers)
 	}
 
 	selected = effectiveSelection(chargers, selected)
@@ -226,12 +224,6 @@ func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 		return fmt.Errorf("failed to login as '%s': %w", credentials.Username, err)
 	}
 
-	// A hub upgraded while logged out never reached the boot-time adoption, because
-	// Initialize returns before it when the secrets store is empty. Without this the
-	// selection would still be empty here and the cap below could drop chargers this
-	// hub already had.
-	a.adoptSeededSelection()
-
 	if err := a.configureChargers(a.cfgService.SelectedDevices()); err != nil {
 		a.lifecycle.MarkNotConfigured()
 
@@ -297,6 +289,21 @@ func (a *application) configureChargers(selected []string) error {
 	chargers, err := a.client.Chargers()
 	if err != nil {
 		return fmt.Errorf("fetch available chargers: %w", err)
+	}
+
+	// A hub upgraded while logged out never reached the boot-time adoption, because
+	// Initialize returns before it when the secrets store is empty. Catch up here, but
+	// only with chargers this account still lists: logging into a different Easee
+	// account would otherwise adopt the previous account's thing IDs and leave the hub
+	// selecting devices it can never see.
+	if len(selected) == 0 {
+		if adopted := a.ownedListedChargers(chargers); len(adopted) > 0 {
+			selected = adopted
+
+			if err := a.cfgService.SetSelectedDevices(selected); err != nil {
+				return fmt.Errorf("persist adopted selection: %w", err)
+			}
+		}
 	}
 
 	// A partial /chargers response must not drop selected chargers: the sync destroys
@@ -422,6 +429,15 @@ func (a *application) adoptSeededSelection() {
 	}
 }
 
+// ownedListedChargers returns the chargers this hub holds as things and the account still
+// lists, so a stale ID cannot be carried forward into the selection.
+func (a *application) ownedListedChargers(chargers []model.Charger) []string {
+	owned := a.ownedDeviceIDs()
+	stale := missingSelected(chargers, owned)
+
+	return slices.DeleteFunc(owned, func(id string) bool { return slices.Contains(stale, id) })
+}
+
 // ownedDeviceIDs returns the chargers the adapter currently holds as things.
 func (a *application) ownedDeviceIDs() []string {
 	things := a.ad.Things()
@@ -453,7 +469,9 @@ func missingSelected(chargers []model.Charger, selected []string) []string {
 }
 
 // effectiveSelection turns an unconfigured (empty) selection into the concrete charger
-// list, capped at maxAutoSelected. Materialising it is what makes cmd.thing.delete stick:
+// list, capped at maxAutoSelected. Materialising it is what makes cmd.thing.delete stick,
+// as long as a charger remains selected - deleting the last one empties the selection,
+// which is indistinguishable from "never configured" and is materialised again here:
 // an empty selection means "every charger" and cannot express an exclusion, so the next
 // sync would recreate the deleted thing. The cap keeps installer accounts, which expose
 // hundreds of chargers, from flooding the hub with things nobody asked for.

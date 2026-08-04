@@ -1070,3 +1070,17 @@ func TestApplication_Login_MissingSelectedBudgetIsOrderIndependent(t *testing.T)
 	require.NoError(t, h.login(), "the same missing set reordered must not reset the budget")
 	assert.Equal(t, []string{"123"}, h.seeded())
 }
+
+// Logging into a different Easee account must not adopt the previous account's thing IDs:
+// they are absent from the new account's charger list, so the hub would end up selecting
+// devices it can never see and seeding nothing.
+func TestApplication_Login_AccountSwitchIgnoresStaleThings(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, []model.Charger{{ID: "B1"}, {ID: "B2"}}, nil, []string{"A1", "A2"}, nil)
+
+	require.NoError(t, h.login(), "the stale selection must not burn the retry budget")
+
+	assert.Equal(t, []string{"B1", "B2"}, h.seeded())
+	assert.Equal(t, []string{"B1", "B2"}, h.cfg.SelectedDevices())
+}
