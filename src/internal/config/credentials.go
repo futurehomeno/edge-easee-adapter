@@ -105,19 +105,16 @@ func MigrateCredentials(cfg *Config, store *CredentialsStore) error {
 
 	credentials := cfg.Credentials
 
-	if credentials.AccessTokenExpiresAt.IsZero() || credentials.RefreshTokenExpiresAt.IsZero() {
-		accessExpiresAt, err := auth.TokenExpirationDate(credentials.AccessToken)
-		if err != nil {
-			return fmt.Errorf("access token expiration time err: %w", err)
-		}
+	// An unreadable expiry claim is left zero rather than failing the migration: retrying it
+	// can never parse a token that did not parse before, and zero is the value the framework
+	// already treats as "refresh now" for the access token and "no local check" for the
+	// refresh one - so the session recovers on the first exchange instead of needing a login.
+	if credentials.AccessTokenExpiresAt.IsZero() {
+		credentials.AccessTokenExpiresAt, _ = auth.TokenExpirationDate(credentials.AccessToken)
+	}
 
-		refreshExpiresAt, err := auth.TokenExpirationDate(credentials.RefreshToken)
-		if err != nil {
-			return fmt.Errorf("refresh token expiration time err: %w", err)
-		}
-
-		credentials.AccessTokenExpiresAt = accessExpiresAt
-		credentials.RefreshTokenExpiresAt = refreshExpiresAt
+	if credentials.RefreshTokenExpiresAt.IsZero() {
+		credentials.RefreshTokenExpiresAt, _ = auth.TokenExpirationDate(credentials.RefreshToken)
 	}
 
 	if err := store.SetCredentials(credentials); err != nil {

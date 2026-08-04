@@ -117,3 +117,25 @@ func TestMigrateCredentials_KeepsAlreadyMigratedSecrets(t *testing.T) {
 		assert.True(t, cfg.Empty())
 	})
 }
+
+// A legacy install predates the persisted expiry times, so they are read back from the JWTs.
+// A token whose claim will not parse must not strand the migration: it can never parse on a
+// retry, so failing here would block the version bump for good and force a re-login.
+func TestMigrateCredentials_MigratesTokensWithoutExpiryClaim(t *testing.T) {
+	t.Parallel()
+
+	unparseable, alsoUnparseable := "not-a-jwt", "not-a-jwt-either"
+
+	legacy := config.Credentials{
+		AccessToken:  unparseable,
+		RefreshToken: alsoUnparseable,
+	}
+
+	store := newCredentialsStore(t, config.Credentials{})
+	cfg := &config.Config{Credentials: legacy}
+
+	require.NoError(t, config.MigrateCredentials(cfg, store))
+
+	assert.Equal(t, legacy, store.Credentials(), "both tokens migrate with the expiries left zero")
+	assert.True(t, cfg.Empty(), "the config copy is dropped, so the version can advance")
+}
