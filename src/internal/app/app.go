@@ -145,9 +145,7 @@ func (a *application) Configure(model any) error {
 	// retries before it gives up on them.
 	selected := cfg.SelectedDevices
 	if len(selected) == 0 {
-		owned := a.ownedDeviceIDs()
-		stale := missingSelected(chargers, owned)
-		selected = slices.DeleteFunc(owned, func(id string) bool { return slices.Contains(stale, id) })
+		selected = a.ownedListedChargers(chargers)
 	}
 
 	selected = effectiveSelection(chargers, selected)
@@ -293,12 +291,30 @@ func (a *application) configureChargers(selected []string) error {
 		return fmt.Errorf("fetch available chargers: %w", err)
 	}
 
+	// A hub upgraded while logged out never reached the boot-time adoption, because
+	// Initialize returns before it when the secrets store is empty. Catch up here, but
+	// only with chargers this account still lists: logging into a different Easee
+	// account would otherwise adopt the previous account's thing IDs and leave the hub
+	// selecting devices it can never see.
+	if len(selected) == 0 {
+		if adopted := a.ownedListedChargers(chargers); len(adopted) > 0 {
+			selected = adopted
+
+			if err := a.cfgService.SetSelectedDevices(selected); err != nil {
+				return fmt.Errorf("persist adopted selection: %w", err)
+			}
+		}
+	}
+
 	// A partial /chargers response must not drop selected chargers: the sync destroys
 	// every persisted thing absent from the seeds. Retry a few times, then seed without
 	// them so a legitimately removed charger cannot block startup.
 	if missing := missingSelected(chargers, selected); len(missing) > 0 {
 		// Reset the budget when the missing set changes, so a newly missing charger
-		// gets full retries instead of inheriting an exhausted counter.
+		// gets full retries instead of inheriting an exhausted counter. Sorted, or
+		// re-ticking the same devices in another order would look like a new set.
+		slices.Sort(missing)
+
 		if key := strings.Join(missing, ","); key != a.lastMissing {
 			a.lastMissing = key
 			a.missingRetries = 0
@@ -413,6 +429,15 @@ func (a *application) adoptSeededSelection() {
 	}
 }
 
+// ownedListedChargers returns the chargers this hub holds as things and the account still
+// lists, so a stale ID cannot be carried forward into the selection.
+func (a *application) ownedListedChargers(chargers []model.Charger) []string {
+	owned := a.ownedDeviceIDs()
+	stale := missingSelected(chargers, owned)
+
+	return slices.DeleteFunc(owned, func(id string) bool { return slices.Contains(stale, id) })
+}
+
 // ownedDeviceIDs returns the chargers the adapter currently holds as things.
 func (a *application) ownedDeviceIDs() []string {
 	things := a.ad.Things()
@@ -443,16 +468,19 @@ func missingSelected(chargers []model.Charger, selected []string) []string {
 	return missing
 }
 
-// effectiveSelection caps an unconfigured (empty) selection to the first maxAutoSelected
-// chargers. Installer accounts expose hundreds of chargers, and seeding every one of them
-// floods the hub with things nobody asked for. Below the cap an empty selection still
-// means "all", as before.
+// effectiveSelection turns an unconfigured (empty) selection into the concrete charger
+// list, capped at maxAutoSelected. Materialising it is what makes cmd.thing.delete stick,
+// as long as a charger remains selected - deleting the last one empties the selection,
+// which is indistinguishable from "never configured" and is materialised again here:
+// an empty selection means "every charger" and cannot express an exclusion, so the next
+// sync would recreate the deleted thing. The cap keeps installer accounts, which expose
+// hundreds of chargers, from flooding the hub with things nobody asked for.
 func effectiveSelection(chargers []model.Charger, selected []string) []string {
-	if len(selected) > 0 || len(chargers) <= maxAutoSelected {
+	if len(selected) > 0 {
 		return selected
 	}
 
-	auto := make([]string, 0, maxAutoSelected)
+	auto := make([]string, 0, min(len(chargers), maxAutoSelected))
 
 	for _, charger := range chargers {
 		if charger.ID == "" {
@@ -466,7 +494,9 @@ func effectiveSelection(chargers []model.Charger, selected []string) []string {
 		}
 	}
 
-	log.Warnf("[app] No devices selected out of %d available, auto-select first %d: %v", len(chargers), len(auto), auto)
+	if len(chargers) > maxAutoSelected {
+		log.Warnf("[app] No devices selected out of %d available, auto-select first %d: %v", len(chargers), len(auto), auto)
+	}
 
 	return auto
 }
