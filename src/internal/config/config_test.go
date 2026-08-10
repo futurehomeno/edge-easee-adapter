@@ -134,3 +134,46 @@ func TestConfig_MigrateOfferedCurrentWaitTime(t *testing.T) {
 		})
 	}
 }
+
+// TestConfig_SelectedDevices_NilVsEmpty locks the distinction the selection rests on: a
+// configuration written before v3.0 carries no selected_devices key and must read as "every
+// charger", while an explicit empty list from the UI must read as "no charger". Both survive
+// a round trip through the stored JSON.
+func TestConfig_SelectedDevices_NilVsEmpty(t *testing.T) {
+	tests := []struct {
+		name           string
+		body           string
+		wantIncludeAll bool
+		wantJSON       string
+	}{
+		{
+			name:           "a pre-v3 configuration has no key and includes every charger",
+			body:           `{"easeeBaseURL2":"https://api.easee.test"}`,
+			wantIncludeAll: true,
+			wantJSON:       `"selected_devices":null`,
+		},
+		{
+			name:     "an explicit empty list includes no charger",
+			body:     `{"selected_devices":[]}`,
+			wantJSON: `"selected_devices":[]`,
+		},
+		{
+			name:     "a chosen subset is kept as is",
+			body:     `{"selected_devices":["EH123"]}`,
+			wantJSON: `"selected_devices":["EH123"]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.Factory()
+			require.NoError(t, json.Unmarshal([]byte(tt.body), cfg))
+
+			assert.Equal(t, tt.wantIncludeAll, cfg.SelectedDevices.IncludeAll())
+
+			body, err := json.Marshal(cfg.PublicConfig)
+			require.NoError(t, err)
+			assert.Contains(t, string(body), tt.wantJSON)
+		})
+	}
+}

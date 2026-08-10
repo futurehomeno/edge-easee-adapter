@@ -374,3 +374,51 @@ func jwtWithExpiry(expiresAt time.Time) string {
 
 	return encode(`{"alg":"none"}`) + "." + encode(fmt.Sprintf(`{"exp":%d}`, expiresAt.Unix())) + "."
 }
+
+// TestRefreshPairsTokensOfTheRotationItExchanges covers a rotation the store refused to persist:
+// the framework keeps it in memory and exchanges its refresh token on the next attempt, so the
+// access token has to come from that same rotation. Reading it off the store instead pairs two
+// sessions, which Easee rejects.
+func TestRefreshPairsTokensOfTheRotationItExchanges(t *testing.T) {
+	t.Parallel()
+
+	stored := config.Credentials{
+		AccessToken:           "stored access token",
+		RefreshToken:          jwtWithExpiry(time.Now().Add(24 * time.Hour)),
+		AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
+		RefreshTokenExpiresAt: time.Now().Add(24 * time.Hour),
+	}
+
+	rotated := &model.Credentials{
+		AccessToken:  "rotated access token",
+		RefreshToken: jwtWithExpiry(time.Now().Add(48 * time.Hour)),
+	}
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("RefreshToken", stored.AccessToken, stored.RefreshToken).Return(rotated, nil).Once()
+	httpClient.On("RefreshToken", rotated.AccessToken, rotated.RefreshToken).
+		Return(&model.Credentials{AccessToken: "final access token", RefreshToken: rotated.RefreshToken}, nil).Once()
+
+	credentials := &refusingStore{CredentialsStore: newCredentialsStore(t, stored)}
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+	token, err := authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, rotated.AccessToken, token)
+
+	// The rotation was never persisted and carries no expiry, so the next call refreshes again -
+	// this time off the in-memory rotation rather than off the store.
+	token, err = authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, "final access token", token)
+}
+
+// refusingStore rejects every write, which is what leaves the framework holding a rotation it
+// could not persist.
+type refusingStore struct {
+	*config.CredentialsStore
+}
+
+func (s *refusingStore) RefreshCredentials(config.Credentials, string) error {
+	return errors.New("storage is read-only")
+}

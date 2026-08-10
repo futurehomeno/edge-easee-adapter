@@ -149,18 +149,19 @@ func (a *application) Configure(model any) error {
 		return err
 	}
 
-	// An empty selection from the UI must not silently drop live chargers down to
-	// the auto-cap: keep what is already seeded, minus chargers Easee no longer
-	// lists - persisting a stale ID makes every later boot burn its missing-selected
-	// retries before it gives up on them.
+	// An absent selection includes every charger and must not silently drop live ones down
+	// to the auto-cap: keep what is already seeded, minus chargers Easee no longer lists -
+	// persisting a stale ID makes every later boot burn its missing-selected retries before
+	// it gives up on them. An empty one is the user deselecting everything, and is obeyed.
 	selected := cfg.SelectedDevices
-	if len(selected) == 0 {
-		selected = a.ownedListedChargers(chargers)
+	if selected.IncludeAll() {
+		if owned := a.ownedListedChargers(chargers); len(owned) > 0 {
+			selected = owned
+		}
 	}
 
-	selected = effectiveSelection(chargers, selected)
-
-	if err := a.applyChargers(chargers, selected); err != nil {
+	selected, err = a.applyChargers(chargers, effectiveSelection(chargers, selected))
+	if err != nil {
 		return err
 	}
 
@@ -302,7 +303,7 @@ func (a *application) Logout() error {
 
 // configureChargers reconciles things with the selected chargers, fetching the list first
 // so the selection policy below can reason about what Easee currently reports.
-func (a *application) configureChargers(selected []string) error {
+func (a *application) configureChargers(selected selection.Selection) error {
 	chargers, err := a.client.Chargers()
 	if err != nil {
 		return fmt.Errorf("fetch available chargers: %w", err)
@@ -315,7 +316,7 @@ func (a *application) configureChargers(selected []string) error {
 	// never see a partial list and a transiently absent charger would lose its thing.
 	// Nothing owned being listed is a different Easee account rather than a short list,
 	// and adopting there would leave the hub selecting devices it can never see.
-	if len(selected) == 0 {
+	if selected.IncludeAll() {
 		if len(a.ownedListedChargers(chargers)) > 0 {
 			selected = a.ownedDeviceIDs()
 
@@ -325,12 +326,14 @@ func (a *application) configureChargers(selected []string) error {
 		}
 	}
 
-	// An empty response leaves the selection empty too, so nothing below would flag the
-	// owned chargers as missing and the sync would destroy every thing on the hub. Put
-	// them through the same retry budget instead: a successful fetch listing nothing is
-	// no more trustworthy than one listing too little.
-	if len(chargers) == 0 && len(selected) == 0 {
-		selected = a.ownedDeviceIDs()
+	// An empty response leaves nothing for the adoption above to work off, so nothing below
+	// would flag the owned chargers as missing and the sync would destroy every thing on the
+	// hub. Put them through the same retry budget instead: a successful fetch listing nothing
+	// is no more trustworthy than one listing too little.
+	if len(chargers) == 0 && selected.IncludeAll() {
+		if owned := a.ownedDeviceIDs(); len(owned) > 0 {
+			selected = owned
+		}
 	}
 
 	// A partial /chargers response must not drop selected chargers: the sync destroys
@@ -357,21 +360,16 @@ func (a *application) configureChargers(selected []string) error {
 		log.Warnf("[app] Selected devices %v still missing after %d retries, seed without them", missing, maxMissingSelectedRetries)
 
 		// Drop them from the persisted selection too, or the budget is spent again on
-		// every later login. Never down to an empty selection: empty means "every
-		// charger", so cleaning the last entry would widen a selection the user
-		// narrowed. That case keeps the stale ID and pays the retries again.
-		remaining := slices.DeleteFunc(slices.Clone(selected), func(id string) bool {
+		// every later login. Clone rather than slices.Clone: cleaning out the last entry
+		// must leave an empty selection ("no chargers"), not a nil one ("every charger").
+		log.Infof("[app] Remove vanished chargers %v from the saved selection", missing)
+
+		selected = slices.DeleteFunc(selected.Clone(), func(id string) bool {
 			return slices.Contains(missing, id)
 		})
 
-		if len(remaining) > 0 {
-			log.Infof("[app] Remove vanished chargers %v from the saved selection", missing)
-
-			selected = remaining
-
-			if err := a.cfgService.SetSelectedDevices(selected); err != nil {
-				return fmt.Errorf("persist cleaned selection: %w", err)
-			}
+		if err := a.cfgService.SetSelectedDevices(selected); err != nil {
+			return fmt.Errorf("persist cleaned selection: %w", err)
 		}
 	}
 
@@ -380,7 +378,7 @@ func (a *application) configureChargers(selected []string) error {
 
 	// Persist an auto-selection so the manifest and the seeds work off the same list
 	// instead of each re-deriving it.
-	if capped := effectiveSelection(chargers, selected); len(capped) > 0 && len(selected) == 0 {
+	if capped := effectiveSelection(chargers, selected); len(capped) > 0 && selected.IncludeAll() {
 		selected = capped
 
 		if err := a.cfgService.SetSelectedDevices(selected); err != nil {
@@ -388,38 +386,45 @@ func (a *application) configureChargers(selected []string) error {
 		}
 	}
 
-	return a.applyChargers(chargers, selected)
+	synced, err := a.applyChargers(chargers, selected)
+	if err != nil {
+		return err
+	}
+
+	if slices.Equal(synced, selected) {
+		return nil
+	}
+
+	if err := a.cfgService.SetSelectedDevices(synced); err != nil {
+		return fmt.Errorf("persist selection after sync: %w", err)
+	}
+
+	return nil
 }
 
-// applyChargers seeds the selected chargers. Details are fetched up front because a seed
-// function cannot fail, and the fetch must be the sole authority on what exists.
-func (a *application) applyChargers(chargers []model.Charger, selected []string) error {
+// applyChargers seeds the selected chargers and returns the selection the sync leaves behind.
+// Details are fetched up front because a seed function cannot fail, and the fetch must be the
+// sole authority on what exists.
+func (a *application) applyChargers(chargers []model.Charger, selected selection.Selection) (selection.Selection, error) {
 	products := make(map[string]string, len(chargers))
 
 	for _, charger := range chargers {
-		if len(selected) > 0 && !slices.Contains(selected, charger.ID) {
+		if !selected.Contains(charger.ID) {
 			continue
 		}
 
 		details, err := a.client.ChargerDetails(charger.ID)
 		if err != nil {
-			return fmt.Errorf("fetch charger details: %w", err)
+			return nil, fmt.Errorf("fetch charger details: %w", err)
 		}
 
 		products[charger.ID] = details.Product
 	}
 
-	// SyncThings reads an empty selection as "no devices" and a nil one as "all", while
-	// the persisted config uses empty for "all" - translate rather than migrate the field.
-	var selection []string
-	if len(selected) > 0 {
-		selection = selected
-	}
-
-	seeds, err := adapter.SyncThings(
+	seeds, excluded, err := adapter.SyncThings(
 		a.ad,
 		func() ([]model.Charger, error) { return chargers, nil },
-		selection,
+		selected,
 		func(charger model.Charger) *adapter.ThingSeed {
 			return &adapter.ThingSeed{
 				ID:   charger.ID,
@@ -428,21 +433,29 @@ func (a *application) applyChargers(chargers []model.Charger, selected []string)
 		},
 	)
 	if err != nil {
-		return fmt.Errorf("sync things: %w", err)
+		return nil, fmt.Errorf("sync things: %w", err)
 	}
 
 	if len(seeds) > 0 {
 		a.signalRClient.Start()
 	}
 
-	return nil
+	if len(excluded) == 0 {
+		return selected, nil
+	}
+
+	// The sync announced an exclusion for each of these, so keeping them selected would
+	// re-announce the same vanished charger on every later sync.
+	return slices.DeleteFunc(selected.Clone(), func(id string) bool {
+		return slices.Contains(excluded, id)
+	}), nil
 }
 
 // adoptSeededSelection makes config catch up with reality on upgrades from versions without
-// a selection: things were seeded but selected_devices is empty, so a later re-seed would
+// a selection: things were seeded but selected_devices is absent, so a later re-seed would
 // fall back to "all" (or to the auto-cap) instead of this hub's own chargers.
 func (a *application) adoptSeededSelection() {
-	if len(a.cfgService.SelectedDevices()) > 0 {
+	if !a.cfgService.SelectedDevices().IncludeAll() {
 		return
 	}
 
@@ -458,7 +471,7 @@ func (a *application) adoptSeededSelection() {
 
 // ownedListedChargers returns the chargers this hub holds as things and the account still
 // lists, so a stale ID cannot be carried forward into the selection.
-func (a *application) ownedListedChargers(chargers []model.Charger) []string {
+func (a *application) ownedListedChargers(chargers []model.Charger) selection.Selection {
 	owned := a.ownedDeviceIDs()
 	stale := missingSelected(chargers, owned)
 
@@ -466,10 +479,10 @@ func (a *application) ownedListedChargers(chargers []model.Charger) []string {
 }
 
 // ownedDeviceIDs returns the chargers the adapter currently holds as things.
-func (a *application) ownedDeviceIDs() []string {
+func (a *application) ownedDeviceIDs() selection.Selection {
 	things := a.ad.Things()
 
-	ids := make([]string, 0, len(things))
+	ids := make(selection.Selection, 0, len(things))
 	for _, t := range things {
 		ids = append(ids, t.InclusionReport().DeviceId)
 	}
@@ -495,19 +508,17 @@ func missingSelected(chargers []model.Charger, selected []string) []string {
 	return missing
 }
 
-// effectiveSelection turns an unconfigured (empty) selection into the concrete charger
-// list, capped at maxAutoSelected. Materialising it is what makes cmd.thing.delete stick,
-// as long as a charger remains selected - deleting the last one empties the selection,
-// which is indistinguishable from "never configured" and is materialised again here:
-// an empty selection means "every charger" and cannot express an exclusion, so the next
-// sync would recreate the deleted thing. The cap keeps installer accounts, which expose
-// hundreds of chargers, from flooding the hub with things nobody asked for.
-func effectiveSelection(chargers []model.Charger, selected []string) []string {
-	if len(selected) > 0 {
+// effectiveSelection turns an unconfigured (nil) selection into the concrete charger list,
+// capped at maxAutoSelected. Materialising it is what makes cmd.thing.delete stick: "every
+// charger" cannot express an exclusion, so the next sync would recreate the deleted thing.
+// The cap keeps installer accounts, which expose hundreds of chargers, from flooding the hub
+// with things nobody asked for.
+func effectiveSelection(chargers []model.Charger, selected selection.Selection) selection.Selection {
+	if !selected.IncludeAll() {
 		return selected
 	}
 
-	auto := make([]string, 0, min(len(chargers), maxAutoSelected))
+	auto := make(selection.Selection, 0, min(len(chargers), maxAutoSelected))
 
 	for _, charger := range chargers {
 		if charger.ID == "" {
