@@ -75,6 +75,37 @@ func TestLogin(t *testing.T) {
 	}
 }
 
+func TestLoginSurvivesAFailedCredentialsSave(t *testing.T) {
+	t.Parallel()
+
+	accessToken := jwtWithExpiry(time.Now().Add(time.Hour))
+	refreshToken := jwtWithExpiry(time.Now().Add(24 * time.Hour))
+
+	storage := mockedstorage.NewStorage[*config.Credentials](t)
+	storage.On("Model").Return(&config.Credentials{})
+	storage.On("Save").Return(errors.New("no space left on device"))
+
+	credentials := config.NewCredentialsStoreWithStorage(storage)
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").Return(&model.Credentials{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil)
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+	// The store keeps the tokens in memory when the write fails, so the session works until
+	// the next restart. Failing the login instead would mark the app not configured and skip
+	// the charger setup over a disk error the next successful save repairs.
+	require.NoError(t, authenticator.Login("user", "pwd"))
+	assert.Equal(t, accessToken, credentials.Credentials().AccessToken)
+
+	token, err := authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, accessToken, token)
+}
+
 func TestAccessToken(t *testing.T) {
 	t.Parallel()
 

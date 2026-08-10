@@ -291,6 +291,10 @@ func (m *manager) handleClientState(state model.ClientState) {
 		for _, charger := range m.chargers {
 			charger.backoff.Reset()
 			charger.isSubscribed = false
+			// A reconnect starts a new failure streak, so its first failure has to warn
+			// again - otherwise the only visible sign of a charger that never comes back
+			// is a debug line the hub does not log.
+			charger.subscribeFailed = false
 		}
 
 		m.mu.Unlock()
