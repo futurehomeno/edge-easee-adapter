@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
@@ -57,8 +58,12 @@ func New(
 	signalRClient signalr.Client,
 	credentials *config.CredentialsStore,
 ) ApplicationWithToken {
-	hook := formatters.NewErrorHook()
-	log.AddHook(hook)
+	// The hook is attached to the global logger, so it has to be attached once however many
+	// applications are built: a second hook records every warning into the diag report twice.
+	errorHookOnce.Do(func() {
+		errorHook = formatters.NewErrorHook()
+		log.AddHook(errorHook)
+	})
 
 	return &application{
 		ad:            ad,
@@ -69,9 +74,14 @@ func New(
 		auth:          auth,
 		signalRClient: signalRClient,
 		credentials:   credentials,
-		errorHook:     hook,
+		errorHook:     errorHook,
 	}
 }
+
+var (
+	errorHookOnce sync.Once
+	errorHook     *formatters.ErrorHook
+)
 
 type application struct {
 	ad            adapter.Adapter
@@ -197,17 +207,24 @@ func (a *application) RefreshToken() {
 func (a *application) Uninstall() error {
 	log.Info("[app] Uninstall requested: destroying things and resetting config")
 
+	// Every step runs even if an earlier one fails: credentials live in their own secrets
+	// store, so a failed config reset must not leave the Easee tokens on the hub.
+	var errs error
+
 	if err := a.ad.DestroyAllThings(); err != nil {
-		return fmt.Errorf("destroy all things: %w", err)
+		errs = errors.Join(errs, fmt.Errorf("destroy all things: %w", err))
 	}
 
 	if err := a.cfgService.Reset(); err != nil {
-		return fmt.Errorf("reset configuration: %w", err)
+		errs = errors.Join(errs, fmt.Errorf("reset configuration: %w", err))
 	}
 
-	// Credentials live in their own secrets store, so resetting the config no longer clears them.
 	if err := a.credentials.ClearCredentials(); err != nil {
-		return fmt.Errorf("clear credentials: %w", err)
+		errs = errors.Join(errs, fmt.Errorf("clear credentials: %w", err))
+	}
+
+	if errs != nil {
+		return errs
 	}
 
 	a.lifecycle.MarkNotConfigured()
@@ -306,6 +323,14 @@ func (a *application) configureChargers(selected []string) error {
 				return fmt.Errorf("persist adopted selection: %w", err)
 			}
 		}
+	}
+
+	// An empty response leaves the selection empty too, so nothing below would flag the
+	// owned chargers as missing and the sync would destroy every thing on the hub. Put
+	// them through the same retry budget instead: a successful fetch listing nothing is
+	// no more trustworthy than one listing too little.
+	if len(chargers) == 0 && len(selected) == 0 {
+		selected = a.ownedDeviceIDs()
 	}
 
 	// A partial /chargers response must not drop selected chargers: the sync destroys

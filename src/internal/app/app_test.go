@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -194,6 +196,49 @@ func TestApplication_Uninstall(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The error hook lives on the global logger, so building a second application must not
+// attach a second one - every warning would then land in the diag report twice.
+func TestApplication_New_AttachesTheErrorHookOnce(t *testing.T) { //nolint:paralleltest
+	newDiagApp(t)
+	attached := len(log.StandardLogger().Hooks[log.WarnLevel])
+
+	application := newDiagApp(t)
+	assert.Len(t, log.StandardLogger().Hooks[log.WarnLevel], attached, "a second application must reuse the hook")
+
+	const marker = "warning-recorded-once-marker"
+
+	log.Warn(marker)
+
+	report, err := application.ErrorsReport()
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, strings.Count(strings.Join(report, "\n"), marker))
+}
+
+func newDiagApp(t *testing.T) app.ApplicationWithToken {
+	t.Helper()
+
+	return app.New(mockedadapter.NewAdapter(t), config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
+		lifecycle.New(nil), nil, nil, nil, nil, newCredentialsStore(t, config.Credentials{}))
+}
+
+// Credentials live outside the configuration, so no failure on the way may leave the Easee
+// tokens on a hub the user has just uninstalled the app from.
+func TestApplication_Uninstall_ClearsCredentialsDespiteFailures(t *testing.T) {
+	t.Parallel()
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("DestroyAllThings").Return(errors.New("oops"))
+
+	credentials := newCredentialsStore(t, config.Credentials{AccessToken: "access", RefreshToken: "refresh"})
+
+	application := app.New(adapterMock, config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
+		lifecycle.New(nil), nil, nil, nil, nil, credentials)
+
+	assert.ErrorContains(t, application.Uninstall(), "oops")
+	assert.True(t, credentials.Credentials().Empty(), "the tokens must be gone even when a step failed")
 }
 
 func TestApplication_Login(t *testing.T) { //nolint:paralleltest
@@ -1095,4 +1140,21 @@ func TestApplication_Login_AccountSwitchIgnoresStaleThings(t *testing.T) {
 
 	assert.Equal(t, []string{"B1", "B2"}, h.seeded())
 	assert.Equal(t, []string{"B1", "B2"}, h.cfg.SelectedDevices())
+}
+
+// A fetch that succeeds but lists nothing leaves the selection empty, which is the same
+// shape as "never configured" - without a guard the sync would read it as "seed no
+// devices" and destroy every thing on the hub on a single bad response.
+func TestApplication_Login_EmptyChargerListDoesNotDestroyThings(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, nil, nil, []string{"A1", "A2"}, nil)
+
+	for range 3 {
+		require.ErrorContains(t, h.login(), "A1")
+		assert.Empty(t, h.seeded(), "nothing may be seeded while the chargers might still come back")
+	}
+
+	require.NoError(t, h.login(), "an account that really lists nothing must stop blocking login")
+	assert.Empty(t, h.seeded())
 }
