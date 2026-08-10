@@ -20,19 +20,41 @@ import (
 func TestReconnectWarnsOnTheFirstSubscribeFailureAgain(t *testing.T) {
 	const chargerID = "XX12345"
 
-	m := newTestManager(t, &failingSubscribeClient{})
-	m.chargers[chargerID] = &charger{backoff: m.cfg.SignalRBackoffStateful()}
-
-	hook := logtest.NewLocal(log.StandardLogger())
-	defer hook.Reset()
+	m, hook := newTestManager(t, chargerID)
 
 	require.NoError(t, m.handleSubscription(chargerID))
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	m.handleClientState(model.ClientStateDisconnected)
+	m.handleClientState(model.ClientStateConnected)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, 2, subscribeWarnings(hook), "the first subscribe failure of each connection must warn")
+}
+
+// Nothing cancels the retries armed before a disconnect, so one can still fire during the
+// outage. That failure must not consume the warning the next connection is entitled to.
+func TestStaleRetryDuringOutageDoesNotStealTheReconnectWarning(t *testing.T) {
+	const chargerID = "XX12345"
+
+	m, hook := newTestManager(t, chargerID)
+
 	require.NoError(t, m.handleSubscription(chargerID))
 
 	m.handleClientState(model.ClientStateDisconnected)
 
 	require.NoError(t, m.handleSubscription(chargerID))
 
+	m.handleClientState(model.ClientStateConnected)
+	hook.Reset()
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, 1, subscribeWarnings(hook), "a retry firing during the outage must not silence the reconnect")
+}
+
+func subscribeWarnings(hook *logtest.Hook) int {
 	warnings := 0
 
 	for _, entry := range hook.AllEntries() {
@@ -41,17 +63,17 @@ func TestReconnectWarnsOnTheFirstSubscribeFailureAgain(t *testing.T) {
 		}
 	}
 
-	assert.Equal(t, 2, warnings, "the first subscribe failure of each connection must warn")
+	return warnings
 }
 
-func newTestManager(t *testing.T, client Client) *manager {
+func newTestManager(t *testing.T, chargerID string) (*manager, *logtest.Hook) {
 	t.Helper()
 
 	storage := mockedstorage.NewStorage[*config.Config](t)
 	storage.On("Model").Return(&config.Config{}).Maybe()
 	storage.On("Save").Return(nil).Maybe()
 
-	m, ok := NewManager(config.NewService(storage), client).(*manager)
+	m, ok := NewManager(config.NewService(storage), &failingSubscribeClient{}).(*manager)
 	require.True(t, ok)
 
 	// The retries handleSubscription arms are not under test; an already closed done
@@ -59,7 +81,12 @@ func newTestManager(t *testing.T, client Client) *manager {
 	m.done = make(chan struct{})
 	close(m.done)
 
-	return m
+	m.chargers[chargerID] = &charger{backoff: m.cfg.SignalRBackoffStateful()}
+
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	return m, hook
 }
 
 // failingSubscribeClient is a stub rather than a generated mock: the mock package imports

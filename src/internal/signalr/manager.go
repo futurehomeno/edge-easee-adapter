@@ -270,8 +270,14 @@ func (m *manager) handleClientState(state model.ClientState) {
 		m.mu.Lock()
 		chargersIDs := make([]string, 0, len(m.chargers))
 
-		for chargerID := range m.chargers {
+		for chargerID, charger := range m.chargers {
 			chargersIDs = append(chargersIDs, chargerID)
+			// A new connection starts a new failure streak, so its first failure has to warn
+			// again - otherwise the only visible sign of a charger that never comes back is a
+			// debug line the hub does not log. Cleared here rather than on disconnect: a retry
+			// armed before the disconnect would otherwise fail during the outage and take the
+			// warning with it.
+			charger.subscribeFailed = false
 		}
 
 		m.mu.Unlock()
@@ -291,10 +297,6 @@ func (m *manager) handleClientState(state model.ClientState) {
 		for _, charger := range m.chargers {
 			charger.backoff.Reset()
 			charger.isSubscribed = false
-			// A reconnect starts a new failure streak, so its first failure has to warn
-			// again - otherwise the only visible sign of a charger that never comes back
-			// is a debug line the hub does not log.
-			charger.subscribeFailed = false
 		}
 
 		m.mu.Unlock()
