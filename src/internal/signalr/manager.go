@@ -270,7 +270,11 @@ func (m *manager) handleClientState(state model.ClientState) {
 		m.mu.Lock()
 		chargersIDs := make([]string, 0, len(m.chargers))
 
-		for chargerID := range m.chargers {
+		for chargerID, charger := range m.chargers {
+			// A subscription belongs to the connection that made it. Clearing the flag here
+			// rather than trusting the disconnect notice makes this sweep the authority: a
+			// missed notice would otherwise leave the charger permanently unsubscribed.
+			charger.isSubscribed = false
 			chargersIDs = append(chargersIDs, chargerID)
 		}
 
