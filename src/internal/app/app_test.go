@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -10,10 +11,12 @@ import (
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
+	"github.com/futurehomeno/cliffhanger/selection"
 	mockedadapter "github.com/futurehomeno/cliffhanger/test/mocks/adapter"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -194,6 +197,49 @@ func TestApplication_Uninstall(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The error hook lives on the global logger, so building a second application must not
+// attach a second one - every warning would then land in the diag report twice.
+func TestApplication_New_AttachesTheErrorHookOnce(t *testing.T) { //nolint:paralleltest
+	newDiagApp(t)
+	attached := len(log.StandardLogger().Hooks[log.WarnLevel])
+
+	application := newDiagApp(t)
+	assert.Len(t, log.StandardLogger().Hooks[log.WarnLevel], attached, "a second application must reuse the hook")
+
+	const marker = "warning-recorded-once-marker"
+
+	log.Warn(marker)
+
+	report, err := application.ErrorsReport()
+	require.NoError(t, err)
+
+	assert.Equal(t, 1, strings.Count(strings.Join(report, "\n"), marker))
+}
+
+func newDiagApp(t *testing.T) app.ApplicationWithToken {
+	t.Helper()
+
+	return app.New(mockedadapter.NewAdapter(t), config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
+		lifecycle.New(nil), nil, nil, nil, nil, newCredentialsStore(t, config.Credentials{}))
+}
+
+// Credentials live outside the configuration, so no failure on the way may leave the Easee
+// tokens on a hub the user has just uninstalled the app from.
+func TestApplication_Uninstall_ClearsCredentialsDespiteFailures(t *testing.T) {
+	t.Parallel()
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("DestroyAllThings").Return(errors.New("oops"))
+
+	credentials := newCredentialsStore(t, config.Credentials{AccessToken: "access", RefreshToken: "refresh"})
+
+	application := app.New(adapterMock, config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
+		lifecycle.New(nil), nil, nil, nil, nil, credentials)
+
+	assert.ErrorContains(t, application.Uninstall(), "oops")
+	assert.True(t, credentials.Credentials().Empty(), "the tokens must be gone even when a step failed")
 }
 
 func TestApplication_Login(t *testing.T) { //nolint:paralleltest
@@ -700,10 +746,10 @@ func TestApplication_Configure_Selection(t *testing.T) {
 		chargersErr  error
 		owned        []string
 		ensureErr    error
-		selected     []string
+		selected     selection.Selection
 		wantErr      string
 		wantSeeded   []string
-		wantSelected []string
+		wantSelected selection.Selection
 	}{
 		{
 			name:         "valid subset is seeded and persisted",
@@ -713,20 +759,28 @@ func TestApplication_Configure_Selection(t *testing.T) {
 			wantSelected: []string{"456"},
 		},
 		{
-			name:         "empty selection includes every charger and is materialised",
+			name:         "an absent selection includes every charger and is materialised",
 			chargers:     []model.Charger{{ID: "123"}, {ID: "456"}},
 			wantSeeded:   []string{"123", "456"},
 			wantSelected: []string{"123", "456"},
 		},
 		{
-			name:         "empty selection keeps the chargers already seeded",
+			// Distinct from the case above: the user unticked every charger, which is
+			// obeyed rather than read as an install that was never configured.
+			name:         "an explicit empty selection includes no charger",
+			chargers:     []model.Charger{{ID: "123"}, {ID: "456"}},
+			selected:     selection.Selection{},
+			wantSelected: selection.Selection{},
+		},
+		{
+			name:         "an absent selection keeps the chargers already seeded",
 			chargers:     []model.Charger{{ID: "123"}, {ID: "456"}},
 			owned:        []string{"123"},
 			wantSeeded:   []string{"123"},
 			wantSelected: []string{"123"},
 		},
 		{
-			name:         "empty selection drops owned chargers Easee no longer lists",
+			name:         "an absent selection drops owned chargers Easee no longer lists",
 			chargers:     []model.Charger{{ID: "123"}},
 			owned:        []string{"123", "gone"},
 			wantSeeded:   []string{"123"},
@@ -791,9 +845,9 @@ func TestApplication_Login_Selection(t *testing.T) {
 	tests := []struct {
 		name         string
 		chargers     []model.Charger
-		persisted    []string
+		persisted    selection.Selection
 		wantSeeded   []string
-		wantSelected []string
+		wantSelected selection.Selection
 	}{
 		{
 			// Materialised rather than left empty, so a later cmd.thing.delete can
@@ -863,18 +917,18 @@ func TestApplication_Login_MissingSelectedRetriesThenProceeds(t *testing.T) {
 
 	// The vanished charger is dropped from the selection, so the next login does not
 	// spend the budget on it all over again.
-	assert.Equal(t, []string{"123"}, h.cfg.SelectedDevices())
+	assert.Equal(t, selection.Selection{"123"}, h.cfg.SelectedDevices())
 	require.NoError(t, h.login())
 	assert.Equal(t, []string{"123"}, h.seeded())
 }
 
-// Cleaning the last entry would leave an empty selection, which means "every charger" -
-// the stale ID is kept instead so a narrowed selection is never silently widened.
-func TestApplication_Login_MissingSelectedKeepsLastEntry(t *testing.T) {
+// Cleaning out the last entry leaves an empty selection, which means "no chargers" - the
+// narrowed selection must not widen back to "every charger" on the login after that.
+func TestApplication_Login_MissingSelectedDropsLastEntry(t *testing.T) {
 	t.Parallel()
 
 	h := newSelectionHarness(t, []model.Charger{{ID: "123"}}, nil, nil, nil)
-	require.NoError(t, h.cfg.SetSelectedDevices([]string{"gone"}))
+	require.NoError(t, h.cfg.SetSelectedDevices(selection.Selection{"gone"}))
 
 	for range 3 {
 		require.ErrorContains(t, h.login(), "gone")
@@ -882,7 +936,11 @@ func TestApplication_Login_MissingSelectedKeepsLastEntry(t *testing.T) {
 
 	require.NoError(t, h.login())
 	assert.Empty(t, h.seeded(), "the only selected charger is gone, so nothing may be seeded")
-	assert.Equal(t, []string{"gone"}, h.cfg.SelectedDevices())
+	assert.Equal(t, selection.Selection{}, h.cfg.SelectedDevices())
+
+	require.NoError(t, h.login())
+	assert.Empty(t, h.seeded(), "an empty selection means no chargers, not every charger")
+	assert.Equal(t, selection.Selection{}, h.cfg.SelectedDevices())
 }
 
 func TestApplication_Initialize_AdoptSeededSelection(t *testing.T) {
@@ -892,8 +950,8 @@ func TestApplication_Initialize_AdoptSeededSelection(t *testing.T) {
 		name         string
 		credentials  config.Credentials
 		owned        []string
-		persisted    []string
-		wantSelected []string
+		persisted    selection.Selection
+		wantSelected selection.Selection
 	}{
 		{
 			name:         "an upgraded install adopts the chargers it already seeded",
@@ -1049,7 +1107,7 @@ func TestApplication_Login_AdoptsSeededSelectionWhenLoggedOut(t *testing.T) {
 	require.NoError(t, h.login())
 
 	assert.Equal(t, owned, h.seeded(), "the chargers this hub already had must survive the cap")
-	assert.Equal(t, owned, h.cfg.SelectedDevices())
+	assert.Equal(t, selection.Selection(owned), h.cfg.SelectedDevices())
 }
 
 // The budget keys on the set of missing chargers, not on the order the selection happens
@@ -1080,7 +1138,7 @@ func TestApplication_Login_PartialChargerListDoesNotPruneAdoptedSelection(t *tes
 	h := newSelectionHarness(t, []model.Charger{{ID: "A1"}}, nil, []string{"A1", "A2"}, nil)
 
 	require.ErrorContains(t, h.login(), "A2", "a partial list must spend the retry budget, not prune")
-	assert.Equal(t, []string{"A1", "A2"}, h.cfg.SelectedDevices(), "the absent charger keeps its place")
+	assert.Equal(t, selection.Selection{"A1", "A2"}, h.cfg.SelectedDevices(), "the absent charger keeps its place")
 }
 
 // Logging into a different Easee account must not adopt the previous account's thing IDs:
@@ -1094,5 +1152,22 @@ func TestApplication_Login_AccountSwitchIgnoresStaleThings(t *testing.T) {
 	require.NoError(t, h.login(), "the stale selection must not burn the retry budget")
 
 	assert.Equal(t, []string{"B1", "B2"}, h.seeded())
-	assert.Equal(t, []string{"B1", "B2"}, h.cfg.SelectedDevices())
+	assert.Equal(t, selection.Selection{"B1", "B2"}, h.cfg.SelectedDevices())
+}
+
+// A fetch that succeeds but lists nothing leaves the selection empty, which is the same
+// shape as "never configured" - without a guard the sync would read it as "seed no
+// devices" and destroy every thing on the hub on a single bad response.
+func TestApplication_Login_EmptyChargerListDoesNotDestroyThings(t *testing.T) {
+	t.Parallel()
+
+	h := newSelectionHarness(t, nil, nil, []string{"A1", "A2"}, nil)
+
+	for range 3 {
+		require.ErrorContains(t, h.login(), "A1")
+		assert.Empty(t, h.seeded(), "nothing may be seeded while the chargers might still come back")
+	}
+
+	require.NoError(t, h.login(), "an account that really lists nothing must stop blocking login")
+	assert.Empty(t, h.seeded())
 }

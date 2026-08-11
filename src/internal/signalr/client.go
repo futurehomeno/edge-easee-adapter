@@ -206,7 +206,17 @@ func (c *client) notifyState(ctx context.Context, conn signalr.Client) {
 	for {
 		select {
 		case <-ctx.Done():
-			c.updateState(model.ClientStateDisconnected)
+			// Close() cancels the context, so this is the only notice of a shutdown the
+			// manager gets; swallowing it leaves its per-charger subscriptions marked live
+			// against a connection that is gone. The send cannot block on a done context,
+			// hence the buffered non-blocking form.
+			if c.updateState(model.ClientStateDisconnected) {
+				select {
+				case c.states <- model.ClientStateDisconnected:
+				default:
+				}
+			}
+
 			return
 
 		case clientState := <-ch:

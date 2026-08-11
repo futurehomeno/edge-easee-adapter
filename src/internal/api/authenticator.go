@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/auth"
@@ -19,8 +20,8 @@ const (
 
 	logoutAddress = "pt:j1/mt:cmd/rt:ad/rn:easee/ad:1"
 
-	// cliffhanger v1.3.1 returns a plain error while the backoff suppresses a refresh
-	// attempt. Comparing the message is the only way to keep the caller's log downgrade.
+	// cliffhanger returns a plain error while the backoff suppresses a refresh attempt.
+	// Comparing the message is the only way to keep the caller's log downgrade.
 	backoffSuspendedMessage = "token refresh suspended by backoff"
 )
 
@@ -108,7 +109,13 @@ func (a *authenticator) Login(userName, password string) error {
 
 func (a *authenticator) AccessToken() (string, error) {
 	token, err := a.authenticator.AccessToken()
-	if err != nil && err.Error() == backoffSuspendedMessage {
+	if err == nil {
+		return token, nil
+	}
+
+	// Both mean "not now, still trying": report them as backoff so the caller logs them at
+	// debug instead of warning on every request for the whole grace window.
+	if err.Error() == backoffSuspendedMessage || errors.Is(err, auth.ErrRefreshDeferred) {
 		return "", ErrRefreshBackoff
 	}
 
@@ -144,9 +151,22 @@ type credentialsAdapter struct {
 	store CredentialsStore
 	// refreshing is the session handed to the framework for the exchange in progress. The
 	// framework reads the credentials and writes them back under a single lock, so one copy
-	// is enough to tell a refresh that still owns the session from one that does not, and to
-	// keep both tokens of an exchange request drawn from the same session.
+	// is enough to tell a refresh that still owns the session from one that does not.
 	refreshing config.Credentials
+	// rotated is the last session the framework handed back. It keeps a rotation the store
+	// refused available for pairing: the framework exchanges such a rotation rather than what
+	// the store holds, and the two access tokens differ.
+	rotated config.Credentials
+}
+
+// accessTokenFor returns the access token issued alongside refreshToken. Easee rejects a pair
+// drawn from two sessions, so the token cannot simply be read off the store.
+func (c *credentialsAdapter) accessTokenFor(refreshToken string) string {
+	if c.rotated.RefreshToken == refreshToken {
+		return c.rotated.AccessToken
+	}
+
+	return c.refreshing.AccessToken
 }
 
 func (c *credentialsAdapter) Credentials() auth.Credentials {
@@ -167,12 +187,16 @@ func (c *credentialsAdapter) Credentials() auth.Credentials {
 // It writes through RefreshCredentials with the refresh token the exchange started from, so a
 // refresh landing after a logout or a new login cannot bring back the session it belonged to.
 func (c *credentialsAdapter) SetCredentials(creds auth.Credentials) error {
-	return c.store.RefreshCredentials(config.Credentials{
+	rotated := config.Credentials{
 		AccessToken:           creds.AccessToken,
 		RefreshToken:          creds.RefreshToken,
 		AccessTokenExpiresAt:  tokenExpiration(creds.AccessToken, creds.ExpiresAt),
 		RefreshTokenExpiresAt: tokenExpiration(creds.RefreshToken, creds.RefreshExpiresAt),
-	}, c.refreshing.RefreshToken)
+	}
+
+	c.rotated = rotated
+
+	return c.store.RefreshCredentials(rotated, c.refreshing.RefreshToken)
 }
 
 func (c *credentialsAdapter) ClearCredentials() error {
@@ -191,17 +215,17 @@ func tokenExpiration(token string, fallback time.Time) time.Time {
 	return expiration
 }
 
-// tokenExchanger refreshes the access token. Easee requires the expired access token
-// alongside the refresh token, and rejects the pair unless both belong to the same session,
-// so it comes from the snapshot the exchange started from rather than a second read of the
-// store - a login landing in between would otherwise pair the two sessions.
+// tokenExchanger refreshes the access token. Easee requires the expired access token alongside
+// the refresh token, and rejects the pair unless both belong to the same session, so it is looked
+// up by the refresh token the framework chose rather than read off the store - a login landing in
+// between, or a rotation the store refused, would otherwise pair two different sessions.
 type tokenExchanger struct {
 	http     HTTPClient
 	snapshot *credentialsAdapter
 }
 
 func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2TokenResponse, error) {
-	credentials, err := e.http.RefreshToken(e.snapshot.refreshing.AccessToken, refreshToken)
+	credentials, err := e.http.RefreshToken(e.snapshot.accessTokenFor(refreshToken), refreshToken)
 	if err != nil {
 		return nil, err
 	}

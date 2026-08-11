@@ -271,6 +271,10 @@ func (m *manager) handleClientState(state model.ClientState) {
 		chargersIDs := make([]string, 0, len(m.chargers))
 
 		for chargerID, charger := range m.chargers {
+			// A subscription belongs to the connection that made it. Clearing the flag here
+			// rather than trusting the disconnect notice makes this sweep the authority: a
+			// missed notice would otherwise leave the charger permanently unsubscribed.
+			charger.isSubscribed = false
 			chargersIDs = append(chargersIDs, chargerID)
 			// A new connection starts a new failure streak, so its first failure has to warn
 			// again - otherwise the only visible sign of a charger that never comes back is a

@@ -6,6 +6,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/config"
+	"github.com/futurehomeno/cliffhanger/selection"
 	"github.com/futurehomeno/cliffhanger/storage"
 	"github.com/michalkurzeja/go-clock"
 	log "github.com/sirupsen/logrus"
@@ -25,9 +26,11 @@ type PublicConfig struct {
 	AuthBackoff         backoffSettings `json:"auth_backoff"`
 	AuthMaxUnauthorized string          `json:"auth_max_unauthorized,omitempty"`
 
-	// SelectedDevices is the user's chosen subset of charger IDs from the
-	// Configure step. Empty means "include all chargers" (legacy behavior).
-	SelectedDevices []string `json:"selected_devices"`
+	// SelectedDevices is the user's chosen subset of charger IDs from the Configure step.
+	// A nil selection includes every charger, an empty one includes none - the distinction
+	// tells an install that was never configured from one where the user deselected
+	// everything. Configurations written before v3.0 carry no such key, so they read as nil.
+	SelectedDevices selection.Selection `json:"selected_devices"`
 
 	LegacyAuthenticatorBackoff json.RawMessage `json:"authenticatorBackoff,omitempty"`
 }
@@ -205,14 +208,17 @@ func (cs *Service) SetEnergyLifetimeInterval(interval time.Duration) error {
 	return cs.Update(func(c *Config) { c.EnergyLifetimeInterval = interval.String() })
 }
 
-func (cs *Service) SelectedDevices() []string {
-	return config.Get(cs.Service, func(c *Config) []string {
-		return append([]string(nil), c.SelectedDevices...)
+// SelectedDevices returns a copy that preserves the nil/empty distinction - the idiomatic
+// append([]string(nil), ...) and slices.Clone both collapse empty to nil, turning "no chargers"
+// into "every charger".
+func (cs *Service) SelectedDevices() selection.Selection {
+	return config.Get(cs.Service, func(c *Config) selection.Selection {
+		return c.SelectedDevices.Clone()
 	})
 }
 
-func (cs *Service) SetSelectedDevices(devices []string) error {
-	return cs.Update(func(c *Config) { c.SelectedDevices = append([]string(nil), devices...) })
+func (cs *Service) SetSelectedDevices(devices selection.Selection) error {
+	return cs.Update(func(c *Config) { c.SelectedDevices = devices.Clone() })
 }
 
 func (cs *Service) PollingInterval() time.Duration {
