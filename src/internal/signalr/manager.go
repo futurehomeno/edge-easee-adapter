@@ -276,6 +276,12 @@ func (m *manager) handleClientState(state model.ClientState) {
 			// missed notice would otherwise leave the charger permanently unsubscribed.
 			charger.isSubscribed = false
 			chargersIDs = append(chargersIDs, chargerID)
+			// A new connection starts a new failure streak, so its first failure has to warn
+			// again - otherwise the only visible sign of a charger that never comes back is a
+			// debug line the hub does not log. Cleared here rather than on disconnect: a retry
+			// armed before the disconnect would otherwise fail during the outage and take the
+			// warning with it.
+			charger.subscribeFailed = false
 		}
 
 		m.mu.Unlock()

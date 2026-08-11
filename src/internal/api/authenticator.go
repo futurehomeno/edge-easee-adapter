@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/auth"
@@ -96,8 +95,11 @@ func (a *authenticator) Login(userName, password string) error {
 		return err
 	}
 
+	// The store keeps the new credentials in memory when the write fails, so the session is
+	// usable until the next restart. Failing the login would mark the app not configured and
+	// skip the charger setup over a disk error the next successful save repairs.
 	if err = a.creds.SetCredentials(credentialsFromResponse(creds)); err != nil {
-		return fmt.Errorf("store credentials err: %w", err)
+		log.Warnf("[auth] Store credentials err: %v", err)
 	}
 
 	a.backoff.Reset()
