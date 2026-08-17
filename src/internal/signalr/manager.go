@@ -225,7 +225,14 @@ func (m *manager) handleSubscription(chargerID string) error {
 	}
 
 	if err := m.client.SubscribeCharger(chargerID); err != nil {
-		log.Warnf("Failed to subscribe charger '%s'", chargerID)
+		// A sustained outage (e.g. not logged in) retries forever; warn on the first
+		// failure of a streak only, so it does not accumulate thousands of lines.
+		if charger.subscribeFailed {
+			log.Debugf("Failed to subscribe charger '%s'", chargerID)
+		} else {
+			log.Warnf("Failed to subscribe charger '%s': %v", chargerID, err)
+			charger.subscribeFailed = true
+		}
 
 		go m.addChargerSubscription(chargerID, charger)
 
@@ -234,6 +241,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 	charger.backoff.Reset()
 	charger.isSubscribed = true
+	charger.subscribeFailed = false
 
 	log.Debugf("signalR: subscribed charger '%s'", chargerID)
 	return nil
@@ -262,8 +270,18 @@ func (m *manager) handleClientState(state model.ClientState) {
 		m.mu.Lock()
 		chargersIDs := make([]string, 0, len(m.chargers))
 
-		for chargerID := range m.chargers {
+		for chargerID, charger := range m.chargers {
+			// A subscription belongs to the connection that made it. Clearing the flag here
+			// rather than trusting the disconnect notice makes this sweep the authority: a
+			// missed notice would otherwise leave the charger permanently unsubscribed.
+			charger.isSubscribed = false
 			chargersIDs = append(chargersIDs, chargerID)
+			// A new connection starts a new failure streak, so its first failure has to warn
+			// again - otherwise the only visible sign of a charger that never comes back is a
+			// debug line the hub does not log. Cleared here rather than on disconnect: a retry
+			// armed before the disconnect would otherwise fail during the outage and take the
+			// warning with it.
+			charger.subscribeFailed = false
 		}
 
 		m.mu.Unlock()
@@ -340,7 +358,8 @@ func (m *manager) ensureClientStarted() {
 }
 
 type charger struct {
-	handler      Handler
-	isSubscribed bool
-	backoff      backoff.Stateful
+	handler         Handler
+	isSubscribed    bool
+	subscribeFailed bool
+	backoff         backoff.Stateful
 }

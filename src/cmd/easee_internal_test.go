@@ -1335,6 +1335,24 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
+				Name: "App diagnostic report",
+				Setup: serviceSetup(testContainer, "configured", mqttAddr, func(client *mockapi.Client) {
+					client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
+					client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
+					client.On("Ping").Return(nil)
+				}, signalRSetup(test.DefaultSignalRAddr, nil)),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.app.get_diag", "easee"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectMessage("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.app.diag_report", "easee"),
+						},
+					},
+				},
+			},
+			{
 				Name: "Token refresh task should call Ping() at configured interval",
 				Setup: serviceSetup(testContainer, "configured", mqttAddr, func(client *mockapi.Client) {
 					client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
@@ -1475,6 +1493,19 @@ func configSetup(t *testing.T, configSet, mqttAddr string) *config.Config {
 
 	service.Model().MQTTServerURI = mqttAddr
 	services.configService = service
+
+	credentials := config.NewCredentialsStore(cfgDir)
+	if err := credentials.Load(); err != nil {
+		t.Fatalf("failed to load credentials: %s", err)
+	}
+
+	// The suite bypasses getConfigService, so run the migration that moves the testdata
+	// tokens out of config.json into the secrets store by hand.
+	if err := config.MigrateCredentials(service.Model(), credentials); err != nil {
+		t.Fatalf("failed to migrate credentials: %s", err)
+	}
+
+	services.credentialsStore = credentials
 
 	return service.Model()
 }

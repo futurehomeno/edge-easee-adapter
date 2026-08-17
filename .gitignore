@@ -4,8 +4,6 @@
 *.bak
 package/build/*
 !package/build/.gitkeep
-/package/debian/opt/thingsplex/easee/easee
-/package/debian/DEBIAN/control
 /src/easee
 testdata/log/*
 /src/internal/test/mocks/*

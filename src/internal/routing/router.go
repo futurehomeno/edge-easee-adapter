@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"strings"
+
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
@@ -9,6 +11,8 @@ import (
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/router"
+	"github.com/futurehomeno/cliffhanger/selection"
+	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
@@ -16,19 +20,36 @@ import (
 )
 
 func LogStats(stats router.Stats) {
-	if stats.InputMessage != nil && stats.InputMessage.Payload != nil {
-		log.Infof("FMP %s -> %s %s %v",
-			stats.InputMessage.Payload.Source,
-			stats.InputMessage.Payload.Service,
-			stats.InputMessage.Payload.Interface,
-			stats.InputMessage.Payload.Value)
-	}
-
 	if stats.OutputMessage != nil && stats.OutputMessage.Payload != nil {
 		log.Debugf("FMP <- %s %s",
 			stats.OutputMessage.Payload.Service,
 			stats.OutputMessage.Payload.Interface)
 	}
+}
+
+// routeLogIncoming logs every incoming message. It must stay first in the routing table,
+// as the router runs routings in order and the stats callback fires only after handling.
+func routeLogIncoming() *router.Routing {
+	return router.NewRouting(
+		router.NewMessageHandler(
+			router.MessageProcessorFn(func(message *fimpgo.Message) (*fimpgo.FimpMessage, error) {
+				if message.Payload != nil {
+					value := message.Payload.Value
+					if strings.HasPrefix(message.Payload.Interface, "cmd.auth.") {
+						value = "***" // credentials
+					}
+
+					log.Infof("FMP %s -> %s %s %v",
+						message.Payload.Source,
+						message.Payload.Service,
+						message.Payload.Interface,
+						value)
+				}
+
+				return nil, nil
+			}),
+		),
+	)
 }
 
 // New returns a new routing table.
@@ -38,7 +59,17 @@ func New(
 	application app.App,
 	adapter cliffAdapter.Adapter,
 ) []*router.Routing {
+	// Shared by the app and adapter routes so cmd.thing.delete cannot interleave with
+	// cmd.config.extended_set rewriting the selection it reads.
+	locker := router.NewMessageHandlerLocker()
+
+	devices := selection.NewStore(
+		func() selection.Selection { return cfgSrv.SelectedDevices() },
+		func(next selection.Selection) error { return cfgSrv.SetSelectedDevices(next) },
+	)
+
 	return router.Combine(
+		[]*router.Routing{routeLogIncoming()},
 		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.PublicConfig() }, nil),
 		[]*router.Routing{
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.PollingInterval),
@@ -72,8 +103,8 @@ func New(
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "signalr_invoke_timeout", cfgSrv.SignalRInvokeTimeout),
 			cliffConfig.RouteCmdConfigSetDuration(fimptype.EaseeService, "signalr_invoke_timeout", cfgSrv.SetSignalRInvokeTimeout),
 		},
-		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, nil, application, nil),
-		cliffAdapter.RouteAdapter(adapter),
+		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, locker, application, nil),
+		cliffAdapter.RouteAdapter(adapter, cliffAdapter.WithSelection(devices, locker)),
 		thing.RouteCarCharger(adapter),
 		parameters.RouteService(adapter),
 	)

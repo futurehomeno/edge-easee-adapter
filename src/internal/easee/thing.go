@@ -1,6 +1,7 @@
 package easee
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -81,12 +82,24 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		log.WithError(err).Warnf("factory: failed to retrieve state: %v", err)
 	}
 
+	usingStoredState := false
+
 	if err := controller.UpdateState(info.ChargerID, state); err != nil {
-		return nil, err
+		if !errors.Is(err, api.ErrNotLoggedIn) {
+			return nil, err
+		}
+
+		log.Warnf("factory: [%s] not logged in, creating thing with stored state", info.ChargerID)
+
+		usingStoredState = true
 	}
 
-	if err := thingState.SetState(state); err != nil {
-		log.WithError(err).Warnf("factory: failed to set state: %v", err)
+	// Not logged in means state was not refreshed from the cloud - persisting it here would
+	// overwrite the stored state with zeros if it had failed to load above.
+	if !usingStoredState {
+		if err := thingState.SetState(state); err != nil {
+			log.WithError(err).Warnf("factory: failed to set state: %v", err)
+		}
 	}
 
 	// using zero time, because we have no idea about the exact time those parameters were set

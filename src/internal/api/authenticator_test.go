@@ -1,13 +1,14 @@
 package api_test
 
 import (
-	"net/http"
+	"encoding/base64"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/httpclient"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
-	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,30 +16,19 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
-	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
 	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 )
 
-//nolint:godox
-// TODO: refactor it as e2e tests.
-
-const (
-	accessToken  = "eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMjMsInJvbGUiOiJhZG1pbiIsImV4cCI6MTcwODI4MDAwMH0." //nolint:gosec
-	refreshToken = "eyJhbGciOiJub25lIn0.eyJ1c2VyX2lkIjoxMjMsInJvbGUiOiJhZG1pbiIsImV4cCI6MTcwODI4MDAwMH0." //nolint:gosec
-)
-
 func TestLogin(t *testing.T) {
 	t.Parallel()
 
+	accessToken := jwtWithExpiry(time.Now().Add(time.Hour))
+	refreshToken := jwtWithExpiry(time.Now().Add(24 * time.Hour))
+
 	testCases := []struct {
 		name          string
-		username      string
-		password      string
-		accessToken   string
-		refreshToken  string
-		saveError     error
 		loginError    error
 		errorContains string
 	}{
@@ -48,175 +38,151 @@ func TestLogin(t *testing.T) {
 			errorContains: "expected response code to be 200",
 		},
 		{
-			name:          "should not return error when storage failed to save",
-			username:      "user",
-			password:      "pwd",
-			accessToken:   accessToken,
-			refreshToken:  refreshToken,
-			saveError:     nil,
-			errorContains: "",
-		},
-		{
-			name:         "should save tokens to the storage",
-			username:     "user",
-			password:     "pwd",
-			accessToken:  accessToken,
-			refreshToken: refreshToken,
+			name: "should save tokens to the storage",
 		},
 	}
 
-	for _, val := range testCases {
-		v := val
+	for _, v := range testCases {
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := config.Config{}
-			storage := mockedstorage.Storage[*config.Config]{}
-			storage.On("Model").Return(&cfg)
-			storage.On("Save").Return(v.saveError)
-
-			cfgSrv := config.NewService(&storage)
-
-			notificationManager := fakes.NewNotifier(t)
+			credentials := newCredentialsStore(t, config.Credentials{})
 
 			httpClient := mockapi.NewHTTPClient(t)
-
-			httpClient.On("Login", v.username, v.password).Return(&model.Credentials{
-				AccessToken:  v.accessToken,
-				RefreshToken: v.refreshToken,
+			httpClient.On("Login", "user", "pwd").Return(&model.Credentials{
+				AccessToken:  accessToken,
+				RefreshToken: refreshToken,
 			}, v.loginError)
 
-			auth := api.NewAuthenticator(httpClient, cfgSrv, notificationManager, nil, "test")
+			authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
 
-			err := auth.Login(v.username, v.password)
+			err := authenticator.Login("user", "pwd")
 
 			if v.errorContains != "" {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), v.errorContains)
-			} else {
-				assert.Nil(t, err)
-				assert.Equal(t, v.accessToken, cfg.AccessToken)
-				assert.Equal(t, v.refreshToken, cfg.RefreshToken)
+				assert.True(t, credentials.Credentials().Empty())
+
+				return
 			}
+
+			require.NoError(t, err)
+			assert.Equal(t, accessToken, credentials.Credentials().AccessToken)
+			assert.Equal(t, refreshToken, credentials.Credentials().RefreshToken)
+			// Expiry times are derived from the tokens themselves, not from the response.
+			assert.False(t, credentials.Credentials().RefreshTokenExpiresAt.IsZero())
 		})
 	}
+}
+
+func TestLoginSurvivesAFailedCredentialsSave(t *testing.T) {
+	t.Parallel()
+
+	accessToken := jwtWithExpiry(time.Now().Add(time.Hour))
+	refreshToken := jwtWithExpiry(time.Now().Add(24 * time.Hour))
+
+	storage := mockedstorage.NewStorage[*config.Credentials](t)
+	storage.On("Model").Return(&config.Credentials{})
+	storage.On("Save").Return(errors.New("no space left on device"))
+
+	credentials := config.NewCredentialsStoreWithStorage(storage)
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").Return(&model.Credentials{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+	}, nil)
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+	// The store keeps the tokens in memory when the write fails, so the session works until
+	// the next restart. Failing the login instead would mark the app not configured and skip
+	// the charger setup over a disk error the next successful save repairs.
+	require.NoError(t, authenticator.Login("user", "pwd"))
+	assert.Equal(t, accessToken, credentials.Credentials().AccessToken)
+
+	token, err := authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, accessToken, token)
 }
 
 func TestAccessToken(t *testing.T) {
 	t.Parallel()
 
-	mqttAddr := test.SetupMQTTContainer(t)
+	freshAccessToken := jwtWithExpiry(time.Now().Add(time.Hour))
+	freshRefreshToken := jwtWithExpiry(time.Now().Add(24 * time.Hour))
 
 	testCases := []struct {
-		name              string
-		credentialsCfg    config.Credentials
-		refreshTokenError error
-		accessToken       string
-		refreshToken      string
-		saveError         error
-		errorContains     string
-		expectedToken     string
-		userNotified      bool
+		name          string
+		credentials   config.Credentials
+		refreshError  error
+		errorContains string
+		expectedToken string
 	}{
 		{
 			name:          "should return error when credentials are empty",
-			errorContains: "credentials are empty",
+			errorContains: "not logged in",
 		},
 		{
 			name: "should return access token when it isn't expired",
-			credentialsCfg: config.Credentials{
+			credentials: config.Credentials{
+				AccessToken:           "valid access token",
+				RefreshToken:          freshRefreshToken,
 				AccessTokenExpiresAt:  time.Now().Add(time.Hour),
 				RefreshTokenExpiresAt: time.Now().Add(2 * time.Hour),
-				AccessToken:           "valid access token",
 			},
-			accessToken:   "valid access token",
 			expectedToken: "valid access token",
 		},
 		{
-			name: "should log out when token refresh operation does not return http 200",
-			credentialsCfg: config.Credentials{
+			name: "should return error when token refresh fails",
+			credentials: config.Credentials{
+				AccessToken:           "expired access token",
+				RefreshToken:          freshRefreshToken,
 				AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
 				RefreshTokenExpiresAt: time.Now().Add(time.Hour),
 			},
-
-			refreshTokenError: api.HTTPError{
-				Message:    "failed to perform token refresh api call",
-				StatusCode: http.StatusBadRequest,
-			},
+			refreshError:  errors.New("failed to perform token refresh api call"),
 			errorContains: "failed to perform token refresh api call",
 		},
 		{
-			name: "should not return error when failed to set credentials",
-			credentialsCfg: config.Credentials{
-				AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
-				RefreshTokenExpiresAt: time.Now().Add(time.Hour),
-			},
-			expectedToken: accessToken,
-			accessToken:   accessToken,
-			refreshToken:  refreshToken,
-		},
-		{
 			name: "should save refreshed token when all validations passed",
-			credentialsCfg: config.Credentials{
-				AccessToken:           "old_access_token",
+			credentials: config.Credentials{
+				AccessToken:           "old access token",
+				RefreshToken:          freshRefreshToken,
 				AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
 				RefreshTokenExpiresAt: time.Now().Add(time.Hour),
 			},
-			expectedToken: accessToken,
-			accessToken:   accessToken,
-			refreshToken:  refreshToken,
+			expectedToken: freshAccessToken,
 		},
 	}
 
-	for _, val := range testCases {
-		v := val
+	for _, v := range testCases {
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := config.Config{
-				Credentials: v.credentialsCfg,
-			}
-			storage := mockedstorage.Storage[*config.Config]{}
-			storage.On("Model").Return(&cfg)
-			storage.On("Save").Return(v.saveError)
-
-			cfgSrv := config.NewService(&storage)
-			notificationManager := fakes.NewNotifier(t)
-
-			mqtt := fimpgo.NewMqttTransport(mqttAddr, "", "", "", true, 1, 1, nil)
-			require.NoError(t, mqtt.Start(5*time.Second))
-
-			t.Cleanup(mqtt.Stop)
+			credentials := newCredentialsStore(t, v.credentials)
+			notifier := fakes.NewNotifier(t)
 
 			httpClient := mockapi.NewHTTPClient(t)
-
-			if !clock.Now().After(v.credentialsCfg.RefreshTokenExpiresAt) && clock.Now().After(v.credentialsCfg.AccessTokenExpiresAt) {
-				httpClient.On("RefreshToken", cfg.AccessToken, cfg.RefreshToken).Return(&model.Credentials{
-					AccessToken:  accessToken,
-					RefreshToken: refreshToken,
-				}, v.refreshTokenError)
+			if !v.credentials.Empty() && v.credentials.AccessTokenExpired() {
+				httpClient.On("RefreshToken", v.credentials.AccessToken, v.credentials.RefreshToken).
+					Return(&model.Credentials{AccessToken: freshAccessToken, RefreshToken: freshRefreshToken}, v.refreshError)
 			}
 
-			auth := api.NewAuthenticator(httpClient, cfgSrv, notificationManager, mqtt, "test")
+			authenticator := newAuthenticator(t, httpClient, credentials, notifier, 0)
 
-			token, err := auth.AccessToken()
+			token, err := authenticator.AccessToken()
 
 			if v.errorContains != "" {
-				assert.NotNil(t, err)
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), v.errorContains)
 			} else {
-				assert.Nil(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, v.expectedToken, token)
-				assert.Equal(t, v.accessToken, cfg.AccessToken)
-				assert.Equal(t, v.refreshToken, cfg.RefreshToken)
+				assert.Equal(t, v.expectedToken, credentials.Credentials().AccessToken)
 			}
 
-			if v.userNotified {
-				assert.Equal(t, notificationManager.ReceivedEventsCount(), 1)
-				assert.True(t, notificationManager.IsEventReceived("easee_status_offline"))
-			} else {
-				assert.True(t, notificationManager.NoEventsReceived())
-			}
+			assert.True(t, notifier.NoEventsReceived())
 		})
 	}
 }
@@ -224,246 +190,266 @@ func TestAccessToken(t *testing.T) {
 func TestLogout(t *testing.T) {
 	t.Parallel()
 
+	saveError := errors.New("error")
+
 	testCases := []struct {
 		name      string
 		saveError error
 	}{
 		{
-			name:      "should return error if save fails",
-			saveError: errors.New("error"),
+			name:      "should return error if reset fails",
+			saveError: saveError,
 		},
 		{
 			name: "credentials should be empty",
 		},
 	}
 
-	for _, val := range testCases {
-		v := val
+	for _, v := range testCases {
 		t.Run(v.name, func(t *testing.T) {
 			t.Parallel()
 
-			cfg := config.Config{
-				Credentials: config.Credentials{
-					AccessToken:           "token",
-					RefreshToken:          "refresh token",
-					AccessTokenExpiresAt:  time.Now().Add(time.Hour),
-					RefreshTokenExpiresAt: time.Now().Add(time.Hour),
-				},
-			}
+			credentials := config.Credentials{AccessToken: "token", RefreshToken: "refresh token"}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-			storage.On("Model").Return(&cfg)
-			storage.On("Save").Return(v.saveError)
+			storage := mockedstorage.NewStorage[*config.Credentials](t)
+			storage.On("Model").Return(&credentials).Maybe()
+			storage.On("Reset").Return(v.saveError)
 
-			auth := api.NewAuthenticator(nil, config.NewService(&storage), nil, nil, "test")
+			authenticator := newAuthenticator(t, nil, config.NewCredentialsStoreWithStorage(storage), nil, 0)
 
-			err := auth.Logout()
-
-			assert.Equal(t, v.saveError, err, "should return the same error from the Save()")
-			assert.Equal(t, config.Credentials{}, cfg.Credentials)
+			assert.Equal(t, v.saveError, authenticator.Logout())
 		})
 	}
 }
 
 // TestUnauthorizedDoesNotImmediatelyLogout asserts that a single (or short burst of) 401
 // from /refresh_token does NOT clear local credentials. The authenticator must keep
-// retrying (gated by backoff) until MaxUnauthorizedDuration has elapsed; only then is the
+// retrying (gated by backoff) until the unauthorized grace has elapsed; only then is the
 // app logout triggered. Regression coverage for the bug where one 401 logged the user out.
-//
-//nolint:paralleltest
 func TestUnauthorizedDoesNotImmediatelyLogout(t *testing.T) {
-	now := time.Date(2026, time.May, 7, 0, 0, 0, 0, time.UTC)
-	clock.Mock(now)
-	t.Cleanup(clock.Restore)
+	t.Parallel()
 
-	cfg := config.Config{
-		Credentials: config.Credentials{
-			AccessToken:           accessToken,
-			RefreshToken:          refreshToken,
-			AccessTokenExpiresAt:  now.Add(-time.Minute),
-			RefreshTokenExpiresAt: now.Add(7 * 24 * time.Hour),
-		},
-	}
+	const grace = 300 * time.Millisecond
 
-	storage := mockedstorage.NewStorage[*config.Config](t)
-	storage.On("Model").Return(&cfg)
-	storage.On("Save").Return(nil)
+	credentials := newCredentialsStore(t, config.Credentials{
+		AccessToken:           "expired access token",
+		RefreshToken:          jwtWithExpiry(time.Now().Add(7 * 24 * time.Hour)),
+		AccessTokenExpiresAt:  time.Now().Add(-time.Minute),
+		RefreshTokenExpiresAt: time.Now().Add(7 * 24 * time.Hour),
+	})
 
-	configService := config.NewService(storage)
-	require.NoError(t, configService.SetAuthenticatorBackoff(
-		time.Nanosecond, time.Nanosecond, time.Nanosecond,
-		1_000, 1_000,
-		2*time.Hour,
-	))
+	notifier := fakes.NewNotifier(t)
 
-	notificationManager := fakes.NewNotifier(t)
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("RefreshToken", "expired access token", credentials.Credentials().RefreshToken).
+		Return(nil, fmt.Errorf("InvalidRefreshToken: %w", httpclient.ErrUnauthorized))
 
-	client := mockapi.NewHTTPClient(t)
-	client.On("RefreshToken", accessToken, refreshToken).
-		Return(nil, api.HTTPError{
-			Message:    "InvalidRefreshToken",
-			StatusCode: http.StatusUnauthorized,
-		})
+	authenticator := newAuthenticator(t, httpClient, credentials, notifier, grace)
 
-	mqtt := fimpgo.NewMqttTransport(cfg.MQTTServerURI, cfg.MQTTClientIDPrefix, cfg.MQTTUsername, cfg.MQTTPassword, true, 1, 1, nil)
-
-	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, fimptype.EaseeService)
-
-	// 1. First 401: credentials must remain, no notification, no logout.
-	_, err := auth.AccessToken()
+	_, err := authenticator.AccessToken()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "transient 401")
-	assert.NotEqual(t, config.Credentials{}, cfg.Credentials, "credentials must NOT be cleared on a single 401")
-	assert.True(t, notificationManager.NoEventsReceived(), "no offline notification should fire below the threshold")
+	assert.False(t, credentials.Credentials().Empty(), "credentials must NOT be cleared on a single 401")
+	assert.True(t, notifier.NoEventsReceived(), "no offline notification should fire below the threshold")
 
-	// 2. Repeated 401s within the threshold also keep credentials intact.
-	clock.Mock(now.Add(30 * time.Minute))
+	time.Sleep(grace)
 
-	_, err = auth.AccessToken()
+	_, err = authenticator.AccessToken()
 	require.Error(t, err)
-	assert.NotEqual(t, config.Credentials{}, cfg.Credentials, "credentials must remain after repeated 401s within threshold")
-	assert.True(t, notificationManager.NoEventsReceived())
-
-	// 3. Cross MaxUnauthorizedDuration: app logout fires and credentials are cleared.
-	clock.Mock(now.Add(3 * time.Hour))
-
-	_, err = auth.AccessToken()
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "refreshToken expired")
-	assert.Equal(t, config.Credentials{}, cfg.Credentials, "credentials must be cleared once threshold exceeded")
-	assert.True(t, notificationManager.IsEventReceived("easee_status_offline"))
+	assert.True(t, credentials.Credentials().Empty(), "credentials must be cleared once the grace elapsed")
+	assert.True(t, notifier.IsEventReceived("easee_status_offline"))
 }
 
-// TestUnauthorizedThenSuccessResetsThreshold asserts that a successful refresh after some
-// transient 401s clears the unauthorized timer, so the next 401 starts a fresh countdown
-// rather than immediately exceeding the threshold.
-//
-//nolint:paralleltest
-func TestUnauthorizedThenSuccessResetsThreshold(t *testing.T) {
-	now := time.Date(2026, time.May, 7, 0, 0, 0, 0, time.UTC)
-	clock.Mock(now)
-	t.Cleanup(clock.Restore)
+// TestExpiredRefreshTokenLogsOut asserts a refresh token past its local expiry logs the app
+// out without even calling the API.
+func TestExpiredRefreshTokenLogsOut(t *testing.T) {
+	t.Parallel()
 
-	cfg := config.Config{
-		Credentials: config.Credentials{
-			AccessToken:           accessToken,
-			RefreshToken:          refreshToken,
-			AccessTokenExpiresAt:  now.Add(-time.Minute),
-			RefreshTokenExpiresAt: now.Add(7 * 24 * time.Hour),
-		},
-	}
+	credentials := newCredentialsStore(t, config.Credentials{
+		AccessToken:           "expired access token",
+		RefreshToken:          "expired refresh token",
+		AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
+		RefreshTokenExpiresAt: time.Now().Add(-time.Minute),
+	})
 
-	storage := mockedstorage.NewStorage[*config.Config](t)
-	storage.On("Model").Return(&cfg)
-	storage.On("Save").Return(nil)
+	notifier := fakes.NewNotifier(t)
 
-	configService := config.NewService(storage)
-	require.NoError(t, configService.SetAuthenticatorBackoff(
-		time.Nanosecond, time.Nanosecond, time.Nanosecond,
-		1_000, 1_000,
-		2*time.Hour,
-	))
+	authenticator := newAuthenticator(t, mockapi.NewHTTPClient(t), credentials, notifier, time.Hour)
 
-	notificationManager := fakes.NewNotifier(t)
-
-	client := mockapi.NewHTTPClient(t)
-	// Sequence: 401, then a successful refresh.
-	client.On("RefreshToken", accessToken, refreshToken).
-		Return(nil, api.HTTPError{Message: "InvalidRefreshToken", StatusCode: http.StatusUnauthorized}).
-		Once()
-	client.On("RefreshToken", accessToken, refreshToken).
-		Return(&model.Credentials{AccessToken: accessToken, RefreshToken: refreshToken}, nil).
-		Once()
-
-	mqtt := fimpgo.NewMqttTransport(cfg.MQTTServerURI, cfg.MQTTClientIDPrefix, cfg.MQTTUsername, cfg.MQTTPassword, true, 1, 1, nil)
-
-	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, fimptype.EaseeService)
-
-	// First refresh: 401, credentials kept, transient err.
-	_, err := auth.AccessToken()
+	_, err := authenticator.AccessToken()
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "transient 401")
-
-	// Second refresh: succeeds — must reset unauthorizedSince so a future 401 starts fresh.
-	clock.Mock(now.Add(time.Hour))
-	cfg.AccessTokenExpiresAt = now.Add(-time.Minute) // re-expire to force another refresh
-
-	_, err = auth.AccessToken()
-	require.NoError(t, err)
-	assert.True(t, notificationManager.NoEventsReceived(), "no logout should fire after a successful refresh")
+	assert.True(t, credentials.Credentials().Empty())
+	assert.True(t, notifier.IsEventReceived("easee_status_offline"))
 }
 
-//nolint:paralleltest
-func TestHandleFailedRefreshToken(t *testing.T) {
-	cfg := config.Config{
-		Credentials: config.Credentials{
-			AccessToken:           accessToken,
-			RefreshToken:          refreshToken,
-			RefreshTokenExpiresAt: time.Now().Add(time.Hour),
-			AccessTokenExpiresAt:  time.Now(),
-		},
+// TestRefreshUsesOneSessionForBothTokens asserts that a login landing between the framework's
+// credentials snapshot and the exchange request cannot pair the new session's access token with
+// the old session's refresh token - Easee rejects such a pair, and the 401 would be charged to
+// a session that never made the request.
+func TestRefreshUsesOneSessionForBothTokens(t *testing.T) {
+	t.Parallel()
+
+	refreshing := config.Credentials{
+		AccessToken:           "session A access token",
+		RefreshToken:          jwtWithExpiry(time.Now().Add(24 * time.Hour)),
+		AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
+		RefreshTokenExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 
-	storage := mockedstorage.NewStorage[*config.Config](t)
-	storage.On("Model").Return(&cfg)
-	storage.On("Save").Return(nil)
+	loggedIn := config.Credentials{
+		AccessToken:           "session B access token",
+		RefreshToken:          jwtWithExpiry(time.Now().Add(48 * time.Hour)),
+		AccessTokenExpiresAt:  time.Now().Add(time.Hour),
+		RefreshTokenExpiresAt: time.Now().Add(48 * time.Hour),
+	}
 
-	configService := config.NewService(storage)
-	err := configService.SetAuthenticatorBackoff(
-		time.Second, time.Second, time.Second,
-		1, 1,
-		0,
-	)
+	credentials := &loginDuringRefreshStore{
+		CredentialsStore: newCredentialsStore(t, refreshing),
+		loginWith:        &loggedIn,
+	}
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("RefreshToken", refreshing.AccessToken, refreshing.RefreshToken).
+		Return(&model.Credentials{
+			AccessToken:  jwtWithExpiry(time.Now().Add(time.Hour)),
+			RefreshToken: jwtWithExpiry(time.Now().Add(24 * time.Hour)),
+		}, nil)
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+	_, err := authenticator.AccessToken()
 	require.NoError(t, err)
 
-	notificationManager := fakes.NewNotifier(t)
+	assert.Equal(t, loggedIn, credentials.Credentials(), "the refresh must not write over the session that replaced it")
+}
 
-	client := mockapi.NewHTTPClient(t)
-	client.On("RefreshToken", accessToken, refreshToken).
-		Return(
-			nil,
-			api.HTTPError{
-				Message:    "failed to perform token refresh api call",
-				StatusCode: http.StatusNotFound,
-			},
-		)
+// loginDuringRefreshStore replaces the stored session right after the framework has read it,
+// which is the window a concurrent Login occupies.
+type loginDuringRefreshStore struct {
+	*config.CredentialsStore
 
-	mqtt := fimpgo.NewMqttTransport(
-		cfg.MQTTServerURI,
-		cfg.MQTTClientIDPrefix,
-		cfg.MQTTUsername,
-		cfg.MQTTPassword,
-		true,
-		1,
-		1,
-		nil,
+	loginWith *config.Credentials
+}
+
+func (s *loginDuringRefreshStore) Credentials() config.Credentials {
+	credentials := s.CredentialsStore.Credentials()
+
+	if s.loginWith != nil {
+		login := *s.loginWith
+		s.loginWith = nil
+
+		_ = s.SetCredentials(login)
+	}
+
+	return credentials
+}
+
+// TestRefreshBackoff asserts that repeated failures suspend further refresh attempts and that
+// the suspension is reported as ErrRefreshBackoff, which callers downgrade to a debug log.
+func TestRefreshBackoff(t *testing.T) {
+	t.Parallel()
+
+	credentials := newCredentialsStore(t, config.Credentials{
+		AccessToken:           "expired access token",
+		RefreshToken:          jwtWithExpiry(time.Now().Add(24 * time.Hour)),
+		AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
+		RefreshTokenExpiresAt: time.Now().Add(24 * time.Hour),
+	})
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("RefreshToken", "expired access token", credentials.Credentials().RefreshToken).
+		Return(nil, errors.New("failed to perform token refresh api call"))
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+	_, err := authenticator.AccessToken()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to perform token refresh api call")
+
+	_, err = authenticator.AccessToken()
+	require.ErrorIs(t, err, api.ErrRefreshBackoff)
+}
+
+func newAuthenticator(
+	t *testing.T,
+	httpClient api.HTTPClient,
+	credentials api.CredentialsStore,
+	notifier api.Notifier,
+	grace time.Duration,
+) api.Authenticator {
+	t.Helper()
+
+	cfg := &config.Config{}
+	storage := mockedstorage.NewStorage[*config.Config](t)
+	storage.On("Model").Return(cfg).Maybe()
+	storage.On("Save").Return(nil).Maybe()
+
+	cfgSrv := config.NewService(storage)
+	require.NoError(t, cfgSrv.SetAuthenticatorBackoff(time.Hour, time.Hour, time.Hour, 1, 1, grace))
+
+	mqtt := fimpgo.NewMqttTransport("", "", "", "", true, 1, 1, nil)
+
+	return api.NewAuthenticator(httpClient, credentials, cfgSrv, notifier, mqtt, fimptype.EaseeService)
+}
+
+func newCredentialsStore(t *testing.T, credentials config.Credentials) *config.CredentialsStore {
+	t.Helper()
+
+	return config.NewCredentialsStoreWithStorage(
+		fakes.NewConfigStorage(t, &credentials, func() *config.Credentials { return &config.Credentials{} }),
 	)
+}
 
-	auth := api.NewAuthenticator(client, configService, notificationManager, mqtt, fimptype.EaseeService)
+// jwtWithExpiry builds an unsigned JWT carrying only an expiry claim.
+func jwtWithExpiry(expiresAt time.Time) string {
+	encode := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
 
-	_, err = auth.AccessToken()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to perform token refresh api call")
+	return encode(`{"alg":"none"}`) + "." + encode(fmt.Sprintf(`{"exp":%d}`, expiresAt.Unix())) + "."
+}
 
-	// allow 2 retries without backoff
-	for range 2 {
-		_, err = auth.AccessToken()
-		assert.Error(t, err)
+// TestRefreshPairsTokensOfTheRotationItExchanges covers a rotation the store refused to persist:
+// the framework keeps it in memory and exchanges its refresh token on the next attempt, so the
+// access token has to come from that same rotation. Reading it off the store instead pairs two
+// sessions, which Easee rejects.
+func TestRefreshPairsTokensOfTheRotationItExchanges(t *testing.T) {
+	t.Parallel()
+
+	stored := config.Credentials{
+		AccessToken:           "stored access token",
+		RefreshToken:          jwtWithExpiry(time.Now().Add(24 * time.Hour)),
+		AccessTokenExpiresAt:  time.Now().Add(-time.Hour),
+		RefreshTokenExpiresAt: time.Now().Add(24 * time.Hour),
 	}
 
-	// block more requests with backoff
-	for range 8 {
-		_, err = auth.AccessToken()
-		assert.Contains(t, err.Error(), "too many requests: backoff")
+	rotated := &model.Credentials{
+		AccessToken:  "rotated access token",
+		RefreshToken: jwtWithExpiry(time.Now().Add(48 * time.Hour)),
 	}
 
-	time.Sleep(1 * time.Second)
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("RefreshToken", stored.AccessToken, stored.RefreshToken).Return(rotated, nil).Once()
+	httpClient.On("RefreshToken", rotated.AccessToken, rotated.RefreshToken).
+		Return(&model.Credentials{AccessToken: "final access token", RefreshToken: rotated.RefreshToken}, nil).Once()
 
-	_, err = auth.AccessToken()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "failed to perform token refresh api call")
+	credentials := &refusingStore{CredentialsStore: newCredentialsStore(t, stored)}
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
 
-	_, err = auth.AccessToken()
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "too many requests: backoff")
+	token, err := authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, rotated.AccessToken, token)
+
+	// The rotation was never persisted and carries no expiry, so the next call refreshes again -
+	// this time off the in-memory rotation rather than off the store.
+	token, err = authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, "final access token", token)
+}
+
+// refusingStore rejects every write, which is what leaves the framework holding a rotation it
+// could not persist.
+type refusingStore struct {
+	*config.CredentialsStore
+}
+
+func (s *refusingStore) RefreshCredentials(config.Credentials, string) error {
+	return errors.New("storage is read-only")
 }

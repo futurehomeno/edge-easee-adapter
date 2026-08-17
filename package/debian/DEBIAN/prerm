@@ -1,20 +1,7 @@
 #!/bin/sh
 set -e
 
-case "$1" in
-	remove)
-		echo "Stop and disable service if present"
-		systemctl stop easee.service > /dev/null || true
-		systemctl disable easee.service > /dev/null || true
-	;;
-
-	upgrade|failed-upgrade|deconfigure)
-	;;
-
-	*)
-		echo "prerm called with an unknown argument \`$1'" >&2
-		exit 1
-	;;
-esac
-
-exit 0
+if [ -d /run/systemd/system ] && [ "$1" = remove ]; then
+  deb-systemd-invoke stop easee.service >/dev/null || true
+  systemctl disable easee.service || true
+fi

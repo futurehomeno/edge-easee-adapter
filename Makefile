@@ -10,19 +10,37 @@ endef
 
 SHELL := /bin/bash
 
-VERSION := 2.8.0
+VERSION := 3.0.1
 APP_NAME := easee
 
 ARCH ?= armhf
 
 OUT_DIR := package/build
 DEB_DIR := package/debian
-CONTROL_DIR := $(DEB_DIR)/DEBIAN
-TARGET_PKG := $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
-BIN_DIR := $(DEB_DIR)/opt/thingsplex/$(APP_NAME)
-TARGET_BIN := $(BIN_DIR)/$(APP_NAME)
-LOG_DIR := $(DEB_DIR)/var/log/thingsplex/$(APP_NAME)
-CONFIG_DIR := $(BIN_DIR)/data
+STAGING := $(OUT_DIR)/root
+TARGET_PKG = $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
+
+# clean and configure rm -rf under these paths: refuse to run with OUT_DIR
+# empty (the clean glob would expand to /* and STAGING to /root).
+ifeq ($(strip $(OUT_DIR)),)
+$(error OUT_DIR must not be empty)
+endif
+
+# Filesystem layout (tracked files from DEB_DIR staged into STAGING, then
+# packaged by dpkg-deb - untracked leftovers in DEB_DIR never ship):
+#   /usr/bin/easee                           binary
+#   /usr/lib/futurehome/easee/migrate.sh     maintainer-script helper
+#   /usr/share/futurehome/easee/defaults/    read-only default config (dpkg-owned)
+#   /var/lib/futurehome, /var/log/futurehome root-owned namespace parents
+#   /var/lib/futurehome/easee/defaults       shipped symlink to the /usr/share
+#                                            defaults (dpkg-owned, see postinst)
+# The other easee-owned leaves (data/, data.db, the log dir) are created by
+# postinst and by the service itself.
+BINARY_DIR := $(STAGING)/usr/bin
+CONTROL_DIR := $(STAGING)/DEBIAN
+VAR_LIB_DIR := $(STAGING)/var/lib/futurehome
+VAR_LOG_DIR := $(STAGING)/var/log/futurehome
+TARGET_BIN := $(BINARY_DIR)/$(APP_NAME)
 
 REMOTE_HOST := fhtunnel@3.255.43.28
 PORT := 8000
@@ -40,17 +58,28 @@ build-mac-amd64:
 	cd src ; GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION) -X main.PackageName=$(APP_NAME)" -o ../$(TARGET_BIN) main.go
 
 clean:
-	-rm -f $(OUT_DIR)/*
-	-rm -f $(TARGET_BIN)
+	-rm -rf ./$(OUT_DIR)/*
 	-rm -f $(APP_NAME)
-	-rm -f $(LOG_DIR)/*
 	-rm -f test_coverage.out
 
 configure:
-	mkdir -p $(BIN_DIR)
+	rm -rf ./$(STAGING)
+	mkdir -p $(STAGING)
+	# Stages tracked files only, so stale artifacts in DEB_DIR never ship.
+	# Requires a git checkout: building from an exported source tarball
+	# (no .git) fails here.
+	git ls-files -z $(DEB_DIR) | tar --null -T - -cf - \
+		| tar -xf - --strip-components=2 -C $(STAGING)
+	mkdir -p $(BINARY_DIR)
+	mkdir -p $(VAR_LIB_DIR)
+	mkdir -p $(VAR_LOG_DIR)
 	mkdir -p $(CONTROL_DIR)
-	mkdir -p $(LOG_DIR)
-	mkdir -p $(CONFIG_DIR)
+
+	# Ship the workdir defaults symlink as package content: dpkg then owns it
+	# (removed on remove, restored on reinstall). No easee package ever shipped
+	# a real directory at this path, so nothing has to be displaced on upgrade.
+	mkdir -p $(VAR_LIB_DIR)/$(APP_NAME)
+	ln -sfn /usr/share/futurehome/$(APP_NAME)/defaults $(VAR_LIB_DIR)/$(APP_NAME)/defaults
 
 	printf '%s\n' \
 	  "Package: $(APP_NAME)" \
@@ -58,25 +87,28 @@ configure:
 	  "Section: non-free/misc" \
 	  "Priority: optional" \
 	  "Architecture: $(ARCH)" \
+	  "Depends: fh-drop" \
 	  "Maintainer: Futurehome AS <dev@futurehome.no>" \
 	  "Description: Futurehome Easee EV charger adapter" \
 	  > $(CONTROL_DIR)/control
 
 package-deb:
-	chmod 755 $(DEB_DIR)
-	chmod 644 $(DEB_DIR)/DEBIAN/control
-	chmod -R g-w $(DEB_DIR)
+	@test -x $(TARGET_BIN) || \
+		{ echo "error: $(TARGET_BIN) missing; use 'make deb-arm' or 'make deb-amd'" >&2; exit 1; }
+	chmod 755 $(STAGING)
+	chmod 644 $(CONTROL_DIR)/control
+	chmod -R g-w $(STAGING)
 
 	@if command -v dpkg-deb >/dev/null && command -v fakeroot >/dev/null; then \
 		echo "Using local dpkg-deb"; \
-		fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG); \
+		fakeroot dpkg-deb -Zxz -b $(STAGING) $(TARGET_PKG); \
 	else \
 		echo "Using docker dpkg-deb"; \
 		docker run --rm -v "$$(pwd)":/build -w /build debian:stable-slim \
 			bash -c "\
 				apt-get update >/dev/null && \
 				apt-get install -y --no-install-recommends dpkg-dev fakeroot >/dev/null && \
-				fakeroot dpkg-deb -Zxz -b $(DEB_DIR) $(TARGET_PKG)"; \
+				fakeroot dpkg-deb -Zxz -b $(STAGING) $(TARGET_PKG)"; \
 	fi
 
 	@echo "Debian package created → $(TARGET_PKG)"
@@ -91,6 +123,8 @@ upload:
 	@echo "Uploading..."
 	rsync -av --info=progress2 -e "ssh -p $(PORT)" $(TARGET_PKG) $(REMOTE_HOST):/home/fhtunnel/
 
+# Developer-only targets. dpkg -i does not resolve the fh-drop dependency;
+# developer hubs are assumed to have it installed already.
 deploy: upload
 	ssh -t -p $(PORT) $(REMOTE_HOST) "su - fh -c 'sudo dpkg -i /home/fhtunnel/$(APP_NAME)_$(VERSION)_$(ARCH).deb'"
 
