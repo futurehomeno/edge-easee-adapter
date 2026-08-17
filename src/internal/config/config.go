@@ -12,16 +12,19 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const defaultStartChargingCurrent = 16
+
 type PublicConfig struct {
-	EaseeBaseURL                 string  `json:"easeeBaseURL2"`
-	PollingInterval              string  `json:"pollingInterval"`
-	TokenRefreshInterval         string  `json:"token_refresh_interval"`
-	CurrentWaitDuration          string  `json:"currentWaitDuration"`
-	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
-	HTTPTimeout                  string  `json:"httpTimeout"`
-	SignalR                      SignalR `json:"signalR"`
-	OfferedCurrentWaitTime       string  `json:"offered_current_wait_time"`
-	EnergyLifetimeInterval       string  `json:"energyLifetimeInterval"`
+	EaseeBaseURL                  string  `json:"easeeBaseURL2"`
+	PollingInterval               string  `json:"pollingInterval"`
+	TokenRefreshInterval          string  `json:"token_refresh_interval"`
+	CurrentWaitDuration           string  `json:"currentWaitDuration"`
+	SlowChargingCurrentInAmperes  float64 `json:"slowChargingCurrentInAmperes"`
+	StartChargingCurrentInAmperes int     `json:"startChargingCurrentInAmperes"`
+	HTTPTimeout                   string  `json:"httpTimeout"`
+	SignalR                       SignalR `json:"signalR"`
+	OfferedCurrentWaitTime        string  `json:"offered_current_wait_time"`
+	EnergyLifetimeInterval        string  `json:"energyLifetimeInterval"`
 
 	AuthBackoff         backoffSettings `json:"auth_backoff"`
 	AuthMaxUnauthorized string          `json:"auth_max_unauthorized,omitempty"`
@@ -243,6 +246,18 @@ func (cs *Service) SlowChargingCurrentInAmperes() float64 {
 
 func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 	return cs.Update(func(c *Config) { c.SlowChargingCurrentInAmperes = current })
+}
+
+func (cs *Service) StartChargingCurrentInAmperes() int {
+	if current := config.Get(cs.Service, func(c *Config) int { return c.StartChargingCurrentInAmperes }); current > 0 {
+		return current
+	}
+
+	return defaultStartChargingCurrent
+}
+
+func (cs *Service) SetStartChargingCurrentInAmperes(current int) error {
+	return cs.Update(func(c *Config) { c.StartChargingCurrentInAmperes = current })
 }
 
 func (cs *Service) HTTPTimeout() time.Duration {

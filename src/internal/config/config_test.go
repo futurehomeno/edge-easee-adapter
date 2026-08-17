@@ -91,6 +91,23 @@ func TestService_OfferedCurrentWaitTime_MatchesPackagedDefault(t *testing.T) {
 	}
 }
 
+func TestService_StartChargingCurrentInAmperes_MatchesPackagedDefault(t *testing.T) {
+	body, err := os.ReadFile("../../../package/debian/usr/share/futurehome/easee/defaults/config.json")
+	require.NoError(t, err)
+
+	packaged := &config.Config{}
+	require.NoError(t, json.Unmarshal(body, packaged))
+
+	for name, cfg := range map[string]*config.Config{"packaged": packaged, "unset": {}} {
+		t.Run(name, func(t *testing.T) {
+			st := &mockedstorage.Storage[*config.Config]{}
+			st.On("Model").Return(cfg)
+
+			assert.Equal(t, 16, config.NewService(st).StartChargingCurrentInAmperes())
+		})
+	}
+}
+
 func TestConfig_MigrateSignalRFinalBackoff(t *testing.T) {
 	tests := []struct {
 		name     string

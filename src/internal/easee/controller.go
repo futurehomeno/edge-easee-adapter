@@ -244,11 +244,13 @@ func (c *controller) setOfferedCurrent(current int, force bool) error {
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
-	maxCurrent, _ := c.cache.MaxCurrent()
-	startCurrent := maxCurrent
-
-	if offered, _ := c.cache.RequestedOfferedCurrent(); offered > 0 {
-		startCurrent = offered
+	// A cached offered current of 0 means "unknown" - either no load balancer ever set one, or
+	// the session-finished observation cleared it - so the charger starts at the user's max.
+	startCurrent, _ := c.cache.RequestedOfferedCurrent()
+	if startCurrent > 0 {
+		startCurrent = max(startCurrent, c.cfgService.StartChargingCurrentInAmperes())
+	} else {
+		startCurrent, _ = c.cache.MaxCurrent()
 	}
 
 	if strings.ToLower(settings.Mode) == model.ChargingModeSlow {
