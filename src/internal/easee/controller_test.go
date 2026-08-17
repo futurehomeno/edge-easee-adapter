@@ -128,6 +128,7 @@ func TestController_StartChargepointCharging(t *testing.T) {
 		maxCurrent       int
 		requestedCurrent int
 		slowCurrent      float64
+		startCurrent     int
 		expectedCurrent  float64
 		wantErr          bool
 	}{
@@ -137,6 +138,28 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			maxCurrent:       32,
 			requestedCurrent: 0,
 			expectedCurrent:  32,
+		},
+		{
+			name:             "raises a low requested offered current to the start current",
+			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
+			maxCurrent:       32,
+			requestedCurrent: 8,
+			expectedCurrent:  16,
+		},
+		{
+			name:             "start current is capped by maxCurrent",
+			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
+			maxCurrent:       10,
+			requestedCurrent: 8,
+			expectedCurrent:  10,
+		},
+		{
+			name:             "configured start current overrides the default",
+			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
+			maxCurrent:       32,
+			requestedCurrent: 8,
+			startCurrent:     20,
+			expectedCurrent:  20,
 		},
 		{
 			name:             "uses requestedOfferedCurrent over maxCurrent",
@@ -160,6 +183,22 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			requestedCurrent: 20,
 			slowCurrent:      0,
 			expectedCurrent:  20,
+		},
+		{
+			name:             "slow mode is not raised to the start current when slow current not configured",
+			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeSlow},
+			maxCurrent:       32,
+			requestedCurrent: 8,
+			slowCurrent:      0,
+			expectedCurrent:  8,
+		},
+		{
+			name:             "configured slow current wins over the start current",
+			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeSlow},
+			maxCurrent:       32,
+			requestedCurrent: 8,
+			slowCurrent:      10,
+			expectedCurrent:  10,
 		},
 		{
 			name:             "returns error when all current sources are zero",
@@ -189,6 +228,7 @@ func TestController_StartChargepointCharging(t *testing.T) {
 
 			cfg := &config.Config{}
 			cfg.SlowChargingCurrentInAmperes = tt.slowCurrent
+			cfg.InitialChargingCurrent = tt.startCurrent
 
 			ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
 
