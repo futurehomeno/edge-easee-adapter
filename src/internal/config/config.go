@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const defaultStartChargingCurrent = 16
+const defaultInitialChargingCurrent = 16
 
 type PublicConfig struct {
 	EaseeBaseURL                 string  `json:"easeeBaseURL2"`
@@ -253,7 +253,7 @@ func (cs *Service) InitialChargingCurrent() int {
 		return current
 	}
 
-	return defaultStartChargingCurrent
+	return defaultInitialChargingCurrent
 }
 
 func (cs *Service) HTTPTimeout() time.Duration {
