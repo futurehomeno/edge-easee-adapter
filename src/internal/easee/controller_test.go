@@ -185,6 +185,22 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			expectedCurrent:  20,
 		},
 		{
+			name:             "slow mode is not raised to the start current when slow current not configured",
+			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeSlow},
+			maxCurrent:       32,
+			requestedCurrent: 8,
+			slowCurrent:      0,
+			expectedCurrent:  8,
+		},
+		{
+			name:             "configured slow current wins over the start current",
+			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeSlow},
+			maxCurrent:       32,
+			requestedCurrent: 8,
+			slowCurrent:      10,
+			expectedCurrent:  10,
+		},
+		{
 			name:             "returns error when all current sources are zero",
 			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
 			maxCurrent:       0,

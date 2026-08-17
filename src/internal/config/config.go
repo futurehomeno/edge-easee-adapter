@@ -256,10 +256,6 @@ func (cs *Service) StartChargingCurrentInAmperes() int {
 	return defaultStartChargingCurrent
 }
 
-func (cs *Service) SetStartChargingCurrentInAmperes(current int) error {
-	return cs.Update(func(c *Config) { c.StartChargingCurrentInAmperes = current })
-}
-
 func (cs *Service) HTTPTimeout() time.Duration {
 	return config.GetDuration(cs.Service, func(c *Config) string { return c.HTTPTimeout }, 30*time.Second)
 }
