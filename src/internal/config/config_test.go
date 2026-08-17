@@ -103,7 +103,7 @@ func TestService_StartChargingCurrentInAmperes_MatchesPackagedDefault(t *testing
 			st := &mockedstorage.Storage[*config.Config]{}
 			st.On("Model").Return(cfg)
 
-			assert.Equal(t, 16, config.NewService(st).StartChargingCurrentInAmperes())
+			assert.Equal(t, 16, config.NewService(st).InitialChargingCurrent())
 		})
 	}
 }

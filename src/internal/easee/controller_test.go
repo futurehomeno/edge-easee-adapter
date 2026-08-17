@@ -228,7 +228,7 @@ func TestController_StartChargepointCharging(t *testing.T) {
 
 			cfg := &config.Config{}
 			cfg.SlowChargingCurrentInAmperes = tt.slowCurrent
-			cfg.StartChargingCurrentInAmperes = tt.startCurrent
+			cfg.InitialChargingCurrent = tt.startCurrent
 
 			ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
 

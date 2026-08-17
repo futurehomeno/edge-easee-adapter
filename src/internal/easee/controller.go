@@ -256,7 +256,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	case !slow:
 		// Slow mode is deliberately exempt from the floor: with no slow current configured the
 		// throttled cached value is the closest thing to what the user asked for.
-		startCurrent = max(startCurrent, c.cfgService.StartChargingCurrentInAmperes())
+		startCurrent = max(startCurrent, c.cfgService.InitialChargingCurrent())
 	}
 
 	if slow {

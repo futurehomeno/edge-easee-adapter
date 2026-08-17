@@ -15,16 +15,16 @@ import (
 const defaultStartChargingCurrent = 16
 
 type PublicConfig struct {
-	EaseeBaseURL                  string  `json:"easeeBaseURL2"`
-	PollingInterval               string  `json:"pollingInterval"`
-	TokenRefreshInterval          string  `json:"token_refresh_interval"`
-	CurrentWaitDuration           string  `json:"currentWaitDuration"`
-	SlowChargingCurrentInAmperes  float64 `json:"slowChargingCurrentInAmperes"`
-	StartChargingCurrentInAmperes int     `json:"startChargingCurrentInAmperes"`
-	HTTPTimeout                   string  `json:"httpTimeout"`
-	SignalR                       SignalR `json:"signalR"`
-	OfferedCurrentWaitTime        string  `json:"offered_current_wait_time"`
-	EnergyLifetimeInterval        string  `json:"energyLifetimeInterval"`
+	EaseeBaseURL                 string  `json:"easeeBaseURL2"`
+	PollingInterval              string  `json:"pollingInterval"`
+	TokenRefreshInterval         string  `json:"token_refresh_interval"`
+	CurrentWaitDuration          string  `json:"currentWaitDuration"`
+	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
+	InitialChargingCurrent       int     `json:"initial_charging_current"`
+	HTTPTimeout                  string  `json:"httpTimeout"`
+	SignalR                      SignalR `json:"signalR"`
+	OfferedCurrentWaitTime       string  `json:"offered_current_wait_time"`
+	EnergyLifetimeInterval       string  `json:"energyLifetimeInterval"`
 
 	AuthBackoff         backoffSettings `json:"auth_backoff"`
 	AuthMaxUnauthorized string          `json:"auth_max_unauthorized,omitempty"`
@@ -248,8 +248,8 @@ func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 	return cs.Update(func(c *Config) { c.SlowChargingCurrentInAmperes = current })
 }
 
-func (cs *Service) StartChargingCurrentInAmperes() int {
-	if current := config.Get(cs.Service, func(c *Config) int { return c.StartChargingCurrentInAmperes }); current > 0 {
+func (cs *Service) InitialChargingCurrent() int {
+	if current := config.Get(cs.Service, func(c *Config) int { return c.InitialChargingCurrent }); current > 0 {
 		return current
 	}
 
