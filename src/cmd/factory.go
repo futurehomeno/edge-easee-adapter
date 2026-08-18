@@ -294,6 +294,9 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 			notification.NewNotification(getMQTT(cfg)),
 			getMQTT(cfg),
 			fimptype.EaseeService,
+			// Resolved lazily: the application is built on top of this authenticator, so it
+			// cannot be handed over at construction time.
+			func() error { return getApplication(cfg).Logout() },
 		)
 	}
 
