@@ -89,7 +89,7 @@ func NewAuthenticator(
 			// Easee has historically returned transient 401s on a still-valid refresh token,
 			// so a rejection streak has to outlive the grace before concluding auth loss.
 			UnauthorizedGrace: cfgSvc.AuthenticatorMaxUnauthorized(),
-			OnAuthLoss:        authLossHandler(notify, mqtt, serviceName, logoutFallback),
+			OnAuthLoss:        authLossHandler(notify, mqtt, serviceName, creds.Credentials, logoutFallback),
 		},
 	)
 
@@ -141,6 +141,7 @@ func authLossHandler(
 	notify Notifier,
 	mqtt publisher,
 	serviceName fimptype.ServiceNameT,
+	credentials func() config.Credentials,
 	logoutFallback func() error,
 ) func(string) {
 	return func(reason string) {
@@ -169,8 +170,19 @@ func authLossHandler(
 		// idempotent, so running it alongside the routed handler is safe.
 		//
 		// On its own goroutine: the fallback closes the SignalR client, which can be blocked
-		// on an AccessToken call waiting for the very lock this callback holds.
+		// on an AccessToken call waiting for the very lock this callback holds. Snapshotting
+		// credentials here (synchronously, under the authenticator lock) and re-checking them
+		// inside the goroutine guards against a fresh login landing in between: without it, the
+		// stale fallback would log the new session straight back out.
+		before := credentials()
+
 		go func() {
+			if credentials() != before {
+				log.Debugf("[auth] Skip local logout: a new session replaced the one that triggered it")
+
+				return
+			}
+
 			if err := logoutFallback(); err != nil {
 				log.Errorf("[auth] Local logout err: %v", err)
 			}
