@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
-	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
@@ -106,6 +105,5 @@ func New(
 		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, locker, application, nil),
 		cliffAdapter.RouteAdapter(adapter, cliffAdapter.WithSelection(devices, locker)),
 		thing.RouteCarCharger(adapter),
-		parameters.RouteService(adapter),
 	)
 }

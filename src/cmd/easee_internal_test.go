@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	cliffCfg "github.com/futurehomeno/cliffhanger/config"
@@ -34,6 +35,7 @@ const (
 	cmdDeviceChargepointTopic = "pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1"
 	evtDeviceChargepointTopic = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1"
 	evtDeviceMeterElecTopic   = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1"
+	evtDeviceAlarmTopic       = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:alarm_system/ad:1"
 )
 
 // refreshTaskPings counts Ping calls made by the token-refresh task in the
@@ -140,6 +142,54 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								Never(),
 							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 15.55).
 								Never(),
+						},
+					},
+				},
+			},
+			{
+				Name: "Adapter reports charger faults as alarms",
+				Setup: serviceSetup(testContainer, "configured", mqttAddr, func(client *mockapi.Client) {
+					client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
+					client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
+					client.On("Ping").Return(nil)
+				}, signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+					s.MockObservations(0, []model.Observation{
+						{
+							ChargerID: test.ChargerID,
+							DataType:  model.ObservationDataTypeInteger,
+							Timestamp: time.Now(),
+							ID:        model.ErrorCode,
+							Value:     "5",
+						},
+						{
+							ChargerID: test.ChargerID,
+							DataType:  model.ObservationDataTypeInteger,
+							Timestamp: time.Now(),
+							ID:        model.DetectedPowerGridType,
+							Value:     strconv.Itoa(int(model.GridTypeWarningTN3PhaseGNDFault)),
+						},
+					})
+					s.MockObservations(300*time.Millisecond, []model.Observation{
+						{
+							ChargerID: test.ChargerID,
+							DataType:  model.ObservationDataTypeInteger,
+							Timestamp: time.Now(),
+							ID:        model.ErrorCode,
+							Value:     "0",
+						},
+					})
+				})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							suite.ExpectStringMap(evtDeviceAlarmTopic, "evt.alarm.report", "alarm_system",
+								map[string]string{"event": alarm.EventOtherChargeErr, "status": alarm.StatusActivate}),
+							suite.ExpectStringMap(evtDeviceAlarmTopic, "evt.alarm.report", "alarm_system",
+								map[string]string{"event": alarm.EventGroundingFault, "status": alarm.StatusActivate}),
+							suite.ExpectStringMap(evtDeviceAlarmTopic, "evt.alarm.report", "alarm_system",
+								map[string]string{"event": alarm.EventOtherChargeErr, "status": alarm.StatusDeactivate}),
 						},
 					},
 				},

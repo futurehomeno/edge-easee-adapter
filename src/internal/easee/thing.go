@@ -8,6 +8,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
@@ -111,6 +112,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		t.newChargepointService(publisher, ad, thingState, groups, controller, state),
 		t.newMeterElecService(publisher, ad, thingState, groups, controller),
 		t.newParametersService(publisher, ad, thingState, groups, controller),
+		t.newAlarmService(publisher, ad, thingState, groups, controller),
 	}
 
 	return adapter.NewThing(publisher, thingState, &adapter.ThingConfig{
@@ -231,6 +233,24 @@ func (t *thingFactory) newParametersService(publisher adapter.ServicePublisher,
 	return parameters.NewService(publisher, &parameters.Config{
 		Specification: t.parametersSpecification(ad, thingState, groups),
 		Controller:    controller,
+	})
+}
+
+func (t *thingFactory) newAlarmService(publisher adapter.ServicePublisher,
+	ad adapter.Adapter,
+	thingState adapter.ThingState,
+	groups []string,
+	controller Controller,
+) adapter.Service {
+	return alarm.NewService(publisher, &alarm.Config{
+		Specification: alarm.Specification(
+			ad.Name().Str(),
+			ad.Address(),
+			thingState.Address(),
+			groups,
+			model.SupportedAlarmEvents(),
+		),
+		Reporter: controller,
 	})
 }
 

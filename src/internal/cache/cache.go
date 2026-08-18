@@ -48,6 +48,8 @@ type Cache interface {
 	CableCurrent() (int, time.Time)
 	// CableAlwaysLocked returns state of cable always locked parameter.
 	CableAlwaysLocked() (bool, time.Time)
+	// AlarmActive reports whether the given alarm event is currently active.
+	AlarmActive(event string) bool
 
 	SetPhaseMode(mode int, timestamp time.Time) bool
 	SetChargerState(state chargepoint.State, timestamp time.Time) bool
@@ -61,6 +63,8 @@ type Cache interface {
 	SetCableLocked(locked bool, timestamp time.Time) bool
 	SetCableCurrent(current int, timestamp time.Time) bool
 	SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool
+	// SetAlarm stores the state of an alarm event and reports whether it changed.
+	SetAlarm(event string, active bool) bool
 	SetEnergySession(energy float64, timestamp time.Time) bool
 	SetPhase1Current(current float64, timestamp time.Time) bool
 	SetPhase2Current(current float64, timestamp time.Time) bool
@@ -93,12 +97,15 @@ type cache struct {
 	cableCurrent            model.TimestampedValue[int]
 	cableAlwaysLocked       model.TimestampedValue[bool]
 
+	activeAlarms map[string]bool
+
 	currentListeners map[waitGroup][]chan<- int
 }
 
 func NewCache(chargerID string) Cache {
 	return &cache{
 		chargerID:        chargerID,
+		activeAlarms:     make(map[string]bool),
 		currentListeners: make(map[waitGroup][]chan<- int),
 	}
 }
@@ -220,6 +227,26 @@ func (c *cache) CableAlwaysLocked() (bool, time.Time) {
 	defer c.mu.RUnlock()
 
 	return c.cableAlwaysLocked.Value, c.cableAlwaysLocked.Timestamp
+}
+
+func (c *cache) AlarmActive(event string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.activeAlarms[event]
+}
+
+func (c *cache) SetAlarm(event string, active bool) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.activeAlarms[event] == active {
+		return false
+	}
+
+	c.activeAlarms[event] = active
+
+	return true
 }
 
 func (c *cache) SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool {
