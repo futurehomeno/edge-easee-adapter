@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
@@ -153,8 +154,8 @@ const (
 	CableRating           ObservationID = 104
 	ChargerOPState        ObservationID = 109
 	OutputPhase           ObservationID = 110
-	ErrorString           ObservationID = 118 // TODO
-	ErrorCode             ObservationID = 119 // TODO
+	ErrorString           ObservationID = 118
+	ErrorCode             ObservationID = 119
 	TotalPower            ObservationID = 120
 	EnergySession         ObservationID = 121
 	LifetimeEnergy        ObservationID = 124
@@ -210,6 +211,10 @@ func (o ObservationID) Str() string {
 		return "charging_session_start"
 	case CloudConnected:
 		return "cloud_connected"
+	case ErrorCode:
+		return "error_code"
+	case ErrorString:
+		return "error_string"
 	default:
 		return fmt.Sprintf("unknown=%d", o)
 	}
@@ -233,6 +238,7 @@ func SupportedObservationIDs() []ObservationID {
 		LifetimeEnergy,
 		EnergySession,
 		CableRating,
+		ErrorCode,
 		InCurrentT3,
 		InCurrentT4,
 		InCurrentT5,
@@ -466,6 +472,41 @@ const (
 	GridTypeErrorTN400VNeutralOnWrongPin    GridType = 51
 	GridTypeErrorITGroundConnectedToPin2Or3 GridType = 52
 )
+
+// SupportedAlarmEvents returns the alarm events an Easee charger can report.
+func SupportedAlarmEvents() []string {
+	return []string{alarm.EventGroundingFault, alarm.EventGridTypeFault, alarm.EventOtherChargeErr}
+}
+
+// IsGroundFault reports whether the detected grid type indicates a ground fault.
+func (g GridType) IsGroundFault() bool {
+	switch g { //nolint:exhaustive
+	case GridTypeWarningIT3PhaseGNDFault,
+		GridTypeWarningIT1PhaseGNDFault,
+		GridTypeWarningIT3PhaseGNDFaultL3,
+		GridTypeWarningIT1PhaseGNDFaultL3,
+		GridTypeWarningTN3PhaseGNDFault,
+		GridTypeWarningTN2PhaseGNDFault,
+		GridTypeErrorITGroundConnectedToPin2Or3:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsWiringFault reports whether the detected grid type indicates a mis-wired installation.
+func (g GridType) IsWiringFault() bool {
+	switch g { //nolint:exhaustive
+	case GridTypeWarningTN2PhasePin235,
+		GridTypeWarningTN1PhaseNeutralOnPin3,
+		GridTypeWarningTN2PhasePIN234,
+		GridTypeErrorNoValidPowerGridFound,
+		GridTypeErrorTN400VNeutralOnWrongPin:
+		return true
+	default:
+		return false
+	}
+}
 
 // ToFimpGridType returns grid type and phases.
 func (g GridType) ToFimpGridType() (types.GridType, int) {

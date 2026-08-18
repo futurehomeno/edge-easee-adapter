@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
@@ -62,6 +63,7 @@ type Controller interface {
 	parameters.Controller
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
+	alarm.Reporter
 	UpdateState(chargerID string, state *State) error
 }
 
@@ -319,6 +321,20 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	}
 
 	return &ret, nil
+}
+
+func (c *controller) AlarmReport(event string) (*alarm.Report, error) {
+	if err := c.checkConnection(); err != nil {
+		return nil, err
+	}
+
+	status := alarm.StatusDeactivate
+
+	if c.cache.AlarmActive(event) {
+		status = alarm.StatusActivate
+	}
+
+	return &alarm.Report{Event: event, Status: status}, nil
 }
 
 func (c *controller) ChargepointStateReport() (chargepoint.State, error) {

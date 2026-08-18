@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
@@ -82,6 +83,7 @@ func NewObservationsHandler(
 		model.LockCablePermanently:  handler.handleLockCablePermanently,
 		model.ChargingSessionStop:   handler.handleChargingSessionStop,
 		model.ChargingSessionStart:  handler.handleChargingSessionStart,
+		model.ErrorCode:             handler.handleErrorCode,
 	}
 
 	return &handler, nil
@@ -455,6 +457,16 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	phases, _ := h.cache.Phases()
 
 	supportedGridType, supportedPhases := model.GridType(val).ToFimpGridType()
+
+	// Several raw grid types map onto the same FIMP pair, so faults must be reported
+	// before the equivalence check below short-circuits an otherwise unchanged topology.
+	if err := h.sendAlarmReports(map[string]bool{
+		alarm.EventGroundingFault: model.GridType(val).IsGroundFault(),
+		alarm.EventGridTypeFault:  model.GridType(val).IsWiringFault(),
+	}, observation.Timestamp); err != nil {
+		return err
+	}
+
 	if supportedGridType == gridType && supportedPhases == phases {
 		return nil
 	}
@@ -688,6 +700,55 @@ func (h *energyHandler) manageEnergyObservation(ch chan model.Observation) { //n
 			return
 		}
 	}
+}
+
+// handleErrorCode turns the charger fault code into an alarm. Easee does not document the
+// individual codes, so any non-zero code is reported as the generic charger error.
+func (h *observationsHandler) handleErrorCode(observation model.Observation) error {
+	val, err := observation.IntValue()
+	if err != nil {
+		return err
+	}
+
+	// Only the transition into a fault is worth a warning; a persistent fault is replayed
+	// in full on every reconnect, and the raw value is still traced by HandleObservation.
+	if val != 0 && !h.cache.AlarmActive(alarm.EventOtherChargeErr) {
+		log.Warnf("[%s] ErrorCode=%d", h.chargerID, val)
+	}
+
+	return h.sendAlarmReports(map[string]bool{alarm.EventOtherChargeErr: val != 0}, observation.Timestamp)
+}
+
+// sendAlarmReports stores the state of each event and reports the ones that changed.
+// Dedup is left to the service's reporting cache, which only records an event once it is
+// actually published - so a failed publish is retried on the next observation.
+func (h *observationsHandler) sendAlarmReports(events map[string]bool, timestamp time.Time) error {
+	service, err := getAlarmService(h.thing)
+	if err != nil {
+		return err
+	}
+
+	for event, active := range events {
+		if !h.cache.SetAlarm(event, active, timestamp) {
+			continue
+		}
+
+		if _, err := service.SendAlarmReport(event, false); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getAlarmService(thing adapter.Thing) (alarm.Service, error) {
+	for _, service := range thing.Services(alarm.AlarmSystem) {
+		if service, ok := service.(alarm.Service); ok {
+			return service, nil
+		}
+	}
+
+	return nil, errors.New("there are no alarm services")
 }
 
 func getParametersService(thing adapter.Thing) (parameters.Service, error) {
