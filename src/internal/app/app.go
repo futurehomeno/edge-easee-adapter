@@ -43,7 +43,6 @@ type ApplicationWithToken interface {
 type Application interface {
 	cliffApp.App
 	cliffApp.LogginableApp
-	cliffApp.LogoutableApp
 	cliffApp.CheckableApp
 	cliffApp.InitializableApp
 }

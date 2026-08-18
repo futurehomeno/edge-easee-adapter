@@ -155,6 +155,11 @@ func authLossHandler(
 
 			// On its own goroutine: the fallback closes the SignalR client, which can be
 			// blocked on an AccessToken call waiting for the very lock this callback holds.
+			// It also runs outside the route locker the cmd.auth.logout path would take,
+			// which is a try-lock that drops the loser rather than queueing it - taking it
+			// here would let a concurrent routed command discard the very recovery this
+			// path exists to perform. The window needs a routed operation in flight while
+			// the broker refuses a publish, and Check() reconciles the lifecycle after.
 			go func() {
 				if err := logoutFallback(); err != nil {
 					log.Errorf("[auth] Local logout err: %v", err)
