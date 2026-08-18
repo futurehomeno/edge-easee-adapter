@@ -388,7 +388,7 @@ func newAuthenticator(
 
 	mqtt := fimpgo.NewMqttTransport("", "", "", "", true, 1, 1, nil)
 
-	return api.NewAuthenticator(httpClient, credentials, cfgSrv, notifier, mqtt, fimptype.EaseeService)
+	return api.NewAuthenticator(httpClient, credentials, cfgSrv, notifier, mqtt, fimptype.EaseeService, nil)
 }
 
 func newCredentialsStore(t *testing.T, credentials config.Credentials) *config.CredentialsStore {

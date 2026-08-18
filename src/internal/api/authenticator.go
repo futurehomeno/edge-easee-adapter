@@ -65,6 +65,7 @@ func NewAuthenticator(
 	notify Notifier,
 	mqtt *fimpgo.MqttTransport,
 	serviceName fimptype.ServiceNameT,
+	logoutFallback func() error,
 ) Authenticator {
 	a := &authenticator{
 		http:    http,
@@ -82,7 +83,7 @@ func NewAuthenticator(
 			// Easee has historically returned transient 401s on a still-valid refresh token,
 			// so a rejection streak has to outlive the grace before concluding auth loss.
 			UnauthorizedGrace: cfgSvc.AuthenticatorMaxUnauthorized(),
-			OnAuthLoss:        authLossHandler(notify, mqtt, serviceName),
+			OnAuthLoss:        authLossHandler(notify, mqtt, serviceName, logoutFallback),
 		},
 	)
 
@@ -130,7 +131,12 @@ func (a *authenticator) Logout() error {
 
 // authLossHandler notifies the user and asks the app to log out. It runs under the
 // authenticator lock, so it must only publish - the credentials are already cleared.
-func authLossHandler(notify Notifier, mqtt *fimpgo.MqttTransport, serviceName fimptype.ServiceNameT) func(string) {
+func authLossHandler(
+	notify Notifier,
+	mqtt *fimpgo.MqttTransport,
+	serviceName fimptype.ServiceNameT,
+	logoutFallback func() error,
+) func(string) {
 	return func(reason string) {
 		log.Infof("[auth] Trigger app logout: %s", reason)
 
@@ -141,7 +147,19 @@ func authLossHandler(notify Notifier, mqtt *fimpgo.MqttTransport, serviceName fi
 		message := fimpgo.NewNullMessage("cmd.auth.logout", serviceName, nil, nil, nil)
 
 		if err := mqtt.PublishToTopic(logoutAddress, message); err != nil {
-			log.Errorf("[auth] Publish logout message to addr=%s err: %v", logoutAddress, err)
+			log.Errorf("[auth] Publish logout message to addr=%s err: %v, log out locally instead", logoutAddress, err)
+
+			if logoutFallback == nil {
+				return
+			}
+
+			// On its own goroutine: the fallback closes the SignalR client, which can be
+			// blocked on an AccessToken call waiting for the very lock this callback holds.
+			go func() {
+				if err := logoutFallback(); err != nil {
+					log.Errorf("[auth] Local logout err: %v", err)
+				}
+			}()
 		}
 	}
 }
