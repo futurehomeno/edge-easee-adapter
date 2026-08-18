@@ -177,6 +177,16 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							ID:        model.ErrorCode,
 							Value:     "0",
 						},
+						// Regression: clearing the ground fault leaves the FIMP grid type at
+						// {TN, 3}, so the alarm must still be deactivated despite the topology
+						// looking unchanged to the chargepoint service.
+						{
+							ChargerID: test.ChargerID,
+							DataType:  model.ObservationDataTypeInteger,
+							Timestamp: time.Now(),
+							ID:        model.DetectedPowerGridType,
+							Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
+						},
 					})
 				})),
 				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
@@ -190,6 +200,8 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								map[string]string{"event": alarm.EventGroundingFault, "status": alarm.StatusActivate}),
 							suite.ExpectStringMap(evtDeviceAlarmTopic, "evt.alarm.report", "alarm_system",
 								map[string]string{"event": alarm.EventOtherChargeErr, "status": alarm.StatusDeactivate}),
+							suite.ExpectStringMap(evtDeviceAlarmTopic, "evt.alarm.report", "alarm_system",
+								map[string]string{"event": alarm.EventGroundingFault, "status": alarm.StatusDeactivate}),
 						},
 					},
 				},

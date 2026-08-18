@@ -63,8 +63,8 @@ type Cache interface {
 	SetCableLocked(locked bool, timestamp time.Time) bool
 	SetCableCurrent(current int, timestamp time.Time) bool
 	SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool
-	// SetAlarm stores the state of an alarm event and reports whether it changed.
-	SetAlarm(event string, active bool) bool
+	// SetAlarm stores the state of an alarm event and reports whether the observation was accepted.
+	SetAlarm(event string, active bool, timestamp time.Time) bool
 	SetEnergySession(energy float64, timestamp time.Time) bool
 	SetPhase1Current(current float64, timestamp time.Time) bool
 	SetPhase2Current(current float64, timestamp time.Time) bool
@@ -97,7 +97,7 @@ type cache struct {
 	cableCurrent            model.TimestampedValue[int]
 	cableAlwaysLocked       model.TimestampedValue[bool]
 
-	activeAlarms map[string]bool
+	activeAlarms map[string]model.TimestampedValue[bool]
 
 	currentListeners map[waitGroup][]chan<- int
 }
@@ -105,7 +105,7 @@ type cache struct {
 func NewCache(chargerID string) Cache {
 	return &cache{
 		chargerID:        chargerID,
-		activeAlarms:     make(map[string]bool),
+		activeAlarms:     make(map[string]model.TimestampedValue[bool]),
 		currentListeners: make(map[waitGroup][]chan<- int),
 	}
 }
@@ -233,18 +233,23 @@ func (c *cache) AlarmActive(event string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.activeAlarms[event]
+	return c.activeAlarms[event].Value
 }
 
-func (c *cache) SetAlarm(event string, active bool) bool {
+func (c *cache) SetAlarm(event string, active bool, timestamp time.Time) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.activeAlarms[event] == active {
+	if timestamp.Before(c.activeAlarms[event].Timestamp) {
+		c.logOutdatedObservation("alarm "+event, c.activeAlarms[event].Timestamp, timestamp)
+
 		return false
 	}
 
-	c.activeAlarms[event] = active
+	c.activeAlarms[event] = model.TimestampedValue[bool]{
+		Value:     active,
+		Timestamp: timestamp,
+	}
 
 	return true
 }

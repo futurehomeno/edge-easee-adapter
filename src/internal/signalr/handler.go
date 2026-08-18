@@ -457,18 +457,21 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	phases, _ := h.cache.Phases()
 
 	supportedGridType, supportedPhases := model.GridType(val).ToFimpGridType()
+
+	// Several raw grid types map onto the same FIMP pair, so faults must be reported
+	// before the equivalence check below short-circuits an otherwise unchanged topology.
+	if err := h.sendAlarmReports(map[string]bool{
+		alarm.EventGroundingFault: model.GridType(val).IsGroundFault(),
+		alarm.EventGridTypeFault:  model.GridType(val).IsWiringFault(),
+	}, observation.Timestamp); err != nil {
+		return err
+	}
+
 	if supportedGridType == gridType && supportedPhases == phases {
 		return nil
 	}
 
 	log.Debugf("[%s] supGridType=%v supPh=%v", h.chargerID, supportedGridType, supportedPhases)
-
-	if err := h.sendAlarmReports(map[string]bool{
-		alarm.EventGroundingFault: model.GridType(val).IsGroundFault(),
-		alarm.EventGridTypeFault:  model.GridType(val).IsWiringFault(),
-	}); err != nil {
-		return err
-	}
 
 	ok := h.cache.SetInstallationParameters(supportedGridType, supportedPhases, observation.Timestamp)
 	if !ok {
@@ -711,22 +714,24 @@ func (h *observationsHandler) handleErrorCode(observation model.Observation) err
 		log.Warnf("[%s] ErrorCode=%d", h.chargerID, val)
 	}
 
-	return h.sendAlarmReports(map[string]bool{alarm.EventOtherChargeErr: val != 0})
+	return h.sendAlarmReports(map[string]bool{alarm.EventOtherChargeErr: val != 0}, observation.Timestamp)
 }
 
 // sendAlarmReports stores the state of each event and reports the ones that changed.
-func (h *observationsHandler) sendAlarmReports(events map[string]bool) error {
+// Dedup is left to the service's reporting cache, which only records an event once it is
+// actually published - so a failed publish is retried on the next observation.
+func (h *observationsHandler) sendAlarmReports(events map[string]bool, timestamp time.Time) error {
 	service, err := getAlarmService(h.thing)
 	if err != nil {
 		return err
 	}
 
 	for event, active := range events {
-		if !h.cache.SetAlarm(event, active) {
+		if !h.cache.SetAlarm(event, active, timestamp) {
 			continue
 		}
 
-		if _, err := service.SendAlarmReport(event, true); err != nil {
+		if _, err := service.SendAlarmReport(event, false); err != nil {
 			return err
 		}
 	}
