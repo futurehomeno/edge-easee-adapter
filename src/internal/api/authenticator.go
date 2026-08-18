@@ -147,6 +147,13 @@ func authLossHandler(
 	return func(reason string) {
 		log.Infof("[auth] Trigger app logout: %s", reason)
 
+		// Snapshotted ahead of the publishes below, not next to the goroutine that reads it: the
+		// framework cleared the credentials immediately before this callback, and Login() writes to
+		// the store without taking the lock this callback holds, so a re-login can land while a
+		// publish blocks on a broker that is down. A snapshot taken after them would capture that
+		// fresh session and the fallback would mistake it for the one it is cleaning up.
+		before := credentials()
+
 		if err := notify.Event(&notification.Event{EventName: notificationEaseeStatusOffline}); err != nil {
 			log.Errorf("[auth] Send push notification err: %v", err)
 		}
@@ -170,12 +177,9 @@ func authLossHandler(
 		// idempotent, so running it alongside the routed handler is safe.
 		//
 		// On its own goroutine: the fallback closes the SignalR client, which can be blocked
-		// on an AccessToken call waiting for the very lock this callback holds. Snapshotting
-		// credentials here (synchronously, under the authenticator lock) and re-checking them
-		// inside the goroutine guards against a fresh login landing in between: without it, the
-		// stale fallback would log the new session straight back out.
-		before := credentials()
-
+		// on an AccessToken call waiting for the very lock this callback holds. Re-checking the
+		// snapshot guards against a fresh login landing in between: without it, the stale
+		// fallback would log the new session straight back out.
 		go func() {
 			if credentials() != before {
 				log.Debugf("[auth] Skip local logout: a new session replaced the one that triggered it")

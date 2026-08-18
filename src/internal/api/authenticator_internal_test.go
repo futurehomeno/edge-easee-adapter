@@ -19,9 +19,20 @@ type stubNotifier struct{}
 
 func (stubNotifier) Event(*notification.Event) error { return nil }
 
-type stubPublisher struct{ err error }
+type stubPublisher struct {
+	err error
+	// onPublish runs inside the publish so a test can land a login exactly while the auth-loss
+	// handler is blocked on the broker.
+	onPublish func()
+}
 
-func (p stubPublisher) PublishToTopic(string, *fimpgo.FimpMessage) error { return p.err }
+func (p stubPublisher) PublishToTopic(string, *fimpgo.FimpMessage) error {
+	if p.onPublish != nil {
+		p.onPublish()
+	}
+
+	return p.err
+}
 
 // unchangedCredentials stubs the credentials accessor for tests where no fresh login is in
 // play: every call returns the same snapshot, so the fallback's staleness check always passes.
@@ -99,6 +110,39 @@ func TestAuthLossHandler_SkipsFallbackWhenCredentialsChanged(t *testing.T) {
 	select {
 	case <-fallbackCalled:
 		require.Fail(t, "logout fallback ran after a fresh login replaced the cleared credentials")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// The snapshot has to be taken before the notification and the publish, not next to the
+// goroutine that reads it: a publish blocks while the broker is down, so a login landing in
+// that window would end up captured as the session the fallback is cleaning up - and wiped.
+func TestAuthLossHandler_SnapshotsCredentialsBeforePublishing(t *testing.T) {
+	t.Parallel()
+
+	var current atomic.Pointer[config.Credentials]
+
+	current.Store(&config.Credentials{})
+
+	publisher := stubPublisher{onPublish: func() {
+		current.Store(&config.Credentials{AccessToken: "fresh-login-value"}) //nolint:gosec
+	}}
+
+	fallbackCalled := make(chan struct{})
+
+	handler := authLossHandler(stubNotifier{}, publisher, fimptype.EaseeService,
+		func() config.Credentials { return *current.Load() },
+		func() error {
+			close(fallbackCalled)
+
+			return nil
+		})
+
+	handler("token rejected")
+
+	select {
+	case <-fallbackCalled:
+		require.Fail(t, "logout fallback ran after a login landed while the logout was being published")
 	case <-time.After(200 * time.Millisecond):
 	}
 }
