@@ -36,6 +36,7 @@ const (
 	evtDeviceChargepointTopic = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1"
 	evtDeviceMeterElecTopic   = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1"
 	evtDeviceAlarmTopic       = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:alarm_system/ad:1"
+	cmdDeviceAlarmTopic       = "pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:alarm_system/ad:1"
 )
 
 // refreshTaskPings counts Ping calls made by the token-refresh task in the
@@ -286,6 +287,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						Command:       suite.NullMessage(cmdDeviceChargepointTopic, "cmd.state.get_report", "chargepoint"),
 						Expectations: []*suite.Expectation{
 							suite.ExpectError(evtDeviceChargepointTopic, "chargepoint"),
+						},
+					},
+					{
+						Command: suite.NullMessage(cmdDeviceAlarmTopic, "cmd.alarm.get_report", "alarm_system"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectError(evtDeviceAlarmTopic, "alarm_system"),
 						},
 					},
 				},

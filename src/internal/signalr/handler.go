@@ -710,7 +710,9 @@ func (h *observationsHandler) handleErrorCode(observation model.Observation) err
 		return err
 	}
 
-	if val != 0 {
+	// Only the transition into a fault is worth a warning; a persistent fault is replayed
+	// in full on every reconnect, and the raw value is still traced by HandleObservation.
+	if val != 0 && !h.cache.AlarmActive(alarm.EventOtherChargeErr) {
 		log.Warnf("[%s] ErrorCode=%d", h.chargerID, val)
 	}
 

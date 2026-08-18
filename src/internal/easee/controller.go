@@ -324,6 +324,10 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 }
 
 func (c *controller) AlarmReport(event string) (*alarm.Report, error) {
+	if err := c.checkConnection(); err != nil {
+		return nil, err
+	}
+
 	status := alarm.StatusDeactivate
 
 	if c.cache.AlarmActive(event) {
