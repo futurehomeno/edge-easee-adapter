@@ -21,6 +21,12 @@ const (
 	logoutAddress = "pt:j1/mt:cmd/rt:ad/rn:easee/ad:1"
 )
 
+// publisher narrows fimpgo.MqttTransport to what the auth-loss path calls, so a successful
+// publish can be exercised without a broker.
+type publisher interface {
+	PublishToTopic(topic string, msg *fimpgo.FimpMessage) error
+}
+
 // Notifier is a service responsible for sending push notifications.
 type Notifier interface {
 	Event(event *notification.Event) error
@@ -79,7 +85,7 @@ func NewAuthenticator(
 			// Easee has historically returned transient 401s on a still-valid refresh token,
 			// so a rejection streak has to outlive the grace before concluding auth loss.
 			UnauthorizedGrace: cfgSvc.AuthenticatorMaxUnauthorized(),
-			OnAuthLoss:        authLossHandler(notify, mqtt, serviceName, logoutFallback),
+			OnAuthLoss:        authLossHandler(notify, mqtt, serviceName, creds.Credentials, logoutFallback),
 		},
 	)
 
@@ -129,12 +135,20 @@ func (a *authenticator) Logout() error {
 // authenticator lock, so it must only publish - the credentials are already cleared.
 func authLossHandler(
 	notify Notifier,
-	mqtt *fimpgo.MqttTransport,
+	mqtt publisher,
 	serviceName fimptype.ServiceNameT,
+	credentials func() config.Credentials,
 	logoutFallback func() error,
 ) func(string) {
 	return func(reason string) {
 		log.Infof("[auth] Trigger app logout: %s", reason)
+
+		// Snapshotted ahead of the publishes below, not next to the goroutine that reads it: the
+		// framework cleared the credentials immediately before this callback, and Login() writes to
+		// the store without taking the lock this callback holds, so a re-login can land while a
+		// publish blocks on a broker that is down. A snapshot taken after them would capture that
+		// fresh session and the fallback would mistake it for the one it is cleaning up.
+		before := credentials()
 
 		if err := notify.Event(&notification.Event{EventName: notificationEaseeStatusOffline}); err != nil {
 			log.Errorf("[auth] Send push notification err: %v", err)
@@ -143,25 +157,36 @@ func authLossHandler(
 		message := fimpgo.NewNullMessage("cmd.auth.logout", serviceName, nil, nil, nil)
 
 		if err := mqtt.PublishToTopic(logoutAddress, message); err != nil {
-			log.Errorf("[auth] Publish logout message to addr=%s err: %v, log out locally instead", logoutAddress, err)
+			log.Errorf("[auth] Publish logout message to addr=%s err: %v", logoutAddress, err)
+		}
 
-			if logoutFallback == nil {
+		if logoutFallback == nil {
+			return
+		}
+
+		// Runs whether or not the publish succeeded: the routed cmd.auth.logout handler takes
+		// a try-lock that discards the loser rather than queueing it, so a concurrent routed
+		// command silently drops the command this path just published. Nothing retries it -
+		// the credentials are already cleared, so AccessToken reports "not logged in" instead
+		// of another auth loss - which would leave the SignalR client connected and the
+		// lifecycle claiming a session until the next restart. Every step of the fallback is
+		// idempotent, so running it alongside the routed handler is safe.
+		//
+		// On its own goroutine: the fallback closes the SignalR client, which can be blocked
+		// on an AccessToken call waiting for the very lock this callback holds. Re-checking the
+		// snapshot guards against a fresh login landing in between: without it, the stale
+		// fallback would log the new session straight back out.
+		go func() {
+			if credentials() != before {
+				log.Debugf("[auth] Skip local logout: a new session replaced the one that triggered it")
+
 				return
 			}
 
-			// On its own goroutine: the fallback closes the SignalR client, which can be
-			// blocked on an AccessToken call waiting for the very lock this callback holds.
-			// It also runs outside the route locker the cmd.auth.logout path would take,
-			// which is a try-lock that drops the loser rather than queueing it - taking it
-			// here would let a concurrent routed command discard the very recovery this
-			// path exists to perform. The window needs a routed operation in flight while
-			// the broker refuses a publish, and Check() reconciles the lifecycle after.
-			go func() {
-				if err := logoutFallback(); err != nil {
-					log.Errorf("[auth] Local logout err: %v", err)
-				}
-			}()
-		}
+			if err := logoutFallback(); err != nil {
+				log.Errorf("[auth] Local logout err: %v", err)
+			}
+		}()
 	}
 }
 
