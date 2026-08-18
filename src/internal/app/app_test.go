@@ -235,11 +235,20 @@ func TestApplication_Uninstall_ClearsCredentialsDespiteFailures(t *testing.T) {
 
 	credentials := newCredentialsStore(t, config.Credentials{AccessToken: "access", RefreshToken: "refresh"})
 
+	lc := lifecycle.New(nil)
+	lc.MarkRunning()
+
 	application := app.New(adapterMock, config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
-		lifecycle.New(nil), nil, nil, nil, nil, credentials)
+		lc, nil, nil, nil, nil, credentials)
 
 	assert.ErrorContains(t, application.Uninstall(), "oops")
 	assert.True(t, credentials.Credentials().Empty(), "the tokens must be gone even when a step failed")
+
+	// The configuration and the tokens are gone, so the app must not stay marked running.
+	assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
+	assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
+	assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
+	assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 }
 
 func TestApplication_Login(t *testing.T) { //nolint:paralleltest

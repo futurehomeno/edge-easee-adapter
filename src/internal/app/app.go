@@ -43,6 +43,7 @@ type ApplicationWithToken interface {
 type Application interface {
 	cliffApp.App
 	cliffApp.LogginableApp
+	cliffApp.LogoutableApp
 	cliffApp.CheckableApp
 	cliffApp.InitializableApp
 }
@@ -224,13 +225,12 @@ func (a *application) Uninstall() error {
 		errs = errors.Join(errs, fmt.Errorf("clear credentials: %w", err))
 	}
 
-	if errs != nil {
-		return errs
-	}
-
+	// Marked regardless of the errors above: the credentials and the configuration are gone,
+	// so staying marked running would leave the tasks and the UI acting on a session the hub
+	// no longer has.
 	a.lifecycle.MarkNotConfigured()
 
-	return nil
+	return errs
 }
 
 func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
