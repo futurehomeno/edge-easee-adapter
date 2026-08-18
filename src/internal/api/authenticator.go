@@ -19,10 +19,6 @@ const (
 	notificationEaseeStatusOffline = "easee_status_offline"
 
 	logoutAddress = "pt:j1/mt:cmd/rt:ad/rn:easee/ad:1"
-
-	// cliffhanger returns a plain error while the backoff suppresses a refresh attempt.
-	// Comparing the message is the only way to keep the caller's log downgrade.
-	backoffSuspendedMessage = "token refresh suspended by backoff"
 )
 
 // Notifier is a service responsible for sending push notifications.
@@ -116,7 +112,7 @@ func (a *authenticator) AccessToken() (string, error) {
 
 	// Both mean "not now, still trying": report them as backoff so the caller logs them at
 	// debug instead of warning on every request for the whole grace window.
-	if err.Error() == backoffSuspendedMessage || errors.Is(err, auth.ErrRefreshDeferred) {
+	if errors.Is(err, auth.ErrRefreshSuspended) || errors.Is(err, auth.ErrRefreshDeferred) {
 		return "", ErrRefreshBackoff
 	}
 
