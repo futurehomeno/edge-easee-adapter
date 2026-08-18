@@ -2,7 +2,6 @@ package api
 
 import (
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
@@ -17,63 +16,54 @@ type stubNotifier struct{}
 
 func (stubNotifier) Event(*notification.Event) error { return nil }
 
-// TestAuthLossHandler_FallsBackToLocalLogout pins the recovery path for a broker that will not
-// take the logout command: the framework has already cleared the credentials, so without the
-// fallback the SignalR client stays connected and the lifecycle keeps claiming a session that
-// is gone until the next restart.
-func TestAuthLossHandler_FallsBackToLocalLogout(t *testing.T) {
+type stubPublisher struct{ err error }
+
+func (p stubPublisher) PublishToTopic(string, *fimpgo.FimpMessage) error { return p.err }
+
+// TestAuthLossHandler_RunsLocalLogout pins the recovery path: the framework has already cleared
+// the credentials, so a logout that never reaches the app leaves the SignalR client connected
+// and the lifecycle claiming a session until the next restart. A successful publish is not proof
+// the logout ran - the routed handler drops the command when it loses its try-lock - so the
+// fallback has to run on both outcomes.
+func TestAuthLossHandler_RunsLocalLogout(t *testing.T) {
 	t.Parallel()
 
-	// Never started, so PublishToTopic cannot reach a broker.
-	mqtt := fimpgo.NewMqttTransport("tcp://127.0.0.1:1", "test", "", "", true, 1, 1, func(error) {})
-
-	var (
-		wg     sync.WaitGroup
-		mu     sync.Mutex
-		called bool
-	)
-
-	wg.Add(1)
-
-	handler := authLossHandler(stubNotifier{}, mqtt, fimptype.EaseeService, func() error {
-		defer wg.Done()
-
-		mu.Lock()
-		defer mu.Unlock()
-
-		called = true
-
-		return errors.New("logout failed")
-	})
-
-	handler("token rejected")
-
-	done := make(chan struct{})
-
-	go func() {
-		wg.Wait()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		require.Fail(t, "logout fallback was not invoked")
+	tests := []struct {
+		name       string
+		publishErr error
+	}{
+		{name: "broker refuses the publish", publishErr: errors.New("publish failed")},
+		{name: "publish succeeds but the routed handler may drop it", publishErr: nil},
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 
-	assert.True(t, called)
+			called := make(chan struct{})
+
+			handler := authLossHandler(stubNotifier{}, stubPublisher{err: tt.publishErr}, fimptype.EaseeService, func() error {
+				close(called)
+
+				return errors.New("logout failed")
+			})
+
+			handler("token rejected")
+
+			select {
+			case <-called:
+			case <-time.After(5 * time.Second):
+				require.Fail(t, "logout fallback was not invoked")
+			}
+		})
+	}
 }
 
 // A nil fallback must not panic: the handler runs under the authenticator lock.
 func TestAuthLossHandler_NilFallback(t *testing.T) {
 	t.Parallel()
 
-	mqtt := fimpgo.NewMqttTransport("tcp://127.0.0.1:1", "test", "", "", true, 1, 1, func(error) {})
-
 	assert.NotPanics(t, func() {
-		authLossHandler(stubNotifier{}, mqtt, fimptype.EaseeService, nil)("token rejected")
+		authLossHandler(stubNotifier{}, stubPublisher{}, fimptype.EaseeService, nil)("token rejected")
 	})
 }

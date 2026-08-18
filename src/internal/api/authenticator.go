@@ -25,6 +25,12 @@ const (
 	backoffSuspendedMessage = "token refresh suspended by backoff"
 )
 
+// publisher narrows fimpgo.MqttTransport to what the auth-loss path calls, so a successful
+// publish can be exercised without a broker.
+type publisher interface {
+	PublishToTopic(topic string, msg *fimpgo.FimpMessage) error
+}
+
 // Notifier is a service responsible for sending push notifications.
 type Notifier interface {
 	Event(event *notification.Event) error
@@ -133,7 +139,7 @@ func (a *authenticator) Logout() error {
 // authenticator lock, so it must only publish - the credentials are already cleared.
 func authLossHandler(
 	notify Notifier,
-	mqtt *fimpgo.MqttTransport,
+	mqtt publisher,
 	serviceName fimptype.ServiceNameT,
 	logoutFallback func() error,
 ) func(string) {
@@ -147,25 +153,28 @@ func authLossHandler(
 		message := fimpgo.NewNullMessage("cmd.auth.logout", serviceName, nil, nil, nil)
 
 		if err := mqtt.PublishToTopic(logoutAddress, message); err != nil {
-			log.Errorf("[auth] Publish logout message to addr=%s err: %v, log out locally instead", logoutAddress, err)
-
-			if logoutFallback == nil {
-				return
-			}
-
-			// On its own goroutine: the fallback closes the SignalR client, which can be
-			// blocked on an AccessToken call waiting for the very lock this callback holds.
-			// It also runs outside the route locker the cmd.auth.logout path would take,
-			// which is a try-lock that drops the loser rather than queueing it - taking it
-			// here would let a concurrent routed command discard the very recovery this
-			// path exists to perform. The window needs a routed operation in flight while
-			// the broker refuses a publish, and Check() reconciles the lifecycle after.
-			go func() {
-				if err := logoutFallback(); err != nil {
-					log.Errorf("[auth] Local logout err: %v", err)
-				}
-			}()
+			log.Errorf("[auth] Publish logout message to addr=%s err: %v", logoutAddress, err)
 		}
+
+		if logoutFallback == nil {
+			return
+		}
+
+		// Runs whether or not the publish succeeded: the routed cmd.auth.logout handler takes
+		// a try-lock that discards the loser rather than queueing it, so a concurrent routed
+		// command silently drops the command this path just published. Nothing retries it -
+		// the credentials are already cleared, so AccessToken reports "not logged in" instead
+		// of another auth loss - which would leave the SignalR client connected and the
+		// lifecycle claiming a session until the next restart. Every step of the fallback is
+		// idempotent, so running it alongside the routed handler is safe.
+		//
+		// On its own goroutine: the fallback closes the SignalR client, which can be blocked
+		// on an AccessToken call waiting for the very lock this callback holds.
+		go func() {
+			if err := logoutFallback(); err != nil {
+				log.Errorf("[auth] Local logout err: %v", err)
+			}
+		}()
 	}
 }
 
