@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
@@ -109,6 +110,17 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		cliffCfg.Migration{From: 3, To: 4, Do: cfg.MigrateOfferedCurrentWaitTime},
 		cliffCfg.Migration{From: 4, To: 5, Do: cfg.MigrateSignalRFinalBackoff},
 		cliffCfg.Migration{From: 5, To: 6, Do: func() error { return config.MigrateCredentials(cfg, credentials) }},
+		cliffCfg.Migration{From: 6, To: 7, Do: func() error {
+			// A config entering the chain at a later version skips every step below it, so
+			// re-asserting the defaults only reaches every hub from a step added at the end.
+			// Support sessions leave hubs on text/debug and the auto-revert only restores the
+			// level, never the format, so without this a drifted format survives forever.
+			cfg.LogLevel = "info"
+			cfg.LogFormat = "budzik"
+			cfg.LogRevertAt = time.Time{}
+
+			return nil
+		}},
 	)
 	if err != nil {
 		log.Errorf("[config] Migrate config. err: %v", err)
