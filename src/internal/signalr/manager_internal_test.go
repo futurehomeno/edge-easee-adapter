@@ -73,7 +73,7 @@ func newTestManager(t *testing.T, chargerID string) (*manager, *logtest.Hook) {
 	storage.On("Model").Return(&config.Config{}).Maybe()
 	storage.On("Save").Return(nil).Maybe()
 
-	m, ok := NewManager(config.NewService(storage), &failingSubscribeClient{}).(*manager)
+	m, ok := NewManager(config.NewService(storage), &failingSubscribeClient{}, nil).(*manager)
 	require.True(t, ok)
 
 	// The retries handleSubscription arms are not under test; an already closed done

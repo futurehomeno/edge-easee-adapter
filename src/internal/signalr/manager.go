@@ -50,13 +50,15 @@ type manager struct {
 	clientStarting bool
 
 	client   Client
+	tel      telemetry.Telemetry
 	chargers map[string]*charger
 }
 
-func NewManager(cfg *config.Service, client Client) Manager {
+func NewManager(cfg *config.Service, client Client, tel telemetry.Telemetry) Manager {
 	return &manager{
 		cfg:           cfg,
 		client:        client,
+		tel:           tel,
 		chargers:      make(map[string]*charger),
 		subscriptions: make(chan string, 32),
 	}
@@ -179,7 +181,7 @@ func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
 }
 
 func (m *manager) run() {
-	defer telemetry.RecoverAndEmit(nil, "manager.run", true)
+	defer telemetry.RecoverAndEmit(m.tel, "manager.run", true)
 
 	m.mu.RLock()
 	done := m.done

@@ -15,6 +15,7 @@ import (
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
 	cliffStorage "github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/task"
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
@@ -39,6 +40,8 @@ type serviceContainer struct {
 	defaultStore     *cliffCfg.DefaultStore
 	lifecycle        *lifecycle.Lifecycle
 	mqtt             *fimpgo.MqttTransport
+	telemetry        telemetry.Telemetry
+	version          string
 
 	application     app.ApplicationWithToken
 	manifestLoader  manifest.Loader
@@ -305,7 +308,7 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 
 func getSignalRClient(cfg *config.Config) signalr.Client {
 	if services.signalRClient == nil {
-		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator(cfg).AccessToken)
+		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator(cfg).AccessToken, getTelemetry(cfg))
 	}
 
 	return services.signalRClient
@@ -313,10 +316,27 @@ func getSignalRClient(cfg *config.Config) signalr.Client {
 
 func getSignalRManager(cfg *config.Config) signalr.Manager {
 	if services.signalRManager == nil {
-		services.signalRManager = signalr.NewManager(getConfigService(), getSignalRClient(cfg))
+		services.signalRManager = signalr.NewManager(getConfigService(), getSignalRClient(cfg), getTelemetry(cfg))
 	}
 
 	return services.signalRManager
+}
+
+// getTelemetry builds the telemetry reporter. It publishes nothing until the cloud enables it,
+// but wiring it here is what lets the root app and the SignalR loops report a panic.
+func getTelemetry(cfg *config.Config) telemetry.Telemetry {
+	if services.telemetry == nil {
+		t, err := telemetry.New(getMQTT(cfg), fimptype.EaseeRn, getDefaultStore(), services.version)
+		if err != nil {
+			log.Errorf("[cmd] Init telemetry err: %v", err)
+
+			return nil
+		}
+
+		services.telemetry = t
+	}
+
+	return services.telemetry
 }
 
 func newRouting(cfg *config.Config) []*cliffRouter.Routing {
@@ -325,6 +345,7 @@ func newRouting(cfg *config.Config) []*cliffRouter.Routing {
 		getLifecycle(),
 		getApplication(cfg),
 		getAdapter(cfg),
+		getTelemetry(cfg),
 	)
 }
 

@@ -29,7 +29,7 @@ func TestClient_PublishesDisconnectOnClose(t *testing.T) {
 	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
 	require.NoError(t, cfg.SetSignalRBaseURL("http://"+address))
 
-	client := signalr.NewClient(cfg, func() (string, error) { return "test-token", nil })
+	client := signalr.NewClient(cfg, func() (string, error) { return "test-token", nil }, nil)
 	client.Start()
 
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
