@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
@@ -290,6 +291,156 @@ func TestController_SetChargepointOfferedCurrent_KeepsDedup(t *testing.T) {
 	err := ctrl.SetChargepointOfferedCurrent(16)
 	assert.NoError(t, err)
 	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
+}
+
+func TestController_SetChargepointPhaseMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		mode          types.PhaseMode
+		cachedMode    int
+		chargerState  chargepoint.State
+		expectedEasee int
+		expectNoCall  bool
+		wantErr       bool
+	}{
+		{
+			name:          "single phase locks the charger to one phase",
+			mode:          types.PhaseModeNL1,
+			cachedMode:    2,
+			chargerState:  chargepoint.StateReadyToCharge,
+			expectedEasee: 1,
+		},
+		{
+			name:          "three phase maps to auto, so an EV that cannot go 1->3 is not stranded",
+			mode:          types.PhaseModeNL1L2L3,
+			cachedMode:    1,
+			chargerState:  chargepoint.StateReadyToCharge,
+			expectedEasee: 2,
+		},
+		{
+			name:         "already in the target mode, no API call and no session interruption",
+			mode:         types.PhaseModeNL1,
+			cachedMode:   1,
+			expectNoCall: true,
+		},
+		{
+			name:       "mode outside the grid's capabilities",
+			mode:       types.PhaseModeL1L2,
+			cachedMode: 2,
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			managerMock := mockedsignalr.NewManager(t)
+			managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+			cacheMock.On("Phases").Return(3, time.Time{})
+
+			clientMock := mockapi.NewClient(t)
+
+			if !tt.wantErr {
+				cacheMock.On("PhaseMode").Return(tt.cachedMode, time.Time{})
+				cacheMock.On("SetRequestedPhaseMode", tt.mode, mock.AnythingOfType("time.Time")).Return(true)
+			}
+
+			if !tt.wantErr && !tt.expectNoCall {
+				clientMock.On("SetPhaseMode", "test-charger", tt.expectedEasee).Return(nil).Once()
+				cacheMock.On("TotalPower").Return(float64(0), time.Time{})
+				cacheMock.On("ChargerState").Return(tt.chargerState, time.Time{})
+			}
+
+			ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+			err := ctrl.SetChargepointPhaseMode(tt.mode)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+
+			if tt.expectNoCall {
+				clientMock.AssertNotCalled(t, "SetPhaseMode", mock.Anything, mock.Anything)
+			}
+		})
+	}
+}
+
+// A charging session keeps its phase count until it is bounced, so the setter has to
+// restart it for the new mode to take effect right away.
+func TestController_SetChargepointPhaseMode_RestartsActiveSession(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(2, time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(true)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	clientMock.AssertCalled(t, "StopCharging", "test-charger")
+	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(16))
+}
+
+// outputPhase survives as a stale echo of the previous session, so a mode we just
+// requested has to win until the charger reports a newer one.
+func TestController_ChargepointPhaseModeReport_PrefersRequestedMode(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, time.Now().Add(-time.Hour))
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseModeNL1L2L3, time.Now())
+
+	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+	mode, err := ctrl.ChargepointPhaseModeReport()
+	assert.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL1L2L3, mode)
+}
+
+// Once the charger reports an output phase of its own, that observation is the truth.
+func TestController_ChargepointPhaseModeReport_OutputPhaseWinsWhenNewer(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, time.Now())
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseModeNL1L2L3, time.Now().Add(-time.Hour))
+
+	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+	mode, err := ctrl.ChargepointPhaseModeReport()
+	assert.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL3, mode)
 }
 
 func TestController_UpdateState(t *testing.T) {

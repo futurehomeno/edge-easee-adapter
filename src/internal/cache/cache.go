@@ -38,6 +38,8 @@ type Cache interface {
 	Phase3Current() (float64, time.Time)
 	// OutputPhaseType return output phase type.
 	OutputPhaseType() (types.PhaseMode, time.Time)
+	// RequestedPhaseMode returns the phase mode requested by controller.
+	RequestedPhaseMode() (types.PhaseMode, time.Time)
 	// GridType return GridType.
 	GridType() (types.GridType, time.Time)
 	// Phases return phases.
@@ -59,6 +61,7 @@ type Cache interface {
 	SetTotalPower(power float64, timestamp time.Time) bool
 	SetLifetimeEnergy(energy float64, timestamp time.Time) bool
 	SetOutputPhaseType(mode types.PhaseMode, timestamp time.Time) bool
+	SetRequestedPhaseMode(mode types.PhaseMode, timestamp time.Time) bool
 	SetInstallationParameters(gridType types.GridType, phases int, timestamp time.Time) bool
 	SetCableLocked(locked bool, timestamp time.Time) bool
 	SetCableCurrent(current int, timestamp time.Time) bool
@@ -91,6 +94,7 @@ type cache struct {
 	phase2Current           model.TimestampedValue[float64]
 	phase3Current           model.TimestampedValue[float64]
 	outputPhase             model.TimestampedValue[types.PhaseMode]
+	requestedPhaseMode      model.TimestampedValue[types.PhaseMode]
 	gridType                model.TimestampedValue[types.GridType]
 	phases                  model.TimestampedValue[int]
 	cableLocked             model.TimestampedValue[bool]
@@ -122,6 +126,13 @@ func (c *cache) OutputPhaseType() (types.PhaseMode, time.Time) {
 	defer c.mu.RUnlock()
 
 	return c.outputPhase.Value, c.outputPhase.Timestamp
+}
+
+func (c *cache) RequestedPhaseMode() (types.PhaseMode, time.Time) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.requestedPhaseMode.Value, c.requestedPhaseMode.Timestamp
 }
 
 func (c *cache) ChargerState() (chargepoint.State, time.Time) {
@@ -337,6 +348,24 @@ func (c *cache) SetOutputPhaseType(mode types.PhaseMode, timestamp time.Time) bo
 	}
 
 	c.outputPhase = model.TimestampedValue[types.PhaseMode]{
+		Value:     mode,
+		Timestamp: timestamp,
+	}
+
+	return true
+}
+
+func (c *cache) SetRequestedPhaseMode(mode types.PhaseMode, timestamp time.Time) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if timestamp.Before(c.requestedPhaseMode.Timestamp) {
+		c.logOutdatedObservation("requested phase mode", c.requestedPhaseMode.Timestamp, timestamp)
+
+		return false
+	}
+
+	c.requestedPhaseMode = model.TimestampedValue[types.PhaseMode]{
 		Value:     mode,
 		Timestamp: timestamp,
 	}

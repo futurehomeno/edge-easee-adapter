@@ -125,25 +125,14 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 		return nil
 	}
 
-	service, err := getChargepointService(h.thing)
+	// sup_phase_modes covers everything the charger can be switched to, so the internal mode
+	// no longer moves it - only the mode the charger currently reports can change.
+	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
 
-	gridType, _ := h.cache.GridType()
-	phases, _ := h.cache.Phases()
-	phaseMode, _ = h.cache.PhaseMode()
-	supportedModes := model.SupportedPhaseModes(gridType, phaseMode, phases)
-
-	service = h.ensureChargepointProps(service, map[string]any{
-		chargepoint.PropertySupportedPhaseModes: supportedModes,
-	})
-
-	if err := h.thing.Update(adapter.ThingUpdateRemoveService(service), adapter.ThingUpdateAddService(service)); err != nil {
-		return err
-	}
-
-	_, err = h.thing.SendInclusionReport(false)
+	_, err = chargepointSrv.SendPhaseModeReport(false)
 
 	return err
 }
@@ -483,9 +472,7 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		return err
 	}
 
-	phaseMode, _ := h.cache.PhaseMode()
-
-	supportedModes := model.SupportedPhaseModes(supportedGridType, phaseMode, supportedPhases)
+	supportedModes := model.SettablePhaseModes(supportedGridType, supportedPhases)
 
 	service = h.ensureChargepointProps(service, map[string]any{
 		chargepoint.PropertyGridType:            supportedGridType,

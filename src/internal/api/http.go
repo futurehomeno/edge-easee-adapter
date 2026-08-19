@@ -39,6 +39,7 @@ const (
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
 	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
+	phaseModeURITemplate       = "/api/chargers/%s/commands/set_phase_mode"
 	chargerSessionsURITemplate = "/api/sessions/charger/%s/sessions/descending?limit=2"
 	chargerDetailsURITemplate  = "/api/chargers/%s/details?alwaysGetChargerAccessLevel=false"
 
@@ -70,6 +71,8 @@ type HTTPClient interface {
 	ChargerDetails(accessToken string, chargerID string) (model.ChargerDetails, error)
 	// SetCableAlwaysLocked sets cable always lock state.
 	SetCableAlwaysLocked(accessToken string, chargerID string, locked bool) error
+	// SetPhaseMode sets the charger's internal phase mode.
+	SetPhaseMode(accessToken string, chargerID string, phaseMode int) error
 	// Ping checks if an external service is available.
 	Ping(accessToken string) error
 }
@@ -269,6 +272,33 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 		c.logFailedResponse(resp)
 
 		return c.handleFailedResponse(resp, "cable lock request failed: unexpected status code")
+	}
+
+	return nil
+}
+
+func (c *httpClient) SetPhaseMode(accessToken, chargerID string, phaseMode int) error {
+	u := c.buildURL(phaseModeURITemplate, chargerID)
+
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, phaseModeBody{PhaseMode: phaseMode},
+		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken), contentTypeHeader: jsonContentType})
+	if err != nil {
+		return errors.Wrap(err, "failed to create phase mode request")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("transport error: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	// Unlike the other command endpoints this one is documented to answer 200, but Easee
+	// has been observed answering 202 as well.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		c.logFailedResponse(resp)
+
+		return c.handleFailedResponse(resp, "phase mode request failed: unexpected status code")
 	}
 
 	return nil

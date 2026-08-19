@@ -33,3 +33,8 @@ type dynamicCurrentBody struct {
 type cableLockStateBody struct {
 	State bool `json:"state"`
 }
+
+// phaseModeBody represents a charger phase mode request body.
+type phaseModeBody struct {
+	PhaseMode int `json:"phaseMode"`
+}

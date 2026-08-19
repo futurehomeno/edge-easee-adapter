@@ -504,7 +504,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
-				Name: "Inclusion report updated: changed phase mode",
+				// Supported phase modes advertise everything the charger can be switched to, so
+				// they must not narrow to whatever internal mode it happens to sit in - locking
+				// to a single phase would otherwise make the switch back unreachable.
+				Name: "Inclusion report: phase modes do not narrow with the internal mode",
 				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
@@ -513,7 +516,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
-							PhaseMode:             1, // results in NL1, NL2, NL3
+							PhaseMode:             1, // locked to a single phase
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -734,6 +737,65 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.phase_mode.get_report", "chargepoint"),
 						Expectations: []*suite.Expectation{
 							suite.ExpectString("pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.phase_mode.report", "chargepoint", "NL3"),
+						},
+					},
+				},
+			},
+			{
+				Name: "Set phase mode",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeTN3Phase,
+							PhaseMode:             1,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+						// Three phases map onto Easee's auto mode, not a hard three-phase lock.
+						client.On("SetPhaseMode", "XX12345", 2).Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.DetectedPowerGridType,
+								Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.PhaseMode,
+								Value:     "1",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					suite.SleepNode(300 * time.Millisecond),
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command: suite.StringMessage(
+							"pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.phase_mode.set", "chargepoint", "NL1L2L3",
+						),
+						Expectations: []*suite.Expectation{
+							suite.ExpectString(
+								"pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.phase_mode.report", "chargepoint", "NL1L2L3",
+							),
 						},
 					},
 				},

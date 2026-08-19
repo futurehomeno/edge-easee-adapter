@@ -24,6 +24,8 @@ type Client interface {
 	Chargers() ([]model.Charger, error)
 	ChargerDetails(chargerID string) (model.ChargerDetails, error)
 	SetCableAlwaysLocked(chargerID string, locked bool) error
+	// SetPhaseMode sets the charger's internal phase mode.
+	SetPhaseMode(chargerID string, phaseMode int) error
 	// Ping checks if an external service is available.
 	Ping() error
 }
@@ -58,6 +60,16 @@ func (a *apiClient) SetCableAlwaysLocked(chargerID string, locked bool) error {
 	}
 
 	return a.httpClient.SetCableAlwaysLocked(token, chargerID, locked)
+}
+
+func (a *apiClient) SetPhaseMode(chargerID string, phaseMode int) error {
+	log.Infof("[%s] Set phase mode to %d", chargerID, phaseMode)
+	token, err := a.auth.AccessToken()
+	if err != nil {
+		return a.tokenError(err)
+	}
+
+	return a.httpClient.SetPhaseMode(token, chargerID, phaseMode)
 }
 
 func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) error {

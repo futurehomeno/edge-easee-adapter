@@ -138,7 +138,6 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
 	options := []adapter.SpecificationOption{
 		chargepoint.WithChargingModes(model.SupportedChargingModes()...),
-		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
 	}
 
 	if phases := state.Phases; phases > 0 {
@@ -153,7 +152,7 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 		options = append(options, chargepoint.WithSupportedMaxCurrent(maxCurrent))
 	}
 
-	if phaseModes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(phaseModes) > 0 {
+	if phaseModes := model.SettablePhaseModes(state.GridType, state.Phases); len(phaseModes) > 0 {
 		options = append(options, chargepoint.WithSupportedPhaseModes(phaseModes...))
 	}
 

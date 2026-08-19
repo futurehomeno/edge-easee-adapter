@@ -56,7 +56,7 @@ type specFunc func(report numericmeter.ValuesReport, c cache.Cache)
 // Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
-	chargepoint.PhaseModeAwareController
+	chargepoint.AdjustablePhaseModeController
 	chargepoint.AdjustableMaxCurrentController
 	chargepoint.AdjustableOfferedCurrentController
 	chargepoint.CableLockAwareController
@@ -158,7 +158,15 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		return "", err
 	}
 
-	outputPhase, _ := c.cache.OutputPhaseType()
+	outputPhase, outputPhaseSet := c.cache.OutputPhaseType()
+
+	// A mode we requested ourselves outranks the output phase until the charger reports a
+	// newer one: outputPhase goes unassigned between sessions and handleOutPhase drops that
+	// observation, so the cached value survives as a stale echo of the previous session.
+	if requested, requestedAt := c.cache.RequestedPhaseMode(); requested != "" && requestedAt.After(outputPhaseSet) {
+		return requested, nil
+	}
+
 	if outputPhase != "" {
 		return outputPhase, nil
 	}
@@ -183,6 +191,63 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		Error(errMsg)
 
 	return "", errors.New(errMsg)
+}
+
+func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
+	if err := c.checkConnection(); err != nil {
+		return err
+	}
+
+	gridType, _ := c.cache.GridType()
+	phases, _ := c.cache.Phases()
+
+	target, err := model.ToEaseePhaseMode(gridType, phases, mode)
+	if err != nil {
+		return err
+	}
+
+	current, _ := c.cache.PhaseMode()
+	if target == current {
+		c.cache.SetRequestedPhaseMode(mode, time.Now())
+
+		return nil
+	}
+
+	if err := c.client.SetPhaseMode(c.chargerID, target); err != nil {
+		return err
+	}
+
+	c.cache.SetRequestedPhaseMode(mode, time.Now())
+
+	return c.restartForPhaseMode()
+}
+
+// restartForPhaseMode bounces an in-progress session, because the charger applies a new
+// phase mode only at a session boundary. A failed restart is not fatal - the mode is
+// already stored and takes effect on the next session.
+func (c *controller) restartForPhaseMode() error {
+	state, err := c.ChargepointStateReport()
+	if err != nil {
+		log.Warnf("[%s] Phase mode set, but the charger state is unknown: %v", c.chargerID, err)
+
+		return nil
+	}
+
+	if state != chargepoint.StateCharging {
+		return nil
+	}
+
+	if err := c.StopChargepointCharging(); err != nil {
+		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
+
+		return nil
+	}
+
+	if err := c.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal}); err != nil {
+		log.Warnf("[%s] Phase mode set, but resuming failed: %v", c.chargerID, err)
+	}
+
+	return nil
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int) error {
