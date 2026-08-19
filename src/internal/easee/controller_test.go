@@ -348,10 +348,10 @@ func TestController_SetChargepointPhaseMode(t *testing.T) {
 
 			if !tt.wantErr {
 				cacheMock.On("PhaseMode").Return(tt.cachedMode, time.Time{})
-				cacheMock.On("SetRequestedPhaseMode", tt.mode, mock.AnythingOfType("time.Time")).Return(true)
 			}
 
 			if !tt.wantErr && !tt.expectNoCall {
+				cacheMock.On("SetRequestedPhaseMode", tt.mode, mock.AnythingOfType("time.Time")).Return(true)
 				clientMock.On("SetPhaseMode", "test-charger", tt.expectedEasee).Return(nil).Once()
 				cacheMock.On("TotalPower").Return(float64(0), time.Time{})
 				cacheMock.On("ChargerState").Return(tt.chargerState, time.Time{})
@@ -441,6 +441,80 @@ func TestController_ChargepointPhaseModeReport_OutputPhaseWinsWhenNewer(t *testi
 	mode, err := ctrl.ChargepointPhaseModeReport()
 	assert.NoError(t, err)
 	assert.Equal(t, types.PhaseModeNL3, mode)
+}
+
+// A no-op request must not stamp the cache: doing so would outrank a live outputPhase
+// observation and report a leg the charger is not actually on.
+func TestController_SetChargepointPhaseMode_NoOpDoesNotMaskOutputPhase(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	// Already locked to a single phase, so asking for another leg changes nothing.
+	cacheMock.On("PhaseMode").Return(1, time.Time{})
+
+	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL2))
+	cacheMock.AssertNotCalled(t, "SetRequestedPhaseMode", mock.Anything, mock.Anything)
+}
+
+// Pausing then failing to resume leaves the car not charging, so the caller has to hear
+// about it even though the phase mode itself was stored successfully.
+func TestController_SetChargepointPhaseMode_ReportsFailedResume(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(2, time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
+
+	boom := errors.New("cloud rejected the resume")
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(boom).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	err := ctrl.SetChargepointPhaseMode(types.PhaseModeNL1)
+	assert.ErrorIs(t, err, boom)
+	assert.Contains(t, err.Error(), "left stopped")
+}
+
+// Failing to pause changes nothing on the charger, so it stays a warning.
+func TestController_SetChargepointPhaseMode_TolerateFailedPause(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(2, time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(errors.New("too many requests")).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
 }
 
 func TestController_UpdateState(t *testing.T) {

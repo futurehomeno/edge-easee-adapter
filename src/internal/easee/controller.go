@@ -206,10 +206,10 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		return err
 	}
 
-	current, _ := c.cache.PhaseMode()
-	if target == current {
-		c.cache.SetRequestedPhaseMode(mode, time.Now())
-
+	// Nothing is pending when the charger already sits in the target mode, so the request
+	// is not recorded: a fresh timestamp here would outrank a live outputPhase observation
+	// and report a leg the charger is not actually on.
+	if current, _ := c.cache.PhaseMode(); target == current {
 		return nil
 	}
 
@@ -219,13 +219,14 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 
 	c.cache.SetRequestedPhaseMode(mode, time.Now())
 
-	return c.restartForPhaseMode()
+	return c.restartForPhaseMode(target)
 }
 
 // restartForPhaseMode bounces an in-progress session, because the charger applies a new
-// phase mode only at a session boundary. A failed restart is not fatal - the mode is
-// already stored and takes effect on the next session.
-func (c *controller) restartForPhaseMode() error {
+// phase mode only at a session boundary. Failing to pause is not fatal - the mode is stored
+// and takes effect on the next session anyway - but a failed resume leaves the charger
+// stopped, so that one is reported back rather than only logged.
+func (c *controller) restartForPhaseMode(target int) error {
 	state, err := c.ChargepointStateReport()
 	if err != nil {
 		log.Warnf("[%s] Phase mode set, but the charger state is unknown: %v", c.chargerID, err)
@@ -244,7 +245,7 @@ func (c *controller) restartForPhaseMode() error {
 	}
 
 	if err := c.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal}); err != nil {
-		log.Warnf("[%s] Phase mode set, but resuming failed: %v", c.chargerID, err)
+		return fmt.Errorf("phase mode set to %d, but the charger was left stopped: %w", target, err)
 	}
 
 	return nil
