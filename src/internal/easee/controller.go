@@ -278,6 +278,12 @@ func (c *controller) restartForPhaseMode(target int) error {
 		resume, _ = c.cache.MaxCurrent()
 	}
 
+	// setOfferedCurrent only clamps the upper bound, so a zero would "resume" the session at
+	// 0A and report success while the charger stays paused.
+	if resume <= 0 {
+		return fmt.Errorf("phase mode set to %d, but no current is known to resume at", target)
+	}
+
 	if err := c.StopChargepointCharging(); err != nil {
 		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
 
