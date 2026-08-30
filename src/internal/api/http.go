@@ -358,7 +358,13 @@ func (c *httpClient) buildURL(path string, args ...any) string {
 }
 
 func (c *httpClient) handleFailedResponse(resp *http.Response, message string) error {
-	return fmt.Errorf("%s, status code: %d: %w", message, resp.StatusCode, httpclient.ErrorFromResponse(resp))
+	// ErrorFromResponse is nil below 300, and the command endpoints treat anything but 202 as a
+	// failure - Easee answers some of them 200. Wrapping nil renders as %!w(<nil>).
+	if err := httpclient.ErrorFromResponse(resp); err != nil {
+		return fmt.Errorf("%s, status code: %d: %w", message, resp.StatusCode, err)
+	}
+
+	return fmt.Errorf("%s, status code: %d", message, resp.StatusCode)
 }
 
 func (c *httpClient) logFailedResponse(resp *http.Response) {

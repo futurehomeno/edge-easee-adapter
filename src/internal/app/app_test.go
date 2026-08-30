@@ -28,6 +28,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
+	mockeddb "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/db"
 	mockedmanifest "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/manifest"
 	mocksignalr "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/signalr"
 )
@@ -70,7 +71,7 @@ func TestApplication_GetManifest(t *testing.T) {
 				tt.mockLoader(loaderMock)
 			}
 
-			a := app.New(nil, nil, lifecycle.New(nil), loaderMock, nil, nil, nil, nil)
+			a := app.New(nil, nil, lifecycle.New(nil), loaderMock, nil, nil, nil, nil, nil)
 
 			got, err := a.GetManifest()
 
@@ -89,7 +90,7 @@ func TestApplication_GetManifest(t *testing.T) {
 func TestApplication_Configure_RejectsWrongModelType(t *testing.T) {
 	t.Parallel()
 
-	a := app.New(nil, nil, nil, nil, nil, nil, nil, nil)
+	a := app.New(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	assert.Error(t, a.Configure("anything"))
 }
@@ -176,7 +177,9 @@ func TestApplication_Uninstall(t *testing.T) {
 			cfgService := config.NewService(storage)
 
 			credentials := newCredentialsStore(t, tt.credentials)
-			application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil, credentials)
+			sessionStorage := mockeddb.NewChargingSessionStorage(t)
+			sessionStorage.On("Reset").Return(nil)
+			application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil, credentials, sessionStorage)
 
 			err := application.Uninstall()
 
@@ -222,7 +225,30 @@ func newDiagApp(t *testing.T) app.ApplicationWithToken {
 	t.Helper()
 
 	return app.New(mockedadapter.NewAdapter(t), config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
-		lifecycle.New(nil), nil, nil, nil, nil, newCredentialsStore(t, config.Credentials{}))
+		lifecycle.New(nil), nil, nil, nil, nil, newCredentialsStore(t, config.Credentials{}), nil)
+}
+
+// Charging sessions are keyed by charger ID alone, so a reinstall against a different Easee
+// account with a colliding ID would serve the previous account's sessions.
+func TestApplication_Uninstall_ResetsSessionStorage(t *testing.T) {
+	t.Parallel()
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("DestroyAllThings").Return(nil)
+
+	sessionStorage := mockeddb.NewChargingSessionStorage(t)
+	sessionStorage.On("Reset").Return(errors.New("disk gone"))
+
+	lc := lifecycle.New(nil)
+	lc.MarkRunning()
+
+	application := app.New(adapterMock, config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
+		lc, nil, nil, nil, nil, newCredentialsStore(t, config.Credentials{}), sessionStorage)
+
+	assert.ErrorContains(t, application.Uninstall(), "reset session storage")
+	assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth(),
+		"a failed reset must not stop the app being marked not configured")
+	sessionStorage.AssertCalled(t, "Reset")
 }
 
 // Credentials live outside the configuration, so no failure on the way may leave the Easee
@@ -238,8 +264,11 @@ func TestApplication_Uninstall_ClearsCredentialsDespiteFailures(t *testing.T) {
 	lc := lifecycle.New(nil)
 	lc.MarkRunning()
 
+	sessionStorage := mockeddb.NewChargingSessionStorage(t)
+	sessionStorage.On("Reset").Return(nil)
+
 	application := app.New(adapterMock, config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
-		lc, nil, nil, nil, nil, credentials)
+		lc, nil, nil, nil, nil, credentials, sessionStorage)
 
 	assert.ErrorContains(t, application.Uninstall(), "oops")
 	assert.True(t, credentials.Credentials().Empty(), "the tokens must be gone even when a step failed")
@@ -438,6 +467,11 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					},
 				}).Return(errors.New("oops"))
 			},
+			// The seeds survive a partial sync, so the client is started for whatever did get
+			// created - the login still reports the failure.
+			mockSignalRClient: func(c *mocksignalr.Client) {
+				c.On("Start").Maybe()
+			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
@@ -479,7 +513,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			adapterMock.On("Things").Return([]adapter.Thing{}).Maybe()
 
 			cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
-			application := app.New(adapterMock, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}))
+			application := app.New(adapterMock, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}), nil)
 
 			err := application.Login(tt.loginData)
 
@@ -565,7 +599,7 @@ func TestApplication_Logout(t *testing.T) {
 			}
 
 			cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
-			application := app.New(nil, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}))
+			application := app.New(nil, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}), nil)
 			err := application.Logout()
 
 			assert.Equal(t, tt.wantErr, err != nil, "failed error expectation")
@@ -705,6 +739,10 @@ func TestApplication_Initialize(t *testing.T) {
 				tt.mockClient(clientMock)
 			}
 
+			// Initialize re-seeds when credentials exist but no things do, which these cases
+			// do not exercise; a failure there is logged and does not affect the outcome.
+			clientMock.On("Chargers").Return(nil, errors.New("not under test")).Maybe()
+
 			defer func() {
 				adapterMock.AssertExpectations(t)
 				clientMock.AssertExpectations(t)
@@ -714,7 +752,7 @@ func TestApplication_Initialize(t *testing.T) {
 			cfgService := config.NewService(storage)
 
 			credentials := newCredentialsStore(t, tt.credentials)
-			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil, nil, credentials)
+			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil, nil, credentials, nil)
 
 			err := application.Initialize()
 
@@ -1073,7 +1111,7 @@ func (h *selectionHarness) newApp() app.ApplicationWithToken {
 	signalRClient.On("Start").Maybe()
 
 	h.app = app.New(h.adapter, h.cfg, lifecycle.New(nil), nil, h.client, h.auth, signalRClient,
-		newCredentialsStore(h.t, h.credentials))
+		newCredentialsStore(h.t, h.credentials), nil)
 
 	return h.app
 }

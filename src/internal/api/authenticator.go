@@ -128,7 +128,8 @@ func (a *authenticator) Logout() error {
 }
 
 // authLossHandler notifies the user and asks the app to log out. It runs under the
-// authenticator lock, so it must only publish - the credentials are already cleared.
+// authenticator lock, so it does its work on a goroutine and returns at once - the credentials
+// are already cleared, and everything it does from there is best-effort.
 func authLossHandler(
 	notify Notifier,
 	mqtt publisher,
@@ -146,33 +147,37 @@ func authLossHandler(
 		// fresh session and the fallback would mistake it for the one it is cleaning up.
 		before := credentials()
 
-		if err := notify.Event(&notification.Event{EventName: notificationEaseeStatusOffline}); err != nil {
-			log.Errorf("[auth] Send push notification err: %v", err)
-		}
-
-		message := fimpgo.NewNullMessage("cmd.auth.logout", serviceName, nil, nil, nil)
-
-		if err := mqtt.PublishToTopic(logoutAddress, message); err != nil {
-			log.Errorf("[auth] Publish logout message to addr=%s err: %v", logoutAddress, err)
-		}
-
-		if logoutFallback == nil {
-			return
-		}
-
-		// Runs whether or not the publish succeeded: the routed cmd.auth.logout handler takes
-		// a try-lock that discards the loser rather than queueing it, so a concurrent routed
-		// command silently drops the command this path just published. Nothing retries it -
-		// the credentials are already cleared, so AccessToken reports "not logged in" instead
-		// of another auth loss - which would leave the SignalR client connected and the
-		// lifecycle claiming a session until the next restart. Every step of the fallback is
-		// idempotent, so running it alongside the routed handler is safe.
-		//
-		// On its own goroutine: the fallback closes the SignalR client, which can be blocked
-		// on an AccessToken call waiting for the very lock this callback holds. Re-checking the
-		// snapshot guards against a fresh login landing in between: without it, the stale
-		// fallback would log the new session straight back out.
+		// Published off this callback: fimpgo gives paho a 15s write timeout and Publish blocks
+		// on the outbound queue up to that, so two publishes on a saturated or down broker could
+		// hold the authenticator lock for ~30s - stalling every AccessToken caller, including the
+		// SignalR token callback, the refresh task and every chargepoint command.
 		go func() {
+			if err := notify.Event(&notification.Event{EventName: notificationEaseeStatusOffline}); err != nil {
+				log.Errorf("[auth] Send push notification err: %v", err)
+			}
+
+			message := fimpgo.NewNullMessage("cmd.auth.logout", serviceName, nil, nil, nil)
+
+			if err := mqtt.PublishToTopic(logoutAddress, message); err != nil {
+				log.Errorf("[auth] Publish logout message to addr=%s err: %v", logoutAddress, err)
+			}
+
+			if logoutFallback == nil {
+				return
+			}
+
+			// Runs whether or not the publish succeeded: the routed cmd.auth.logout handler takes
+			// a try-lock that discards the loser rather than queueing it, so a concurrent routed
+			// command silently drops the command this path just published. Nothing retries it -
+			// the credentials are already cleared, so AccessToken reports "not logged in" instead
+			// of another auth loss - which would leave the SignalR client connected and the
+			// lifecycle claiming a session until the next restart. Every step of the fallback is
+			// idempotent, so running it alongside the routed handler is safe.
+			//
+			// The fallback also closes the SignalR client, which can be blocked on an
+			// AccessToken call waiting for the very lock this callback holds. Re-checking the
+			// snapshot guards against a fresh login landing in between: without it, the stale
+			// fallback would log the new session straight back out.
 			if credentials() != before {
 				log.Debugf("[auth] Skip local logout: a new session replaced the one that triggered it")
 

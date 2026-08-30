@@ -256,7 +256,10 @@ func TestUnauthorizedDoesNotImmediatelyLogout(t *testing.T) {
 	_, err = authenticator.AccessToken()
 	require.Error(t, err)
 	assert.True(t, credentials.Credentials().Empty(), "credentials must be cleared once the grace elapsed")
-	assert.True(t, notifier.IsEventReceived("easee_status_offline"))
+	// Published on its own goroutine so a blocked broker cannot hold the authenticator lock.
+	assert.Eventually(t, func() bool {
+		return notifier.IsEventReceived("easee_status_offline")
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 // TestExpiredRefreshTokenLogsOut asserts a refresh token past its local expiry logs the app
@@ -278,7 +281,10 @@ func TestExpiredRefreshTokenLogsOut(t *testing.T) {
 	_, err := authenticator.AccessToken()
 	require.Error(t, err)
 	assert.True(t, credentials.Credentials().Empty())
-	assert.True(t, notifier.IsEventReceived("easee_status_offline"))
+	// Published on its own goroutine so a blocked broker cannot hold the authenticator lock.
+	assert.Eventually(t, func() bool {
+		return notifier.IsEventReceived("easee_status_offline")
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 // TestRefreshUsesOneSessionForBothTokens asserts that a login landing between the framework's
