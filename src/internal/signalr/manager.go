@@ -112,9 +112,15 @@ func (m *manager) Register(chargerID string, handler Handler) {
 	}
 
 	m.ensureClientStarted()
+	connected := m.client.Connected()
 	m.mu.Unlock()
 
-	m.enqueueSubscription(chargerID)
+	// The charger is already in m.chargers, so a connect still in flight will pick it up
+	// via the handleClientState sweep once it lands. Enqueuing here too would just add a
+	// guaranteed "client is not running" failure while the handshake is still running.
+	if connected {
+		m.enqueueSubscription(chargerID)
+	}
 }
 
 // enqueueSubscription hands a charger ID to the run loop for (re)subscription.
