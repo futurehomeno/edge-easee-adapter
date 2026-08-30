@@ -51,6 +51,7 @@ type client struct {
 	tokenProvider func() (string, error)
 	receiver      *receiver
 	backoff       backoff.Stateful
+	tel           telemetry.Telemetry
 
 	states       chan model.ClientState
 	observations chan model.Observation
@@ -59,12 +60,13 @@ type client struct {
 }
 
 // NewClient creates a new SignalR client.
-func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
+func NewClient(cfg *config.Service, tokenProvider func() (string, error), tel telemetry.Telemetry) Client {
 	observations := make(chan model.Observation, 100)
 
 	return &client{
 		cfg:           cfg,
 		tokenProvider: tokenProvider,
+		tel:           tel,
 		receiver:      newReceiver(observations),
 		backoff:       cfg.SignalRBackoffStateful(),
 		states:        make(chan model.ClientState, 10),
@@ -168,7 +170,7 @@ func (c *client) invoke(method string, args ...any) error {
 }
 
 func (c *client) handleConnection(ctx context.Context) {
-	defer telemetry.RecoverAndEmit(nil, "handleConnection", true)
+	defer telemetry.RecoverAndEmit(c.tel, "handleConnection", true)
 
 	for {
 		if conn, err := c.getClient(ctx); err != nil {

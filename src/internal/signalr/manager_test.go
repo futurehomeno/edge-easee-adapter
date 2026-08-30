@@ -37,7 +37,7 @@ func TestManager_ResubscribesOnReconnect(t *testing.T) {
 		Run(func(args mock.Arguments) { subscribed <- args.String(0) }).
 		Return(nil)
 
-	manager := signalr.NewManager(config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)), client)
+	manager := signalr.NewManager(config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)), client, nil)
 
 	require.NoError(t, manager.Start())
 	t.Cleanup(func() { require.NoError(t, manager.Stop()) })
