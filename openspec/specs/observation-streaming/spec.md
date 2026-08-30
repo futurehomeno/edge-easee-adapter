@@ -50,9 +50,19 @@ retry loop. A successful connection SHALL reset the backoff.
 
 ### Requirement: Per-Charger Subscription
 Each registered charger SHALL be subscribed on the shared connection before its observations are
-delivered. A subscription request SHALL be enqueued on a buffered channel and handled by the single
-manager run loop. A failed subscribe SHALL arm a backoff-spaced retry rather than failing the
-registration.
+delivered. Registration SHALL enqueue a subscription request on a buffered channel, handled by the
+single manager run loop, only when the client already reports connected; while a connect is still in
+flight the charger SHALL be left to the reconnect sweep, which already holds it, rather than enqueued
+into a subscribe guaranteed to fail because the client is not running yet. A failed subscribe SHALL
+arm a backoff-spaced retry rather than failing the registration.
+
+#### Scenario: registered while the client is still connecting
+- **WHEN** a charger is registered before the client reports connected
+- **THEN** nothing is enqueued and the charger is subscribed by the `ClientStateConnected` sweep
+
+#### Scenario: registered against a live connection
+- **WHEN** a charger is registered while the client already reports connected
+- **THEN** the subscription is enqueued straight away, there being no future connect to sweep it in
 
 #### Scenario: subscribe succeeds
 - **WHEN** the manager handles a queued subscription and the invoke succeeds
@@ -136,9 +146,17 @@ lock cable permanently, charging session start and charging session stop.
 - **THEN** its dedicated handler runs
 
 ### Requirement: Timestamp-Guarded Cache Writes
-Every cached value SHALL carry the timestamp of the observation that produced it. A write whose
-timestamp is older than the value already held SHALL be rejected, and the handler SHALL return
-without publishing a report.
+Every cached value SHALL carry the timestamp of the observation that produced it, except
+controller-requested values, which carry the time the command was issued. A write whose timestamp is
+older than the value already held SHALL be rejected, and the handler SHALL return without publishing
+a report. The session-finished clear of `requestedOfferedCurrent` follows the controller convention
+rather than the observation one: it is written with the current time, not the timestamp of the state
+observation that triggered it.
+
+#### Scenario: session-finished clear carries the current time
+- **WHEN** a session-finished state observation clears the cached requested offered current
+- **THEN** the write carries the current time, so a state observation whose own timestamp is older
+  than the last command still clears the value
 
 #### Scenario: out-of-order observation
 - **WHEN** an observation older than the cached value for the same key is handled
