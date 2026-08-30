@@ -2,8 +2,11 @@ package signalr
 
 import (
 	"errors"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
@@ -15,12 +18,12 @@ import (
 	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 )
 
+const chargerID = "XX12345"
+
 // A reconnect starts a new subscription-failure streak, so its first failure has to warn
 // again instead of being downgraded to debug by the flag the previous connection left set.
 func TestReconnectWarnsOnTheFirstSubscribeFailureAgain(t *testing.T) {
-	const chargerID = "XX12345"
-
-	m, hook := newTestManager(t, chargerID)
+	m, hook := newTestManager(t)
 
 	require.NoError(t, m.handleSubscription(chargerID))
 	require.NoError(t, m.handleSubscription(chargerID))
@@ -36,9 +39,7 @@ func TestReconnectWarnsOnTheFirstSubscribeFailureAgain(t *testing.T) {
 // Nothing cancels the retries armed before a disconnect, so one can still fire during the
 // outage. That failure must not consume the warning the next connection is entitled to.
 func TestStaleRetryDuringOutageDoesNotStealTheReconnectWarning(t *testing.T) {
-	const chargerID = "XX12345"
-
-	m, hook := newTestManager(t, chargerID)
+	m, hook := newTestManager(t)
 
 	require.NoError(t, m.handleSubscription(chargerID))
 
@@ -54,6 +55,85 @@ func TestStaleRetryDuringOutageDoesNotStealTheReconnectWarning(t *testing.T) {
 	assert.Equal(t, 1, subscribeWarnings(hook), "a retry firing during the outage must not silence the reconnect")
 }
 
+// handleSubscription used to hold the manager write lock across SubscribeCharger, which
+// blocks for up to SignalRInvokeTimeout - stalling Connected(), Register() and the observation
+// dispatch loop, which runs on the very goroutine making the invoke.
+func TestHandleSubscription_DoesNotHoldTheLockDuringInvoke(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	queried := make(chan struct{})
+
+	go func() {
+		defer close(queried)
+
+		m.Connected(chargerID)
+	}()
+
+	select {
+	case <-queried:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Connected blocked while a subscribe invoke was in flight")
+	}
+
+	close(client.release)
+	<-subscribed
+}
+
+// Every reconnect enqueues a subscription for every charger, so a charger that keeps failing
+// used to accumulate one more self-perpetuating retry chain - and one more blocking invoke
+// per cycle - on each reconnect.
+func TestHandleSubscription_ArmsAtMostOneRetryPerCharger(t *testing.T) {
+	m, _ := newTestManager(t)
+
+	// An open done channel parks the armed retry on its backoff timer, so the goroutine
+	// count reflects how many chains were armed rather than how many have already exited.
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	before := runtime.NumGoroutine()
+
+	for range 5 {
+		require.NoError(t, m.handleSubscription(chargerID))
+	}
+
+	assert.LessOrEqual(t, runtime.NumGoroutine()-before, 1, "further failures must not arm a second retry chain")
+}
+
+// The flag has to clear on every exit path of addChargerSubscription. A charger left armed
+// can never schedule another retry, which strands it worse than the duplicate chains the
+// flag exists to prevent.
+func TestArmedRetryIsDisarmedSoItCanArmAgain(t *testing.T) {
+	m, _ := newTestManager(t) // done is already closed, so the retry exits at once
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	charger := m.chargers[chargerID]
+
+	assert.Eventually(t, func() bool {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+
+		return !charger.retryArmed
+	}, time.Second, 10*time.Millisecond, "a retry that returns must disarm the charger")
+}
+
 func subscribeWarnings(hook *logtest.Hook) int {
 	warnings := 0
 
@@ -66,14 +146,23 @@ func subscribeWarnings(hook *logtest.Hook) int {
 	return warnings
 }
 
-func newTestManager(t *testing.T, chargerID string) (*manager, *logtest.Hook) {
+func newTestManager(t *testing.T) (*manager, *logtest.Hook) {
+	t.Helper()
+
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	return newTestManagerWithClient(t, &failingSubscribeClient{}), hook
+}
+
+func newTestManagerWithClient(t *testing.T, client Client) *manager {
 	t.Helper()
 
 	storage := mockedstorage.NewStorage[*config.Config](t)
 	storage.On("Model").Return(&config.Config{}).Maybe()
 	storage.On("Save").Return(nil).Maybe()
 
-	m, ok := NewManager(config.NewService(storage), &failingSubscribeClient{}, nil).(*manager)
+	m, ok := NewManager(config.NewService(storage), client, nil).(*manager)
 	require.True(t, ok)
 
 	// The retries handleSubscription arms are not under test; an already closed done
@@ -83,10 +172,7 @@ func newTestManager(t *testing.T, chargerID string) (*manager, *logtest.Hook) {
 
 	m.chargers[chargerID] = &charger{backoff: m.cfg.SignalRBackoffStateful()}
 
-	hook := logtest.NewLocal(log.StandardLogger())
-	t.Cleanup(hook.Reset)
-
-	return m, hook
+	return m
 }
 
 // failingSubscribeClient is a stub rather than a generated mock: the mock package imports
@@ -100,3 +186,20 @@ func (c *failingSubscribeClient) UnsubscribeCharger(string) error        { retur
 func (c *failingSubscribeClient) Connected() bool                        { return false }
 func (c *failingSubscribeClient) StateC() <-chan model.ClientState       { return nil }
 func (c *failingSubscribeClient) ObservationC() <-chan model.Observation { return nil }
+
+// blockingSubscribeClient parks in SubscribeCharger until released, standing in for an
+// invoke running up to SignalRInvokeTimeout.
+type blockingSubscribeClient struct {
+	failingSubscribeClient
+
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+}
+
+func (c *blockingSubscribeClient) SubscribeCharger(string) error {
+	c.enterOnce.Do(func() { close(c.entered) })
+	<-c.release
+
+	return errors.New("not logged in")
+}

@@ -182,6 +182,11 @@ func (c *client) handleConnection(ctx context.Context) {
 			conn.Start()
 
 			c.notifyState(ctx, conn)
+
+			// Each signalr.NewClient derives a cancellable child of ctx and releases it only
+			// in Stop(). Dropping the superseded connection without stopping it leaked one
+			// per reconnect, for the lifetime of the process.
+			conn.Stop()
 		}
 
 		c.setConnection(nil)
