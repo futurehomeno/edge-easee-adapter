@@ -428,6 +428,10 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 
 	supportedModes := model.SettablePhaseModes(supportedGridType, supportedPhases)
 
+	// Props only. The phase-mode interfaces are derived from sup_phase_modes once, in
+	// chargepoint.NewService, so a charger created without a grid type - stored state that is
+	// empty or legacy - gains the property here but not the interfaces until it is rebuilt on
+	// the next adapter restart. Recreating the service would need the controller down here.
 	service = h.ensureChargepointProps(service, map[string]any{
 		chargepoint.PropertyGridType:            supportedGridType,
 		chargepoint.PropertyPhases:              supportedPhases,

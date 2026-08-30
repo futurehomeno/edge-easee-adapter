@@ -148,3 +148,33 @@ func TestThingFactory_Create_RegistersPhaseModeSet(t *testing.T) {
 		Type: fimptype.TypeIn, MsgType: chargepoint.CmdPhaseModeSet, ValueType: fimptype.VTypeString, Version: "1",
 	})
 }
+
+// A 1-phase grid has a single settable mode, but sup_phase_modes must stay advertised: the
+// property also gates evt.phase_mode.report, so dropping it would blind the hub to the leg
+// in use. Suppressing the pointless switch is the setter's job, not the specification's.
+func TestThingFactory_Create_SinglePhaseGridKeepsPhaseModeReport(t *testing.T) {
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("ChargerConfig", "test-charger").Return(&model.ChargerConfig{
+		DetectedPowerGridType: model.GridTypeTN1Phase,
+		PhaseMode:             2,
+	}, nil)
+	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
+
+	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+
+	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
+		info: easee.Info{ChargerID: "test-charger", Product: "Home"},
+	})
+	require.NoError(t, err)
+
+	services := thing.Services(chargepoint.Chargepoint)
+	require.Len(t, services, 1)
+
+	spec := services[0].Specification()
+
+	assert.Equal(t, []string{"NL1"}, spec.PropertyStrings(chargepoint.PropertySupportedPhaseModes))
+	assert.Contains(t, spec.Interfaces, fimptype.Interface{
+		Type: fimptype.TypeOut, MsgType: chargepoint.EvtPhaseModeReport, ValueType: fimptype.VTypeString, Version: "1",
+	})
+}
