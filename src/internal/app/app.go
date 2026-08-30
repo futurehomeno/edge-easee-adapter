@@ -284,9 +284,19 @@ func (a *application) Initialize() error {
 
 	a.adoptSeededSelection()
 
+	a.lifecycle.SetAppHealth(lifecycle.AppHealthRunning, nil)
+	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
+	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
+
 	// A login that authenticated and then failed to configure leaves credentials on disk and
 	// no things. configureChargers has no other caller and Check() is a no-op, so without this
 	// the hub shows a healthy, authenticated app with zero chargers until a manual re-login.
+	//
+	// After the lifecycle is marked, not before: the re-seed calls the cloud, so an expired
+	// refresh token makes it trigger an auth loss, whose logout lands on its own goroutine.
+	// Marking authenticated afterwards would overwrite that logout and leave the app claiming
+	// a session it no longer has - and nothing re-fires it, because cleared credentials report
+	// "not logged in" rather than another auth loss.
 	if len(a.ad.Things()) == 0 {
 		if err := a.configureChargers(a.cfgService.SelectedDevices()); err != nil {
 			log.Warnf("[app] Re-seed chargers on initialize err: %v", err)
@@ -297,10 +307,6 @@ func (a *application) Initialize() error {
 			a.lastMissing = ""
 		}
 	}
-
-	a.lifecycle.SetAppHealth(lifecycle.AppHealthRunning, nil)
-	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
-	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
 
 	a.RefreshToken()
 

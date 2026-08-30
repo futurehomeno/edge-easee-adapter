@@ -1044,6 +1044,45 @@ func TestApplication_Initialize_AdoptSeededSelection(t *testing.T) {
 	}
 }
 
+// The re-seed calls the cloud, so an expired refresh token makes it trigger an auth loss whose
+// logout lands on its own goroutine. The lifecycle therefore has to be marked before the
+// re-seed rather than after it: marking afterwards would overwrite that logout and leave the
+// app claiming a session it no longer has, with nothing to re-fire it - cleared credentials
+// report "not logged in" instead of another auth loss.
+func TestApplication_Initialize_MarksLifecycleBeforeReSeeding(t *testing.T) {
+	t.Parallel()
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("InitializeThings").Return(nil)
+	adapterMock.On("Things").Return([]adapter.Thing{})
+
+	lc := lifecycle.New(nil)
+
+	var authWhileReSeeding lifecycle.State
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Ping").Return(nil).Maybe()
+	clientMock.On("Chargers").
+		Run(func(mock.Arguments) { authWhileReSeeding = lc.AuthState() }).
+		Return(nil, errors.New("not logged in"))
+
+	signalRClient := mocksignalr.NewClient(t)
+	signalRClient.On("Start").Maybe()
+
+	application := app.New(
+		adapterMock,
+		config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
+		lc, nil, clientMock, mockapi.NewAuthenticator(t), signalRClient,
+		newCredentialsStore(t, config.Credentials{AccessToken: "token", RefreshToken: "refresh"}),
+		nil,
+	)
+
+	require.NoError(t, application.Initialize())
+
+	assert.Equal(t, lifecycle.AuthStateAuthenticated, authWhileReSeeding,
+		"the lifecycle must be marked before the re-seed, so an auth loss it triggers is not overwritten")
+}
+
 type selectionHarness struct {
 	t           *testing.T
 	app         app.ApplicationWithToken
