@@ -76,6 +76,29 @@ rewritten too.
 - **WHEN** the SignalR `finalBackoff` is `2m`
 - **THEN** it becomes `10m`
 
+### Requirement: Credential Migration From Config
+A configuration at version 5 SHALL have its credentials moved out of `config.json` into the secrets
+store and cleared from the configuration. A configuration carrying no credentials SHALL be left
+alone. When the secrets store already holds credentials the config copy SHALL be dropped without
+overwriting them, because an earlier run may have written the secrets and then failed to save the
+version bump, and Easee retires a refresh token as soon as it is exchanged. A missing expiry SHALL
+be backfilled from the token's `exp` claim; a claim that cannot be parsed SHALL leave the expiry
+zero rather than fail the migration, because zero is the value the framework already treats as
+"refresh now". A failed write SHALL be returned so the version does not advance and the next startup
+retries with the tokens still in place.
+
+#### Scenario: tokens still in the config
+- **WHEN** the configuration carries credentials and the secrets store is empty
+- **THEN** they are written to the secrets store and cleared from the configuration
+
+#### Scenario: secrets already migrated
+- **WHEN** the secrets store already holds credentials
+- **THEN** the config copy is dropped and the stored credentials are kept
+
+#### Scenario: token without a readable expiry claim
+- **WHEN** a migrated token carries no parsable `exp` claim
+- **THEN** its expiry is left zero and the migration succeeds
+
 ### Requirement: Configuration Routes
 The adapter SHALL expose get and set routes on the Easee service for `polling_interval`,
 `current_wait_duration`, `easee_base_url`, `slow_charging_current_in_amperes`, `http_timeout`,
