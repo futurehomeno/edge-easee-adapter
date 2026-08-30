@@ -216,10 +216,18 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		return err
 	}
 
+	// A grid offering a single mode has nothing to switch between, yet sup_phase_modes still
+	// has to advertise it - the property gates evt.phase_mode.report too. Flipping the internal
+	// mode here would bounce a charging session for a change nothing can observe.
+	if len(model.SettablePhaseModes(gridType, phases)) < 2 {
+		return nil
+	}
+
 	// Nothing is pending when the charger already sits in the target mode, so the request
 	// is not recorded: a fresh timestamp here would outrank a live outputPhase observation
 	// and report a leg the charger is not actually on.
-	if current, _ := c.cache.PhaseMode(); target == current {
+	current, internalAt := c.cache.PhaseMode()
+	if target == current {
 		return nil
 	}
 
@@ -227,7 +235,15 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		return err
 	}
 
-	c.cache.SetRequestedPhaseMode(mode, time.Now())
+	// Stamped in the observation clock rather than the hub's: the request is only ever compared
+	// against SignalR timestamps, so a skewed hub clock would otherwise let a live observation
+	// outrank a fresh request, or keep a stale request winning after the charger moved on.
+	_, requestedAt := c.cache.OutputPhaseType()
+	if internalAt.After(requestedAt) {
+		requestedAt = internalAt
+	}
+
+	c.cache.SetRequestedPhaseMode(mode, requestedAt.Add(time.Millisecond))
 
 	return c.restartForPhaseMode(target)
 }
