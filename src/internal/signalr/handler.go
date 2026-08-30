@@ -2,7 +2,6 @@ package signalr
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"sync"
 	"sync/atomic"
@@ -13,6 +12,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 	"github.com/thoas/go-funk"
 
@@ -22,12 +22,9 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
-// Handler interface handles signalr observations.
+// Handler handles signalr observations for one charger.
 type Handler interface {
-	// IsOnline return if the charger is online.
 	IsOnline() bool
-
-	// HandleObservation handles signalr observation callback.
 	HandleObservation(observation model.Observation) error
 }
 
@@ -44,7 +41,6 @@ type observationsHandler struct {
 	isStateOnline atomic.Bool
 }
 
-// NewObservationsHandler creates new observation handler.
 func NewObservationsHandler(
 	thing adapter.Thing,
 	cache cache.Cache,
@@ -74,9 +70,9 @@ func NewObservationsHandler(
 		model.TotalPower:            handler.handleTotalPower,
 		model.LifetimeEnergy:        handler.energyHandler.handle,
 		model.EnergySession:         handler.handleEnergySession,
-		model.InCurrentT3:           handler.handleInCurrentT3,
-		model.InCurrentT4:           handler.handleInCurrentT4,
-		model.InCurrentT5:           handler.handleInCurrentT5,
+		model.InCurrentT3:           handler.handlePhaseCurrent(cache.SetPhase1Current, "i1", numericmeter.ValueCurrentPhase1),
+		model.InCurrentT4:           handler.handlePhaseCurrent(cache.SetPhase2Current, "i2", numericmeter.ValueCurrentPhase2),
+		model.InCurrentT5:           handler.handlePhaseCurrent(cache.SetPhase3Current, "i3", numericmeter.ValueCurrentPhase3),
 		model.CloudConnected:        handler.handleCloudConnected,
 		model.CableLocked:           handler.handleCableLocked,
 		model.CableRating:           handler.handleCableRating,
@@ -95,7 +91,10 @@ func (h *observationsHandler) IsOnline() bool {
 
 func (h *observationsHandler) HandleObservation(observation model.Observation) error {
 	if prev, ok := h.storedObs[observation.ID]; !ok || prev.Value != observation.Value {
-		log.Tracef("%s", observation.Str())
+		if log.IsLevelEnabled(log.TraceLevel) {
+			log.Trace(observation.Str())
+		}
+
 		h.storedObs[observation.ID] = observation
 	}
 
@@ -103,7 +102,7 @@ func (h *observationsHandler) HandleObservation(observation model.Observation) e
 		return handler(observation)
 	}
 
-	return fmt.Errorf("not supported")
+	return errors.New("not supported")
 }
 
 func (h *observationsHandler) handlePhaseMode(observation model.Observation) error {
@@ -166,15 +165,13 @@ func (h *observationsHandler) handleCloudConnected(observation model.Observation
 		return err
 	}
 
-	if h.isCloudOnline.Load() && !val {
+	if was := h.isCloudOnline.Swap(val); was && !val {
 		log.Warnf("[%s] Disconnected from cloud", h.chargerID)
-	} else if !h.isCloudOnline.Load() && val {
+	} else if !was && val {
 		log.Infof("[%s] Connected to cloud", h.chargerID)
 	}
 
-	h.isCloudOnline.Store(val)
-
-	return err
+	return nil
 }
 
 func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Observation) error {
@@ -337,73 +334,30 @@ func (h *observationsHandler) handleEnergySession(observation model.Observation)
 	return err
 }
 
-func (h *observationsHandler) handleInCurrentT3(observation model.Observation) error {
-	val, err := observation.Float64Value()
-	if err != nil {
+func (h *observationsHandler) handlePhaseCurrent(
+	set func(float64, time.Time) bool, label string, value numericmeter.Value,
+) func(model.Observation) error {
+	return func(observation model.Observation) error {
+		val, err := observation.Float64Value()
+		if err != nil {
+			return err
+		}
+
+		if !set(val, observation.Timestamp) {
+			return nil
+		}
+
+		log.Debugf("[%s] %s=%.1f", h.chargerID, label, val)
+
+		meterElecSrv, err := getMeterElecService(h.thing)
+		if err != nil {
+			return err
+		}
+
+		_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{value}, false)
+
 		return err
 	}
-
-	ok := h.cache.SetPhase1Current(val, observation.Timestamp)
-	if !ok {
-		return nil
-	}
-
-	log.Debugf("[%s] i1=%.1f", h.chargerID, val)
-
-	meterElecSrv, err := getMeterElecService(h.thing)
-	if err != nil {
-		return err
-	}
-
-	_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase1}, false)
-
-	return err
-}
-
-func (h *observationsHandler) handleInCurrentT4(observation model.Observation) error {
-	val, err := observation.Float64Value()
-	if err != nil {
-		return err
-	}
-
-	ok := h.cache.SetPhase2Current(val, observation.Timestamp)
-	if !ok {
-		return nil
-	}
-
-	log.Debugf("[%s] i2=%.1f", h.chargerID, val)
-
-	meterElecSrv, err := getMeterElecService(h.thing)
-	if err != nil {
-		return err
-	}
-
-	_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase2}, false)
-
-	return err
-}
-
-func (h *observationsHandler) handleInCurrentT5(observation model.Observation) error {
-	val, err := observation.Float64Value()
-	if err != nil {
-		return err
-	}
-
-	ok := h.cache.SetPhase3Current(val, observation.Timestamp)
-	if !ok {
-		return nil
-	}
-
-	log.Debugf("[%s] i3=%.1f", h.chargerID, val)
-
-	meterElecSrv, err := getMeterElecService(h.thing)
-	if err != nil {
-		return err
-	}
-
-	_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValueCurrentPhase3}, false)
-
-	return err
 }
 
 func (h *observationsHandler) handleOutPhase(observation model.Observation) error {
@@ -619,7 +573,7 @@ func (h *energyHandler) handle(observation model.Observation) error {
 	return nil
 }
 
-func (h *energyHandler) manageEnergyObservation(ch chan model.Observation) { //nolint:funlen
+func (h *energyHandler) manageEnergyObservation(ch chan model.Observation) {
 	defer func() {
 		h.lock.Lock()
 		defer h.lock.Unlock()
@@ -728,42 +682,32 @@ func (h *observationsHandler) sendAlarmReports(events map[string]bool, timestamp
 	return nil
 }
 
-func getAlarmService(thing adapter.Thing) (alarm.Service, error) {
-	for _, service := range thing.Services(alarm.AlarmSystem) {
-		if service, ok := service.(alarm.Service); ok {
+// getService finds the thing's service of type S. The label spells the error out because the
+// FIMP service name and the name used in the message differ (meter_elec vs meterelec).
+func getService[S adapter.Service](thing adapter.Thing, name fimptype.ServiceNameT, label string) (S, error) {
+	for _, service := range thing.Services(name) {
+		if service, ok := service.(S); ok {
 			return service, nil
 		}
 	}
 
-	return nil, errors.New("there are no alarm services")
+	var zero S
+
+	return zero, errors.New("there are no " + label + " services")
+}
+
+func getAlarmService(thing adapter.Thing) (alarm.Service, error) {
+	return getService[alarm.Service](thing, alarm.AlarmSystem, "alarm")
 }
 
 func getParametersService(thing adapter.Thing) (parameters.Service, error) {
-	for _, service := range thing.Services(parameters.Parameters) {
-		if service, ok := service.(parameters.Service); ok {
-			return service, nil
-		}
-	}
-
-	return nil, errors.New("there are no parameters services")
+	return getService[parameters.Service](thing, parameters.Parameters, "parameters")
 }
 
 func getChargepointService(thing adapter.Thing) (chargepoint.Service, error) {
-	for _, service := range thing.Services(chargepoint.Chargepoint) {
-		if service, ok := service.(chargepoint.Service); ok {
-			return service, nil
-		}
-	}
-
-	return nil, errors.New("there are no chargepoint services")
+	return getService[chargepoint.Service](thing, chargepoint.Chargepoint, "chargepoint")
 }
 
 func getMeterElecService(thing adapter.Thing) (numericmeter.Service, error) {
-	for _, service := range thing.Services(numericmeter.MeterElec) {
-		if service, ok := service.(numericmeter.Service); ok {
-			return service, nil
-		}
-	}
-
-	return nil, errors.New("there are no meterelec services")
+	return getService[numericmeter.Service](thing, numericmeter.MeterElec, "meterelec")
 }

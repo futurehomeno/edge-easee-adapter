@@ -23,20 +23,13 @@ const (
 
 // Client is the interface for the SignalR client.
 type Client interface {
-	// Start starts the SignalR client.
 	Start()
-	// Close stops the SignalR client.
 	Close() error
 
-	// SubscribeCharger subscribes to receive observations for a particular charger (based on it's ID).
 	SubscribeCharger(id string) error
-	// UnsubscribeCharger unsubscribes from receiving charger observations.
 	UnsubscribeCharger(id string) error
-	// Connected returns true if the SignalR client is connected.
 	Connected() bool
-	// StateC returns a channel that will receive state updates.
 	StateC() <-chan model.ClientState
-	// ObservationC returns a channel that will receive charger observations.
 	ObservationC() <-chan model.Observation
 }
 
@@ -58,7 +51,6 @@ type client struct {
 	connState model.ClientState
 }
 
-// NewClient creates a new SignalR client.
 func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
 	observations := make(chan model.Observation, 100)
 
@@ -163,7 +155,7 @@ func (c *client) invoke(method string, args ...any) error {
 	case result := <-results:
 		return result.Error
 	case <-timer.C:
-		return fmt.Errorf("timeout")
+		return errors.New("timeout")
 	}
 }
 
@@ -284,11 +276,8 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 func (c *client) getConnection(ctx context.Context) (signalr.Connection, error) {
 	token, err := c.tokenProvider()
 	if err != nil {
-		// Currently we have a bug, when authorization gets broken the signalR library may start
-		// calling this method in a forever loop (with -1 timeout) trying to create a connection,
-		// when error returned - it is being logged.
-		// Implementing a proper start up -> shutdown should be done, but require a bit more thought.
-		// This is a hacky solution to avoid spam of logs.
+		// The signalR library retries connection creation in a tight forever loop (-1 timeout)
+		// once authorization breaks, logging every failure. Sleeping here throttles that spam.
 		sleepCtx(ctx, time.Minute)
 
 		return nil, fmt.Errorf("unable to get access token (signalR): %w", err)

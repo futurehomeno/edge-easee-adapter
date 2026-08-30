@@ -39,7 +39,7 @@ type ApplicationWithToken interface {
 	RefreshToken()
 }
 
-// Application is an interface representing a service responsible for preparing an application manifest and configuring app.
+// Application is the app-lifecycle surface the framework routes to.
 type Application interface {
 	cliffApp.App
 	cliffApp.LogginableApp
@@ -47,7 +47,6 @@ type Application interface {
 	cliffApp.InitializableApp
 }
 
-// New creates new instance of an Application.
 func New(
 	ad adapter.Adapter,
 	cfgService *config.Service,
@@ -541,10 +540,6 @@ func effectiveSelection(chargers []model.Charger, selected selection.Selection) 
 // validateSelectedDevices rejects selections referencing IDs absent from the freshly fetched
 // chargers list, so Configure fails fast before mutating state.
 func validateSelectedDevices(chargers []model.Charger, selected []string) error {
-	if len(selected) == 0 {
-		return nil
-	}
-
 	if unknown := missingSelected(chargers, selected); len(unknown) > 0 {
 		return fmt.Errorf("configure: unknown device IDs: %v", unknown)
 	}
