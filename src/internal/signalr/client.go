@@ -37,6 +37,7 @@ type client struct {
 	mu      sync.Mutex
 	wg      sync.WaitGroup
 	running bool
+	closing bool
 	cancel  context.CancelFunc
 
 	connection    signalr.Client
@@ -97,7 +98,11 @@ func (c *client) Start() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.running {
+	// handleConnection takes c.mu on its way out, so Close() cannot hold the lock across
+	// wg.Wait(). Starting in that window either panics ("Add called concurrently with Wait")
+	// or hands Wait a goroutine holding a fresh, uncancelled context. Register re-arms the
+	// client once the close completes.
+	if c.running || c.closing {
 		return
 	}
 
@@ -118,7 +123,7 @@ func (c *client) Start() {
 func (c *client) Close() error {
 	c.mu.Lock()
 
-	if !c.running {
+	if !c.running || c.closing {
 		c.mu.Unlock()
 
 		return nil
@@ -131,9 +136,14 @@ func (c *client) Close() error {
 
 	c.backoff.Reset()
 	c.running = false
+	c.closing = true
 	c.mu.Unlock()
 
 	c.wg.Wait()
+
+	c.mu.Lock()
+	c.closing = false
+	c.mu.Unlock()
 
 	return nil
 }

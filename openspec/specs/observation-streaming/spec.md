@@ -10,11 +10,16 @@ source of live charger telemetry; the HTTP API is used for commands and static c
 ### Requirement: Single Shared Connection
 One SignalR client SHALL serve every charger on the hub. The manager SHALL start the client when the
 first charger registers and SHALL close it when the last charger unregisters. Starting an
-already-running client SHALL be a no-op.
+already-running client SHALL be a no-op, and a start that races a close SHALL be dropped rather than
+joining the wait group that close is already draining.
 
 #### Scenario: first charger registers
 - **WHEN** a charger is registered and the client is not connected
 - **THEN** the client is started once, guarded so concurrent registrations do not start it twice
+
+#### Scenario: start races a close
+- **WHEN** the client is started while a close is still draining its connection goroutine
+- **THEN** the start is dropped and no new connection goroutine is spawned
 
 #### Scenario: last charger unregisters
 - **WHEN** the final registered charger is unregistered
