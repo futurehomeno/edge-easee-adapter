@@ -150,6 +150,13 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	}
 
 	if modes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(modes) > 0 {
+		// The auto row ends with the multi-phase mode, which is what the setter maps a
+		// three-phase request onto. Reporting modes[0] here would answer a request the user
+		// just made with a single leg whenever the cache is empty - after an adapter restart.
+		if state.PhaseMode == model.EaseePhaseModeAuto {
+			return modes[len(modes)-1], nil
+		}
+
 		return modes[0], nil
 	}
 
