@@ -281,16 +281,17 @@ func (m *manager) addChargerSubscription(chargerID string, charger *charger) {
 	done := m.done
 	m.mu.Unlock()
 
-	// Disarmed on every exit path: a charger left armed can never schedule another retry,
-	// which strands it worse than the duplicate chains the flag exists to prevent.
-	defer m.disarmRetry(charger)
 	defer timer.Stop()
 
+	// Disarmed on every exit path - a charger left armed can never schedule another retry,
+	// which strands it worse than the duplicate chains the flag exists to prevent - but never
+	// via defer: enqueueSubscription returns as soon as the run loop takes the ID, and that
+	// same loop may already have armed the next chain by then. A deferred disarm would clear
+	// that fresh flag, so the failure after it would arm a duplicate.
 	select {
 	case <-done:
+		m.disarmRetry(charger)
 	case <-timer.C:
-		// Disarmed before the hand-off, not after: enqueueSubscription blocks until the run
-		// loop takes the ID, and that same loop may need to arm the next retry as it does.
 		m.disarmRetry(charger)
 		m.enqueueSubscription(chargerID)
 	}

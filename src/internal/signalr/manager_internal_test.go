@@ -2,12 +2,12 @@ package signalr
 
 import (
 	"errors"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/backoff"
 	log "github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -66,6 +66,11 @@ func TestHandleSubscription_DoesNotHoldTheLockDuringInvoke(t *testing.T) {
 
 	m := newTestManagerWithClient(t, client)
 
+	// Registered up front so a t.Fatal below still unblocks the subscribe goroutine; OnceFunc
+	// keeps the explicit release on the happy path from double-closing.
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
 	subscribed := make(chan struct{})
 
 	go func() {
@@ -90,7 +95,7 @@ func TestHandleSubscription_DoesNotHoldTheLockDuringInvoke(t *testing.T) {
 		t.Fatal("Connected blocked while a subscribe invoke was in flight")
 	}
 
-	close(client.release)
+	release()
 	<-subscribed
 }
 
@@ -100,20 +105,22 @@ func TestHandleSubscription_DoesNotHoldTheLockDuringInvoke(t *testing.T) {
 func TestHandleSubscription_ArmsAtMostOneRetryPerCharger(t *testing.T) {
 	m, _ := newTestManager(t)
 
-	// An open done channel parks the armed retry on its backoff timer, so the goroutine
-	// count reflects how many chains were armed rather than how many have already exited.
+	// An open done channel parks the armed retry on its backoff timer, so it stays armed for
+	// the whole test rather than disarming itself before the next failure is handled.
 	m.done = make(chan struct{})
 	t.Cleanup(func() { close(m.done) })
 
-	require.NoError(t, m.handleSubscription(chargerID))
-
-	before := runtime.NumGoroutine()
+	// addChargerSubscription calls Next exactly once, at the top, so the count is the number
+	// of chains armed - unlike runtime.NumGoroutine, which unrelated runtime churn can move.
+	arms := &countingBackoff{Stateful: m.cfg.SignalRBackoffStateful()}
+	m.chargers[chargerID].backoff = arms
 
 	for range 5 {
 		require.NoError(t, m.handleSubscription(chargerID))
 	}
 
-	assert.LessOrEqual(t, runtime.NumGoroutine()-before, 1, "further failures must not arm a second retry chain")
+	assert.Eventually(t, func() bool { return arms.count() >= 1 }, time.Second, 10*time.Millisecond)
+	assert.Equal(t, 1, arms.count(), "further failures must not arm a second retry chain")
 }
 
 // The flag has to clear on every exit path of addChargerSubscription. A charger left armed
@@ -132,6 +139,57 @@ func TestArmedRetryIsDisarmedSoItCanArmAgain(t *testing.T) {
 
 		return !charger.retryArmed
 	}, time.Second, 10*time.Millisecond, "a retry that returns must disarm the charger")
+}
+
+// addChargerSubscription hands its charger to the run loop and only then returns. The disarm
+// therefore has to happen before the hand-off, never on the way out: the run loop can arm the
+// next chain while this one is still returning, and a deferred disarm would clear that fresh
+// flag - letting the failure after it arm a second, duplicate chain.
+func TestArmedRetryDoesNotDisarmTheChainThatReplacedIt(t *testing.T) {
+	m, _ := newTestManager(t)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	charger := m.chargers[chargerID]
+	charger.backoff = instantBackoff{}
+	charger.retryArmed = true
+
+	// Filled to capacity so the hand-off blocks, which pins the retry between its disarm and
+	// its return for as long as the test needs to stand in for the run loop.
+	for len(m.subscriptions) < cap(m.subscriptions) {
+		m.subscriptions <- "filler"
+	}
+
+	finished := make(chan struct{})
+
+	go func() {
+		defer close(finished)
+
+		m.addChargerSubscription(chargerID, charger)
+	}()
+
+	// A cleared flag means the retry is past its disarm, and the full channel means it cannot
+	// be past the hand-off - so it is parked on the send, exactly where the run loop would be
+	// arming the next chain.
+	require.Eventually(t, func() bool {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+
+		return !charger.retryArmed
+	}, time.Second, time.Millisecond, "the retry must disarm before handing off")
+
+	m.mu.Lock()
+	charger.retryArmed = true
+	m.mu.Unlock()
+
+	<-m.subscriptions
+	<-finished
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assert.True(t, charger.retryArmed, "the chain armed during the hand-off must stay armed")
 }
 
 func subscribeWarnings(hook *logtest.Hook) int {
@@ -173,6 +231,39 @@ func newTestManagerWithClient(t *testing.T, client Client) *manager {
 	m.chargers[chargerID] = &charger{backoff: m.cfg.SignalRBackoffStateful()}
 
 	return m
+}
+
+// instantBackoff fires the retry timer immediately, so a test does not wait out the real
+// five-second first delay.
+type instantBackoff struct {
+	backoff.Stateful
+}
+
+func (instantBackoff) Next() time.Duration { return time.Nanosecond }
+
+// countingBackoff records how many times a retry chain was armed: addChargerSubscription
+// takes its delay from Next exactly once per chain.
+type countingBackoff struct {
+	backoff.Stateful
+
+	mu   sync.Mutex
+	arms int
+}
+
+func (b *countingBackoff) Next() time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.arms++
+
+	return b.Stateful.Next()
+}
+
+func (b *countingBackoff) count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.arms
 }
 
 // failingSubscribeClient is a stub rather than a generated mock: the mock package imports
