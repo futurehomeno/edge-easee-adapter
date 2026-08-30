@@ -71,7 +71,12 @@ func getConfigService() *config.Service {
 			log.Fatalf("[config] Load config. err: %v", err)
 		}
 
-		migrateConfig(services.configService, getCredentialsStore())
+		// A half-applied migration must not boot: the 5->6 step moves the tokens into the
+		// secrets store, and continuing past a failed write brings the adapter up logged out
+		// while the tokens are still in config.json. Exiting retries it on the next start.
+		if err := migrateConfig(services.configService, getCredentialsStore()); err != nil {
+			log.Fatalf("[config] Migrate config. err: %v", err)
+		}
 	}
 
 	return services.configService
@@ -89,7 +94,7 @@ func getCredentialsStore() *config.CredentialsStore {
 	return services.credentialsStore
 }
 
-func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore) {
+func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore) error {
 	cfg := cfgSvc.Model()
 
 	resetLogDefaults := func() error {
@@ -99,7 +104,7 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		return nil
 	}
 
-	err := cfgSvc.Migrate(
+	return cfgSvc.Migrate(
 		cliffCfg.Migration{From: 0, To: 2, Do: resetLogDefaults},
 		cliffCfg.Migration{From: 1, To: 2, Do: resetLogDefaults},
 		cliffCfg.Migration{From: 2, To: 3, Do: cfg.MigrateAuthBackoff},
@@ -107,9 +112,6 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		cliffCfg.Migration{From: 4, To: 5, Do: cfg.MigrateSignalRFinalBackoff},
 		cliffCfg.Migration{From: 5, To: 6, Do: func() error { return config.MigrateCredentials(cfg, credentials) }},
 	)
-	if err != nil {
-		log.Errorf("[config] Migrate config. err: %v", err)
-	}
 }
 
 func getDefaultStore() *cliffCfg.DefaultStore {
