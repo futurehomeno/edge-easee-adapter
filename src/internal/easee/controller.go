@@ -24,36 +24,14 @@ import (
 
 const maxCurrentValue = 32
 
-var extendedReportMapping = map[numericmeter.Value]specFunc{
-	numericmeter.ValueCurrentPhase1: func(report numericmeter.ValuesReport, c cache.Cache) {
-		current, _ := c.Phase1Current()
-		report[numericmeter.ValueCurrentPhase1] = current
-	},
-	numericmeter.ValueCurrentPhase2: func(report numericmeter.ValuesReport, c cache.Cache) {
-		current, _ := c.Phase2Current()
-		report[numericmeter.ValueCurrentPhase2] = current
-	},
-	numericmeter.ValueCurrentPhase3: func(report numericmeter.ValuesReport, c cache.Cache) {
-		current, _ := c.Phase3Current()
-		report[numericmeter.ValueCurrentPhase3] = current
-	},
-	numericmeter.ValuePowerImport: func(report numericmeter.ValuesReport, c cache.Cache) {
-		power, _ := c.TotalPower()
-		report[numericmeter.ValuePowerImport] = power
-	},
-	numericmeter.ValueEnergyImport: func(report numericmeter.ValuesReport, c cache.Cache) {
-		energy, timestamp := c.LifetimeEnergy()
-		if timestamp.IsZero() {
-			return
-		}
-
-		report[numericmeter.ValueEnergyImport] = energy
-	},
+var extendedReportMapping = map[numericmeter.Value]func(cache.Cache) (float64, time.Time){
+	numericmeter.ValueCurrentPhase1: cache.Cache.Phase1Current,
+	numericmeter.ValueCurrentPhase2: cache.Cache.Phase2Current,
+	numericmeter.ValueCurrentPhase3: cache.Cache.Phase3Current,
+	numericmeter.ValuePowerImport:   cache.Cache.TotalPower,
+	numericmeter.ValueEnergyImport:  cache.Cache.LifetimeEnergy,
 }
 
-type specFunc func(report numericmeter.ValuesReport, c cache.Cache)
-
-// Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
 	chargepoint.AdjustablePhaseModeController
@@ -67,7 +45,6 @@ type Controller interface {
 	UpdateState(chargerID string, state *State) error
 }
 
-// NewController returns a new instance of Controller.
 func NewController(
 	manager signalr.Manager,
 	client api.Client,
@@ -130,27 +107,20 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 	}
 
 	locked, _ := c.cache.CableLocked()
-	cable := 0
+	report := chargepoint.CableReport{CableLock: locked}
 
 	if !locked {
-		return &chargepoint.CableReport{
-			CableLock:    false,
-			CableCurrent: &cable,
-		}, nil
+		zero := 0
+		report.CableCurrent = &zero
+
+		return &report, nil
 	}
 
-	cable, cableTime := c.cache.CableCurrent()
-
-	if !cableTime.IsZero() && cable >= 0 {
-		return &chargepoint.CableReport{
-			CableLock:    locked,
-			CableCurrent: &cable,
-		}, nil
+	if cable, cableTime := c.cache.CableCurrent(); !cableTime.IsZero() && cable >= 0 {
+		report.CableCurrent = &cable
 	}
 
-	return &chargepoint.CableReport{
-		CableLock: locked,
-	}, nil
+	return &report, nil
 }
 
 func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
@@ -369,7 +339,6 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		ret.StartedAt = latest.Start
 		ret.FinishedAt = latest.Stop
 
-		// if session is not finished
 		if latest.Stop.IsZero() {
 			offeredCurrent, _ := c.cache.OfferedCurrent()
 			maxCurrent, _ := c.cache.MaxCurrent()
@@ -408,7 +377,6 @@ func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
 		return "", err
 	}
 
-	// If a charger reports power usage, assume a charging state.
 	if power, _ := c.cache.TotalPower(); power > 0 {
 		return chargepoint.StateCharging, nil
 	}
@@ -432,7 +400,7 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 		energy, timestamp := c.cache.LifetimeEnergy()
 
 		if timestamp.IsZero() {
-			return 0, fmt.Errorf("energy value not updated")
+			return 0, errors.New("energy value not updated")
 		}
 
 		return energy, nil
@@ -449,9 +417,20 @@ func (c *controller) MeterExtendedReport(values numericmeter.Values) (numericmet
 	ret := make(numericmeter.ValuesReport, len(values))
 
 	for _, value := range values {
-		if f, ok := extendedReportMapping[value]; ok {
-			f(ret, c.cache)
+		read, ok := extendedReportMapping[value]
+		if !ok {
+			continue
 		}
+
+		v, timestamp := read(c.cache)
+
+		// Lifetime energy is the one value with no meaningful zero: never having observed it
+		// must leave it out of the report rather than report 0 kWh.
+		if value == numericmeter.ValueEnergyImport && timestamp.IsZero() {
+			continue
+		}
+
+		ret[value] = v
 	}
 
 	return ret, nil

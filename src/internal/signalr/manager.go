@@ -15,7 +15,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
-// DisconnectionReason is a reason for the disconnection of a charger.
 type DisconnectionReason string
 
 const (
@@ -24,17 +23,13 @@ const (
 	ChargerOffline       DisconnectionReason = "charger is offline"
 )
 
-// Manager is the interface for the Easee signalR manager.
-// It manages the signalR connection and the chargers that are connected to it.
+// Manager owns the single signalR connection and the chargers subscribed on it.
 type Manager interface {
 	root.Service
 
-	// Connected check if SignalR client is connected.
-	// If the connection is not active, it returns false and a reason for the disconnection.
+	// Connected reports whether the charger is reachable, and why not when it is not.
 	Connected(chargerID string) (bool, DisconnectionReason)
-	// Register registers a charger to be managed.
 	Register(chargerID string, handler Handler)
-	// Unregister unregisters a charger from being managed.
 	Unregister(chargerID string) error
 }
 
@@ -320,7 +315,7 @@ func (m *manager) handleObservation(observation model.Observation) error {
 	m.mu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("no handler")
+		return errors.New("no handler")
 	}
 
 	if err := chargerHandler.handler.HandleObservation(observation); err != nil {
