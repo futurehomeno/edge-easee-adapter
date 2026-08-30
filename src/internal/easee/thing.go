@@ -1,7 +1,6 @@
 package easee
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -84,17 +83,16 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 
 	usingStoredState := false
 
+	// Any refresh failure falls back to the stored state rather than aborting: the adapter
+	// creates things in a loop that stops at the first error, so one charger behind a 5xx
+	// used to take every remaining charger down with it.
 	if err := controller.UpdateState(info.ChargerID, state); err != nil {
-		if !errors.Is(err, api.ErrNotLoggedIn) {
-			return nil, err
-		}
-
-		log.Warnf("factory: [%s] not logged in, creating thing with stored state", info.ChargerID)
+		log.Warnf("factory: [%s] state refresh failed, creating thing with stored state: %v", info.ChargerID, err)
 
 		usingStoredState = true
 	}
 
-	// Not logged in means state was not refreshed from the cloud - persisting it here would
+	// A failed refresh means state was not read from the cloud - persisting it here would
 	// overwrite the stored state with zeros if it had failed to load above.
 	if !usingStoredState {
 		if err := thingState.SetState(state); err != nil {
@@ -156,6 +154,11 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
 	options := []adapter.SpecificationOption{
 		chargepoint.WithChargingModes(model.SupportedChargingModes()...),
+		// sup_max_current must be *present* even at 0: cliffhanger derives the max-current
+		// interfaces from the property once, in NewService, and PropertyInteger reports a
+		// present 0 as set. Omitting it on a charger created without state drops
+		// cmd.max_current.set for the lifetime of the process.
+		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
 	}
 
 	if phases := state.Phases; phases > 0 {
@@ -164,10 +167,6 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 
 	if gridType := state.GridType; gridType != "" {
 		options = append(options, chargepoint.WithGridType(gridType))
-	}
-
-	if maxCurrent := state.SupportedMaxCurrent; maxCurrent > 0 {
-		options = append(options, chargepoint.WithSupportedMaxCurrent(maxCurrent))
 	}
 
 	if phaseModes := model.SettablePhaseModes(state.GridType, state.Phases); len(phaseModes) > 0 {
