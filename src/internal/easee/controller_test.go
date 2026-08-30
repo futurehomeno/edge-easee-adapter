@@ -559,6 +559,39 @@ func TestController_SetChargepointPhaseMode_NoOpDoesNotMaskOutputPhase(t *testin
 	cacheMock.AssertNotCalled(t, "SetRequestedPhaseMode", mock.Anything, mock.Anything)
 }
 
+// Bouncing a session to apply a phase mode must put back the current that was running.
+// Resuming through a normal-mode start floored it to initial_charging_current, silently
+// pushing a 6A slow session to 16A - and nothing records the mode, so it cannot be restored.
+func TestController_SetChargepointPhaseMode_ResumesAtTheSessionCurrent(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(2, time.Time{})
+	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(6, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 6, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 6, mock.AnythingOfType("time.Duration")).Return(true)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(6)).Return(nil).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), &config.Config{
+		PublicConfig: config.PublicConfig{InitialChargingCurrent: 16},
+	})
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+}
+
 // Pausing then failing to resume leaves the car not charging, so the caller has to hear
 // about it even though the phase mode itself was stored successfully.
 func TestController_SetChargepointPhaseMode_ReportsFailedResume(t *testing.T) {
@@ -605,6 +638,8 @@ func TestController_SetChargepointPhaseMode_TolerateFailedPause(t *testing.T) {
 	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
 	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
 	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
+	// Read before the pause is attempted, so it is consulted even when the pause fails.
+	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
 
 	clientMock := mockapi.NewClient(t)
 	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
