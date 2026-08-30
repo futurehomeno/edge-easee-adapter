@@ -16,7 +16,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
-// New returns a set of background tasks of an application.
 func New(
 	cfgSrv *config.Service,
 	appLifecycle *lifecycle.Lifecycle,

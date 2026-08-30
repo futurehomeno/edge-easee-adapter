@@ -27,7 +27,6 @@ type publisher interface {
 	PublishToTopic(topic string, msg *fimpgo.FimpMessage) error
 }
 
-// Notifier is a service responsible for sending push notifications.
 type Notifier interface {
 	Event(event *notification.Event) error
 }
@@ -40,7 +39,6 @@ type CredentialsStore interface {
 	ClearCredentials() error
 }
 
-// Authenticator is the interface for the Easee authenticator.
 type Authenticator interface {
 	// Login logs in to the Easee API and persists credentials in the credentials store.
 	Login(userName, password string) error
@@ -48,7 +46,6 @@ type Authenticator interface {
 	// It will automatically refresh the token if it's expired.
 	// Returns an error if the application is not logged in.
 	AccessToken() (string, error)
-	// Logout used to remove the stored credentials.
 	Logout() error
 }
 
@@ -59,7 +56,6 @@ type authenticator struct {
 	backoff       backoff.Stateful
 }
 
-// NewAuthenticator creates a new instance of the Authenticator.
 func NewAuthenticator(
 	http HTTPClient,
 	creds CredentialsStore,
