@@ -107,7 +107,7 @@ be materialised by the auto-selection cap instead.
 #### Scenario: account holds none of the owned chargers
 - **WHEN** none of the owned chargers appear in the account listing
 - **THEN** adoption is skipped and the still-unconfigured selection falls through to the
-  auto-selection cap, which picks and persists the chargers the new account lists
+  auto-selection cap, which picks and persists the first 10 chargers the new account lists
 
 ### Requirement: Missing Selected Charger Retry Budget
 When selected chargers are absent from the `/api/chargers` response, seeding SHALL be refused and an

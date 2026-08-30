@@ -84,8 +84,9 @@ overwriting them, because an earlier run may have written the secrets and then f
 version bump, and Easee retires a refresh token as soon as it is exchanged. A missing expiry SHALL
 be backfilled from the token's `exp` claim; a claim that cannot be parsed SHALL leave the expiry
 zero rather than fail the migration, because zero is the value the framework already treats as
-"refresh now". A failed write SHALL be returned so the version does not advance and the next startup
-retries with the tokens still in place.
+"refresh now" for the access token and as "no local expiry check" for the refresh one, so the
+session recovers on the first exchange instead of needing a login. A failed write SHALL be returned
+so the version does not advance and the next startup retries with the tokens still in place.
 
 #### Scenario: tokens still in the config
 - **WHEN** the configuration carries credentials and the secrets store is empty
