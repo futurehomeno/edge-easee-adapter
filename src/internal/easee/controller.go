@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -137,7 +138,7 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		return requested, nil
 	}
 
-	if outputPhase != "" {
+	if outputPhase != "" && !c.outputPhaseStale(outputPhase, outputPhaseSet) {
 		return outputPhase, nil
 	}
 
@@ -178,6 +179,28 @@ func (c *controller) requestStillHolds(requested types.PhaseMode, requestedAt ti
 	target, err := model.ToEaseePhaseMode(gridType, phases, requested)
 
 	return err == nil && target == internal
+}
+
+// outputPhaseStale reports whether the cached leg predates an internal phase mode that no longer
+// covers it. Nothing ever clears outputPhase, so without this an internal mode changed elsewhere -
+// in the Easee app - republishes the leg of the previous session. A charging charger keeps its
+// leg: Easee applies a new mode only at a session boundary, so the leg in use is still the old one.
+func (c *controller) outputPhaseStale(outputPhase types.PhaseMode, outputPhaseSet time.Time) bool {
+	internal, internalAt := c.cache.PhaseMode()
+	if !internalAt.After(outputPhaseSet) {
+		return false
+	}
+
+	gridType, _ := c.cache.GridType()
+	phases, _ := c.cache.Phases()
+
+	if slices.Contains(model.SupportedPhaseModes(gridType, internal, phases), outputPhase) {
+		return false
+	}
+
+	state, _ := c.ChargepointStateReport()
+
+	return state != chargepoint.StateCharging
 }
 
 func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
