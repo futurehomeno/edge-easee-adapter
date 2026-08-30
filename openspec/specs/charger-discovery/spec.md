@@ -105,7 +105,7 @@ be materialised by the auto-selection cap instead.
 - **THEN** only the listed one is adopted into the selection
 
 #### Scenario: account holds none of the owned chargers
-- **WHEN** none of the owned chargers appear in the account listing
+- **WHEN** the account lists chargers but none of the owned ones
 - **THEN** adoption is skipped and the still-unconfigured selection falls through to the
   auto-selection cap, which picks and persists the first 10 chargers the new account lists
 
