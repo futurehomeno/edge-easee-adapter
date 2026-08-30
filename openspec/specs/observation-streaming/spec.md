@@ -170,7 +170,8 @@ Observation values SHALL be parsed according to the data type the payload declar
 accessors SHALL reject a payload whose declared data type is not integer, and float accessors SHALL
 reject one whose type is not double. A rejected parse SHALL surface as a handler error, except for
 lifetime-energy observations: those are enqueued unparsed and parsed asynchronously in a background
-goroutine, where a type error is logged and the observation skipped without reaching the handler.
+goroutine, where a type error causes the observation to be skipped silently without reaching the
+handler.
 
 #### Scenario: mismatched data type
 - **WHEN** an observation declares a data type the handler's accessor does not accept
