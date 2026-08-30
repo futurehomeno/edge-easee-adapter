@@ -112,6 +112,12 @@ func TestThingFactory_Create_KeepsMaxCurrentCommandsWithoutState(t *testing.T) {
 	require.Len(t, services, 1)
 
 	assert.Contains(t, messageTypes(services[0].Specification().Interfaces), chargepoint.CmdMaxCurrentSet)
+
+	// Present is not enough: cliffhanger's validateCurrent rejects anything above the property,
+	// so a present 0 would advertise commands that fail for every legal current.
+	maxCurrent, ok := services[0].Specification().PropertyInteger(chargepoint.PropertySupportedMaxCurrent)
+	require.True(t, ok)
+	assert.Equal(t, 32, maxCurrent)
 }
 
 // The adapter stops creating things at the first factory error, so a single charger behind a

@@ -152,13 +152,20 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 }
 
 func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
+	// sup_max_current must be *present* to keep the max-current interfaces: cliffhanger derives
+	// them from the property once, in NewService, so omitting it on a charger created without
+	// state drops cmd.max_current.set for the lifetime of the process. A present 0 is worse
+	// than absent, though - validateCurrent rejects everything above it, so every legal current
+	// fails "must not exceed 0A". Fall back to the same ceiling setOfferedCurrent applies when
+	// the cached maximum is unknown; the real site limit clamps it once site data arrives.
+	supportedMaxCurrent := state.SupportedMaxCurrent
+	if supportedMaxCurrent <= 0 {
+		supportedMaxCurrent = maxCurrentValue
+	}
+
 	options := []adapter.SpecificationOption{
 		chargepoint.WithChargingModes(model.SupportedChargingModes()...),
-		// sup_max_current must be *present* even at 0: cliffhanger derives the max-current
-		// interfaces from the property once, in NewService, and PropertyInteger reports a
-		// present 0 as set. Omitting it on a charger created without state drops
-		// cmd.max_current.set for the lifetime of the process.
-		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
+		chargepoint.WithSupportedMaxCurrent(supportedMaxCurrent),
 	}
 
 	if phases := state.Phases; phases > 0 {
