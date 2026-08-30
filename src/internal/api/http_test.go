@@ -285,6 +285,101 @@ func TestClient_UpdateMaxCurrent(t *testing.T) {
 	}
 }
 
+func TestClient_SetPhaseMode(t *testing.T) {
+	tests := []struct {
+		name             string
+		chargerID        string
+		accessToken      string
+		serverHandler    http.Handler
+		forceServerError bool
+		phaseMode        int
+		wantErr          bool
+	}{
+		{
+			name:        "successful call to Easee API",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/set_phase_mode",
+				requestBody:   `{"phaseMode":1}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusOK,
+			}),
+			phaseMode: 1,
+		},
+		{
+			name:        "accepted is a valid response too",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/set_phase_mode",
+				requestBody:   `{"phaseMode":2}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusAccepted,
+			}),
+			phaseMode: 2,
+		},
+		{
+			name:        "unexpected response code",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/set_phase_mode",
+				requestBody:   `{"phaseMode":1}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			phaseMode: 1,
+			wantErr:   true,
+		},
+		{
+			name:             "http client error",
+			chargerID:        test.ChargerID,
+			accessToken:      test.AccessToken,
+			forceServerError: true,
+			phaseMode:        1,
+			wantErr:          true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			storage := mockedstorage.Storage[*config.Config]{}
+			cfgSrv := config.NewService(&storage)
+
+			c := api.NewHTTPClient(cfgSrv, &http.Client{Timeout: 3 * time.Second}, s.URL)
+
+			err := c.SetPhaseMode(tt.accessToken, tt.chargerID, tt.phaseMode)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
 //nolint:dupl
 func TestClient_UpdateDynamicCurrent(t *testing.T) {
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))

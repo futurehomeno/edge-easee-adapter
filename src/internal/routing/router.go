@@ -52,7 +52,6 @@ func routeLogIncoming() *router.Routing {
 	)
 }
 
-// New returns a new routing table.
 func New(
 	cfgSrv *config.Service,
 	appLifecycle *lifecycle.Lifecycle,

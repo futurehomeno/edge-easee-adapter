@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,39 +25,17 @@ import (
 
 const maxCurrentValue = 32
 
-var extendedReportMapping = map[numericmeter.Value]specFunc{
-	numericmeter.ValueCurrentPhase1: func(report numericmeter.ValuesReport, c cache.Cache) {
-		current, _ := c.Phase1Current()
-		report[numericmeter.ValueCurrentPhase1] = current
-	},
-	numericmeter.ValueCurrentPhase2: func(report numericmeter.ValuesReport, c cache.Cache) {
-		current, _ := c.Phase2Current()
-		report[numericmeter.ValueCurrentPhase2] = current
-	},
-	numericmeter.ValueCurrentPhase3: func(report numericmeter.ValuesReport, c cache.Cache) {
-		current, _ := c.Phase3Current()
-		report[numericmeter.ValueCurrentPhase3] = current
-	},
-	numericmeter.ValuePowerImport: func(report numericmeter.ValuesReport, c cache.Cache) {
-		power, _ := c.TotalPower()
-		report[numericmeter.ValuePowerImport] = power
-	},
-	numericmeter.ValueEnergyImport: func(report numericmeter.ValuesReport, c cache.Cache) {
-		energy, timestamp := c.LifetimeEnergy()
-		if timestamp.IsZero() {
-			return
-		}
-
-		report[numericmeter.ValueEnergyImport] = energy
-	},
+var extendedReportMapping = map[numericmeter.Value]func(cache.Cache) (float64, time.Time){
+	numericmeter.ValueCurrentPhase1: cache.Cache.Phase1Current,
+	numericmeter.ValueCurrentPhase2: cache.Cache.Phase2Current,
+	numericmeter.ValueCurrentPhase3: cache.Cache.Phase3Current,
+	numericmeter.ValuePowerImport:   cache.Cache.TotalPower,
+	numericmeter.ValueEnergyImport:  cache.Cache.LifetimeEnergy,
 }
 
-type specFunc func(report numericmeter.ValuesReport, c cache.Cache)
-
-// Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
-	chargepoint.PhaseModeAwareController
+	chargepoint.AdjustablePhaseModeController
 	chargepoint.AdjustableMaxCurrentController
 	chargepoint.AdjustableOfferedCurrentController
 	chargepoint.CableLockAwareController
@@ -67,7 +46,6 @@ type Controller interface {
 	UpdateState(chargerID string, state *State) error
 }
 
-// NewController returns a new instance of Controller.
 func NewController(
 	manager signalr.Manager,
 	client api.Client,
@@ -130,27 +108,20 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 	}
 
 	locked, _ := c.cache.CableLocked()
-	cable := 0
+	report := chargepoint.CableReport{CableLock: locked}
 
 	if !locked {
-		return &chargepoint.CableReport{
-			CableLock:    false,
-			CableCurrent: &cable,
-		}, nil
+		zero := 0
+		report.CableCurrent = &zero
+
+		return &report, nil
 	}
 
-	cable, cableTime := c.cache.CableCurrent()
-
-	if !cableTime.IsZero() && cable >= 0 {
-		return &chargepoint.CableReport{
-			CableLock:    locked,
-			CableCurrent: &cable,
-		}, nil
+	if cable, cableTime := c.cache.CableCurrent(); !cableTime.IsZero() && cable >= 0 {
+		report.CableCurrent = &cable
 	}
 
-	return &chargepoint.CableReport{
-		CableLock: locked,
-	}, nil
+	return &report, nil
 }
 
 func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
@@ -158,8 +129,16 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		return "", err
 	}
 
-	outputPhase, _ := c.cache.OutputPhaseType()
-	if outputPhase != "" {
+	outputPhase, outputPhaseSet := c.cache.OutputPhaseType()
+
+	// A mode we requested ourselves outranks the output phase until the charger reports a
+	// newer one: outputPhase goes unassigned between sessions and handleOutPhase drops that
+	// observation, so the cached value survives as a stale echo of the previous session.
+	if requested, requestedAt := c.cache.RequestedPhaseMode(); requested != "" && requestedAt.After(outputPhaseSet) && c.requestStillHolds(requested, requestedAt) {
+		return requested, nil
+	}
+
+	if outputPhase != "" && !c.outputPhaseStale(outputPhase, outputPhaseSet) {
 		return outputPhase, nil
 	}
 
@@ -171,6 +150,13 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	}
 
 	if modes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(modes) > 0 {
+		// The auto row ends with the multi-phase mode, which is what the setter maps a
+		// three-phase request onto. Reporting modes[0] here would answer a request the user
+		// just made with a single leg whenever the cache is empty - after an adapter restart.
+		if state.PhaseMode == model.EaseePhaseModeAuto {
+			return modes[len(modes)-1], nil
+		}
+
 		return modes[0], nil
 	}
 
@@ -183,6 +169,119 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		Error(errMsg)
 
 	return "", errors.New(errMsg)
+}
+
+// requestStillHolds reports whether the charger is still set to the mode we asked for. A
+// newer internal phase mode that maps to something else means it was changed elsewhere, so
+// the request stops outranking the charger's own state - nothing else ever clears it.
+func (c *controller) requestStillHolds(requested types.PhaseMode, requestedAt time.Time) bool {
+	internal, internalAt := c.cache.PhaseMode()
+	if !internalAt.After(requestedAt) {
+		return true
+	}
+
+	gridType, _ := c.cache.GridType()
+	phases, _ := c.cache.Phases()
+
+	target, err := model.ToEaseePhaseMode(gridType, phases, requested)
+
+	return err == nil && target == internal
+}
+
+// outputPhaseStale reports whether the cached leg predates an internal phase mode that no longer
+// covers it. Nothing ever clears outputPhase, so without this an internal mode changed elsewhere -
+// in the Easee app - republishes the leg of the previous session. A charging charger keeps its
+// leg: Easee applies a new mode only at a session boundary, so the leg in use is still the old one.
+func (c *controller) outputPhaseStale(outputPhase types.PhaseMode, outputPhaseSet time.Time) bool {
+	internal, internalAt := c.cache.PhaseMode()
+	if !internalAt.After(outputPhaseSet) {
+		return false
+	}
+
+	gridType, _ := c.cache.GridType()
+	phases, _ := c.cache.Phases()
+
+	if slices.Contains(model.SupportedPhaseModes(gridType, internal, phases), outputPhase) {
+		return false
+	}
+
+	state, _ := c.ChargepointStateReport()
+
+	return state != chargepoint.StateCharging
+}
+
+func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
+	if err := c.checkConnection(); err != nil {
+		return err
+	}
+
+	gridType, _ := c.cache.GridType()
+	phases, _ := c.cache.Phases()
+
+	target, err := model.ToEaseePhaseMode(gridType, phases, mode)
+	if err != nil {
+		return err
+	}
+
+	// A grid offering a single mode has nothing to switch between, yet sup_phase_modes still
+	// has to advertise it - the property gates evt.phase_mode.report too. Flipping the internal
+	// mode here would bounce a charging session for a change nothing can observe.
+	if len(model.SettablePhaseModes(gridType, phases)) < 2 {
+		return nil
+	}
+
+	// Nothing is pending when the charger already sits in the target mode, so the request
+	// is not recorded: a fresh timestamp here would outrank a live outputPhase observation
+	// and report a leg the charger is not actually on.
+	current, internalAt := c.cache.PhaseMode()
+	if target == current {
+		return nil
+	}
+
+	if err := c.client.SetPhaseMode(c.chargerID, target); err != nil {
+		return err
+	}
+
+	// Stamped in the observation clock rather than the hub's: the request is only ever compared
+	// against SignalR timestamps, so a skewed hub clock would otherwise let a live observation
+	// outrank a fresh request, or keep a stale request winning after the charger moved on.
+	_, requestedAt := c.cache.OutputPhaseType()
+	if internalAt.After(requestedAt) {
+		requestedAt = internalAt
+	}
+
+	c.cache.SetRequestedPhaseMode(mode, requestedAt.Add(time.Millisecond))
+
+	return c.restartForPhaseMode(target)
+}
+
+// restartForPhaseMode bounces an in-progress session, because the charger applies a new
+// phase mode only at a session boundary. Failing to pause is not fatal - the mode is stored
+// and takes effect on the next session anyway - but a failed resume leaves the charger
+// stopped, so that one is reported back rather than only logged.
+func (c *controller) restartForPhaseMode(target int) error {
+	state, err := c.ChargepointStateReport()
+	if err != nil {
+		log.Warnf("[%s] Phase mode set, but the charger state is unknown: %v", c.chargerID, err)
+
+		return nil
+	}
+
+	if state != chargepoint.StateCharging {
+		return nil
+	}
+
+	if err := c.StopChargepointCharging(); err != nil {
+		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
+
+		return nil
+	}
+
+	if err := c.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal}); err != nil {
+		return fmt.Errorf("phase mode set to %d, but the charger was left stopped: %w", target, err)
+	}
+
+	return nil
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int) error {
@@ -303,7 +402,6 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 		ret.StartedAt = latest.Start
 		ret.FinishedAt = latest.Stop
 
-		// if session is not finished
 		if latest.Stop.IsZero() {
 			offeredCurrent, _ := c.cache.OfferedCurrent()
 			maxCurrent, _ := c.cache.MaxCurrent()
@@ -342,7 +440,6 @@ func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
 		return "", err
 	}
 
-	// If a charger reports power usage, assume a charging state.
 	if power, _ := c.cache.TotalPower(); power > 0 {
 		return chargepoint.StateCharging, nil
 	}
@@ -366,7 +463,7 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 		energy, timestamp := c.cache.LifetimeEnergy()
 
 		if timestamp.IsZero() {
-			return 0, fmt.Errorf("energy value not updated")
+			return 0, errors.New("energy value not updated")
 		}
 
 		return energy, nil
@@ -383,9 +480,20 @@ func (c *controller) MeterExtendedReport(values numericmeter.Values) (numericmet
 	ret := make(numericmeter.ValuesReport, len(values))
 
 	for _, value := range values {
-		if f, ok := extendedReportMapping[value]; ok {
-			f(ret, c.cache)
+		read, ok := extendedReportMapping[value]
+		if !ok {
+			continue
 		}
+
+		v, timestamp := read(c.cache)
+
+		// Lifetime energy is the one value with no meaningful zero: never having observed it
+		// must leave it out of the report rather than report 0 kWh.
+		if value == numericmeter.ValueEnergyImport && timestamp.IsZero() {
+			continue
+		}
+
+		ret[value] = v
 	}
 
 	return ret, nil

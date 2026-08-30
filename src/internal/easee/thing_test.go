@@ -6,6 +6,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
+	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/stretchr/testify/assert"
@@ -114,4 +115,66 @@ func TestThingFactory_Create_RegistersAlarmSystemService(t *testing.T) {
 		{Type: fimptype.TypeOut, MsgType: alarm.EvtAlarmReport, ValueType: fimptype.VTypeStrMap, Version: "1"},
 		{Type: fimptype.TypeOut, MsgType: router.EvtErrorReport, ValueType: fimptype.VTypeString, Version: "1"},
 	}, spec.Interfaces)
+}
+
+func TestThingFactory_Create_RegistersPhaseModeSet(t *testing.T) {
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("ChargerConfig", "test-charger").Return(&model.ChargerConfig{
+		DetectedPowerGridType: model.GridTypeTN3Phase,
+		PhaseMode:             3,
+	}, nil)
+	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
+
+	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+
+	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
+		info: easee.Info{ChargerID: "test-charger", Product: "Home"},
+	})
+	require.NoError(t, err)
+
+	services := thing.Services(chargepoint.Chargepoint)
+	require.Len(t, services, 1)
+
+	spec := services[0].Specification()
+
+	// The charger sits in Easee's locked-3-phase mode, yet every mode stays advertised -
+	// otherwise switching back to a single phase would be impossible.
+	assert.Equal(t,
+		[]string{"NL1", "NL2", "NL3", "NL1L2L3"},
+		spec.PropertyStrings(chargepoint.PropertySupportedPhaseModes),
+	)
+	assert.Contains(t, spec.Interfaces, fimptype.Interface{
+		Type: fimptype.TypeIn, MsgType: chargepoint.CmdPhaseModeSet, ValueType: fimptype.VTypeString, Version: "1",
+	})
+}
+
+// A 1-phase grid has a single settable mode, but sup_phase_modes must stay advertised: the
+// property also gates evt.phase_mode.report, so dropping it would blind the hub to the leg
+// in use. Suppressing the pointless switch is the setter's job, not the specification's.
+func TestThingFactory_Create_SinglePhaseGridKeepsPhaseModeReport(t *testing.T) {
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("ChargerConfig", "test-charger").Return(&model.ChargerConfig{
+		DetectedPowerGridType: model.GridTypeTN1Phase,
+		PhaseMode:             2,
+	}, nil)
+	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
+
+	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+
+	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
+		info: easee.Info{ChargerID: "test-charger", Product: "Home"},
+	})
+	require.NoError(t, err)
+
+	services := thing.Services(chargepoint.Chargepoint)
+	require.Len(t, services, 1)
+
+	spec := services[0].Specification()
+
+	assert.Equal(t, []string{"NL1"}, spec.PropertyStrings(chargepoint.PropertySupportedPhaseModes))
+	assert.Contains(t, spec.Interfaces, fimptype.Interface{
+		Type: fimptype.TypeOut, MsgType: chargepoint.EvtPhaseModeReport, ValueType: fimptype.VTypeString, Version: "1",
+	})
 }

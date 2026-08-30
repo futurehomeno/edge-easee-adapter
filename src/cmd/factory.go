@@ -31,7 +31,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/tasks"
 )
 
-// services is a container for services that are common dependencies.
 var services = &serviceContainer{}
 
 // serviceContainer is a type representing a dependency injection container to be used during bootstrap of the application.
@@ -136,7 +135,7 @@ func getLifecycle() *lifecycle.Lifecycle {
 func getEventListener(cfg *config.Config) event.Listener {
 	if services.eventListener == nil {
 		services.eventListener = event.NewListener(
-			getEventManager(cfg),
+			getEventManager(),
 			parameters.NewInclusionReportSentEventHandler(getAdapter(cfg)),
 		)
 	}
@@ -212,7 +211,7 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 	if services.adapter == nil {
 		services.adapter = adapter.NewAdapter(
 			getMQTT(cfg),
-			getEventManager(cfg),
+			getEventManager(),
 			getThingFactory(cfg),
 			getAdapterState(),
 			fimptype.EaseeRn,
@@ -223,7 +222,7 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 	return services.adapter
 }
 
-func getEventManager(_ *config.Config) event.Manager {
+func getEventManager() event.Manager {
 	if services.eventManager == nil {
 		services.eventManager = event.NewManager()
 	}

@@ -1,9 +1,41 @@
 package model
 
 import (
+	"fmt"
+	"slices"
+
 	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 )
+
+// easeePhaseModeSingle and EaseePhaseModeAuto are Easee's internal phase modes:
+// 1 locks the charger to one phase, 2 lets it choose, 3 locks it to three phases.
+// Three-phase requests map to auto rather than 3, because most EVs refuse a
+// 1->3 phase transition mid-session and would stall on a hard lock.
+const (
+	easeePhaseModeSingle = 1
+	// EaseePhaseModeAuto lets the charger pick, so it is not pinned to any single leg.
+	EaseePhaseModeAuto = 2
+)
+
+// SettablePhaseModes returns every phase mode the charger can be switched to, regardless
+// of the mode it currently sits in. The auto row of the matrix is the union of the others.
+func SettablePhaseModes(gridType types.GridType, phases int) []types.PhaseMode {
+	return SupportedPhaseModes(gridType, EaseePhaseModeAuto, phases)
+}
+
+// ToEaseePhaseMode maps a FIMP phase mode onto Easee's internal phase mode.
+func ToEaseePhaseMode(gridType types.GridType, phases int, mode types.PhaseMode) (int, error) {
+	if slices.Contains(SupportedPhaseModes(gridType, easeePhaseModeSingle, phases), mode) {
+		return easeePhaseModeSingle, nil
+	}
+
+	if slices.Contains(SettablePhaseModes(gridType, phases), mode) {
+		return EaseePhaseModeAuto, nil
+	}
+
+	return 0, fmt.Errorf("phase modes mapper: mode %s unsupported on a %s grid with %d phases", mode, gridType, phases)
+}
 
 func SupportedPhaseModes(gridType types.GridType, phaseMode, phases int) []types.PhaseMode {
 	if gridType == "" || phaseMode == 0 || phases == 0 {
