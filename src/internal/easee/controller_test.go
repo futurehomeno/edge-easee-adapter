@@ -417,6 +417,7 @@ func TestController_ChargepointPhaseModeReport_PrefersRequestedMode(t *testing.T
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, time.Now().Add(-time.Hour))
 	cacheMock.On("RequestedPhaseMode").Return(types.PhaseModeNL1L2L3, time.Now())
+	cacheMock.On("PhaseMode").Return(2, time.Time{})
 
 	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
 
@@ -441,6 +442,45 @@ func TestController_ChargepointPhaseModeReport_OutputPhaseWinsWhenNewer(t *testi
 	mode, err := ctrl.ChargepointPhaseModeReport()
 	assert.NoError(t, err)
 	assert.Equal(t, types.PhaseModeNL3, mode)
+}
+
+// Nothing ever clears a requested mode, so an internal phase mode changed elsewhere - in the
+// Easee app - has to void it, or the adapter keeps publishing a leg the charger left behind.
+// The charger also echoes back the mode we just set, always newer than the request, and that
+// confirmation must not be mistaken for such a change.
+func TestController_ChargepointPhaseModeReport_RequestedModeVsInternalMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		internal int
+		want     types.PhaseMode
+	}{
+		{name: "external change voids the request", internal: 2, want: types.PhaseModeNL3},
+		{name: "our own echo keeps it", internal: 1, want: types.PhaseModeNL1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			managerMock := mockedsignalr.NewManager(t)
+			managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, time.Now().Add(-time.Hour))
+			cacheMock.On("RequestedPhaseMode").Return(types.PhaseModeNL1, time.Now().Add(-30*time.Minute))
+			cacheMock.On("PhaseMode").Return(tt.internal, time.Now())
+			cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+			cacheMock.On("Phases").Return(3, time.Time{})
+
+			ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+			mode, err := ctrl.ChargepointPhaseModeReport()
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, mode)
+		})
+	}
 }
 
 // A no-op request must not stamp the cache: doing so would outrank a live outputPhase

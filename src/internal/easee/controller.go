@@ -163,7 +163,7 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	// A mode we requested ourselves outranks the output phase until the charger reports a
 	// newer one: outputPhase goes unassigned between sessions and handleOutPhase drops that
 	// observation, so the cached value survives as a stale echo of the previous session.
-	if requested, requestedAt := c.cache.RequestedPhaseMode(); requested != "" && requestedAt.After(outputPhaseSet) {
+	if requested, requestedAt := c.cache.RequestedPhaseMode(); requested != "" && requestedAt.After(outputPhaseSet) && c.requestStillHolds(requested, requestedAt) {
 		return requested, nil
 	}
 
@@ -191,6 +191,23 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		Error(errMsg)
 
 	return "", errors.New(errMsg)
+}
+
+// requestStillHolds reports whether the charger is still set to the mode we asked for. A
+// newer internal phase mode that maps to something else means it was changed elsewhere, so
+// the request stops outranking the charger's own state - nothing else ever clears it.
+func (c *controller) requestStillHolds(requested types.PhaseMode, requestedAt time.Time) bool {
+	internal, internalAt := c.cache.PhaseMode()
+	if !internalAt.After(requestedAt) {
+		return true
+	}
+
+	gridType, _ := c.cache.GridType()
+	phases, _ := c.cache.Phases()
+
+	target, err := model.ToEaseePhaseMode(gridType, phases, requested)
+
+	return err == nil && target == internal
 }
 
 func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
