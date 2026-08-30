@@ -1164,6 +1164,25 @@ func TestApplication_Login_AccountSwitchIgnoresStaleThings(t *testing.T) {
 	assert.Equal(t, selection.Selection{"B1", "B2"}, h.cfg.SelectedDevices())
 }
 
+// The fallthrough after a skipped adoption is the auto-selection cap, not "everything the new
+// account lists" - an installer account switch must not flood the hub with every charger.
+func TestApplication_Login_AccountSwitchFallsThroughToTheCap(t *testing.T) {
+	t.Parallel()
+
+	chargers := make([]model.Charger, 0, 12)
+	for i := range 12 {
+		chargers = append(chargers, model.Charger{ID: strconv.Itoa(i)})
+	}
+
+	h := newSelectionHarness(t, chargers, nil, []string{"A1", "A2"}, nil)
+
+	require.NoError(t, h.login())
+
+	first10 := []string{"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
+	assert.Equal(t, first10, h.seeded(), "the cap, not the whole account listing, materialises the selection")
+	assert.Equal(t, selection.Selection(first10), h.cfg.SelectedDevices())
+}
+
 // A fetch that succeeds but lists nothing leaves the selection empty, which is the same
 // shape as "never configured" - without a guard the sync would read it as "seed no
 // devices" and destroy every thing on the hub on a single bad response.
