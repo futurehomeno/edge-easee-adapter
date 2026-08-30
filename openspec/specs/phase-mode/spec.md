@@ -179,8 +179,7 @@ applies a new mode only at a session boundary and the leg in use is still the ol
 - **THEN** the cached output phase is still reported
 
 #### Scenario: nothing cached
-- **WHEN** neither a requested mode nor an output phase is cached and the charger is locked to a
-  single phase
+- **WHEN** neither a requested mode nor an output phase is cached and the charger is not in auto
 - **THEN** the charger state is refetched and the first supported mode is reported
 
 #### Scenario: nothing cached on an auto charger
