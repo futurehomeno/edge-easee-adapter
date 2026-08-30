@@ -131,9 +131,9 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 		return err
 	}
 
-	_, err = chargepointSrv.SendPhaseModeReport(false)
+	h.sendPhaseModeReport(chargepointSrv)
 
-	return err
+	return nil
 }
 
 func (h *observationsHandler) handleMaxChargerCurrent(observation model.Observation) error {
@@ -226,7 +226,9 @@ func (h *observationsHandler) handleCableLocked(observation model.Observation) e
 }
 
 func (h *observationsHandler) handleCableRating(observation model.Observation) error {
-	val, err := observation.IntValue()
+	// Easee sends observation 104 as integer or double depending on the charger, so the
+	// strict integer accessor silently dropped half of them.
+	val, err := observation.NumericIntValue()
 	if err != nil {
 		return err
 	}
@@ -385,9 +387,9 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
-	_, err = chargepointSrv.SendPhaseModeReport(false)
+	h.sendPhaseModeReport(chargepointSrv)
 
-	return err
+	return nil
 }
 
 func (h *observationsHandler) handleDetectedPowerGridType(observation model.Observation) error {
@@ -600,7 +602,7 @@ func (h *energyHandler) manageEnergyObservation(ch chan model.Observation) {
 		case val := <-ch:
 			v, err := val.Float64Value()
 			if err != nil {
-				log.WithError(err)
+				log.Warnf("[%s] Lifetime energy observation parse err: %v", val.ChargerID, err)
 
 				continue
 			}
@@ -706,6 +708,19 @@ func getAlarmService(thing adapter.Thing) (alarm.Service, error) {
 
 func getParametersService(thing adapter.Thing) (parameters.Service, error) {
 	return getService[parameters.Service](thing, parameters.Parameters, "parameters")
+}
+
+// sendPhaseModeReport publishes off the dispatch goroutine. SendPhaseModeReport takes the
+// chargepoint service lock, and cmd.phase_mode.set holds that lock while it waits up to
+// CurrentWaitDuration for an observation - one this very loop is the only drainer of. Sending
+// inline deadlocks the two against each other until the wait times out, stalling every
+// charger's observations meanwhile. The report is unforced, so cliffhanger deduplicates it.
+func (h *observationsHandler) sendPhaseModeReport(srv chargepoint.Service) {
+	go func() {
+		if _, err := srv.SendPhaseModeReport(false); err != nil {
+			log.Warnf("[%s] Send phase mode report err: %v", h.chargerID, err)
+		}
+	}()
 }
 
 func getChargepointService(thing adapter.Thing) (chargepoint.Service, error) {

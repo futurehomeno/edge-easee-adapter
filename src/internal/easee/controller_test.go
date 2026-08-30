@@ -9,6 +9,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/db"
@@ -590,6 +591,39 @@ func TestController_SetChargepointPhaseMode_ResumesAtTheSessionCurrent(t *testin
 	})
 
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+}
+
+// Easee accepting the resume is not the charger acting on it. Without the observation echoing
+// the current back, the session may well still be paused, so reporting success would hide it.
+func TestController_SetChargepointPhaseMode_ReportsUnconfirmedResume(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(2, time.Time{})
+	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
+	// The charger never echoed the current back.
+	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(false)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	err := ctrl.SetChargepointPhaseMode(types.PhaseModeNL1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not resume")
 }
 
 // Pausing then failing to resume leaves the car not charging, so the caller has to hear

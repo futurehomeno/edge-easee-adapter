@@ -83,7 +83,17 @@ func (c *controller) SetParameter(p *parameters.Parameter) error {
 		return err
 	}
 
-	return c.client.SetCableAlwaysLocked(c.chargerID, val)
+	if err := c.client.SetCableAlwaysLocked(c.chargerID, val); err != nil {
+		return err
+	}
+
+	// Seeded optimistically: cliffhanger answers cmd.param.set with a forced report, which the
+	// reporting cache cannot suppress, so without this it echoes the old value and corrects
+	// itself only once the observation lands. The observation stays authoritative - it carries
+	// a newer timestamp and wins the cache's guard.
+	c.cache.SetCableAlwaysLocked(val, time.Now())
+
+	return nil
 }
 
 func (c *controller) GetParameter(id string) (*parameters.Parameter, error) {
@@ -287,8 +297,15 @@ func (c *controller) restartForPhaseMode(target int) error {
 	// Resumed at the session's own current rather than through StartChargepointCharging: a
 	// normal-mode start floors the current to initial_charging_current, which would silently
 	// raise a slow session - the mode is not recorded anywhere, so it cannot be restored.
-	if err := c.setOfferedCurrent(resume, true); err != nil {
+	confirmed, err := c.setOfferedCurrent(resume, true)
+	if err != nil {
 		return fmt.Errorf("phase mode set to %d, but the charger was left stopped: %w", target, err)
+	}
+
+	// The API accepting the resume is not the charger acting on it. Without the echo the
+	// session may well still be paused, and reporting success would hide that.
+	if !confirmed {
+		return fmt.Errorf("phase mode set to %d, but the charger did not resume at %dA", target, resume)
 	}
 
 	return nil
@@ -316,14 +333,19 @@ func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 }
 
 func (c *controller) SetChargepointOfferedCurrent(current int) error {
-	return c.setOfferedCurrent(current, false)
+	_, err := c.setOfferedCurrent(current, false)
+
+	return err
 }
 
 // setOfferedCurrent is the shared implementation behind SetChargepointOfferedCurrent and the
 // Start path. When force is true the recent-value dedup is bypassed - this matters for
 // (re)starting a stopped session, where the charger needs the UpdateDynamicCurrent call to
 // resume charging even if the cached value matches what was sent before the stop.
-func (c *controller) setOfferedCurrent(current int, force bool) error {
+//
+// The bool reports whether the charger echoed the new current back over SignalR within
+// CurrentWaitDuration; callers that need to know the change actually landed check it.
+func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
 	limit, _ := c.cache.MaxCurrent()
 	if limit == 0 {
 		limit = maxCurrentValue
@@ -338,20 +360,18 @@ func (c *controller) setOfferedCurrent(current int, force bool) error {
 		lastValue, lastSet := c.cache.RequestedOfferedCurrent()
 
 		if time.Since(lastSet) < c.cfgService.OfferedCurrentWaitTime() && current == lastValue {
-			return nil
+			return true, nil
 		}
 	}
 
 	err := c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	c.cache.SetRequestedOfferedCurrent(current, time.Now())
 
-	c.cache.WaitForOfferedCurrent(current, c.cfgService.CurrentWaitDuration())
-
-	return nil
+	return c.cache.WaitForOfferedCurrent(current, c.cfgService.CurrentWaitDuration()), nil
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
@@ -385,7 +405,9 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	// within OfferedCurrentWaitTime of a Stop the cached value still matches startCurrent
 	// (cache is only cleared async via the SignalR session-finished observation), and
 	// dedup-suppressing the call would leave the charger stopped.
-	return c.setOfferedCurrent(startCurrent, true)
+	_, err := c.setOfferedCurrent(startCurrent, true)
+
+	return err
 }
 
 func (c *controller) StopChargepointCharging() error {

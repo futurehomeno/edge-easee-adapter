@@ -369,17 +369,23 @@ func (c *cache) WaitForOfferedCurrent(current int, duration time.Duration) bool 
 	return c.waitForCurrent(waitGroupOfferedCurrent, current, duration)
 }
 
+// currentOf returns the current tracked by a wait group. The caller must hold c.mu.
+func (c *cache) currentOf(group waitGroup) (int, bool) {
+	switch group {
+	case waitGroupMaxCurrent:
+		return c.maxCurrent.Value, true
+	case waitGroupOfferedCurrent:
+		return c.offeredCurrent.Value, true
+	default:
+		return 0, false
+	}
+}
+
 func (c *cache) waitForCurrent(group waitGroup, current int, duration time.Duration) bool {
 	c.mu.Lock()
 
-	var value int
-
-	switch group {
-	case waitGroupMaxCurrent:
-		value = c.maxCurrent.Value
-	case waitGroupOfferedCurrent:
-		value = c.offeredCurrent.Value
-	default:
+	value, ok := c.currentOf(group)
+	if !ok {
 		log.Warnf("Invalid waitGroup: %v", group)
 		c.mu.Unlock()
 
@@ -412,8 +418,15 @@ func (c *cache) waitForCurrent(group waitGroup, current int, duration time.Durat
 
 	for {
 		select {
-		case v := <-channel:
-			if v == current {
+		case <-channel:
+			// The notifiers drop on a full buffer, so the delivered value can already be
+			// stale - two observations in quick succession deliver the first and drop the
+			// second. The cache is the authority, so re-read it rather than trust the value.
+			c.mu.RLock()
+			value, _ := c.currentOf(group)
+			c.mu.RUnlock()
+
+			if value == current {
 				return true
 			}
 		case <-timer.C:

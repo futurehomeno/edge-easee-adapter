@@ -118,7 +118,10 @@ nearest ampere, capped at 32A.
 ### Requirement: Cable Lock Parameter
 The parameters service SHALL expose exactly one parameter, `cable_always_locked`, as a boolean select
 with `Yes`/`No` options defaulting to false. `cmd.param.set` SHALL send the lock-state command to
-Easee; `cmd.param.get_report` SHALL answer from the cache. Any other parameter ID SHALL be rejected
+Easee and, on success, seed the cache with the written value, because the framework answers the
+command with a forced report the reporting cache cannot suppress; the observation stays
+authoritative and overwrites the seed when it lands. `cmd.param.get_report` SHALL answer from the
+cache. Any other parameter ID SHALL be rejected
 with `parameter: <id> not supported`.
 
 #### Scenario: lock the cable
