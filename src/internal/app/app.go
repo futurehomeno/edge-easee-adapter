@@ -281,7 +281,7 @@ func (a *application) Initialize() error {
 }
 
 func (a *application) Logout() error {
-	log.Info("[app] Logout requested via cmd.auth.logout")
+	log.Info("[app] Logout requested")
 
 	if err := a.signalRClient.Close(); err != nil {
 		log.Warnf("[app] Disconnect signalR client. err: %v", err)
