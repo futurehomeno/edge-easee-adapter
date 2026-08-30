@@ -43,14 +43,23 @@ check depends on this derivation.
 - **THEN** the caller-supplied fallback time is stored and the failure is logged at debug level
 
 ### Requirement: Access Token Provision
-`AccessToken` SHALL return a valid access token, refreshing it through the framework authenticator
-when it has expired. When the framework reports `ErrRefreshSuspended` or `ErrRefreshDeferred` the
-authenticator SHALL translate both into `ErrRefreshBackoff`, so callers log them at debug level
-rather than warning on every request for the whole grace window.
+`AccessToken` SHALL return a valid access token, refreshing it proactively through the framework
+authenticator's `RefreshLead` window (default 5 minutes before expiry) rather than waiting for the
+access token to actually expire. When the refresh token's local expiry (`RefreshExpiresAt`) is
+already past and the access token is also expired, the framework SHALL clear the credentials and
+return an error identified by `ErrReloginRequired` without attempting an HTTP refresh. When the
+framework reports `ErrRefreshSuspended` or `ErrRefreshDeferred` the authenticator SHALL translate
+both into `ErrRefreshBackoff`, so callers log them at debug level rather than warning on every
+request for the whole grace window.
 
 #### Scenario: token still valid
-- **WHEN** `AccessToken` is called and the stored access token has not expired
+- **WHEN** `AccessToken` is called and the stored access token expires in more than `RefreshLead`
 - **THEN** the stored token is returned without a network call
+
+#### Scenario: refresh token locally expired
+- **WHEN** `AccessToken` is called with an expired access token and `RefreshExpiresAt` in the past
+- **THEN** credentials are cleared, the auth-loss handler fires, and an error identified by
+  `ErrReloginRequired` is returned
 
 #### Scenario: refresh suspended by backoff
 - **WHEN** the framework returns `ErrRefreshSuspended` or `ErrRefreshDeferred`

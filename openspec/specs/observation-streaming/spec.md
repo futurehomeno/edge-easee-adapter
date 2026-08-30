@@ -26,12 +26,23 @@ already-running client SHALL be a no-op.
 
 ### Requirement: Connection Retry With Backoff
 The client SHALL reconnect on its own after a dropped or failed connection, spacing attempts with the
-configured stateful backoff (`signalr` initial 5s, repeated 30s, final 10m by default). A successful
-connection SHALL reset the backoff.
+configured stateful backoff (`signalr` initial 5s, repeated 30s, final 10m by default). Two failure
+modes add a fixed sleep before the backoff is consulted: when the access token cannot be obtained the
+client SHALL sleep 1 minute, throttling the adapter's own reconnect loop; when the SignalR HTTP
+connection cannot be established it SHALL sleep 30 seconds, throttling the underlying library's tight
+retry loop. A successful connection SHALL reset the backoff.
 
 #### Scenario: connection attempt fails
 - **WHEN** establishing the SignalR connection fails
 - **THEN** the client waits the next backoff interval and retries
+
+#### Scenario: token provider fails
+- **WHEN** the access token cannot be obtained
+- **THEN** the client sleeps 1 minute before the backoff interval is added, and retries
+
+#### Scenario: HTTP connection fails
+- **WHEN** establishing the SignalR HTTP connection fails
+- **THEN** the client sleeps 30 seconds before the backoff interval is added, and retries
 
 #### Scenario: connection established
 - **WHEN** the connection is established
@@ -159,7 +170,8 @@ Observation values SHALL be parsed according to the data type the payload declar
 accessors SHALL reject a payload whose declared data type is not integer, and float accessors SHALL
 reject one whose type is not double. A rejected parse SHALL surface as a handler error, except for
 lifetime-energy observations: those are enqueued unparsed and parsed asynchronously in a background
-goroutine, where a type error is logged and the observation skipped without reaching the handler.
+goroutine, where a type error causes the observation to be skipped silently without reaching the
+handler.
 
 #### Scenario: mismatched data type
 - **WHEN** an observation declares a data type the handler's accessor does not accept
