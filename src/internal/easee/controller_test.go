@@ -871,3 +871,44 @@ func TestController_SetChargepointPhaseMode_OutranksObservationsUnderClockSkew(t
 	assert.NoError(t, err)
 	assert.Equal(t, types.PhaseModeNL1, mode)
 }
+
+// Auto is not pinned to a leg, and the setter maps a three-phase request onto it. Falling back to
+// the first supported mode would answer that request with a single leg once the cache is empty.
+func TestController_ChargepointPhaseModeReport_AutoFallbackPrefersMultiPhase(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		gridType model.GridType
+		internal int
+		want     types.PhaseMode
+	}{
+		{"auto on a 3-phase grid", model.GridTypeTN3Phase, model.EaseePhaseModeAuto, types.PhaseModeNL1L2L3},
+		{"locked to a single phase", model.GridTypeTN3Phase, 1, types.PhaseModeNL1},
+		{"auto on a 1-phase grid", model.GridTypeTN1Phase, model.EaseePhaseModeAuto, types.PhaseModeNL1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			managerMock := mockedsignalr.NewManager(t)
+			managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+			cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("ChargerConfig", "test-charger").
+				Return(&model.ChargerConfig{DetectedPowerGridType: tt.gridType, PhaseMode: tt.internal}, nil)
+			clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
+
+			ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+			mode, err := ctrl.ChargepointPhaseModeReport()
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, mode)
+		})
+	}
+}
