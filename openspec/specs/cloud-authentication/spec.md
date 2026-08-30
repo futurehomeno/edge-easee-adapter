@@ -53,7 +53,7 @@ both into `ErrRefreshBackoff`, so callers log them at debug level rather than wa
 request for the whole grace window.
 
 #### Scenario: token still valid
-- **WHEN** `AccessToken` is called and the stored access token has not expired
+- **WHEN** `AccessToken` is called and the stored access token expires in more than `RefreshLead`
 - **THEN** the stored token is returned without a network call
 
 #### Scenario: refresh token locally expired

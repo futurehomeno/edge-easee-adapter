@@ -28,9 +28,9 @@ already-running client SHALL be a no-op.
 The client SHALL reconnect on its own after a dropped or failed connection, spacing attempts with the
 configured stateful backoff (`signalr` initial 5s, repeated 30s, final 10m by default). Two failure
 modes add a fixed sleep before the backoff is consulted: when the access token cannot be obtained the
-client SHALL sleep 1 minute, and when the SignalR HTTP connection cannot be established it SHALL sleep
-30 seconds, throttling the underlying library's tight retry loop on either failure. A successful
-connection SHALL reset the backoff.
+client SHALL sleep 1 minute, throttling the adapter's own reconnect loop; when the SignalR HTTP
+connection cannot be established it SHALL sleep 30 seconds, throttling the underlying library's tight
+retry loop. A successful connection SHALL reset the backoff.
 
 #### Scenario: connection attempt fails
 - **WHEN** establishing the SignalR connection fails
