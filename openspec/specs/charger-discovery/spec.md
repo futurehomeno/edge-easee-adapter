@@ -97,7 +97,8 @@ was upgraded while logged out and therefore never reached the boot-time adoption
 ### Requirement: Stale ID Filtering On Adoption
 Adoption at configure time SHALL restrict the owned IDs to those the account still lists, so a stale
 ID cannot be carried forward. When nothing owned is listed at all — a different Easee account rather
-than a short list — the owned IDs SHALL NOT be adopted.
+than a short list — the owned IDs SHALL NOT be adopted, leaving the still-unconfigured selection to
+be materialised by the auto-selection cap instead.
 
 #### Scenario: one owned charger vanished from the account
 - **WHEN** the hub owns two chargers and the account lists only one of them
@@ -105,7 +106,8 @@ than a short list — the owned IDs SHALL NOT be adopted.
 
 #### Scenario: account holds none of the owned chargers
 - **WHEN** none of the owned chargers appear in the account listing
-- **THEN** adoption is skipped and the selection stays as it was
+- **THEN** adoption is skipped and the still-unconfigured selection falls through to the
+  auto-selection cap, which picks and persists the first 10 chargers the new account lists
 
 ### Requirement: Missing Selected Charger Retry Budget
 When selected chargers are absent from the `/api/chargers` response, seeding SHALL be refused and an

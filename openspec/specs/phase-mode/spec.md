@@ -123,19 +123,43 @@ resume SHALL be issued as a normal-mode start.
 
 ### Requirement: Phase Mode Report Precedence
 `evt.phase_mode.report` SHALL resolve the reported mode in this order: a mode the adapter itself
-requested, when one is cached and its timestamp is later than the cached output phase's timestamp;
-otherwise the cached output phase, when it is not empty; otherwise the first entry of the supported
-modes derived from a freshly fetched charger state. The requested mode outranks the output phase
-because the output phase goes unassigned between sessions and that observation is dropped, leaving
-the cached value a stale echo of the previous session.
+requested, when one is cached, its timestamp is later than the cached output phase's timestamp and
+the request still holds; otherwise the cached output phase, when it is not empty and not stale;
+otherwise the first entry of the supported modes derived from a freshly fetched charger state. The
+requested mode outranks the output phase because the output phase goes unassigned between sessions
+and that observation is dropped, leaving the cached value a stale echo of the previous session.
+
+A cached request SHALL stop holding once an internal phase-mode observation newer than the request
+maps to an Easee mode other than the one the request asked for, or the request no longer maps to an
+Easee mode at all: the mode was changed elsewhere, and nothing else ever clears the request.
+
+A cached output phase SHALL count as stale once an internal phase-mode observation newer than it no
+longer lists that leg among the supported modes — unless the charger is charging, because Easee
+applies a new mode only at a session boundary and the leg in use is still the old one.
 
 #### Scenario: recent request outranks an older output phase
-- **WHEN** a requested mode is cached with a timestamp later than the cached output phase
+- **WHEN** a requested mode is cached with a timestamp later than the cached output phase and no
+  newer internal mode contradicts it
 - **THEN** the requested mode is reported
 
 #### Scenario: output phase is newer
 - **WHEN** the cached output phase carries a later timestamp than the requested mode
 - **THEN** the output phase is reported
+
+#### Scenario: the charger left the requested mode
+- **WHEN** an internal phase-mode observation newer than the cached request maps to a different
+  Easee mode than the request asked for
+- **THEN** the request is passed over and resolution continues with the cached output phase
+
+#### Scenario: internal mode voids an idle leg
+- **WHEN** an internal phase-mode observation newer than the cached output phase no longer covers
+  that leg and the charger is not charging
+- **THEN** the cached output phase is passed over and the refetched state's first supported mode is
+  reported
+
+#### Scenario: a charging charger keeps its leg
+- **WHEN** the same newer internal mode arrives while the charger is charging
+- **THEN** the cached output phase is still reported
 
 #### Scenario: nothing cached
 - **WHEN** neither a requested mode nor an output phase is cached
