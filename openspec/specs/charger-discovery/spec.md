@@ -167,13 +167,13 @@ selection, or the same vanished charger is re-announced on every later sync.
 
 ### Requirement: Thing Composition
 Each charger thing SHALL expose four services in group `ch_0`: chargepoint, electricity meter,
-parameters and alarm. Its inclusion report SHALL carry `Easee` as manufacturer, `cloud` as
+parameters and alarm_system. Its inclusion report SHALL carry `Easee` as manufacturer, `cloud` as
 communication technology, `ac` as power source, a wake-up interval of `-1`, the charger ID as device
 ID, and a product hash of `Easee - Easee - <product>`.
 
 #### Scenario: thing created
 - **WHEN** a charger thing is created
-- **THEN** it exposes chargepoint, meter_elec, parameters and alarm services in group `ch_0`
+- **THEN** it exposes chargepoint, meter_elec, parameters and alarm_system services in group `ch_0`
 
 #### Scenario: inclusion report identity
 - **WHEN** the inclusion report is published
@@ -183,17 +183,23 @@ ID, and a product hash of `Easee - Easee - <product>`.
 Thing creation SHALL refresh the charger state from `/api/chargers/{id}/config` and
 `/api/chargers/{id}/site`, persisting the refreshed state. When the refresh fails with
 `ErrNotLoggedIn` the thing SHALL be created from the stored state instead and the state SHALL NOT be
-persisted, so a stored state that failed to load is not overwritten with zeros. Any other refresh
-error SHALL abort creation of the thing.
+persisted, so a stored state that failed to load is not overwritten with zeros. When a refresh fails
+for any other reason but the persisted state already holds the data that refresh would supply
+(`IsConfigUpdateNeeded` / `IsSiteUpdateNeeded` returns false), the error SHALL be suppressed and the
+stored data kept. Any other refresh error SHALL abort creation of the thing.
 
 #### Scenario: not logged in at boot
 - **WHEN** the state refresh fails with `ErrNotLoggedIn`
 - **THEN** a warning is logged, the thing is created from the stored state, and the state is not
   written back
 
-#### Scenario: other refresh failure
-- **WHEN** the state refresh fails for any other reason
+#### Scenario: other refresh failure with no stored data
+- **WHEN** the state refresh fails for any other reason and the state still needs that update
 - **THEN** thing creation returns the error
+
+#### Scenario: other refresh failure with stored data
+- **WHEN** the state refresh fails for any other reason but the stored state already holds the data
+- **THEN** the error is suppressed and the thing is created from the stored state
 
 #### Scenario: stored state unreadable
 - **WHEN** the persisted state cannot be decoded

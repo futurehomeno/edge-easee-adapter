@@ -100,7 +100,8 @@ cliffhanger publishes afterwards carries the applied value.
 
 #### Scenario: max current set
 - **WHEN** a new max current is written successfully
-- **THEN** the adapter waits for the echoing observation before returning
+- **THEN** the adapter waits up to `current_wait_duration` for the echoing observation and then
+  returns successfully, whether or not the echo arrived
 
 #### Scenario: write fails
 - **WHEN** the Easee call fails

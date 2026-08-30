@@ -158,13 +158,19 @@ cached max current when one is known.
 - **THEN** its energy is reported as the previous session energy
 
 ### Requirement: Lifetime Energy Rate Limiting
-Lifetime energy observations SHALL be throttled to at most one report per
-`energyLifetimeInterval` (default 10s), so that a charger streaming continuous energy updates does
-not flood FIMP.
+Lifetime energy observations SHALL be throttled in two stages, so that a charger streaming
+continuous energy updates does not flood FIMP. First, an observation whose timestamp truncated to
+the hour is not after the last reading's truncated timestamp SHALL be dropped before it is enqueued.
+Observations that pass SHALL be enqueued, and the manager SHALL emit at most one report per
+`energyLifetimeInterval` (default 10s). The hour boundary is therefore the binding limit in practice.
 
-#### Scenario: burst of energy observations
-- **WHEN** several lifetime-energy observations arrive inside one interval
-- **THEN** the reports are rate-limited to the configured interval
+#### Scenario: same-hour observation
+- **WHEN** a lifetime-energy observation arrives in the same hour as the last reading
+- **THEN** it is dropped before reaching the interval timer
+
+#### Scenario: new-hour observation
+- **WHEN** a lifetime-energy observation arrives in a later hour than the last reading
+- **THEN** it is enqueued and reported subject to the configured interval
 
 ### Requirement: Periodic Reporting Task
 A car-charger reporting task SHALL run on `polling_interval` (default 10m) and SHALL be gated on the

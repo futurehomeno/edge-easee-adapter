@@ -102,7 +102,8 @@ the report is marshalled.
 - **THEN** the public settings are returned and no token appears in the payload
 
 ### Requirement: Incoming Message Logging
-Every incoming FIMP message SHALL be logged with its source, service, interface and value. The value
+Every incoming FIMP message carrying a payload SHALL be logged with its source, service, interface
+and value; a message with a nil payload SHALL be skipped silently. The value
 of any message whose interface begins with `cmd.auth.` SHALL be replaced with `***`. This routing
 SHALL stay first in the routing table, because the router runs routings in order and the stats
 callback fires only after handling.
@@ -112,8 +113,12 @@ callback fires only after handling.
 - **THEN** the log line carries `***` instead of the credentials
 
 #### Scenario: ordinary command received
-- **WHEN** any other message is received
+- **WHEN** any other message with a payload is received
 - **THEN** its value is logged verbatim
+
+#### Scenario: message without a payload
+- **WHEN** a message with a nil payload is received
+- **THEN** nothing is logged
 
 ### Requirement: Selection Store Locking
 The `cmd.thing.delete` adapter route and the app configuration route SHALL share one message-handler

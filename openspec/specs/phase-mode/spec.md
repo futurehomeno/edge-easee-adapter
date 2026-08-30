@@ -11,7 +11,9 @@ modes a charger supports, apply a requested mode, and report the mode currently 
 Supported FIMP phase modes SHALL be derived from a matrix keyed by grid type (TN, TT, IT), phase
 count (1 or 3) and Easee internal phase mode (1, 2 or 3). A TN grid uses neutral-referenced legs
 (`NL1`, `NL2`, `NL3`, `NL1L2L3`); TT and IT grids use line-to-line legs (`L1L2`, `L2L3`, `L3L1`,
-`L1L2L3`). An empty grid type, a zero internal mode or a zero phase count SHALL yield no modes.
+`L1L2L3`). A 1-phase installation SHALL yield exactly one mode — `NL1` on TN, `L1L2` on TT and IT —
+for internal modes 1 and 2; internal mode 3 is not defined for a 1-phase installation.
+An empty grid type, a zero internal mode or a zero phase count SHALL yield no modes.
 An unknown grid type, phase count or internal mode SHALL be logged as an error and yield no modes.
 
 #### Scenario: TN grid, three phases, single-phase lock
@@ -25,6 +27,14 @@ An unknown grid type, phase count or internal mode SHALL be logged as an error a
 #### Scenario: TT grid, three phases, three-phase lock
 - **WHEN** modes are requested for grid TT, internal mode 3, 3 phases
 - **THEN** `L1L2L3` alone is returned
+
+#### Scenario: TN grid, one phase
+- **WHEN** modes are requested for grid TN, internal mode 1 or 2, 1 phase
+- **THEN** `NL1` alone is returned
+
+#### Scenario: IT grid, one phase
+- **WHEN** modes are requested for grid IT, internal mode 1 or 2, 1 phase
+- **THEN** `L1L2` alone is returned
 
 #### Scenario: grid type not yet detected
 - **WHEN** the grid type is empty, or the phase count or internal mode is zero
@@ -168,8 +178,8 @@ A detected-power-grid-type observation SHALL first publish grounding-fault and g
 reports, before the equivalence check below, because several raw grid types map onto the same FIMP
 pair and a fault must be reported even when the topology is unchanged. When the mapped grid type and
 phase count both equal the cached values the handler SHALL then stop. Otherwise the installation
-parameters SHALL be cached and the chargepoint service specification refreshed so that the phase-mode
-and grid-type properties match the new topology.
+parameters SHALL be cached, the chargepoint service specification refreshed and a thing inclusion
+report published, so that the new phase-mode and grid-type properties reach consumers.
 
 #### Scenario: fault on an unchanged topology
 - **WHEN** a grid type mapping to the same FIMP grid and phase count but carrying a fault arrives
@@ -177,4 +187,5 @@ and grid-type properties match the new topology.
 
 #### Scenario: topology changes
 - **WHEN** the mapped grid type or phase count differs from the cache
-- **THEN** the installation parameters are cached and the chargepoint specification is refreshed
+- **THEN** the installation parameters are cached, the chargepoint specification is refreshed and an
+  inclusion report is sent

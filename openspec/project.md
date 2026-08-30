@@ -31,10 +31,13 @@ a SignalR websocket.
 
 ## Conventions
 
-- Log lines are prefixed with a bracketed component (`[app]`, `[auth]`, `[db]`) or the charger ID.
-- Errors are wrapped with `fmt.Errorf("...: %w", err)` and logged once at the boundary.
-- Every value the cache holds carries the timestamp it was observed at; a write with an older
-  timestamp than the value already stored is rejected.
+- Log lines are mostly prefixed with a bracketed component (`[app]`, `[auth]`, `[db]`) or the
+  charger ID; older lines in `routing/`, `signalr/` and `tasks/` are still unprefixed.
+- Errors are wrapped with `fmt.Errorf("...: %w", err)` and logged once at the boundary;
+  `api/http.go` and `db/db.go` still wrap with `github.com/pkg/errors`.
+- Every value the cache holds carries a timestamp: for observations the time the value was observed,
+  for controller-requested values (`requestedOfferedCurrent`, `requestedPhaseMode`) the time the
+  command was issued. A write with an older timestamp than the value already stored is rejected.
 
 ## Baseline note
 
