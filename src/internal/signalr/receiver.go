@@ -27,8 +27,11 @@ func (r *receiver) ProductUpdate(o model.Observation) {
 	default:
 		// The signalR library dispatches every hub call on its own goroutine, so blocking here
 		// parks one per observation for as long as the manager is not draining - and after the
-		// manager stops, forever. Dropping is the better failure: the cache is timestamp
-		// guarded and the charger replays its state on the next reconnect.
+		// manager stops, forever. Dropping is the lesser failure, not a free one: most
+		// observations are cache refreshes the charger re-sends on the next reconnect, but the
+		// session start/stop pair is edge-triggered and its record is simply lost. The buffer
+		// only fills while the run loop is stalled, which today means a subscribe invoke
+		// blocking it for up to SignalRInvokeTimeout.
 		log.Warnf("signalR: observation buffer full, dropping obs='%s' chargerID=%s", o.ID.Str(), o.ChargerID)
 	}
 }
