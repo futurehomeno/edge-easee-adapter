@@ -157,7 +157,10 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 	// state drops cmd.max_current.set for the lifetime of the process. A present 0 is worse
 	// than absent, though - validateCurrent rejects everything above it, so every legal current
 	// fails "must not exceed 0A". Fall back to the same ceiling setOfferedCurrent applies when
-	// the cached maximum is unknown; the real site limit clamps it once site data arrives.
+	// the cached maximum is unknown. Nothing re-advertises the property at runtime, so it holds
+	// the fallback until the next thing creation that does get site data; the current the
+	// adapter actually drives is clamped separately, in setOfferedCurrent, against the live
+	// MaxChargerCurrent observation rather than against this property.
 	supportedMaxCurrent := state.SupportedMaxCurrent
 	if supportedMaxCurrent <= 0 {
 		supportedMaxCurrent = maxCurrentValue
