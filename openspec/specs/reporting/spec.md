@@ -10,10 +10,11 @@ task as a backstop.
 ### Requirement: Charger State Report
 `evt.chargepoint.state_report` SHALL report the cached charger state, except that a cached total
 power greater than zero SHALL be reported as `charging` regardless of the cached state. The
-chargepoint service SHALL advertise the FIMP states derived from Easee's operating states —
-offline, disconnected, awaiting start, charging, completed, error, ready to charge, awaiting
-authentication and de-authenticating — deduplicated, since several Easee states map onto one FIMP
-state.
+chargepoint service SHALL advertise in `sup_states` the FIMP states `unknown`, `disconnected`,
+`ready_to_charge`, `charging`, `finished`, `error`, `suspended_by_ev` and `requesting` — Easee's nine
+operating states mapped to FIMP and deduplicated, `offline` and `de-authenticating` both collapsing
+to `unknown`. The FIMP names are not the Easee ones: Easee's awaiting start maps to
+`ready_to_charge`, while Easee's ready to charge maps to `suspended_by_ev`.
 
 #### Scenario: power observed while state says otherwise
 - **WHEN** the cached total power is above zero
