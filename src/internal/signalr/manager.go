@@ -242,6 +242,16 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// Unregister can drop this charger - and a later Register re-add a different struct under
 	// the same ID - while the invoke ran unlocked, so identity is the test, not presence.
 	if current, ok := m.chargers[chargerID]; !ok || current != charger {
+		// A Subscribe that wins this race establishes a cloud subscription after
+		// Unregister's own Unsubscribe already ran, orphaning it with no local charger
+		// left to receive its observations until the next reconnect. Only an invoke
+		// that actually succeeded needs undoing.
+		if err == nil {
+			if unsubErr := m.client.UnsubscribeCharger(chargerID); unsubErr != nil {
+				log.Warnf("signalR: cleanup after unregister race chargerID=%s err: %v", chargerID, unsubErr)
+			}
+		}
+
 		return nil
 	}
 

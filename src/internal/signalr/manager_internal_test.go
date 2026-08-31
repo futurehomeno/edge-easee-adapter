@@ -192,6 +192,64 @@ func TestArmedRetryDoesNotDisarmTheChainThatReplacedIt(t *testing.T) {
 	assert.True(t, charger.retryArmed, "the chain armed during the hand-off must stay armed")
 }
 
+// A Subscribe invoke that outlives Unregister can still succeed after Unregister's own
+// Unsubscribe already ran, silently re-establishing the cloud subscription with no local
+// charger left to receive its observations. handleSubscription must undo that itself.
+func TestHandleSubscription_UnregisterRaceCleansUpASubscribeThatWonTheRace(t *testing.T) {
+	client := &racingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	require.NoError(t, m.Unregister(chargerID))
+
+	close(client.release)
+	<-subscribed
+
+	assert.Equal(t, 2, client.unsubscribeCalls(), "the race winner's subscription must be cleaned up in addition to Unregister's own")
+}
+
+// A failed invoke never created a cloud subscription, so a race with Unregister needs no
+// extra cleanup beyond Unregister's own Unsubscribe.
+func TestHandleSubscription_UnregisterRaceSkipsCleanupWhenSubscribeFailed(t *testing.T) {
+	client := &racingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+		fail:    true,
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	require.NoError(t, m.Unregister(chargerID))
+
+	close(client.release)
+	<-subscribed
+
+	assert.Equal(t, 1, client.unsubscribeCalls(), "a failed invoke must not trigger a second cleanup unsubscribe")
+}
+
 // The buffer only fills while the run loop is stalled, so a warning per dropped observation
 // would add synchronous logging to the overload path. One per streak, re-armed once a send
 // gets through again.
@@ -333,4 +391,46 @@ func (c *blockingSubscribeClient) SubscribeCharger(string) error {
 	<-c.release
 
 	return errors.New("not logged in")
+}
+
+// racingSubscribeClient parks in SubscribeCharger until released, then succeeds or fails per
+// fail - standing in for an invoke still in flight when Unregister runs concurrently, and
+// counting Unsubscribe calls to check whether the race is cleaned up exactly once.
+type racingSubscribeClient struct {
+	failingSubscribeClient
+
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+	fail      bool
+
+	mu           sync.Mutex
+	unsubscribes int
+}
+
+func (c *racingSubscribeClient) SubscribeCharger(string) error {
+	c.enterOnce.Do(func() { close(c.entered) })
+	<-c.release
+
+	if c.fail {
+		return errors.New("not logged in")
+	}
+
+	return nil
+}
+
+func (c *racingSubscribeClient) UnsubscribeCharger(string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.unsubscribes++
+
+	return nil
+}
+
+func (c *racingSubscribeClient) unsubscribeCalls() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.unsubscribes
 }
