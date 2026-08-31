@@ -271,13 +271,38 @@ func (c *controller) restartForPhaseMode(target int) error {
 		return nil
 	}
 
+	// Read before the stop: the session-finished observation clears the cached value
+	// asynchronously, so afterwards it may no longer describe the session being bounced.
+	resume, _ := c.cache.RequestedOfferedCurrent()
+
+	// Only this adapter writes RequestedOfferedCurrent, so it is empty after a restart even
+	// though the session is still running. OfferedCurrent is the charger's own observation of
+	// what it is delivering, so it describes that session; falling straight through to
+	// MaxCurrent would resume a 6A session at 32A - the silent raise this whole path avoids.
+	if resume <= 0 {
+		resume, _ = c.cache.OfferedCurrent()
+	}
+
+	if resume <= 0 {
+		resume, _ = c.cache.MaxCurrent()
+	}
+
+	// setOfferedCurrent only clamps the upper bound, so a zero would "resume" the session at
+	// 0A and report success while the charger stays paused.
+	if resume <= 0 {
+		return fmt.Errorf("phase mode set to %d, but no current is known to resume at", target)
+	}
+
 	if err := c.StopChargepointCharging(); err != nil {
 		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
 
 		return nil
 	}
 
-	if err := c.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal}); err != nil {
+	// Resumed at the session's own current rather than through StartChargepointCharging: a
+	// normal-mode start floors the current to initial_charging_current, which would silently
+	// raise a slow session - the mode is not recorded anywhere, so it cannot be restored.
+	if err := c.setOfferedCurrent(resume, true); err != nil {
 		return fmt.Errorf("phase mode set to %d, but the charger was left stopped: %w", target, err)
 	}
 
