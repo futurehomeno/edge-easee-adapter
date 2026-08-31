@@ -1094,7 +1094,9 @@ func TestApplication_Initialize_ReSeedsWhenSelectedChargerHasNoThing(t *testing.
 
 	adapterMock := mockedadapter.NewAdapter(t)
 	adapterMock.On("InitializeThings").Return(nil)
-	adapterMock.On("Things").Return([]adapter.Thing{thing})
+	// Not called: the selection is explicit (non-nil), so the zero-things test - and the
+	// adoption path, which only runs for a nil selection - both skip Things() entirely.
+	adapterMock.On("Things").Return([]adapter.Thing{thing}).Maybe()
 	adapterMock.On("ThingByID", "123").Return(thing)
 	adapterMock.On("ThingByID", "456").Return(nil)
 
@@ -1119,6 +1121,42 @@ func TestApplication_Initialize_ReSeedsWhenSelectedChargerHasNoThing(t *testing.
 	require.NoError(t, application.Initialize())
 
 	assert.True(t, reSeeded, "a selected charger without a thing must re-seed, not just an empty adapter")
+}
+
+// An explicit empty selection means the user deliberately kept no chargers, distinct from a
+// nil selection ("every charger") that just has not been seeded yet. Re-seeding it would call
+// the cloud - and risk an auth loss - on every boot for an install that wants none.
+func TestApplication_Initialize_SkipsReSeedWhenSelectionIsExplicitlyEmpty(t *testing.T) {
+	t.Parallel()
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("InitializeThings").Return(nil)
+	// Not called: an explicit (non-nil) selection skips both the zero-things test and the
+	// adoption path, which only runs for a nil selection.
+	adapterMock.On("Things").Return([]adapter.Thing{}).Maybe()
+
+	reSeeded := false
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Ping").Return(nil).Maybe()
+	clientMock.On("Chargers").
+		Run(func(mock.Arguments) { reSeeded = true }).
+		Return(nil, errors.New("service unavailable")).
+		Maybe()
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	require.NoError(t, cfg.SetSelectedDevices(selection.Selection{}))
+
+	application := app.New(
+		adapterMock, cfg, lifecycle.New(nil), nil, clientMock, mockapi.NewAuthenticator(t),
+		mocksignalr.NewClient(t),
+		newCredentialsStore(t, config.Credentials{AccessToken: "token", RefreshToken: "refresh"}),
+		nil,
+	)
+
+	require.NoError(t, application.Initialize())
+
+	assert.False(t, reSeeded, "an explicit empty selection must not re-seed just because there are zero things")
 }
 
 type selectionHarness struct {

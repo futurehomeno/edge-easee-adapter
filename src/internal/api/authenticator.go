@@ -152,6 +152,16 @@ func authLossHandler(
 		// hold the authenticator lock for ~30s - stalling every AccessToken caller, including the
 		// SignalR token callback, the refresh task and every chargepoint command.
 		go func() {
+			// A re-login can land in the gap between the snapshot above and this goroutine
+			// actually running. The routed cmd.auth.logout handler has no way to tell a stale
+			// message from a fresh one, so publishing it here would clear the session that
+			// replaced the one this callback is cleaning up.
+			if credentials() != before {
+				log.Debugf("[auth] Skip auth-loss escalation: a new session replaced the one that triggered it")
+
+				return
+			}
+
 			if err := notify.Event(&notification.Event{EventName: notificationEaseeStatusOffline}); err != nil {
 				log.Errorf("[auth] Send push notification err: %v", err)
 			}

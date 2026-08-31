@@ -298,6 +298,10 @@ func (a *application) Initialize() error {
 	// next sync" - which never comes. A nil selection cannot be checked this way, and needs
 	// no check: nothing local says which chargers it covers.
 	//
+	// The zero-things test itself is scoped to a nil (IncludeAll) selection: an explicit
+	// empty one means the user deliberately kept no chargers, and re-seeding it would call
+	// the cloud - and risk an auth loss - on every boot for an install that wants none.
+	//
 	// After the lifecycle is marked, not before: the re-seed calls the cloud, so an expired
 	// refresh token makes it trigger an auth loss, whose logout lands on its own goroutine.
 	// Marking authenticated afterwards would overwrite that logout and leave the app claiming
@@ -305,7 +309,7 @@ func (a *application) Initialize() error {
 	// "not logged in" rather than another auth loss.
 	selected := a.cfgService.SelectedDevices()
 
-	if len(a.ad.Things()) == 0 || slices.ContainsFunc(selected, func(id string) bool { return a.ad.ThingByID(id) == nil }) {
+	if (selected.IncludeAll() && len(a.ad.Things()) == 0) || slices.ContainsFunc(selected, func(id string) bool { return a.ad.ThingByID(id) == nil }) {
 		if err := a.configureChargers(selected); err != nil {
 			log.Warnf("[app] Re-seed chargers on initialize err: %v", err)
 
