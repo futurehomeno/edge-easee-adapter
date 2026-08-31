@@ -95,7 +95,10 @@ configured invoke timeout on the same goroutine that drains observations.
 
 #### Scenario: charger unregistered during an invoke
 - **WHEN** the charger is unregistered while its subscribe invoke is in flight
-- **THEN** the result is discarded rather than resurrecting the registration
+- **THEN** the result is discarded rather than resurrecting the registration, and a compensating
+  unsubscribe is sent so a subscription the invoke established after the unregister's own
+  unsubscribe is not left orphaned. It is sent whatever the invoke reported, since the invoke
+  timeout is local and does not cancel the server-side operation
 
 #### Scenario: repeated failures stay quiet
 - **WHEN** a charger keeps failing to subscribe

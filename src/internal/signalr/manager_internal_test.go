@@ -221,9 +221,10 @@ func TestHandleSubscription_UnregisterRaceCleansUpASubscribeThatWonTheRace(t *te
 	assert.Equal(t, 2, client.unsubscribeCalls(), "the race winner's subscription must be cleaned up in addition to Unregister's own")
 }
 
-// A failed invoke never created a cloud subscription, so a race with Unregister needs no
-// extra cleanup beyond Unregister's own Unsubscribe.
-func TestHandleSubscription_UnregisterRaceSkipsCleanupWhenSubscribeFailed(t *testing.T) {
+// A failed invoke is no proof the cloud subscription was not established: the invoke timeout
+// is local and does not cancel the server-side operation, so a subscribe that timed out here
+// may well have succeeded there. The race is compensated on the error path too.
+func TestHandleSubscription_UnregisterRaceCleansUpAfterAFailedInvokeToo(t *testing.T) {
 	client := &racingSubscribeClient{
 		entered: make(chan struct{}),
 		release: make(chan struct{}),
@@ -247,7 +248,7 @@ func TestHandleSubscription_UnregisterRaceSkipsCleanupWhenSubscribeFailed(t *tes
 	close(client.release)
 	<-subscribed
 
-	assert.Equal(t, 1, client.unsubscribeCalls(), "a failed invoke must not trigger a second cleanup unsubscribe")
+	assert.Equal(t, 2, client.unsubscribeCalls(), "a timed-out invoke may have succeeded server-side, so the race is cleaned up regardless")
 }
 
 // The buffer only fills while the run loop is stalled, so a warning per dropped observation
