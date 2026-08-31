@@ -116,10 +116,13 @@ charging. A failure to read the state, or a failure to pause, SHALL be logged as
 treated as success — the mode is stored and takes effect on the next session anyway. A failure to
 resume SHALL be returned as `phase mode set to <target>, but the charger was left stopped`. The
 resume SHALL restore the session's own current — the cached requested offered current, falling back
-to the cached max current when that is zero or less — read before the pause, since the
-session-finished observation clears it asynchronously. It SHALL NOT be issued as a normal-mode
-start, which would floor the current to `initial_charging_current` and silently raise a slow
-session; the session's mode is recorded nowhere, so it cannot be reconstructed.
+to the cached offered current the charger itself reports, and to the cached max current when both
+are zero or less — read before the pause, since the session-finished observation clears it
+asynchronously. When none of the three is known the resume SHALL NOT be attempted and the failure
+SHALL be reported, rather than issuing a zero-current resume that leaves the charger paused. It
+SHALL NOT be issued as a normal-mode start, which would floor the current to
+`initial_charging_current` and silently raise a slow session; the session's mode is recorded
+nowhere, so it cannot be reconstructed.
 
 #### Scenario: charger idle
 - **WHEN** the charger state is not charging
