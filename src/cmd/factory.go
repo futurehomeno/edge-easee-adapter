@@ -147,9 +147,7 @@ func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 	if services.sessionStorage == nil {
 		dataBase, err := database.NewDatabase(cfg.WorkDir)
 		if err != nil {
-			log.Errorf("[db] Create database. err: %v", err)
-
-			return nil
+			log.Fatalf("[db] Create database. err: %v", err)
 		}
 
 		services.sessionStorage = db.NewSessionStorage(dataBase)
