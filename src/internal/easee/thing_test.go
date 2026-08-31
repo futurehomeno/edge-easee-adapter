@@ -236,3 +236,28 @@ func TestThingFactory_Create_SinglePhaseGridKeepsPhaseModeReport(t *testing.T) {
 		Type: fimptype.TypeOut, MsgType: chargepoint.EvtPhaseModeReport, ValueType: fimptype.VTypeString, Version: "1",
 	})
 }
+
+// sup_states carries the FIMP names, not Easee's - the two vocabularies overlap enough to be
+// mistaken for each other, yet Easee's "awaiting start" is FIMP ready_to_charge while Easee's
+// "ready to charge" is suspended_by_ev, and offline and de-authenticating both collapse to unknown.
+func TestThingFactory_Create_AdvertisesDeduplicatedFimpStates(t *testing.T) {
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("ChargerConfig", "test-charger").Return(&model.ChargerConfig{}, nil)
+	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{}, nil)
+
+	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+
+	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
+		info: easee.Info{ChargerID: "test-charger", Product: "Home"},
+	})
+	require.NoError(t, err)
+
+	services := thing.Services(chargepoint.Chargepoint)
+	require.Len(t, services, 1)
+
+	assert.Equal(t,
+		[]string{"unknown", "disconnected", "ready_to_charge", "charging", "finished", "error", "suspended_by_ev", "requesting"},
+		services[0].Specification().PropertyStrings(chargepoint.PropertySupportedStates),
+	)
+}
