@@ -183,24 +183,21 @@ ID, and a product hash of `Easee - Easee - <product>`.
 
 ### Requirement: Thing State Refresh At Creation
 Thing creation SHALL refresh the charger state from `/api/chargers/{id}/config` and
-`/api/chargers/{id}/site`, persisting the refreshed state. When the refresh fails with
-`ErrNotLoggedIn` the thing SHALL be created from the stored state instead and the state SHALL NOT be
-persisted, so a stored state that failed to load is not overwritten with zeros. When a refresh fails
-for any other reason but the persisted state already holds the data that refresh would supply
-(`IsConfigUpdateNeeded` / `IsSiteUpdateNeeded` returns false), the error SHALL be suppressed and the
-stored data kept. Any other refresh error SHALL abort creation of the thing.
+`/api/chargers/{id}/site`, persisting the refreshed state. When a refresh fails for any reason but
+the persisted state already holds the data that refresh would supply (`IsConfigUpdateNeeded` /
+`IsSiteUpdateNeeded` returns false), the error SHALL be suppressed and the stored data kept. Any
+other refresh failure SHALL be logged as a warning and the thing SHALL still be created from the
+stored state, with the state NOT persisted, so a stored state that failed to load is not overwritten
+with zeros. A refresh failure SHALL NOT abort creation: things are created in a loop that stops at
+the first error, so one unreachable charger would otherwise take every remaining charger with it.
 
-#### Scenario: not logged in at boot
-- **WHEN** the state refresh fails with `ErrNotLoggedIn`
+#### Scenario: refresh fails and the state still needs that update
+- **WHEN** the state refresh fails for any reason and the state still needs that update
 - **THEN** a warning is logged, the thing is created from the stored state, and the state is not
   written back
 
-#### Scenario: other refresh failure with no stored data
-- **WHEN** the state refresh fails for any other reason and the state still needs that update
-- **THEN** thing creation returns the error
-
-#### Scenario: other refresh failure with stored data
-- **WHEN** the state refresh fails for any other reason but the stored state already holds the data
+#### Scenario: refresh fails but the stored state already holds the data
+- **WHEN** the state refresh fails for any reason but the stored state already holds the data
 - **THEN** the error is suppressed and the thing is created from the stored state
 
 #### Scenario: stored state unreadable
