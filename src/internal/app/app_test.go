@@ -28,6 +28,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
+	mockeddb "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/db"
 	mockedmanifest "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/manifest"
 	mocksignalr "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/signalr"
 )
@@ -70,7 +71,7 @@ func TestApplication_GetManifest(t *testing.T) {
 				tt.mockLoader(loaderMock)
 			}
 
-			a := app.New(nil, nil, lifecycle.New(nil), loaderMock, nil, nil, nil, nil)
+			a := app.New(nil, nil, lifecycle.New(nil), loaderMock, nil, nil, nil, nil, nil)
 
 			got, err := a.GetManifest()
 
@@ -89,7 +90,7 @@ func TestApplication_GetManifest(t *testing.T) {
 func TestApplication_Configure_RejectsWrongModelType(t *testing.T) {
 	t.Parallel()
 
-	a := app.New(nil, nil, nil, nil, nil, nil, nil, nil)
+	a := app.New(nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	assert.Error(t, a.Configure("anything"))
 }
@@ -176,7 +177,9 @@ func TestApplication_Uninstall(t *testing.T) {
 			cfgService := config.NewService(storage)
 
 			credentials := newCredentialsStore(t, tt.credentials)
-			application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil, credentials)
+			sessionStorage := mockeddb.NewChargingSessionStorage(t)
+			sessionStorage.On("Reset").Return(nil)
+			application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil, credentials, sessionStorage)
 
 			err := application.Uninstall()
 
@@ -222,7 +225,30 @@ func newDiagApp(t *testing.T) app.ApplicationWithToken {
 	t.Helper()
 
 	return app.New(mockedadapter.NewAdapter(t), config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
-		lifecycle.New(nil), nil, nil, nil, nil, newCredentialsStore(t, config.Credentials{}))
+		lifecycle.New(nil), nil, nil, nil, nil, newCredentialsStore(t, config.Credentials{}), nil)
+}
+
+// Charging sessions are keyed by charger ID alone, so a reinstall against a different Easee
+// account with a colliding ID would serve the previous account's sessions.
+func TestApplication_Uninstall_ResetsSessionStorage(t *testing.T) {
+	t.Parallel()
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("DestroyAllThings").Return(nil)
+
+	sessionStorage := mockeddb.NewChargingSessionStorage(t)
+	sessionStorage.On("Reset").Return(errors.New("disk gone"))
+
+	lc := lifecycle.New(nil)
+	lc.MarkRunning()
+
+	application := app.New(adapterMock, config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
+		lc, nil, nil, nil, nil, newCredentialsStore(t, config.Credentials{}), sessionStorage)
+
+	assert.ErrorContains(t, application.Uninstall(), "reset session storage")
+	assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth(),
+		"a failed reset must not stop the app being marked not configured")
+	sessionStorage.AssertCalled(t, "Reset")
 }
 
 // Credentials live outside the configuration, so no failure on the way may leave the Easee
@@ -238,8 +264,11 @@ func TestApplication_Uninstall_ClearsCredentialsDespiteFailures(t *testing.T) {
 	lc := lifecycle.New(nil)
 	lc.MarkRunning()
 
+	sessionStorage := mockeddb.NewChargingSessionStorage(t)
+	sessionStorage.On("Reset").Return(nil)
+
 	application := app.New(adapterMock, config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
-		lc, nil, nil, nil, nil, credentials)
+		lc, nil, nil, nil, nil, credentials, sessionStorage)
 
 	assert.ErrorContains(t, application.Uninstall(), "oops")
 	assert.True(t, credentials.Credentials().Empty(), "the tokens must be gone even when a step failed")
@@ -438,6 +467,11 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 					},
 				}).Return(errors.New("oops"))
 			},
+			// The seeds survive a partial sync, so the client is started for whatever did get
+			// created - the login still reports the failure.
+			mockSignalRClient: func(c *mocksignalr.Client) {
+				c.On("Start").Maybe()
+			},
 			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
 				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
 				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
@@ -479,7 +513,7 @@ func TestApplication_Login(t *testing.T) { //nolint:paralleltest
 			adapterMock.On("Things").Return([]adapter.Thing{}).Maybe()
 
 			cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
-			application := app.New(adapterMock, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}))
+			application := app.New(adapterMock, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}), nil)
 
 			err := application.Login(tt.loginData)
 
@@ -565,7 +599,7 @@ func TestApplication_Logout(t *testing.T) {
 			}
 
 			cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
-			application := app.New(nil, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}))
+			application := app.New(nil, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}), nil)
 			err := application.Logout()
 
 			assert.Equal(t, tt.wantErr, err != nil, "failed error expectation")
@@ -705,6 +739,10 @@ func TestApplication_Initialize(t *testing.T) {
 				tt.mockClient(clientMock)
 			}
 
+			// Initialize re-seeds when credentials exist but no things do, which these cases
+			// do not exercise; a failure there is logged and does not affect the outcome.
+			clientMock.On("Chargers").Return(nil, errors.New("not under test")).Maybe()
+
 			defer func() {
 				adapterMock.AssertExpectations(t)
 				clientMock.AssertExpectations(t)
@@ -714,7 +752,7 @@ func TestApplication_Initialize(t *testing.T) {
 			cfgService := config.NewService(storage)
 
 			credentials := newCredentialsStore(t, tt.credentials)
-			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil, nil, credentials)
+			application := app.New(adapterMock, cfgService, lc, nil, clientMock, nil, nil, credentials, nil)
 
 			err := application.Initialize()
 
@@ -1006,6 +1044,121 @@ func TestApplication_Initialize_AdoptSeededSelection(t *testing.T) {
 	}
 }
 
+// The re-seed calls the cloud, so an expired refresh token makes it trigger an auth loss whose
+// logout lands on its own goroutine. The lifecycle therefore has to be marked before the
+// re-seed rather than after it: marking afterwards would overwrite that logout and leave the
+// app claiming a session it no longer has, with nothing to re-fire it - cleared credentials
+// report "not logged in" instead of another auth loss.
+func TestApplication_Initialize_MarksLifecycleBeforeReSeeding(t *testing.T) {
+	t.Parallel()
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("InitializeThings").Return(nil)
+	adapterMock.On("Things").Return([]adapter.Thing{})
+
+	lc := lifecycle.New(nil)
+
+	var authWhileReSeeding lifecycle.State
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Ping").Return(nil).Maybe()
+	clientMock.On("Chargers").
+		Run(func(mock.Arguments) { authWhileReSeeding = lc.AuthState() }).
+		Return(nil, errors.New("not logged in"))
+
+	signalRClient := mocksignalr.NewClient(t)
+	signalRClient.On("Start").Maybe()
+
+	application := app.New(
+		adapterMock,
+		config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)),
+		lc, nil, clientMock, mockapi.NewAuthenticator(t), signalRClient,
+		newCredentialsStore(t, config.Credentials{AccessToken: "token", RefreshToken: "refresh"}),
+		nil,
+	)
+
+	require.NoError(t, application.Initialize())
+
+	assert.Equal(t, lifecycle.AuthStateAuthenticated, authWhileReSeeding,
+		"the lifecycle must be marked before the re-seed, so an auth loss it triggers is not overwritten")
+}
+
+// EnsureThings seeds per charger and joins the failures, so a charger that failed to create
+// leaves the others behind and a re-seed gated on zero things never fires. cliffhanger
+// excludes it "until the next sync" - which for this adapter never comes, because
+// configureChargers has no caller but Login and Check() is a no-op.
+func TestApplication_Initialize_ReSeedsWhenSelectedChargerHasNoThing(t *testing.T) {
+	t.Parallel()
+
+	thing := mockedadapter.NewThing(t)
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("InitializeThings").Return(nil)
+	// Not called: the selection is explicit (non-nil), so the zero-things test - and the
+	// adoption path, which only runs for a nil selection - both skip Things() entirely.
+	adapterMock.On("Things").Return([]adapter.Thing{thing}).Maybe()
+	adapterMock.On("ThingByID", "123").Return(thing)
+	adapterMock.On("ThingByID", "456").Return(nil)
+
+	reSeeded := false
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Ping").Return(nil).Maybe()
+	clientMock.On("Chargers").
+		Run(func(mock.Arguments) { reSeeded = true }).
+		Return(nil, errors.New("service unavailable"))
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	require.NoError(t, cfg.SetSelectedDevices(selection.Selection{"123", "456"}))
+
+	application := app.New(
+		adapterMock, cfg, lifecycle.New(nil), nil, clientMock, mockapi.NewAuthenticator(t),
+		mocksignalr.NewClient(t),
+		newCredentialsStore(t, config.Credentials{AccessToken: "token", RefreshToken: "refresh"}),
+		nil,
+	)
+
+	require.NoError(t, application.Initialize())
+
+	assert.True(t, reSeeded, "a selected charger without a thing must re-seed, not just an empty adapter")
+}
+
+// An explicit empty selection means the user deliberately kept no chargers, distinct from a
+// nil selection ("every charger") that just has not been seeded yet. Re-seeding it would call
+// the cloud - and risk an auth loss - on every boot for an install that wants none.
+func TestApplication_Initialize_SkipsReSeedWhenSelectionIsExplicitlyEmpty(t *testing.T) {
+	t.Parallel()
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("InitializeThings").Return(nil)
+	// Not called: an explicit (non-nil) selection skips both the zero-things test and the
+	// adoption path, which only runs for a nil selection.
+	adapterMock.On("Things").Return([]adapter.Thing{}).Maybe()
+
+	reSeeded := false
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Ping").Return(nil).Maybe()
+	clientMock.On("Chargers").
+		Run(func(mock.Arguments) { reSeeded = true }).
+		Return(nil, errors.New("service unavailable")).
+		Maybe()
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	require.NoError(t, cfg.SetSelectedDevices(selection.Selection{}))
+
+	application := app.New(
+		adapterMock, cfg, lifecycle.New(nil), nil, clientMock, mockapi.NewAuthenticator(t),
+		mocksignalr.NewClient(t),
+		newCredentialsStore(t, config.Credentials{AccessToken: "token", RefreshToken: "refresh"}),
+		nil,
+	)
+
+	require.NoError(t, application.Initialize())
+
+	assert.False(t, reSeeded, "an explicit empty selection must not re-seed just because there are zero things")
+}
+
 type selectionHarness struct {
 	t           *testing.T
 	app         app.ApplicationWithToken
@@ -1039,6 +1192,13 @@ func newSelectionHarness(t *testing.T, chargers []model.Charger, chargersErr err
 	}
 
 	h.adapter.On("Things").Return(things).Maybe()
+
+	for i, id := range owned {
+		h.adapter.On("ThingByID", id).Return(things[i]).Maybe()
+	}
+
+	h.adapter.On("ThingByID", mock.Anything).Return(nil).Maybe()
+
 	h.client.On("Chargers").Return(chargers, chargersErr).Maybe()
 
 	for _, charger := range chargers {
@@ -1073,7 +1233,7 @@ func (h *selectionHarness) newApp() app.ApplicationWithToken {
 	signalRClient.On("Start").Maybe()
 
 	h.app = app.New(h.adapter, h.cfg, lifecycle.New(nil), nil, h.client, h.auth, signalRClient,
-		newCredentialsStore(h.t, h.credentials))
+		newCredentialsStore(h.t, h.credentials), nil)
 
 	return h.app
 }
@@ -1096,6 +1256,41 @@ func (h *selectionHarness) seeded() []string {
 	defer h.lock.Unlock()
 
 	return h.ids
+}
+
+// A nil selection means "every charger", so applyChargers must never hand one back when the
+// sync did not run. A transient ChargerDetails failure used to erase an explicit selection and
+// silently widen the next successful sync to the whole account.
+func TestApplication_Login_ChargerDetailsFailureKeepsSelection(t *testing.T) {
+	t.Parallel()
+
+	selected := selection.Selection{"123", "456"}
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("Things").Return([]adapter.Thing{}).Maybe()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Chargers").Return([]model.Charger{{ID: "123"}, {ID: "456"}}, nil)
+	clientMock.On("ChargerDetails", mock.Anything).Return(model.ChargerDetails{}, errors.New("internal server error"))
+	clientMock.On("Ping").Return(nil).Maybe()
+
+	authMock := mockapi.NewAuthenticator(t)
+	authMock.On("Login", "user", "password").Return(nil)
+
+	signalRClient := mocksignalr.NewClient(t)
+	signalRClient.On("Start").Maybe()
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	require.NoError(t, cfg.SetSelectedDevices(selected))
+
+	application := app.New(
+		adapterMock, cfg, lifecycle.New(nil), nil, clientMock, authMock, signalRClient,
+		newCredentialsStore(t, config.Credentials{AccessToken: "token", RefreshToken: "refresh"}),
+		nil,
+	)
+
+	require.Error(t, application.Login(&cliffApp.LoginCredentials{Username: "user", Password: "password"}))
+	assert.Equal(t, selected, cfg.SelectedDevices(), "a failed detail fetch must not widen the selection to every charger")
 }
 
 // An upgrade that happens while logged out never reaches the boot-time adoption, so the

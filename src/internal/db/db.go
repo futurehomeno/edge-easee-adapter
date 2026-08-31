@@ -113,8 +113,14 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 		var session *ChargingSession
 
 		ok, err := s.db.Get(bucket, strconv.FormatInt(k, 10), &session)
-		if !ok || err != nil {
+		if err != nil {
 			return nil, err
+		}
+
+		// Keys() and Get() are separate transactions, so a session deleted in between is
+		// simply gone - not an error, and no reason to discard the ones already collected.
+		if !ok {
+			continue
 		}
 
 		sessions = append(sessions, session)

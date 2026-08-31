@@ -191,6 +191,7 @@ func getApplication(cfg *config.Config) app.ApplicationWithToken {
 			getAuthenticator(cfg),
 			getSignalRClient(cfg),
 			getCredentialsStore(),
+			getSessionStorage(cfg),
 		)
 	}
 
