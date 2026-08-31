@@ -94,17 +94,24 @@ was upgraded while logged out and therefore never reached the boot-time adoption
 - **WHEN** the selection is nil and the adapter holds no things
 - **THEN** adoption is skipped
 
-### Requirement: Re-Seeding An Authenticated Install With No Things
+### Requirement: Re-Seeding An Authenticated Install With Missing Things
 A login that authenticates and then fails to configure leaves the credentials stored and no things,
 and nothing else ever re-seeds them: configuring the chargers has no caller but login, and the
-periodic check is a no-op. Initialization SHALL therefore re-seed the selected chargers when
-credentials are present but the adapter holds no things. A failure there SHALL be logged and SHALL
-NOT fail initialization, and SHALL NOT consume the missing-charger retry budget, which belongs to a
-login attempt.
+periodic check is a no-op. The same holds for a charger that individually failed to be created —
+seeding is per charger and joins the failures, so the rest are left behind and the adapter is not
+empty. Initialization SHALL therefore re-seed when credentials are present and either the adapter
+holds no things or a selected charger has no thing. An unconfigured (nil) selection SHALL be judged
+on the no-things test alone, since nothing local says which chargers it covers. A failure there
+SHALL be logged and SHALL NOT fail initialization, and SHALL NOT consume the missing-charger retry
+budget, which belongs to a login attempt.
 
 #### Scenario: credentials without things
 - **WHEN** initialization finds stored credentials but no things
 - **THEN** the selected chargers are seeded rather than left absent until the next manual login
+
+#### Scenario: a selected charger has no thing
+- **WHEN** initialization finds things for some selected chargers but not all of them
+- **THEN** the selected chargers are re-seeded rather than left partially absent
 
 #### Scenario: re-seed fails
 - **WHEN** the re-seed fails, for instance because the charger list cannot be fetched

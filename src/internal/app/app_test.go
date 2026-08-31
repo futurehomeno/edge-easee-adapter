@@ -1083,6 +1083,44 @@ func TestApplication_Initialize_MarksLifecycleBeforeReSeeding(t *testing.T) {
 		"the lifecycle must be marked before the re-seed, so an auth loss it triggers is not overwritten")
 }
 
+// EnsureThings seeds per charger and joins the failures, so a charger that failed to create
+// leaves the others behind and a re-seed gated on zero things never fires. cliffhanger
+// excludes it "until the next sync" - which for this adapter never comes, because
+// configureChargers has no caller but Login and Check() is a no-op.
+func TestApplication_Initialize_ReSeedsWhenSelectedChargerHasNoThing(t *testing.T) {
+	t.Parallel()
+
+	thing := mockedadapter.NewThing(t)
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("InitializeThings").Return(nil)
+	adapterMock.On("Things").Return([]adapter.Thing{thing})
+	adapterMock.On("ThingByID", "123").Return(thing)
+	adapterMock.On("ThingByID", "456").Return(nil)
+
+	reSeeded := false
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Ping").Return(nil).Maybe()
+	clientMock.On("Chargers").
+		Run(func(mock.Arguments) { reSeeded = true }).
+		Return(nil, errors.New("service unavailable"))
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	require.NoError(t, cfg.SetSelectedDevices(selection.Selection{"123", "456"}))
+
+	application := app.New(
+		adapterMock, cfg, lifecycle.New(nil), nil, clientMock, mockapi.NewAuthenticator(t),
+		mocksignalr.NewClient(t),
+		newCredentialsStore(t, config.Credentials{AccessToken: "token", RefreshToken: "refresh"}),
+		nil,
+	)
+
+	require.NoError(t, application.Initialize())
+
+	assert.True(t, reSeeded, "a selected charger without a thing must re-seed, not just an empty adapter")
+}
+
 type selectionHarness struct {
 	t           *testing.T
 	app         app.ApplicationWithToken
@@ -1116,6 +1154,13 @@ func newSelectionHarness(t *testing.T, chargers []model.Charger, chargersErr err
 	}
 
 	h.adapter.On("Things").Return(things).Maybe()
+
+	for i, id := range owned {
+		h.adapter.On("ThingByID", id).Return(things[i]).Maybe()
+	}
+
+	h.adapter.On("ThingByID", mock.Anything).Return(nil).Maybe()
+
 	h.client.On("Chargers").Return(chargers, chargersErr).Maybe()
 
 	for _, charger := range chargers {
