@@ -15,7 +15,6 @@ import (
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"github.com/thoas/go-funk"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
@@ -118,6 +117,10 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 		return nil, errors.Wrap(err, "could not read response body")
 	}
 
+	if credentials.AccessToken == "" {
+		return nil, errors.New("login response carries no access token")
+	}
+
 	return credentials, nil
 }
 
@@ -150,6 +153,10 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 
 	if err = c.readResponseBody(resp, loginData); err != nil {
 		return nil, errors.Wrap(err, "could not read token refresh response body")
+	}
+
+	if loginData.AccessToken == "" {
+		return nil, errors.New("token refresh response carries no access token")
 	}
 
 	return loginData, nil
@@ -382,10 +389,6 @@ func (c *httpClient) readResponseBody(r *http.Response, body any) error {
 	err := json.NewDecoder(r.Body).Decode(body)
 	if err != nil {
 		return errors.Wrap(err, "could not decode response body")
-	}
-
-	if funk.IsEmpty(body) {
-		return errors.New("response body does not contain expected data")
 	}
 
 	return nil

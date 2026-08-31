@@ -599,6 +599,24 @@ func TestClient_ChargerConfig(t *testing.T) {
 			},
 		},
 		{
+			// GridTypeNotYetDetected is 0, so a charger that has not detected its grid yet
+			// answers all-zero. That used to be rejected as "does not contain expected
+			// data", and the charger's thing was then never created at all.
+			name:        "grid type not yet detected",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodGet,
+				requestPath:   "/api/chargers/XX12345/config",
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusOK,
+				responseBody: `{"detectedPowerGridType":0,"phaseMode":0}`,
+			}),
+			want: &model.ChargerConfig{},
+		},
+		{
 			name:        "response code != 200",
 			chargerID:   test.ChargerID,
 			accessToken: test.AccessToken,
