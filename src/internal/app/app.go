@@ -451,7 +451,10 @@ func (a *application) applyChargers(chargers []model.Charger, selected selection
 
 		details, err := a.client.ChargerDetails(charger.ID)
 		if err != nil {
-			return nil, fmt.Errorf("fetch charger details: %w", err)
+			// The selection is returned unchanged, never nil: the sync never ran, so it left
+			// nothing behind, and a nil selection reads as "every charger" - persisting that
+			// would erase an explicit list on a transient detail fetch failure.
+			return selected, fmt.Errorf("fetch charger details: %w", err)
 		}
 
 		products[charger.ID] = details.Product

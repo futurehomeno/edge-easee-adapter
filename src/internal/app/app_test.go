@@ -1175,6 +1175,41 @@ func (h *selectionHarness) seeded() []string {
 	return h.ids
 }
 
+// A nil selection means "every charger", so applyChargers must never hand one back when the
+// sync did not run. A transient ChargerDetails failure used to erase an explicit selection and
+// silently widen the next successful sync to the whole account.
+func TestApplication_Login_ChargerDetailsFailureKeepsSelection(t *testing.T) {
+	t.Parallel()
+
+	selected := selection.Selection{"123", "456"}
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("Things").Return([]adapter.Thing{}).Maybe()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Chargers").Return([]model.Charger{{ID: "123"}, {ID: "456"}}, nil)
+	clientMock.On("ChargerDetails", mock.Anything).Return(model.ChargerDetails{}, errors.New("internal server error"))
+	clientMock.On("Ping").Return(nil).Maybe()
+
+	authMock := mockapi.NewAuthenticator(t)
+	authMock.On("Login", "user", "password").Return(nil)
+
+	signalRClient := mocksignalr.NewClient(t)
+	signalRClient.On("Start").Maybe()
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	require.NoError(t, cfg.SetSelectedDevices(selected))
+
+	application := app.New(
+		adapterMock, cfg, lifecycle.New(nil), nil, clientMock, authMock, signalRClient,
+		newCredentialsStore(t, config.Credentials{AccessToken: "token", RefreshToken: "refresh"}),
+		nil,
+	)
+
+	require.Error(t, application.Login(&cliffApp.LoginCredentials{Username: "user", Password: "password"}))
+	assert.Equal(t, selected, cfg.SelectedDevices(), "a failed detail fetch must not widen the selection to every charger")
+}
+
 // An upgrade that happens while logged out never reaches the boot-time adoption, so the
 // first login must adopt before the cap runs - otherwise chargers this hub already had,
 // but which sit outside the first maxAutoSelected of the account, are destroyed.
