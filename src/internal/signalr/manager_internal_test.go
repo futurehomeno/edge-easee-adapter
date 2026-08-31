@@ -152,7 +152,7 @@ func TestArmedRetryDoesNotDisarmTheChainThatReplacedIt(t *testing.T) {
 	t.Cleanup(func() { close(m.done) })
 
 	charger := m.chargers[chargerID]
-	charger.backoff = instantBackoff{}
+	charger.backoff = instantBackoff{Stateful: m.cfg.SignalRBackoffStateful()}
 	charger.retryArmed = true
 
 	// Filled to capacity so the hand-off blocks, which pins the retry between its disarm and
@@ -190,6 +190,46 @@ func TestArmedRetryDoesNotDisarmTheChainThatReplacedIt(t *testing.T) {
 	defer m.mu.RUnlock()
 
 	assert.True(t, charger.retryArmed, "the chain armed during the hand-off must stay armed")
+}
+
+// The buffer only fills while the run loop is stalled, so a warning per dropped observation
+// would add synchronous logging to the overload path. One per streak, re-armed once a send
+// gets through again.
+func TestObservationDropWarnsOncePerStreak(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	observations := make(chan model.Observation, 1)
+	r := newReceiver(observations)
+
+	obs := model.Observation{ID: model.ChargerOPState, ChargerID: chargerID}
+
+	r.ProductUpdate(obs)
+
+	for range 5 {
+		r.ProductUpdate(obs)
+	}
+
+	assert.Equal(t, 1, dropWarnings(hook), "a streak of drops must warn once, not once per observation")
+
+	// A send that gets through ends the streak, so the next stall is visible again.
+	<-observations
+	r.ProductUpdate(obs)
+	r.ProductUpdate(obs)
+
+	assert.Equal(t, 2, dropWarnings(hook), "a fresh stall after recovery must warn again")
+}
+
+func dropWarnings(hook *logtest.Hook) int {
+	warnings := 0
+
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == log.WarnLevel && strings.Contains(entry.Message, "observation buffer full") {
+			warnings++
+		}
+	}
+
+	return warnings
 }
 
 func subscribeWarnings(hook *logtest.Hook) int {
