@@ -11,7 +11,8 @@ rejections, the auth-loss escalation, and explicit logout.
 `Authenticator.Login` SHALL exchange a username and password at `POST /api/accounts/login` and
 persist the returned credentials in the credential store. A store write failure SHALL be logged as
 a warning and SHALL NOT fail the login, because the credentials remain usable in memory until the
-next restart. A successful login SHALL reset the authenticator backoff.
+next restart. A successful login SHALL reset the authenticator backoff. A 200 response carrying no
+access token SHALL be rejected as an error, on both the login and the token-refresh path.
 
 #### Scenario: successful login
 - **WHEN** `Login` is called with credentials Easee accepts

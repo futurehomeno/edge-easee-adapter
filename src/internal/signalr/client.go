@@ -23,6 +23,9 @@ const (
 
 // Client is the interface for the SignalR client.
 type Client interface {
+	// Start is idempotent and never blocks. A start racing an in-flight Close is dropped
+	// rather than queued, so a caller that needs the client running after closing it must
+	// order the two itself - Register does, and app-level login re-arms it the same way.
 	Start()
 	Close() error
 
