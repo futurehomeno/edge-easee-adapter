@@ -13,9 +13,11 @@ first charger registers and SHALL close it when the last charger unregisters. St
 already-running client SHALL be a no-op, and a start that races a close SHALL be dropped rather than
 joining the wait group that close is already draining.
 
+Idempotence SHALL live in the client itself rather than in a manager-side start guard.
+
 #### Scenario: first charger registers
 - **WHEN** a charger is registered and the client is not connected
-- **THEN** the client is started once, guarded so concurrent registrations do not start it twice
+- **THEN** the client is started, and a concurrent registration starting it again is a no-op
 
 #### Scenario: start races a close
 - **WHEN** the client is started while a close is still draining its connection goroutine
@@ -35,7 +37,9 @@ configured stateful backoff (`signalr` initial 5s, repeated 30s, final 10m by de
 modes add a fixed sleep before the backoff is consulted: when the access token cannot be obtained the
 client SHALL sleep 1 minute, throttling the adapter's own reconnect loop; when the SignalR HTTP
 connection cannot be established it SHALL sleep 30 seconds, throttling the underlying library's tight
-retry loop. A successful connection SHALL reset the backoff.
+retry loop. A successful connection SHALL reset the backoff. A superseded connection SHALL be
+stopped before the next attempt, since each one holds a cancellable child of the client context that
+is released only by stopping it.
 
 #### Scenario: connection attempt fails
 - **WHEN** establishing the SignalR connection fails
@@ -57,7 +61,10 @@ retry loop. A successful connection SHALL reset the backoff.
 Each registered charger SHALL be subscribed on the shared connection before its observations are
 delivered. A subscription request SHALL be enqueued on a buffered channel and handled by the single
 manager run loop. A failed subscribe SHALL arm a backoff-spaced retry rather than failing the
-registration.
+registration. At most one retry SHALL be armed per charger at a time, and the arming SHALL be
+released on every exit path so a later failure can arm again. The manager lock SHALL NOT be held
+across the subscribe invoke, which runs up to the configured invoke timeout on the same goroutine
+that drains observations.
 
 #### Scenario: subscribe succeeds
 - **WHEN** the manager handles a queued subscription and the invoke succeeds
@@ -66,6 +73,19 @@ registration.
 #### Scenario: subscribe fails
 - **WHEN** the subscribe invoke fails
 - **THEN** a retry is armed after the charger's next backoff interval and the registration stands
+
+#### Scenario: a retry is already armed
+- **WHEN** a charger whose retry is still armed fails to subscribe again
+- **THEN** no second retry chain is armed
+
+#### Scenario: subscribe invoke is slow
+- **WHEN** a subscribe invoke is in flight
+- **THEN** connectivity queries, registration and observation dispatch proceed rather than blocking
+  until it returns
+
+#### Scenario: charger unregistered during an invoke
+- **WHEN** the charger is unregistered while its subscribe invoke is in flight
+- **THEN** the result is discarded rather than resurrecting the registration
 
 #### Scenario: repeated failures stay quiet
 - **WHEN** a charger keeps failing to subscribe
@@ -114,9 +134,16 @@ flag is false.
 
 ### Requirement: Observation Dispatch
 Observations SHALL be delivered to a buffered channel and dispatched serially by the single manager
-run loop. An observation whose ID is not in the supported set SHALL be dropped silently. An
-observation for an unregistered charger SHALL be reported as `no handler`. A handler error SHALL be
-logged as a warning naming the charger and the observation.
+run loop. When that buffer is full the observation SHALL be dropped with a warning naming the charger
+rather than blocking the SignalR receive callback, which the library invokes on a fresh goroutine per
+observation and which nothing drains once the manager has stopped. An observation whose ID is not in
+the supported set SHALL be dropped silently. An observation for an unregistered charger SHALL be
+reported as `no handler`. A handler error SHALL be logged as a warning naming the charger and the
+observation.
+
+#### Scenario: dispatch buffer is full
+- **WHEN** an observation arrives and the dispatch buffer has no free slot
+- **THEN** it is dropped with a warning and the receive callback returns immediately
 
 #### Scenario: unsupported observation
 - **WHEN** an observation arrives whose ID is not in `SupportedObservationIDs`
