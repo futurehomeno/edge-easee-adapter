@@ -274,6 +274,15 @@ func (c *controller) restartForPhaseMode(target int) error {
 	// Read before the stop: the session-finished observation clears the cached value
 	// asynchronously, so afterwards it may no longer describe the session being bounced.
 	resume, _ := c.cache.RequestedOfferedCurrent()
+
+	// Only this adapter writes RequestedOfferedCurrent, so it is empty after a restart even
+	// though the session is still running. OfferedCurrent is the charger's own observation of
+	// what it is delivering, so it describes that session; falling straight through to
+	// MaxCurrent would resume a 6A session at 32A - the silent raise this whole path avoids.
+	if resume <= 0 {
+		resume, _ = c.cache.OfferedCurrent()
+	}
+
 	if resume <= 0 {
 		resume, _ = c.cache.MaxCurrent()
 	}
