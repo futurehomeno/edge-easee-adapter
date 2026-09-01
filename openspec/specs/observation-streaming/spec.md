@@ -10,11 +10,18 @@ source of live charger telemetry; the HTTP API is used for commands and static c
 ### Requirement: Single Shared Connection
 One SignalR client SHALL serve every charger on the hub. The manager SHALL start the client when the
 first charger registers and SHALL close it when the last charger unregisters. Starting an
-already-running client SHALL be a no-op.
+already-running client SHALL be a no-op, and a start that races a close SHALL be dropped rather than
+joining the wait group that close is already draining.
+
+Idempotence SHALL live in the client itself rather than in a manager-side start guard.
 
 #### Scenario: first charger registers
 - **WHEN** a charger is registered and the client is not connected
-- **THEN** the client is started once, guarded so concurrent registrations do not start it twice
+- **THEN** the client is started, and a concurrent registration starting it again is a no-op
+
+#### Scenario: start races a close
+- **WHEN** the client is started while a close is still draining its connection goroutine
+- **THEN** the start is dropped and no new connection goroutine is spawned
 
 #### Scenario: last charger unregisters
 - **WHEN** the final registered charger is unregistered
@@ -30,7 +37,9 @@ configured stateful backoff (`signalr` initial 5s, repeated 30s, final 10m by de
 modes add a fixed sleep before the backoff is consulted: when the access token cannot be obtained the
 client SHALL sleep 1 minute, throttling the adapter's own reconnect loop; when the SignalR HTTP
 connection cannot be established it SHALL sleep 30 seconds, throttling the underlying library's tight
-retry loop. A successful connection SHALL reset the backoff.
+retry loop. A successful connection SHALL reset the backoff. A superseded connection SHALL be
+stopped before the next attempt, since each one holds a cancellable child of the client context that
+is released only by stopping it.
 
 #### Scenario: connection attempt fails
 - **WHEN** establishing the SignalR connection fails
@@ -50,9 +59,22 @@ retry loop. A successful connection SHALL reset the backoff.
 
 ### Requirement: Per-Charger Subscription
 Each registered charger SHALL be subscribed on the shared connection before its observations are
-delivered. A subscription request SHALL be enqueued on a buffered channel and handled by the single
-manager run loop. A failed subscribe SHALL arm a backoff-spaced retry rather than failing the
-registration.
+delivered. Registration SHALL enqueue a subscription request on a buffered channel, handled by the
+single manager run loop, only when the client already reports connected; while a connect is still in
+flight the charger SHALL be left to the reconnect sweep, which already holds it, rather than enqueued
+into a subscribe guaranteed to fail because the client is not running yet. A failed subscribe SHALL
+arm a backoff-spaced retry rather than failing the registration. At most one retry SHALL be armed per
+charger at a time, and the arming SHALL be released on every exit path so a later failure can arm
+again. The manager lock SHALL NOT be held across the subscribe invoke, which runs up to the
+configured invoke timeout on the same goroutine that drains observations.
+
+#### Scenario: registered while the client is still connecting
+- **WHEN** a charger is registered before the client reports connected
+- **THEN** nothing is enqueued and the charger is subscribed by the `ClientStateConnected` sweep
+
+#### Scenario: registered against a live connection
+- **WHEN** a charger is registered while the client already reports connected
+- **THEN** the subscription is enqueued straight away, there being no future connect to sweep it in
 
 #### Scenario: subscribe succeeds
 - **WHEN** the manager handles a queued subscription and the invoke succeeds
@@ -61,6 +83,22 @@ registration.
 #### Scenario: subscribe fails
 - **WHEN** the subscribe invoke fails
 - **THEN** a retry is armed after the charger's next backoff interval and the registration stands
+
+#### Scenario: a retry is already armed
+- **WHEN** a charger whose retry is still armed fails to subscribe again
+- **THEN** no second retry chain is armed
+
+#### Scenario: subscribe invoke is slow
+- **WHEN** a subscribe invoke is in flight
+- **THEN** connectivity queries, registration and observation dispatch proceed rather than blocking
+  until it returns
+
+#### Scenario: charger unregistered during an invoke
+- **WHEN** the charger is unregistered while its subscribe invoke is in flight
+- **THEN** the result is discarded rather than resurrecting the registration, and a compensating
+  unsubscribe is sent so a subscription the invoke established after the unregister's own
+  unsubscribe is not left orphaned. It is sent whatever the invoke reported, since the invoke
+  timeout is local and does not cancel the server-side operation
 
 #### Scenario: repeated failures stay quiet
 - **WHEN** a charger keeps failing to subscribe
@@ -109,9 +147,16 @@ flag is false.
 
 ### Requirement: Observation Dispatch
 Observations SHALL be delivered to a buffered channel and dispatched serially by the single manager
-run loop. An observation whose ID is not in the supported set SHALL be dropped silently. An
-observation for an unregistered charger SHALL be reported as `no handler`. A handler error SHALL be
-logged as a warning naming the charger and the observation.
+run loop. When that buffer is full the observation SHALL be dropped with a warning naming the charger
+rather than blocking the SignalR receive callback, which the library invokes on a fresh goroutine per
+observation and which nothing drains once the manager has stopped. An observation whose ID is not in
+the supported set SHALL be dropped silently. An observation for an unregistered charger SHALL be
+reported as `no handler`. A handler error SHALL be logged as a warning naming the charger and the
+observation.
+
+#### Scenario: dispatch buffer is full
+- **WHEN** an observation arrives and the dispatch buffer has no free slot
+- **THEN** it is dropped with a warning and the receive callback returns immediately
 
 #### Scenario: unsupported observation
 - **WHEN** an observation arrives whose ID is not in `SupportedObservationIDs`
@@ -136,9 +181,17 @@ lock cable permanently, charging session start and charging session stop.
 - **THEN** its dedicated handler runs
 
 ### Requirement: Timestamp-Guarded Cache Writes
-Every cached value SHALL carry the timestamp of the observation that produced it. A write whose
-timestamp is older than the value already held SHALL be rejected, and the handler SHALL return
-without publishing a report.
+Every cached value SHALL carry the timestamp of the observation that produced it, except
+controller-requested values, which carry the time the command was issued. A write whose timestamp is
+older than the value already held SHALL be rejected, and the handler SHALL return without publishing
+a report. The session-finished clear of `requestedOfferedCurrent` follows the controller convention
+rather than the observation one: it is written with the current time, not the timestamp of the state
+observation that triggered it.
+
+#### Scenario: session-finished clear carries the current time
+- **WHEN** a session-finished state observation clears the cached requested offered current
+- **THEN** the write carries the current time, so a state observation whose own timestamp is older
+  than the last command still clears the value
 
 #### Scenario: out-of-order observation
 - **WHEN** an observation older than the cached value for the same key is handled

@@ -221,7 +221,6 @@ func SupportedObservationIDs() []ObservationID {
 		InCurrentT5,
 		CloudConnected,
 		CableLocked,
-		CableRating,
 		LockCablePermanently,
 		ChargingSessionStart,
 		ChargingSessionStop,

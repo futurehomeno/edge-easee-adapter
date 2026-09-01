@@ -147,6 +147,41 @@ func TestAuthLossHandler_SnapshotsCredentialsBeforePublishing(t *testing.T) {
 	}
 }
 
+// A credentials change in the gap between the synchronous snapshot and the goroutine actually
+// running must stop the publish too, or the stale cmd.auth.logout message can still reach the
+// routed handler and clear the session that replaced the one that triggered this callback.
+func TestAuthLossHandler_SkipsPublishWhenCredentialsChangedBeforeGoroutineRuns(t *testing.T) {
+	t.Parallel()
+
+	var calls atomic.Int32
+
+	credentials := func() config.Credentials {
+		// First read: the snapshot taken synchronously before the goroutine spawns. Second
+		// read: taken from inside the goroutine, simulating a login that landed in between.
+		if calls.Add(1) == 1 {
+			return config.Credentials{}
+		}
+
+		return config.Credentials{AccessToken: "fresh-login-value"} //nolint:gosec
+	}
+
+	published := make(chan struct{})
+
+	publisher := stubPublisher{onPublish: func() { close(published) }}
+
+	handler := authLossHandler(stubNotifier{}, publisher, fimptype.EaseeService, credentials, func() error {
+		return nil
+	})
+
+	handler("token rejected")
+
+	select {
+	case <-published:
+		require.Fail(t, "logout was published after a fresh login replaced the cleared credentials")
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
 // A nil fallback must not panic: the handler runs under the authenticator lock.
 func TestAuthLossHandler_NilFallback(t *testing.T) {
 	t.Parallel()

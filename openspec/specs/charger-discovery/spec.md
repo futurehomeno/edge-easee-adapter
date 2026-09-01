@@ -94,6 +94,29 @@ was upgraded while logged out and therefore never reached the boot-time adoption
 - **WHEN** the selection is nil and the adapter holds no things
 - **THEN** adoption is skipped
 
+### Requirement: Re-Seeding An Authenticated Install With Missing Things
+A login that authenticates and then fails to configure leaves the credentials stored and no things,
+and nothing else ever re-seeds them: configuring the chargers has no caller but login, and the
+periodic check is a no-op. The same holds for a charger that individually failed to be created —
+seeding is per charger and joins the failures, so the rest are left behind and the adapter is not
+empty. Initialization SHALL therefore re-seed when credentials are present and either the adapter
+holds no things or a selected charger has no thing. An unconfigured (nil) selection SHALL be judged
+on the no-things test alone, since nothing local says which chargers it covers. A failure there
+SHALL be logged and SHALL NOT fail initialization, and SHALL NOT consume the missing-charger retry
+budget, which belongs to a login attempt.
+
+#### Scenario: credentials without things
+- **WHEN** initialization finds stored credentials but no things
+- **THEN** the selected chargers are seeded rather than left absent until the next manual login
+
+#### Scenario: a selected charger has no thing
+- **WHEN** initialization finds things for some selected chargers but not all of them
+- **THEN** the selected chargers are re-seeded rather than left partially absent
+
+#### Scenario: re-seed fails
+- **WHEN** the re-seed fails, for instance because the charger list cannot be fetched
+- **THEN** a warning is logged, the retry budget is reset, and initialization continues
+
 ### Requirement: Stale ID Filtering On Adoption
 Adoption at configure time SHALL restrict the owned IDs to those the account still lists, so a stale
 ID cannot be carried forward. When nothing owned is listed at all — a different Easee account rather
@@ -162,10 +185,10 @@ selection, or the same vanished charger is re-announced on every later sync.
 - **WHEN** the sync returns at least one seed
 - **THEN** the SignalR client is started
 
-#### Scenario: sync fails
-- **WHEN** the framework sync returns an error
-- **THEN** the apply returns a `sync things` error and both the seeds and the excluded IDs are
-  discarded
+#### Scenario: sync partially fails
+- **WHEN** the framework sync returns an error alongside its seeds and excluded IDs
+- **THEN** the failure is logged, the excluded IDs are still removed from the selection, the SignalR
+  client is still started, and the `sync things` error is still returned to the caller
 
 ### Requirement: Thing Composition
 Each charger thing SHALL expose four services in group `ch_0`: chargepoint, electricity meter,
@@ -183,24 +206,21 @@ ID, and a product hash of `Easee - Easee - <product>`.
 
 ### Requirement: Thing State Refresh At Creation
 Thing creation SHALL refresh the charger state from `/api/chargers/{id}/config` and
-`/api/chargers/{id}/site`, persisting the refreshed state. When the refresh fails with
-`ErrNotLoggedIn` the thing SHALL be created from the stored state instead and the state SHALL NOT be
-persisted, so a stored state that failed to load is not overwritten with zeros. When a refresh fails
-for any other reason but the persisted state already holds the data that refresh would supply
-(`IsConfigUpdateNeeded` / `IsSiteUpdateNeeded` returns false), the error SHALL be suppressed and the
-stored data kept. Any other refresh error SHALL abort creation of the thing.
+`/api/chargers/{id}/site`, persisting the refreshed state. When a refresh fails for any reason but
+the persisted state already holds the data that refresh would supply (`IsConfigUpdateNeeded` /
+`IsSiteUpdateNeeded` returns false), the error SHALL be suppressed and the stored data kept. Any
+other refresh failure SHALL be logged as a warning and the thing SHALL still be created from the
+stored state, with the state NOT persisted, so a stored state that failed to load is not overwritten
+with zeros. A refresh failure SHALL NOT abort creation: things are created in a loop that stops at
+the first error, so one unreachable charger would otherwise take every remaining charger with it.
 
-#### Scenario: not logged in at boot
-- **WHEN** the state refresh fails with `ErrNotLoggedIn`
+#### Scenario: refresh fails and the state still needs that update
+- **WHEN** the state refresh fails for any reason and the state still needs that update
 - **THEN** a warning is logged, the thing is created from the stored state, and the state is not
   written back
 
-#### Scenario: other refresh failure with no stored data
-- **WHEN** the state refresh fails for any other reason and the state still needs that update
-- **THEN** thing creation returns the error
-
-#### Scenario: other refresh failure with stored data
-- **WHEN** the state refresh fails for any other reason but the stored state already holds the data
+#### Scenario: refresh fails but the stored state already holds the data
+- **WHEN** the state refresh fails for any reason but the stored state already holds the data
 - **THEN** the error is suppressed and the thing is created from the stored state
 
 #### Scenario: stored state unreadable
@@ -208,7 +228,10 @@ stored data kept. Any other refresh error SHALL abort creation of the thing.
 - **THEN** a warning is logged and an empty state is used as the starting point
 
 ### Requirement: Uninstall
-`Uninstall` SHALL destroy all things, reset the configuration and clear the credentials, running
+`Uninstall` SHALL destroy all things, reset the configuration, clear the credentials and reset the
+charging-session storage — sessions are keyed by charger ID alone, so a reinstall against a
+different Easee account with a colliding ID would otherwise serve the previous account's data —
+running
 every step even when an earlier one fails and joining the errors. The app SHALL be marked not
 configured regardless of those errors.
 

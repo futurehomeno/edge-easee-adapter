@@ -34,15 +34,13 @@ type Manager interface {
 }
 
 type manager struct {
-	mu              sync.RWMutex
-	clientStartLock sync.Mutex
+	mu sync.RWMutex
 
 	running bool
 	done    chan struct{}
 	cfg     *config.Service
 
-	subscriptions  chan string
-	clientStarting bool
+	subscriptions chan string
 
 	client   Client
 	tel      telemetry.Telemetry
@@ -111,7 +109,8 @@ func (m *manager) Register(chargerID string, handler Handler) {
 		backoff:      m.cfg.SignalRBackoffStateful(),
 	}
 
-	m.ensureClientStarted()
+	m.client.Start()
+
 	connected := m.client.Connected()
 	m.mu.Unlock()
 
@@ -214,20 +213,49 @@ func (m *manager) run() {
 
 func (m *manager) handleSubscription(chargerID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	charger, ok := m.chargers[chargerID]
 	if !ok {
+		m.mu.Unlock()
+
 		return fmt.Errorf("unknown charger")
 	}
 
 	// A retry armed before a disconnect can fire after the reconnect sweep already
 	// re-subscribed this charger; don't subscribe twice on the same connection.
 	if charger.isSubscribed {
+		m.mu.Unlock()
+
 		return nil
 	}
 
-	if err := m.client.SubscribeCharger(chargerID); err != nil {
+	m.mu.Unlock()
+
+	// Invoked unlocked: SubscribeCharger blocks for up to SignalRInvokeTimeout, and this runs
+	// on the run loop, the only drainer of the observation channel. Holding m.mu across it
+	// stalled Connected(), Register() and every observation lookup for the whole invocation.
+	err := m.client.SubscribeCharger(chargerID)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Unregister can drop this charger - and a later Register re-add a different struct under
+	// the same ID - while the invoke ran unlocked, so identity is the test, not presence.
+	if current, ok := m.chargers[chargerID]; !ok || current != charger {
+		// A Subscribe that wins this race establishes a cloud subscription after
+		// Unregister's own Unsubscribe already ran, orphaning it with no local charger
+		// left to receive its observations until the next reconnect. Compensated whatever
+		// the invoke reported: a local timeout does not cancel the server-side operation,
+		// so an error is no proof the subscription was not established. Unsubscribing one
+		// that never existed is a no-op, which is the cheaper way to be wrong.
+		if unsubErr := m.client.UnsubscribeCharger(chargerID); unsubErr != nil {
+			log.Warnf("signalR: cleanup after unregister race chargerID=%s err: %v", chargerID, unsubErr)
+		}
+
+		return nil
+	}
+
+	if err != nil {
 		// A sustained outage (e.g. not logged in) retries forever; warn on the first
 		// failure of a streak only, so it does not accumulate thousands of lines.
 		if charger.subscribeFailed {
@@ -237,7 +265,14 @@ func (m *manager) handleSubscription(chargerID string) error {
 			charger.subscribeFailed = true
 		}
 
-		go m.addChargerSubscription(chargerID, charger)
+		// One retry chain per charger. Every reconnect enqueues a subscription for every
+		// charger, so without this a charger that keeps failing accumulated one more
+		// self-perpetuating chain - and one more blocking invoke per cycle - per reconnect.
+		if !charger.retryArmed {
+			charger.retryArmed = true
+
+			go m.addChargerSubscription(chargerID, charger)
+		}
 
 		return nil
 	}
@@ -258,11 +293,25 @@ func (m *manager) addChargerSubscription(chargerID string, charger *charger) {
 
 	defer timer.Stop()
 
+	// Disarmed on every exit path - a charger left armed can never schedule another retry,
+	// which strands it worse than the duplicate chains the flag exists to prevent - but never
+	// via defer: enqueueSubscription returns as soon as the run loop takes the ID, and that
+	// same loop may already have armed the next chain by then. A deferred disarm would clear
+	// that fresh flag, so the failure after it would arm a duplicate.
 	select {
 	case <-done:
+		m.disarmRetry(charger)
 	case <-timer.C:
+		m.disarmRetry(charger)
 		m.enqueueSubscription(chargerID)
 	}
+}
+
+func (m *manager) disarmRetry(charger *charger) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	charger.retryArmed = false
 }
 
 func (m *manager) handleClientState(state model.ClientState) {
@@ -333,36 +382,10 @@ func (m *manager) handleObservation(observation model.Observation) error {
 	return nil
 }
 
-func (m *manager) ensureClientStarted() {
-	if m.client.Connected() {
-		return
-	}
-
-	m.clientStartLock.Lock()
-	if m.clientStarting {
-		m.clientStartLock.Unlock()
-
-		return
-	}
-
-	log.Trace("signalR: Starting client")
-
-	m.clientStarting = true
-	m.clientStartLock.Unlock()
-
-	if len(m.chargers) != 0 {
-		m.client.Start()
-	}
-
-	m.clientStartLock.Lock()
-	defer m.clientStartLock.Unlock()
-
-	m.clientStarting = false
-}
-
 type charger struct {
 	handler         Handler
 	isSubscribed    bool
 	subscribeFailed bool
+	retryArmed      bool
 	backoff         backoff.Stateful
 }

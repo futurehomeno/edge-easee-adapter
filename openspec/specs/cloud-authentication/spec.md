@@ -11,7 +11,8 @@ rejections, the auth-loss escalation, and explicit logout.
 `Authenticator.Login` SHALL exchange a username and password at `POST /api/accounts/login` and
 persist the returned credentials in the credential store. A store write failure SHALL be logged as
 a warning and SHALL NOT fail the login, because the credentials remain usable in memory until the
-next restart. A successful login SHALL reset the authenticator backoff.
+next restart. A successful login SHALL reset the authenticator backoff. A 200 response carrying no
+access token SHALL be rejected as an error, on both the login and the token-refresh path.
 
 #### Scenario: successful login
 - **WHEN** `Login` is called with credentials Easee accepts
@@ -100,15 +101,23 @@ refresh token.
 
 ### Requirement: Auth Loss Escalation
 On auth loss the adapter SHALL send the `easee_status_offline` push notification and publish
-`cmd.auth.logout` to `pt:j1/mt:cmd/rt:ad/rn:easee/ad:1`. It SHALL additionally run a local logout
-fallback on its own goroutine, whether or not the publish succeeded, because the routed handler
-takes a try-lock that discards rather than queues a concurrent command. The fallback SHALL compare
-the credentials against a snapshot taken before the publishes and skip itself when a new session has
-replaced the one that triggered the loss.
+`cmd.auth.logout` to `pt:j1/mt:cmd/rt:ad/rn:easee/ad:1`. Both SHALL happen on their own goroutine
+rather than in the callback, which the framework invokes holding the authenticator lock: a publish
+blocks on a saturated or unreachable broker for the transport write timeout, and holding that lock
+stalls every access-token caller. It SHALL additionally run a local logout fallback on that same
+goroutine, whether or not the publish succeeded, because the routed handler takes a try-lock that
+discards rather than queues a concurrent command. The fallback SHALL compare the credentials
+against a snapshot taken when the loss was detected — before the publishes, which are no longer
+ordered ahead of it — and skip itself when a new session has replaced the one that triggered the
+loss.
 
 #### Scenario: auth loss with a reachable broker
 - **WHEN** the auth-loss handler runs
 - **THEN** a push notification is sent, `cmd.auth.logout` is published, and the fallback runs
+
+#### Scenario: broker is unreachable
+- **WHEN** the auth-loss handler runs while a publish would block
+- **THEN** the handler returns without waiting for it, so the authenticator lock is not held
 
 #### Scenario: re-login lands during the escalation
 - **WHEN** a fresh login replaces the credentials while the publishes are in flight
@@ -122,7 +131,9 @@ replaced the one that triggered the loss.
 `Authenticator.Logout` SHALL clear the stored credentials. The application-level logout SHALL first
 close the SignalR client, logging a close failure as a warning without aborting, then clear the
 credentials. On success it SHALL mark the app not configured; on failure it SHALL set app health to
-error, auth state to not-authenticated and config state to not-configured, and return the error.
+error, auth state to not-authenticated, config state to not-configured and the connection state to
+disconnected — the reporting tasks are gated on the connection state, so leaving it connected keeps
+them polling for a session the app has declared dead — and return the error.
 
 #### Scenario: successful logout
 - **WHEN** `cmd.auth.logout` is handled and credential clearing succeeds

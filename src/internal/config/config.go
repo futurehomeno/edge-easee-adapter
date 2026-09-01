@@ -312,7 +312,7 @@ func (cs *Service) SignalRInitialFailureCount() uint32 {
 }
 
 func (cs *Service) SetSignalRInitialFailureCount(n uint32) error {
-	return cs.Persist(func(c *Config) { c.SignalR.InitialFailureCount = n })
+	return cs.Update(func(c *Config) { c.SignalR.InitialFailureCount = n })
 }
 
 func (cs *Service) SignalRRepeatedFailureCount() uint32 {
@@ -320,7 +320,7 @@ func (cs *Service) SignalRRepeatedFailureCount() uint32 {
 }
 
 func (cs *Service) SetSignalRRepeatedFailureCount(n uint32) error {
-	return cs.Persist(func(c *Config) { c.SignalR.RepeatedFailureCount = n })
+	return cs.Update(func(c *Config) { c.SignalR.RepeatedFailureCount = n })
 }
 
 func (cs *Service) SignalRInvokeTimeout() time.Duration {

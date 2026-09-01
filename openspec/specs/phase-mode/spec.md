@@ -118,11 +118,13 @@ resume SHALL be returned as `phase mode set to <target>, but the charger was lef
 resume Easee accepts but the charger never echoes back within the current wait duration as
 `phase mode set to <target>, but the charger did not resume at <current>A` - an unconfirmed resume
 may well have left the session paused. The resume SHALL restore the session's own current — the
-cached requested offered current, falling back to the cached max current when that is zero or less
-— read before the pause, since the
-session-finished observation clears it asynchronously. It SHALL NOT be issued as a normal-mode
-start, which would floor the current to `initial_charging_current` and silently raise a slow
-session; the session's mode is recorded nowhere, so it cannot be reconstructed.
+cached requested offered current, falling back to the cached offered current the charger itself
+reports, and to the cached max current when both are zero or less — read before the pause, since
+the session-finished observation clears it asynchronously. When none of the three is known the
+resume SHALL NOT be attempted and the failure SHALL be reported, rather than issuing a zero-current
+resume that leaves the charger paused. It SHALL NOT be issued as a normal-mode start, which would
+floor the current to `initial_charging_current` and silently raise a slow session; the session's
+mode is recorded nowhere, so it cannot be reconstructed.
 
 #### Scenario: charger idle
 - **WHEN** the charger state is not charging

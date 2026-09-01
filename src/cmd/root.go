@@ -71,7 +71,7 @@ func Build(cfg *config.Config, packageName, version string) (root.App, error) {
 		WithRouterOptions(cliffRouter.WithStatsCallback(routing.LogStats)).
 		WithRouting(newRouting(cfg)...).
 		WithTask(newTasks(cfg)...).
-		WithServices(getSignalRManager(cfg), getEventListener(cfg), getSessionStorage(cfg)).
+		WithServices(getSessionStorage(cfg), getSignalRManager(cfg), getEventListener(cfg)).
 		Build()
 }
 
