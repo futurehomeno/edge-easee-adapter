@@ -241,11 +241,22 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		return nil
 	}
 
-	// Nothing is pending when the charger already sits in the target mode, so the request
-	// is not recorded: a fresh timestamp here would outrank a live outputPhase observation
-	// and report a leg the charger is not actually on.
 	current, internalAt := c.cache.PhaseMode()
 	if target == current {
+		// Nothing to send: Easee stores "one phase", not a chosen leg. Record the request
+		// only while no live observation says which leg is actually in use - the charger
+		// picks it, so a request outranking that observation would report a leg it is not
+		// on. Without the record, a mode the charger never echoes (NL1 -> NL2) leaves the
+		// report republishing the old leg and the UI reverting the user's choice.
+		if outputPhase, outputPhaseSet := c.cache.OutputPhaseType(); outputPhase == "" || c.outputPhaseStale(outputPhase, outputPhaseSet) {
+			requestedAt := outputPhaseSet
+			if internalAt.After(requestedAt) {
+				requestedAt = internalAt
+			}
+
+			c.cache.SetRequestedPhaseMode(mode, requestedAt.Add(time.Millisecond))
+		}
+
 		return nil
 	}
 

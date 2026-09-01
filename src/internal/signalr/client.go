@@ -23,9 +23,8 @@ const (
 
 // Client is the interface for the SignalR client.
 type Client interface {
-	// Start is idempotent and never blocks. A start racing an in-flight Close is dropped
-	// rather than queued, so a caller that needs the client running after closing it must
-	// order the two itself - Register does, and app-level login re-arms it the same way.
+	// Start is idempotent and never blocks. A start racing an in-flight Close is remembered
+	// and applied when that close completes, so callers need not order the two themselves.
 	Start()
 	Close() error
 
@@ -41,7 +40,10 @@ type client struct {
 	wg      sync.WaitGroup
 	running bool
 	closing bool
-	cancel  context.CancelFunc
+	// startRequested records a Start that arrived while a Close was draining, so the
+	// close can re-arm the client instead of dropping the request on the floor.
+	startRequested bool
+	cancel         context.CancelFunc
 
 	connection    signalr.Client
 	cfg           *config.Service
@@ -103,9 +105,16 @@ func (c *client) Start() {
 
 	// handleConnection takes c.mu on its way out, so Close() cannot hold the lock across
 	// wg.Wait(). Starting in that window either panics ("Add called concurrently with Wait")
-	// or hands Wait a goroutine holding a fresh, uncancelled context. Register re-arms the
-	// client once the close completes.
-	if c.running || c.closing {
+	// or hands Wait a goroutine holding a fresh, uncancelled context. Remember the request
+	// instead: Close re-arms the client on its way out, or a login racing the auth-loss
+	// teardown would leave every charger unsubscribed until the process restarts.
+	if c.closing {
+		c.startRequested = true
+
+		return
+	}
+
+	if c.running {
 		return
 	}
 
@@ -146,7 +155,13 @@ func (c *client) Close() error {
 
 	c.mu.Lock()
 	c.closing = false
+	restart := c.startRequested
+	c.startRequested = false
 	c.mu.Unlock()
+
+	if restart {
+		c.Start()
+	}
 
 	return nil
 }

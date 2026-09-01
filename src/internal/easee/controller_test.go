@@ -306,6 +306,7 @@ func TestController_SetChargepointPhaseMode(t *testing.T) {
 		chargerState  chargepoint.State
 		expectedEasee int
 		expectNoCall  bool
+		expectRecord  bool
 		wantErr       bool
 	}{
 		{
@@ -326,6 +327,23 @@ func TestController_SetChargepointPhaseMode(t *testing.T) {
 			name:         "already in the target mode, no API call and no session interruption",
 			mode:         types.PhaseModeNL1,
 			cachedMode:   1,
+			expectNoCall: true,
+			expectRecord: true,
+		},
+		{
+			name: "another leg is the same Easee mode 1, so it is recorded rather than dropped",
+			// Easee mode 1 means "one phase", not a chosen leg: without recording the request
+			// the report that follows republishes the old leg and the UI reverts the choice.
+			mode:         types.PhaseModeNL2,
+			cachedMode:   1,
+			expectNoCall: true,
+			expectRecord: true,
+		},
+		{
+			name:         "auto is already the target, and no leg observation is pending",
+			mode:         types.PhaseModeNL1L2L3,
+			cachedMode:   2,
+			expectRecord: true,
 			expectNoCall: true,
 		},
 		{
@@ -353,6 +371,12 @@ func TestController_SetChargepointPhaseMode(t *testing.T) {
 				cacheMock.On("PhaseMode").Return(tt.cachedMode, time.Time{})
 			}
 
+			if tt.expectRecord {
+				// No live observation of the leg in use, so the request is free to stand in.
+				cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+				cacheMock.On("SetRequestedPhaseMode", tt.mode, mock.AnythingOfType("time.Time")).Return(true)
+			}
+
 			if !tt.wantErr && !tt.expectNoCall {
 				cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
 				cacheMock.On("SetRequestedPhaseMode", tt.mode, mock.AnythingOfType("time.Time")).Return(true)
@@ -374,6 +398,10 @@ func TestController_SetChargepointPhaseMode(t *testing.T) {
 
 			if tt.expectNoCall {
 				clientMock.AssertNotCalled(t, "SetPhaseMode", mock.Anything, mock.Anything)
+			}
+
+			if tt.expectNoCall && !tt.expectRecord {
+				cacheMock.AssertNotCalled(t, "SetRequestedPhaseMode", mock.Anything, mock.Anything)
 			}
 		})
 	}
@@ -619,6 +647,9 @@ func TestController_SetChargepointPhaseMode_NoOpDoesNotMaskOutputPhase(t *testin
 	cacheMock.On("Phases").Return(3, time.Time{})
 	// Already locked to a single phase, so asking for another leg changes nothing.
 	cacheMock.On("PhaseMode").Return(1, time.Time{})
+	// A live observation names the leg actually in use, and the charger - not the request -
+	// picks it, so recording NL2 here would report a leg the charger is not on.
+	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL1, time.Now())
 
 	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
 
