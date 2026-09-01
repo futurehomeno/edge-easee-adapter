@@ -418,10 +418,17 @@ func (c *cache) waitForCurrent(group waitGroup, current int, duration time.Durat
 
 	for {
 		select {
-		case <-channel:
-			// The notifiers drop on a full buffer, so the delivered value can already be
-			// stale - two observations in quick succession deliver the first and drop the
-			// second. The cache is the authority, so re-read it rather than trust the value.
+		case v := <-channel:
+			// The delivered value is checked first: a confirmation immediately superseded by
+			// another observation is gone from the cache by the time this runs, and the
+			// notifiers drop on a full buffer, so re-reading alone would wait for a
+			// notification that never comes.
+			if v == current {
+				return true
+			}
+
+			// Conversely the delivered value can be the stale one - two observations in quick
+			// succession deliver the first and drop the second - so the cache still decides.
 			c.mu.RLock()
 			value, _ := c.currentOf(group)
 			c.mu.RUnlock()

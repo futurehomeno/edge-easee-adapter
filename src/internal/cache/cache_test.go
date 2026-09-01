@@ -47,3 +47,33 @@ func TestCache_WaitForOfferedCurrent_ResolvesOnTheCachedValue(t *testing.T) {
 		t.Fatal("wait did not return although the cache holds the awaited current")
 	}
 }
+
+// The converse of the case above: the awaited current is observed and then immediately
+// superseded, so by the time the waiter runs the cache no longer holds it and the second
+// notification was dropped on the full buffer. The delivered value is the only remaining
+// evidence the charger echoed the request, so the wait must resolve on it.
+func TestCache_WaitForOfferedCurrent_ResolvesOnASupersededNotification(t *testing.T) {
+	t.Parallel()
+
+	c := cache.NewCache("test-charger")
+
+	result := make(chan bool, 1)
+
+	go func() {
+		result <- c.WaitForOfferedCurrent(16, 30*time.Second)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	now := time.Now()
+
+	c.SetOfferedCurrent(16, now)
+	c.SetOfferedCurrent(8, now.Add(time.Millisecond))
+
+	select {
+	case got := <-result:
+		assert.True(t, got, "the wait must resolve on the delivered confirmation")
+	case <-time.After(5 * time.Second):
+		t.Fatal("wait did not return although the awaited current was observed")
+	}
+}
