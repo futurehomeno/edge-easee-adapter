@@ -787,6 +787,14 @@ func TestApplication_Configure_Selection(t *testing.T) {
 			wantSelected: []string{"123"},
 		},
 		{
+			// An empty response must leave the implicit include-all implicit: persisting []
+			// here reads back as the user deselecting everything and would suppress
+			// auto-selection permanently, even once the account lists chargers again.
+			name:         "an empty charger list leaves an absent selection absent",
+			chargers:     []model.Charger{},
+			wantSelected: nil,
+		},
+		{
 			name:     "unknown device id is rejected before anything is mutated",
 			chargers: []model.Charger{{ID: "123"}},
 			selected: []string{"unknown"},

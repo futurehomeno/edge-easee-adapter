@@ -160,6 +160,14 @@ func (a *application) Configure(model any) error {
 		}
 	}
 
+	// An empty list must not materialise the implicit include-all into an explicit empty
+	// selection: that is indistinguishable from the user deselecting everything and would
+	// suppress auto-selection for good, even once the account lists chargers again. The
+	// login path guards the same case in configureChargers.
+	if len(chargers) == 0 && selected.IncludeAll() {
+		return nil
+	}
+
 	selected, err = a.applyChargers(chargers, effectiveSelection(chargers, selected))
 	if err != nil {
 		return err
