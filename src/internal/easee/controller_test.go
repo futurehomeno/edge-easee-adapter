@@ -1,11 +1,13 @@
 package easee_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -1044,4 +1046,26 @@ func TestController_ChargepointPhaseModeReport_AutoFallbackPrefersMultiPhase(t *
 			assert.Equal(t, tt.want, mode)
 		})
 	}
+}
+
+// Observations carry Easee's clock while the seed is written by the hub, so seeding at
+// time.Now() lets a hub running ahead of the server suppress the authoritative value in the
+// cache's timestamp guard. The zero time keeps the optimistic echo without ever outranking
+// an observation.
+func TestController_SetParameter_SeedsCableLockAtTheZeroTime(t *testing.T) {
+	t.Parallel()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetCableAlwaysLocked", "test-charger", true).Return(nil).Once()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetCableAlwaysLocked", true, time.Time{}).Return(true).Once()
+
+	ctrl := newTestController(t, mockedsignalr.NewManager(t), cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	require.NoError(t, ctrl.SetParameter(&parameters.Parameter{
+		ID:        model.CableAlwaysLockedParameter,
+		ValueType: parameters.ValueTypeBool,
+		Value:     json.RawMessage("true"),
+	}))
 }

@@ -89,9 +89,10 @@ func (c *controller) SetParameter(p *parameters.Parameter) error {
 
 	// Seeded optimistically: cliffhanger answers cmd.param.set with a forced report, which the
 	// reporting cache cannot suppress, so without this it echoes the old value and corrects
-	// itself only once the observation lands. The observation stays authoritative - it carries
-	// a newer timestamp and wins the cache's guard.
-	c.cache.SetCableAlwaysLocked(val, time.Now())
+	// itself only once the observation lands. Seeded at the zero time rather than time.Now():
+	// observations carry Easee's clock, so a hub running ahead would make the cache's guard
+	// reject the authoritative value and leave the optimistic one stuck.
+	c.cache.SetCableAlwaysLocked(val, time.Time{})
 
 	return nil
 }

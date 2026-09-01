@@ -77,3 +77,23 @@ func TestCache_WaitForOfferedCurrent_ResolvesOnASupersededNotification(t *testin
 		t.Fatal("wait did not return although the awaited current was observed")
 	}
 }
+
+// The seed the controller writes must never outrank a real observation. Easee stamps
+// observations with its own clock, so one can legitimately arrive bearing a timestamp behind
+// the hub's notion of now; the zero-time seed keeps the guard from rejecting it.
+func TestCache_SetCableAlwaysLocked_ObservationOverridesTheSeed(t *testing.T) {
+	t.Parallel()
+
+	c := cache.NewCache("test-charger")
+
+	c.SetCableAlwaysLocked(true, time.Time{})
+
+	observed, _ := c.CableAlwaysLocked()
+	assert.True(t, observed, "the optimistic seed must be readable straight away")
+
+	// An observation stamped well behind the hub's clock still wins.
+	assert.True(t, c.SetCableAlwaysLocked(false, time.Now().Add(-time.Hour)))
+
+	observed, _ = c.CableAlwaysLocked()
+	assert.False(t, observed, "the observation is authoritative over the seed")
+}
