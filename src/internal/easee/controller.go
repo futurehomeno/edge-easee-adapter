@@ -421,9 +421,18 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	// within OfferedCurrentWaitTime of a Stop the cached value still matches startCurrent
 	// (cache is only cleared async via the SignalR session-finished observation), and
 	// dedup-suppressing the call would leave the charger stopped.
-	_, err := c.setOfferedCurrent(startCurrent, true)
+	confirmed, err := c.setOfferedCurrent(startCurrent, true)
+	if err != nil {
+		return err
+	}
 
-	return err
+	// Same as the phase-mode resume: Easee accepting the call is not the charger acting on
+	// it, and reporting success on a start that left the charger paused hides that.
+	if !confirmed {
+		return fmt.Errorf("start accepted, but the charger did not resume at %dA", startCurrent)
+	}
+
+	return nil
 }
 
 func (c *controller) StopChargepointCharging() error {

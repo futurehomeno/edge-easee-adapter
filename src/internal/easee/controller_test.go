@@ -1069,3 +1069,26 @@ func TestController_SetParameter_SeedsCableLockAtTheZeroTime(t *testing.T) {
 		Value:     json.RawMessage("true"),
 	}))
 }
+
+// Easee accepting the start is not the charger acting on it. Without the observation echoing
+// the current back the session may well still be paused, so cmd.charge.start must not report
+// success - the same contract the phase-mode resume already holds itself to.
+func TestController_StartChargepointCharging_ReportsUnconfirmedStart(t *testing.T) {
+	t.Parallel()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
+	// The charger never echoed the current back.
+	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(false)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	err := ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not resume")
+}
