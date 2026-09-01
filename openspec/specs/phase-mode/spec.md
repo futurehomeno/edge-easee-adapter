@@ -114,15 +114,17 @@ Because the charger applies a new phase mode only at a session boundary, an in-p
 be bounced after the mode is set. The restart SHALL be skipped when the charger state is not
 charging. A failure to read the state, or a failure to pause, SHALL be logged as a warning and
 treated as success — the mode is stored and takes effect on the next session anyway. A failure to
-resume SHALL be returned as `phase mode set to <target>, but the charger was left stopped`. The
-resume SHALL restore the session's own current — the cached requested offered current, falling back
-to the cached offered current the charger itself reports, and to the cached max current when both
-are zero or less — read before the pause, since the session-finished observation clears it
-asynchronously. When none of the three is known the resume SHALL NOT be attempted and the failure
-SHALL be reported, rather than issuing a zero-current resume that leaves the charger paused. It
-SHALL NOT be issued as a normal-mode start, which would floor the current to
-`initial_charging_current` and silently raise a slow session; the session's mode is recorded
-nowhere, so it cannot be reconstructed.
+resume SHALL be returned as `phase mode set to <target>, but the charger was left stopped`, and a
+resume Easee accepts but the charger never echoes back within the current wait duration as
+`phase mode set to <target>, but the charger did not resume at <current>A` - an unconfirmed resume
+may well have left the session paused. The resume SHALL restore the session's own current — the
+cached requested offered current, falling back to the cached offered current the charger itself
+reports, and to the cached max current when both are zero or less — read before the pause, since
+the session-finished observation clears it asynchronously. When none of the three is known the
+resume SHALL NOT be attempted and the failure SHALL be reported, rather than issuing a zero-current
+resume that leaves the charger paused. It SHALL NOT be issued as a normal-mode start, which would
+floor the current to `initial_charging_current` and silently raise a slow session; the session's
+mode is recorded nowhere, so it cannot be reconstructed.
 
 #### Scenario: charger idle
 - **WHEN** the charger state is not charging
@@ -139,6 +141,10 @@ nowhere, so it cannot be reconstructed.
 #### Scenario: resume fails
 - **WHEN** the session was paused but the restart fails
 - **THEN** the command fails with `the charger was left stopped`
+
+#### Scenario: resume is never confirmed
+- **WHEN** Easee accepts the resume but no observation echoes the current back in time
+- **THEN** the command fails with `the charger did not resume`
 
 #### Scenario: charger state unknown
 - **WHEN** the state report fails
@@ -206,7 +212,9 @@ applies a new mode only at a session boundary and the leg in use is still the ol
 ### Requirement: Phase Mode Observation Handling
 The phase-mode observation (Easee's internal mode) SHALL be ignored when it equals the cached
 internal mode. Otherwise the cache SHALL be updated, subject to the timestamp guard, and an
-unforced `evt.phase_mode.report` published.
+unforced `evt.phase_mode.report` published on its own goroutine - the report takes the chargepoint
+service lock that `cmd.phase_mode.set` holds while it waits for an observation, and the dispatch
+loop publishing it is the only drainer of that observation.
 
 #### Scenario: internal mode changes
 - **WHEN** a phase-mode observation carries a value different from the cached one

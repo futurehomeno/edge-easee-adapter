@@ -221,15 +221,21 @@ set. A charger operating state of offline SHALL clear the state flag.
 ### Requirement: Observation Value Typing
 Observation values SHALL be parsed according to the data type the payload declares. Integer-typed
 accessors SHALL reject a payload whose declared data type is not integer, and float accessors SHALL
-reject one whose type is not double. A rejected parse SHALL surface as a handler error, except for
+reject one whose type is not double. The cable rating is the exception: Easee sends it as either
+integer or double, so it SHALL be read through a lenient numeric accessor that accepts both and
+rounds to the nearest whole ampere. A rejected parse SHALL surface as a handler error, except for
 lifetime-energy observations: those are enqueued unparsed and parsed asynchronously in a background
-goroutine, where a type error causes the observation to be skipped silently without reaching the
-handler.
+goroutine, where a type error SHALL be logged as a warning and the observation skipped, since no
+handler error can surface from off the dispatch loop.
 
 #### Scenario: mismatched data type
 - **WHEN** an observation declares a data type the handler's accessor does not accept
 - **THEN** the handler returns an error and the manager logs a warning
 
+#### Scenario: cable rating as either numeric type
+- **WHEN** a cable-rating observation declares either integer or double
+- **THEN** it is parsed and cached rather than rejected
+
 #### Scenario: mismatched data type on lifetime energy
 - **WHEN** a lifetime-energy observation declares a data type that is not double
-- **THEN** the background goroutine skips it and no handler error surfaces
+- **THEN** the background goroutine logs a warning and skips it, and no handler error surfaces

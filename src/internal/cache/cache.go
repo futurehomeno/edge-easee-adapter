@@ -52,6 +52,9 @@ type Cache interface {
 	SetCableLocked(locked bool, timestamp time.Time) bool
 	SetCableCurrent(current int, timestamp time.Time) bool
 	SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool
+	// SeedCableAlwaysLocked stores an optimistic local value without the ordering guard, so
+	// the next observation — whatever its clock — still wins.
+	SeedCableAlwaysLocked(alwaysLocked bool)
 	// SetAlarm stores the state of an alarm event and reports whether the observation was accepted.
 	SetAlarm(event string, active bool, timestamp time.Time) bool
 	SetEnergySession(energy float64, timestamp time.Time) bool
@@ -192,6 +195,13 @@ func (c *cache) SetAlarm(event string, active bool, timestamp time.Time) bool {
 
 func (c *cache) SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool {
 	return store(c, &c.cableAlwaysLocked, "cable always locked", alwaysLocked, timestamp)
+}
+
+func (c *cache) SeedCableAlwaysLocked(alwaysLocked bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.cableAlwaysLocked = model.TimestampedValue[bool]{Value: alwaysLocked}
 }
 
 func (c *cache) SetCableLocked(locked bool, timestamp time.Time) bool {
@@ -369,17 +379,23 @@ func (c *cache) WaitForOfferedCurrent(current int, duration time.Duration) bool 
 	return c.waitForCurrent(waitGroupOfferedCurrent, current, duration)
 }
 
+// currentOf returns the current tracked by a wait group. The caller must hold c.mu.
+func (c *cache) currentOf(group waitGroup) (int, bool) {
+	switch group {
+	case waitGroupMaxCurrent:
+		return c.maxCurrent.Value, true
+	case waitGroupOfferedCurrent:
+		return c.offeredCurrent.Value, true
+	default:
+		return 0, false
+	}
+}
+
 func (c *cache) waitForCurrent(group waitGroup, current int, duration time.Duration) bool {
 	c.mu.Lock()
 
-	var value int
-
-	switch group {
-	case waitGroupMaxCurrent:
-		value = c.maxCurrent.Value
-	case waitGroupOfferedCurrent:
-		value = c.offeredCurrent.Value
-	default:
+	value, ok := c.currentOf(group)
+	if !ok {
 		log.Warnf("Invalid waitGroup: %v", group)
 		c.mu.Unlock()
 
@@ -413,7 +429,21 @@ func (c *cache) waitForCurrent(group waitGroup, current int, duration time.Durat
 	for {
 		select {
 		case v := <-channel:
+			// The delivered value is checked first: a confirmation immediately superseded by
+			// another observation is gone from the cache by the time this runs, and the
+			// notifiers drop on a full buffer, so re-reading alone would wait for a
+			// notification that never comes.
 			if v == current {
+				return true
+			}
+
+			// Conversely the delivered value can be the stale one - two observations in quick
+			// succession deliver the first and drop the second - so the cache still decides.
+			c.mu.RLock()
+			value, _ := c.currentOf(group)
+			c.mu.RUnlock()
+
+			if value == current {
 				return true
 			}
 		case <-timer.C:

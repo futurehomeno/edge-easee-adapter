@@ -25,7 +25,13 @@ ever set one or because the session-finished observation cleared it — the cach
 instead; otherwise, for a non-slow mode, raised to at least `initial_charging_current` (default 16A).
 Slow mode SHALL be exempt from that floor and SHALL instead use `slowChargingCurrentInAmperes` when
 that is greater than zero, rounded to the nearest ampere. A resulting current of zero SHALL fail with
-`invalid start current`.
+`invalid start current`. A start Easee accepts but the charger never echoes back within the current
+wait duration SHALL fail with `start accepted, but the charger did not resume at <current>A` - an
+unconfirmed start may well have left the charger paused.
+
+#### Scenario: the charger never echoes the start back
+- **WHEN** Easee accepts the start but no observation confirms the current within the wait duration
+- **THEN** the command fails rather than reporting a start that may not have happened
 
 #### Scenario: normal start with a cached current below the floor
 - **WHEN** the cached requested offered current is 10A and the initial charging current is 16A
@@ -75,7 +81,15 @@ returning `too many requests to the charger`, because Easee sets the dynamic cur
 cached max current, or to 32A when no max current is cached, logging the clamp. Unless forced, a
 value equal to the last requested value within `offered_current_wait_time` SHALL be skipped. After a
 successful write the requested value SHALL be cached with the current hub time, and the adapter SHALL
-wait up to `current_wait_duration` (default 3s) for the charger to echo it back over SignalR.
+wait up to `current_wait_duration` (default 3s) for the charger to echo it back over SignalR. The
+wait SHALL resolve on either the value delivered by the notification or the value the cache holds
+when it wakes: notifications are dropped on a full listener buffer, so neither source alone sees
+every echo - a confirmation immediately superseded by a further observation is gone from the cache,
+while a delivered value can itself be the stale one.
+
+#### Scenario: the echo is immediately superseded
+- **WHEN** the awaited current is observed and then at once replaced by a different value
+- **THEN** the wait still succeeds, on the delivered notification
 
 #### Scenario: value above the max
 - **WHEN** 40A is requested and the cached max current is 32A
@@ -118,12 +132,21 @@ nearest ampere, capped at 32A.
 ### Requirement: Cable Lock Parameter
 The parameters service SHALL expose exactly one parameter, `cable_always_locked`, as a boolean select
 with `Yes`/`No` options defaulting to false. `cmd.param.set` SHALL send the lock-state command to
-Easee; `cmd.param.get_report` SHALL answer from the cache. Any other parameter ID SHALL be rejected
+Easee and, on success, seed the cache with the written value, because the framework answers the
+command with a forced report the reporting cache cannot suppress. The seed SHALL carry the zero
+timestamp rather than the hub's current time, so that the observation stays authoritative and
+overwrites it whenever it lands: observations are stamped with Easee's clock, and a hub running
+ahead of the server would otherwise have the cache's timestamp guard reject the real value.
+`cmd.param.get_report` SHALL answer from the cache. Any other parameter ID SHALL be rejected
 with `parameter: <id> not supported`.
 
 #### Scenario: lock the cable
 - **WHEN** `cable_always_locked` is set to true
 - **THEN** the Easee lock-state command is sent with state true
+
+#### Scenario: the observation contradicts the seed
+- **WHEN** an observation carries a timestamp behind the hub's clock after a seed was written
+- **THEN** the observed value still replaces the seed
 
 #### Scenario: unknown parameter
 - **WHEN** any other parameter ID is set or read

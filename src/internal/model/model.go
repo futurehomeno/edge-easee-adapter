@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"time"
@@ -92,6 +93,17 @@ func (o *Observation) IntValue() (int, error) {
 	}
 
 	return strconv.Atoi(o.Value)
+}
+
+// NumericIntValue parses a whole number without asserting the declared data type, for
+// observations Easee has been seen sending as either integer or double.
+func (o *Observation) NumericIntValue() (int, error) {
+	v, err := strconv.ParseFloat(o.Value, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(math.Round(v)), nil
 }
 
 func (o *Observation) Float64Value() (float64, error) {

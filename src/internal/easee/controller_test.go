@@ -1,14 +1,17 @@
 package easee_test
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/db"
@@ -656,6 +659,39 @@ func TestController_SetChargepointPhaseMode_ResumesAtTheSessionCurrent(t *testin
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
 }
 
+// Easee accepting the resume is not the charger acting on it. Without the observation echoing
+// the current back, the session may well still be paused, so reporting success would hide it.
+func TestController_SetChargepointPhaseMode_ReportsUnconfirmedResume(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(2, time.Time{})
+	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
+	// The charger never echoed the current back.
+	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(false)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	err := ctrl.SetChargepointPhaseMode(types.PhaseModeNL1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not resume")
+}
+
 // Pausing then failing to resume leaves the car not charging, so the caller has to hear
 // about it even though the phase mode itself was stored successfully.
 func TestController_SetChargepointPhaseMode_ReportsFailedResume(t *testing.T) {
@@ -1010,4 +1046,49 @@ func TestController_ChargepointPhaseModeReport_AutoFallbackPrefersMultiPhase(t *
 			assert.Equal(t, tt.want, mode)
 		})
 	}
+}
+
+// Observations carry Easee's clock while the seed is written by the hub, so seeding at
+// time.Now() lets a hub running ahead of the server suppress the authoritative value in the
+// cache's timestamp guard. The zero time keeps the optimistic echo without ever outranking
+// an observation.
+func TestController_SetParameter_SeedsCableLock(t *testing.T) {
+	t.Parallel()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetCableAlwaysLocked", "test-charger", true).Return(nil).Once()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SeedCableAlwaysLocked", true).Once()
+
+	ctrl := newTestController(t, mockedsignalr.NewManager(t), cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	require.NoError(t, ctrl.SetParameter(&parameters.Parameter{
+		ID:        model.CableAlwaysLockedParameter,
+		ValueType: parameters.ValueTypeBool,
+		Value:     json.RawMessage("true"),
+	}))
+}
+
+// Easee accepting the start is not the charger acting on it. Without the observation echoing
+// the current back the session may well still be paused, so cmd.charge.start must not report
+// success - the same contract the phase-mode resume already holds itself to.
+func TestController_StartChargepointCharging_ReportsUnconfirmedStart(t *testing.T) {
+	t.Parallel()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
+	// The charger never echoed the current back.
+	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(false)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	err := ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "did not resume")
 }
