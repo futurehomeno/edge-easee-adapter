@@ -3,7 +3,7 @@ package cmd
 import (
 	"errors"
 	"os"
-	"path"
+	"path/filepath"
 	"strconv"
 	"testing"
 
@@ -54,9 +54,9 @@ func newMigrationConfigService(t *testing.T, version int) (*config.Service, stri
 
 	dir := t.TempDir()
 
-	require.NoError(t, os.MkdirAll(path.Join(dir, "data"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o755))
 	require.NoError(t, os.WriteFile(
-		path.Join(dir, "data", "config.json"),
+		filepath.Join(dir, "data", "config.json"),
 		[]byte(`{"config_version":`+strconv.Itoa(version)+`,"accessToken":"a","refreshToken":"r"}`),
 		0o600,
 	))
