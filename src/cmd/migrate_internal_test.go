@@ -54,7 +54,7 @@ func newMigrationConfigService(t *testing.T, version int) (*config.Service, stri
 
 	dir := t.TempDir()
 
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o750))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dir, "data", "config.json"),
 		[]byte(`{"config_version":`+strconv.Itoa(version)+`,"accessToken":"a","refreshToken":"r"}`),
