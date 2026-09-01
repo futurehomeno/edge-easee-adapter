@@ -58,35 +58,56 @@ func TestCache_WaitForOfferedCurrent_ResolvesOnASupersededNotification(t *testin
 	c := cache.NewCache("test-charger")
 
 	result := make(chan bool, 1)
+	waiting := make(chan struct{})
 
 	go func() {
+		close(waiting)
+
 		result <- c.WaitForOfferedCurrent(16, 30*time.Second)
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	<-waiting
 
+	// The listener registers a moment after the goroutine starts, and only a notification
+	// delivered after that reproduces the supersede. Retry the pair until one is observed
+	// rather than sleeping for a fixed window a loaded runner can outlast.
 	now := time.Now()
 
-	c.SetOfferedCurrent(16, now)
-	c.SetOfferedCurrent(8, now.Add(time.Millisecond))
+	for i := 0; ; i++ {
+		c.SetOfferedCurrent(16, now.Add(time.Duration(2*i)*time.Millisecond))
+		c.SetOfferedCurrent(8, now.Add(time.Duration(2*i+1)*time.Millisecond))
 
-	select {
-	case got := <-result:
-		assert.True(t, got, "the wait must resolve on the delivered confirmation")
-	case <-time.After(5 * time.Second):
-		t.Fatal("wait did not return although the awaited current was observed")
+		select {
+		case got := <-result:
+			assert.True(t, got, "the wait must resolve on the delivered confirmation")
+
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+
+		if i > 500 {
+			t.Fatal("wait did not return although the awaited current was observed")
+		}
 	}
 }
 
-// The seed the controller writes must never outrank a real observation. Easee stamps
-// observations with its own clock, so one can legitimately arrive bearing a timestamp behind
-// the hub's notion of now; the zero-time seed keeps the guard from rejecting it.
-func TestCache_SetCableAlwaysLocked_ObservationOverridesTheSeed(t *testing.T) {
+func TestCache_WaitForOfferedCurrent_TimesOutWhenNeverObserved(t *testing.T) {
 	t.Parallel()
 
 	c := cache.NewCache("test-charger")
 
-	c.SetCableAlwaysLocked(true, time.Time{})
+	assert.False(t, c.WaitForOfferedCurrent(16, 50*time.Millisecond))
+}
+
+// The seed the controller writes must never outrank a real observation. Easee stamps
+// observations with its own clock, so one can legitimately arrive bearing a timestamp behind
+// the hub's notion of now; the seed bypasses the ordering guard so it never suppresses one.
+func TestCache_SeedCableAlwaysLocked_ObservationOverridesTheSeed(t *testing.T) {
+	t.Parallel()
+
+	c := cache.NewCache("test-charger")
+
+	c.SeedCableAlwaysLocked(true)
 
 	observed, _ := c.CableAlwaysLocked()
 	assert.True(t, observed, "the optimistic seed must be readable straight away")
@@ -96,4 +117,19 @@ func TestCache_SetCableAlwaysLocked_ObservationOverridesTheSeed(t *testing.T) {
 
 	observed, _ = c.CableAlwaysLocked()
 	assert.False(t, observed, "the observation is authoritative over the seed")
+}
+
+// The seed must also land when the cache already holds a real observation: a zero-time
+// seed would be rejected by the ordering guard, leaving cmd.param.set echoing the old value.
+func TestCache_SeedCableAlwaysLocked_AppliesOverAPopulatedCache(t *testing.T) {
+	t.Parallel()
+
+	c := cache.NewCache("test-charger")
+
+	assert.True(t, c.SetCableAlwaysLocked(false, time.Now()))
+
+	c.SeedCableAlwaysLocked(true)
+
+	observed, _ := c.CableAlwaysLocked()
+	assert.True(t, observed, "the seed must overwrite an already populated cache")
 }

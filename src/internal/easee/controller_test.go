@@ -1052,14 +1052,14 @@ func TestController_ChargepointPhaseModeReport_AutoFallbackPrefersMultiPhase(t *
 // time.Now() lets a hub running ahead of the server suppress the authoritative value in the
 // cache's timestamp guard. The zero time keeps the optimistic echo without ever outranking
 // an observation.
-func TestController_SetParameter_SeedsCableLockAtTheZeroTime(t *testing.T) {
+func TestController_SetParameter_SeedsCableLock(t *testing.T) {
 	t.Parallel()
 
 	clientMock := mockapi.NewClient(t)
 	clientMock.On("SetCableAlwaysLocked", "test-charger", true).Return(nil).Once()
 
 	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("SetCableAlwaysLocked", true, time.Time{}).Return(true).Once()
+	cacheMock.On("SeedCableAlwaysLocked", true).Once()
 
 	ctrl := newTestController(t, mockedsignalr.NewManager(t), cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
 

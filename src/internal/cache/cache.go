@@ -52,6 +52,9 @@ type Cache interface {
 	SetCableLocked(locked bool, timestamp time.Time) bool
 	SetCableCurrent(current int, timestamp time.Time) bool
 	SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool
+	// SeedCableAlwaysLocked stores an optimistic local value without the ordering guard, so
+	// the next observation — whatever its clock — still wins.
+	SeedCableAlwaysLocked(alwaysLocked bool)
 	// SetAlarm stores the state of an alarm event and reports whether the observation was accepted.
 	SetAlarm(event string, active bool, timestamp time.Time) bool
 	SetEnergySession(energy float64, timestamp time.Time) bool
@@ -192,6 +195,13 @@ func (c *cache) SetAlarm(event string, active bool, timestamp time.Time) bool {
 
 func (c *cache) SetCableAlwaysLocked(alwaysLocked bool, timestamp time.Time) bool {
 	return store(c, &c.cableAlwaysLocked, "cable always locked", alwaysLocked, timestamp)
+}
+
+func (c *cache) SeedCableAlwaysLocked(alwaysLocked bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.cableAlwaysLocked = model.TimestampedValue[bool]{Value: alwaysLocked}
 }
 
 func (c *cache) SetCableLocked(locked bool, timestamp time.Time) bool {
