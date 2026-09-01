@@ -747,6 +747,7 @@ func TestApplication_Configure_Selection(t *testing.T) {
 		owned        []string
 		ensureErr    error
 		selected     selection.Selection
+		stored       selection.Selection
 		wantErr      string
 		wantSeeded   []string
 		wantSelected selection.Selection
@@ -787,6 +788,23 @@ func TestApplication_Configure_Selection(t *testing.T) {
 			wantSelected: []string{"123"},
 		},
 		{
+			// An empty response must leave the implicit include-all implicit: persisting []
+			// here reads back as the user deselecting everything and would suppress
+			// auto-selection permanently, even once the account lists chargers again.
+			name:         "an empty charger list leaves an absent selection absent",
+			chargers:     []model.Charger{},
+			wantSelected: nil,
+		},
+		{
+			// The request is still honoured: clearing an explicit subset to restore
+			// include-all must not leave the stale subset on disk just because the
+			// charger fetch happened to come back empty.
+			name:         "an empty charger list still clears a stored subset",
+			chargers:     []model.Charger{},
+			stored:       []string{"123"},
+			wantSelected: nil,
+		},
+		{
 			name:     "unknown device id is rejected before anything is mutated",
 			chargers: []model.Charger{{ID: "123"}},
 			selected: []string{"unknown"},
@@ -814,6 +832,10 @@ func TestApplication_Configure_Selection(t *testing.T) {
 			t.Parallel()
 
 			h := newSelectionHarness(t, tt.chargers, tt.chargersErr, tt.owned, tt.ensureErr)
+
+			if tt.stored != nil {
+				require.NoError(t, h.cfg.SetSelectedDevices(tt.stored))
+			}
 
 			err := h.app.Configure(&config.Config{
 				PublicConfig: config.PublicConfig{SelectedDevices: tt.selected},
