@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
@@ -75,7 +76,9 @@ func getConfigService() *config.Service {
 			log.Fatalf("[config] Load config. err: %v", err)
 		}
 
-		migrateConfig(services.configService, getCredentialsStore())
+		if err := migrateConfig(services.configService, getCredentialsStore()); err != nil {
+			log.Fatalf("[config] Migrate config. err: %v", err)
+		}
 	}
 
 	return services.configService
@@ -93,7 +96,11 @@ func getCredentialsStore() *config.CredentialsStore {
 	return services.credentialsStore
 }
 
-func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore) {
+// migrateConfig returns the migration error instead of only logging it: the v5->v6 step moves
+// tokens into the credentials store, and the app decides it is configured by reading that store
+// alone, so continuing past a failed write brings an authenticated install up as logged out.
+// The version bump does not land on failure, so the next start retries.
+func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore) error {
 	cfg := cfgSvc.Model()
 
 	resetLogDefaults := func() error {
@@ -112,8 +119,10 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		cliffCfg.Migration{From: 5, To: 6, Do: func() error { return config.MigrateCredentials(cfg, credentials) }},
 	)
 	if err != nil {
-		log.Errorf("[config] Migrate config. err: %v", err)
+		return fmt.Errorf("migrate config: %w", err)
 	}
+
+	return nil
 }
 
 func getDefaultStore() *cliffCfg.DefaultStore {

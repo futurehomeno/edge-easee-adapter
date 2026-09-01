@@ -165,6 +165,22 @@ func (a *application) Configure(model any) error {
 		}
 	}
 
+	// An empty list must not materialise the implicit include-all into an explicit empty
+	// selection: that is indistinguishable from the user deselecting everything and would
+	// suppress auto-selection for good, even once the account lists chargers again. The
+	// login path guards the same case in configureChargers. The request itself is still
+	// honoured — a user clearing an explicit subset to restore include-all must not have
+	// the stale subset survive on disk because the fetch happened to come back empty.
+	if len(chargers) == 0 && selected.IncludeAll() {
+		if cfg.SelectedDevices.IncludeAll() && !a.cfgService.SelectedDevices().IncludeAll() {
+			if err := a.cfgService.SetSelectedDevices(nil); err != nil {
+				return fmt.Errorf("configure: persist selected_devices: %w", err)
+			}
+		}
+
+		return nil
+	}
+
 	selected, err = a.applyChargers(chargers, effectiveSelection(chargers, selected))
 	if err != nil {
 		return err
