@@ -88,7 +88,7 @@ func (a *apiClient) StopCharging(chargerID string) error {
 }
 
 func (a *apiClient) ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, error) {
-	log.Infof("[%s] Get charger site info", chargerID)
+	log.Debugf("[%s] Get charger site info", chargerID)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -98,7 +98,7 @@ func (a *apiClient) ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, e
 }
 
 func (a *apiClient) ChargerConfig(chargerID string) (*model.ChargerConfig, error) {
-	log.Infof("[%s] Get charger config", chargerID)
+	log.Debugf("[%s] Get charger config", chargerID)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -118,7 +118,7 @@ func (a *apiClient) Chargers() ([]model.Charger, error) {
 }
 
 func (a *apiClient) ChargerDetails(chargerID string) (model.ChargerDetails, error) {
-	log.Infof("[%s] Get charger details", chargerID)
+	log.Debugf("[%s] Get charger details", chargerID)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return model.ChargerDetails{}, a.tokenError(err)
