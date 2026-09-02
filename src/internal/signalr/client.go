@@ -118,6 +118,12 @@ func (c *client) Start() {
 		return
 	}
 
+	c.launch()
+}
+
+// launch starts the connection goroutine. The caller must hold c.mu and have established
+// that the client is not already running.
+func (c *client) launch() {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 
@@ -158,14 +164,19 @@ func (c *client) Close() error {
 	c.wg.Wait()
 
 	c.mu.Lock()
-	c.closing = false
-	restart := c.startRequested
-	c.startRequested = false
-	c.mu.Unlock()
 
-	if restart {
-		c.Start()
+	// closing stays true until the deferred Start is applied, so a Close racing this
+	// tail still takes the early-exit guard above and clears startRequested. Dropping
+	// the lock to call Start() instead would re-arm the client from a stale local read
+	// after that closer was already told it was closed.
+	if c.startRequested {
+		c.startRequested = false
+
+		c.launch()
 	}
+
+	c.closing = false
+	c.mu.Unlock()
 
 	return nil
 }
