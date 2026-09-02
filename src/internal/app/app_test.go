@@ -275,8 +275,8 @@ func TestApplication_Uninstall_ClearsCredentialsDespiteFailures(t *testing.T) {
 
 	// The configuration and the tokens are gone, so the app must not stay marked running.
 	assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
-	assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
-	assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
+	assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState(), "the lifecycle must not stay configured once the config is gone")
+	assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState(), "the lifecycle must not stay authenticated once the tokens are gone")
 	assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
 }
 
