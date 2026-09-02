@@ -136,6 +136,10 @@ func (c *client) Close() error {
 	c.mu.Lock()
 
 	if !c.running || c.closing {
+		// A close arriving here is the newest shutdown intent, so it must outrank a Start
+		// this or an in-flight close already deferred - otherwise the drain re-arms the
+		// client after this caller was told it was closed.
+		c.startRequested = false
 		c.mu.Unlock()
 
 		return nil
