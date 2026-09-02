@@ -192,6 +192,52 @@ func TestArmedRetryDoesNotDisarmTheChainThatReplacedIt(t *testing.T) {
 	assert.True(t, charger.retryArmed, "the chain armed during the hand-off must stay armed")
 }
 
+// A retry armed on the previous connection sleeps on a backoff of up to ten minutes, and
+// reconnecting resets that backoff without waking it. While the flag stayed set, the
+// reconnect's own subscribe could not arm a fresh chain on failure, leaving the charger
+// unsubscribed for the remainder of the stale delay.
+func TestReconnectArmsAFreshRetryChain(t *testing.T) {
+	m, _ := newTestManager(t)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	arms := &countingBackoff{Stateful: m.cfg.SignalRBackoffStateful()}
+	m.chargers[chargerID].backoff = arms
+
+	require.NoError(t, m.handleSubscription(chargerID))
+	require.Eventually(t, func() bool { return arms.count() == 1 }, time.Second, time.Millisecond)
+
+	m.handleClientState(model.ClientStateDisconnected)
+	m.handleClientState(model.ClientStateConnected)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Eventually(t, func() bool { return arms.count() == 2 }, time.Second, time.Millisecond,
+		"a failure after reconnect must arm a fresh chain, not wait out the stale one")
+}
+
+// The chain a reconnect retires still fires afterwards; it must not disarm the fresh one.
+func TestStaleRetryDoesNotDisarmTheChainArmedAfterReconnect(t *testing.T) {
+	m, _ := newTestManager(t)
+
+	charger := m.chargers[chargerID]
+	staleEpoch := m.epoch
+
+	m.handleClientState(model.ClientStateConnected)
+
+	m.mu.Lock()
+	charger.retryArmed = true
+	m.mu.Unlock()
+
+	m.disarmRetry(charger, staleEpoch)
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assert.True(t, charger.retryArmed, "a retired chain must not disarm the chain armed after reconnect")
+}
+
 // The run loop is the only drainer of the observation channel, so subscribing on it stalled
 // that drain for up to SignalRInvokeTimeout per charger - while the server was already
 // streaming the initial batch that same subscribe asked for, overflowing the buffer and

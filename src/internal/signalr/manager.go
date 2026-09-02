@@ -202,9 +202,8 @@ func (m *manager) run() {
 		case chargerID := <-m.subscriptions:
 			// Off the loop: SubscribeCharger blocks for up to SignalRInvokeTimeout, and this
 			// goroutine is the only drainer of the observation channel. Subscribing inline
-			// stalled that drain for one timeout per charger while the server was already
-			// streaming the initial batch the subscribe itself asked for, overflowing the
-			// buffer and losing the edge-triggered session records among the drops.
+			// stalled that drain while the server streamed the initial batch the subscribe
+			// itself asked for, overflowing the buffer.
 			go func() {
 				defer telemetry.RecoverAndEmit(m.tel, "manager.subscribe", true)
 
@@ -235,9 +234,8 @@ func (m *manager) handleSubscription(chargerID string) error {
 	}
 
 	// A retry armed before a disconnect can fire after the reconnect sweep already
-	// re-subscribed this charger; don't subscribe twice on the same connection. Since
-	// subscribes now run concurrently, subscribing is also a state to skip on, not just
-	// subscribed - otherwise two enqueues for one charger invoke at the same time.
+	// re-subscribed this charger; don't subscribe twice on the same connection. Subscribes
+	// run concurrently now, so an in-flight one has to block a second the same way.
 	if charger.isSubscribed || charger.subscribing {
 		m.mu.Unlock()
 
@@ -257,17 +255,13 @@ func (m *manager) handleSubscription(chargerID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// A reconnect during the invoke retired this connection. The sweep already cleared the
-	// flag and enqueued a fresh subscribe, so touching charger state here would corrupt that
-	// attempt - unmark its flag, or mark it subscribed on a result that predates it. Nothing
-	// to unsubscribe either: whatever this invoke established server-side belonged to the
-	// connection that is now gone.
+	// A reconnect retired this connection mid-invoke: the sweep already reset the charger and
+	// enqueued a fresh subscribe, so this result would only corrupt that attempt. Nothing to
+	// unsubscribe - whatever it established belonged to the connection now gone.
 	if epoch != m.epoch {
 		return nil
 	}
 
-	// Cleared even when the charger loses the identity check below: the struct this call
-	// marked is the one to unmark, and a re-registered charger is a different struct.
 	charger.subscribing = false
 
 	// Unregister can drop this charger - and a later Register re-add a different struct under
@@ -320,6 +314,7 @@ func (m *manager) addChargerSubscription(chargerID string, charger *charger) {
 	m.mu.Lock()
 	timer := time.NewTimer(charger.backoff.Next())
 	done := m.done
+	epoch := m.epoch
 	m.mu.Unlock()
 
 	defer timer.Stop()
@@ -331,16 +326,22 @@ func (m *manager) addChargerSubscription(chargerID string, charger *charger) {
 	// that fresh flag, so the failure after it would arm a duplicate.
 	select {
 	case <-done:
-		m.disarmRetry(charger)
+		m.disarmRetry(charger, epoch)
 	case <-timer.C:
-		m.disarmRetry(charger)
+		m.disarmRetry(charger, epoch)
 		m.enqueueSubscription(chargerID)
 	}
 }
 
-func (m *manager) disarmRetry(charger *charger) {
+// disarmRetry clears the flag only for a chain still on the current connection: a retired
+// timer firing later would otherwise disarm the fresh chain armed since.
+func (m *manager) disarmRetry(charger *charger, epoch uint64) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if epoch != m.epoch {
+		return
+	}
 
 	charger.retryArmed = false
 }
@@ -363,6 +364,10 @@ func (m *manager) handleClientState(state model.ClientState) {
 			// missed notice would otherwise leave the charger permanently unsubscribed.
 			charger.isSubscribed = false
 			charger.subscribing = false
+			// A chain armed on the previous connection sleeps on a backoff of up to ten minutes,
+			// which reconnecting resets without waking it. Left set, the flag blocked the sweep's
+			// own failure from arming a fresh chain for the rest of that stale delay.
+			charger.retryArmed = false
 			chargersIDs = append(chargersIDs, chargerID)
 			// A new connection starts a new failure streak, so its first failure has to warn
 			// again - otherwise the only visible sign of a charger that never comes back is a
