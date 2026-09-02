@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"encoding/json"
 	"time"
 
@@ -12,12 +13,15 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const defaultInitialChargingCurrent = 16
+
 type PublicConfig struct {
 	EaseeBaseURL                 string  `json:"easeeBaseURL2"`
 	PollingInterval              string  `json:"pollingInterval"`
 	TokenRefreshInterval         string  `json:"token_refresh_interval"`
 	CurrentWaitDuration          string  `json:"currentWaitDuration"`
 	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
+	InitialChargingCurrent       int     `json:"initial_charging_current"`
 	HTTPTimeout                  string  `json:"httpTimeout"`
 	SignalR                      SignalR `json:"signalR"`
 	OfferedCurrentWaitTime       string  `json:"offered_current_wait_time"`
@@ -79,17 +83,9 @@ func (b backoffSettings) stateful(initial, repeated, final time.Duration) backof
 		parseDuration(b.InitialBackoff, initial),
 		parseDuration(b.RepeatedBackoff, repeated),
 		parseDuration(b.FinalBackoff, final),
-		uint32OrDefault(b.InitialFailureCount, 1),
-		uint32OrDefault(b.RepeatedFailureCount, 1),
+		cmp.Or(b.InitialFailureCount, 1),
+		cmp.Or(b.RepeatedFailureCount, 1),
 	)
-}
-
-func uint32OrDefault(v, def uint32) uint32 {
-	if v == 0 {
-		return def
-	}
-
-	return v
 }
 
 type SignalR struct {
@@ -101,9 +97,7 @@ type SignalR struct {
 	InvokeTimeout       string `json:"invokeTimeout"`
 }
 
-// Service is a configuration service responsible for:
-// - providing concurrency safe access to settings
-// - persistence of settings.
+// Service provides concurrency-safe access to and persistence of settings.
 type Service struct {
 	*config.Service[*Config]
 }
@@ -204,10 +198,6 @@ func (cs *Service) EnergyLifetimeInterval() time.Duration {
 	return config.GetDuration(cs.Service, func(c *Config) string { return c.EnergyLifetimeInterval }, 10*time.Second)
 }
 
-func (cs *Service) SetEnergyLifetimeInterval(interval time.Duration) error {
-	return cs.Update(func(c *Config) { c.EnergyLifetimeInterval = interval.String() })
-}
-
 // SelectedDevices returns a copy that preserves the nil/empty distinction - the idiomatic
 // append([]string(nil), ...) and slices.Clone both collapse empty to nil, turning "no chargers"
 // into "every charger".
@@ -243,6 +233,14 @@ func (cs *Service) SlowChargingCurrentInAmperes() float64 {
 
 func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 	return cs.Update(func(c *Config) { c.SlowChargingCurrentInAmperes = current })
+}
+
+func (cs *Service) InitialChargingCurrent() int {
+	if current := config.Get(cs.Service, func(c *Config) int { return c.InitialChargingCurrent }); current > 0 {
+		return current
+	}
+
+	return defaultInitialChargingCurrent
 }
 
 func (cs *Service) HTTPTimeout() time.Duration {
@@ -314,7 +312,7 @@ func (cs *Service) SignalRInitialFailureCount() uint32 {
 }
 
 func (cs *Service) SetSignalRInitialFailureCount(n uint32) error {
-	return cs.Persist(func(c *Config) { c.SignalR.InitialFailureCount = n })
+	return cs.Update(func(c *Config) { c.SignalR.InitialFailureCount = n })
 }
 
 func (cs *Service) SignalRRepeatedFailureCount() uint32 {
@@ -322,7 +320,7 @@ func (cs *Service) SignalRRepeatedFailureCount() uint32 {
 }
 
 func (cs *Service) SetSignalRRepeatedFailureCount(n uint32) error {
-	return cs.Persist(func(c *Config) { c.SignalR.RepeatedFailureCount = n })
+	return cs.Update(func(c *Config) { c.SignalR.RepeatedFailureCount = n })
 }
 
 func (cs *Service) SignalRInvokeTimeout() time.Duration {
@@ -335,10 +333,6 @@ func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 
 func (cs *Service) OfferedCurrentWaitTime() time.Duration {
 	return config.GetDuration(cs.Service, func(c *Config) string { return c.OfferedCurrentWaitTime }, 20*time.Second)
-}
-
-func (cs *Service) SetOfferedCurrentWaitTime(duration time.Duration) error {
-	return cs.Update(func(c *Config) { c.OfferedCurrentWaitTime = duration.String() })
 }
 
 func (cs *Service) AuthenticatorBackoffStateful() backoff.Stateful {
@@ -376,8 +370,4 @@ func (cs *Service) SetAuthenticatorBackoff(
 
 func (cs *Service) TokenRefreshInterval() time.Duration {
 	return config.GetDuration(cs.Service, func(c *Config) string { return c.TokenRefreshInterval }, 30*time.Minute)
-}
-
-func (cs *Service) SetTokenRefreshInterval(interval time.Duration) error {
-	return cs.Update(func(c *Config) { c.TokenRefreshInterval = interval.String() })
 }

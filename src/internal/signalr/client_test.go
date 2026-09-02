@@ -2,6 +2,7 @@ package signalr_test
 
 import (
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,7 +30,7 @@ func TestClient_PublishesDisconnectOnClose(t *testing.T) {
 	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
 	require.NoError(t, cfg.SetSignalRBaseURL("http://"+address))
 
-	client := signalr.NewClient(cfg, func() (string, error) { return "test-token", nil })
+	client := signalr.NewClient(cfg, func() (string, error) { return "test-token", nil }, nil)
 	client.Start()
 
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
@@ -38,6 +39,45 @@ func TestClient_PublishesDisconnectOnClose(t *testing.T) {
 
 	require.NoError(t, client.Close())
 	assert.Equal(t, model.ClientStateDisconnected, waitForState(t, client.StateC()))
+}
+
+// TestClient_CloseIsNotDefeatedByConcurrentStart hammers the window Close() opens when it
+// drops c.mu before wg.Wait() - which it must, because the connection goroutine takes the
+// lock on its way out. A Start() landing in that window used to either panic with "WaitGroup
+// misuse" or hand Wait a goroutine holding a fresh, uncancelled context, hanging Close()
+// forever. Run with -race.
+func TestClient_CloseIsNotDefeatedByConcurrentStart(t *testing.T) {
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	require.NoError(t, cfg.SetSignalRBaseURL("http://"+freeAddress(t)))
+
+	// A failing token provider keeps handleConnection cheap: it retries behind the backoff,
+	// which Close() cuts short by cancelling the context.
+	client := signalr.NewClient(cfg, func() (string, error) { return "", assert.AnError }, nil)
+
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		var wg sync.WaitGroup
+
+		for range 16 {
+			wg.Add(2)
+
+			go func() { defer wg.Done(); client.Start() }()
+			go func() { defer wg.Done(); assert.NoError(t, client.Close()) }()
+		}
+
+		wg.Wait()
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("Start/Close deadlocked")
+	}
 }
 
 func freeAddress(t *testing.T) string {

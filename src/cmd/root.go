@@ -37,6 +37,8 @@ func Execute(packageName, version string) error {
 }
 
 func Build(cfg *config.Config, packageName, version string) (root.App, error) {
+	services.version = version
+
 	if err := debug.InitializeLogger(getDefaultStore()); err != nil {
 		log.Errorf("Initialize logger err: %v", err)
 	}
@@ -61,6 +63,7 @@ func Build(cfg *config.Config, packageName, version string) (root.App, error) {
 		WithMQTT(getMQTT(cfg)).
 		WithServiceDiscovery(fimptype.EaseeRn, discovery.ResourceTypeAd, packageName, "1", version).
 		WithLifecycle(getLifecycle()).
+		WithTelemetry(getTelemetry(cfg)).
 		WithTopicSubscription(
 			cmdTopic(fimptype.ResourceTypeAdapter),
 			cmdTopic(fimptype.ResourceTypeDevice),
@@ -68,7 +71,7 @@ func Build(cfg *config.Config, packageName, version string) (root.App, error) {
 		WithRouterOptions(cliffRouter.WithStatsCallback(routing.LogStats)).
 		WithRouting(newRouting(cfg)...).
 		WithTask(newTasks(cfg)...).
-		WithServices(getSignalRManager(cfg), getEventListener(cfg), getSessionStorage(cfg)).
+		WithServices(getSessionStorage(cfg), getSignalRManager(cfg), getEventListener(cfg)).
 		Build()
 }
 

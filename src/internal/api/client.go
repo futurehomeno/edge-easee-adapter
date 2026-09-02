@@ -10,20 +10,17 @@ import (
 
 // Client is a wrapper around the Easee HTTP Client with authentication capabilities.
 type Client interface {
-	// UpdateMaxCurrent updates max charger current.
 	UpdateMaxCurrent(chargerID string, current float64) error
 	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
 	UpdateDynamicCurrent(chargerID string, current float64) error
-	// StopCharging stops charging session for the selected charger.
 	StopCharging(chargerID string) error
-	// ChargerConfig retrieves charger config.
 	ChargerConfig(chargerID string) (*model.ChargerConfig, error)
 	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
 	ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, error)
-	// Chargers returns all available chargers.
 	Chargers() ([]model.Charger, error)
 	ChargerDetails(chargerID string) (model.ChargerDetails, error)
 	SetCableAlwaysLocked(chargerID string, locked bool) error
+	SetPhaseMode(chargerID string, phaseMode int) error
 	// Ping checks if an external service is available.
 	Ping() error
 }
@@ -58,6 +55,16 @@ func (a *apiClient) SetCableAlwaysLocked(chargerID string, locked bool) error {
 	}
 
 	return a.httpClient.SetCableAlwaysLocked(token, chargerID, locked)
+}
+
+func (a *apiClient) SetPhaseMode(chargerID string, phaseMode int) error {
+	log.Infof("[%s] Set phase mode to %d", chargerID, phaseMode)
+	token, err := a.auth.AccessToken()
+	if err != nil {
+		return a.tokenError(err)
+	}
+
+	return a.httpClient.SetPhaseMode(token, chargerID, phaseMode)
 }
 
 func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) error {

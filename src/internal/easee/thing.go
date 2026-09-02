@@ -1,13 +1,13 @@
 package easee
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	cliffCache "github.com/futurehomeno/cliffhanger/adapter/cache"
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
@@ -23,13 +23,13 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
-// Info is an object representing charger persisted information.
+// Info is charger information persisted with the thing.
 type Info struct {
 	ChargerID string `json:"chargerID"`
 	Product   string `json:"product"`
 }
 
-// State is an object representing charger persisted mutable information.
+// State is the mutable charger information persisted with the thing.
 type State struct {
 	GridType            types.GridType `json:"gridType"`
 	Phases              int            `json:"phases"`
@@ -52,7 +52,6 @@ type thingFactory struct {
 	sessionStorage db.ChargingSessionStorage
 }
 
-// NewThingFactory returns a new instance of adapter.ThingFactory.
 func NewThingFactory(
 	client api.Client,
 	cfgService *config.Service,
@@ -84,17 +83,16 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 
 	usingStoredState := false
 
+	// Any refresh failure falls back to the stored state rather than aborting: the adapter
+	// creates things in a loop that stops at the first error, so one charger behind a 5xx
+	// used to take every remaining charger down with it.
 	if err := controller.UpdateState(info.ChargerID, state); err != nil {
-		if !errors.Is(err, api.ErrNotLoggedIn) {
-			return nil, err
-		}
-
-		log.Warnf("factory: [%s] not logged in, creating thing with stored state", info.ChargerID)
+		log.Warnf("factory: [%s] state refresh failed, creating thing with stored state: %v", info.ChargerID, err)
 
 		usingStoredState = true
 	}
 
-	// Not logged in means state was not refreshed from the cloud - persisting it here would
+	// A failed refresh means state was not read from the cloud - persisting it here would
 	// overwrite the stored state with zeros if it had failed to load above.
 	if !usingStoredState {
 		if err := thingState.SetState(state); err != nil {
@@ -108,9 +106,29 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 
 	groups := []string{"ch_0"}
 	services := []adapter.Service{
-		t.newChargepointService(publisher, ad, thingState, groups, controller, state),
-		t.newMeterElecService(publisher, ad, thingState, groups, controller),
-		t.newParametersService(publisher, ad, thingState, groups, controller),
+		chargepoint.NewService(publisher, &chargepoint.Config{
+			Specification: t.chargepointSpecification(ad, thingState, groups, state),
+			Controller:    controller,
+		}),
+		numericmeter.NewService(publisher, &numericmeter.Config{
+			Specification:     t.meterElecSpecification(ad, thingState, groups),
+			Reporter:          controller,
+			ReportingStrategy: cliffCache.ReportAtLeastEvery(time.Minute),
+		}),
+		parameters.NewService(publisher, &parameters.Config{
+			Specification: parameters.Specification(ad.Name().Str(), ad.Address(), thingState.Address(), groups),
+			Controller:    controller,
+		}),
+		alarm.NewService(publisher, &alarm.Config{
+			Specification: alarm.Specification(
+				ad.Name().Str(),
+				ad.Address(),
+				thingState.Address(),
+				groups,
+				model.SupportedAlarmEvents(),
+			),
+			Reporter: controller,
+		}),
 	}
 
 	return adapter.NewThing(publisher, thingState, &adapter.ThingConfig{
@@ -134,9 +152,23 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 }
 
 func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
+	// sup_max_current must be *present* to keep the max-current interfaces: cliffhanger derives
+	// them from the property once, in NewService, so omitting it on a charger created without
+	// state drops cmd.max_current.set for the lifetime of the process. A present 0 is worse
+	// than absent, though - validateCurrent rejects everything above it, so every legal current
+	// fails "must not exceed 0A". Fall back to the same ceiling setOfferedCurrent applies when
+	// the cached maximum is unknown. Nothing re-advertises the property at runtime, so it holds
+	// the fallback until the next thing creation that does get site data; the current the
+	// adapter actually drives is clamped separately, in setOfferedCurrent, against the live
+	// MaxChargerCurrent observation rather than against this property.
+	supportedMaxCurrent := state.SupportedMaxCurrent
+	if supportedMaxCurrent <= 0 {
+		supportedMaxCurrent = maxCurrentValue
+	}
+
 	options := []adapter.SpecificationOption{
 		chargepoint.WithChargingModes(model.SupportedChargingModes()...),
-		chargepoint.WithSupportedMaxCurrent(state.SupportedMaxCurrent),
+		chargepoint.WithSupportedMaxCurrent(supportedMaxCurrent),
 	}
 
 	if phases := state.Phases; phases > 0 {
@@ -147,11 +179,7 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 		options = append(options, chargepoint.WithGridType(gridType))
 	}
 
-	if maxCurrent := state.SupportedMaxCurrent; maxCurrent > 0 {
-		options = append(options, chargepoint.WithSupportedMaxCurrent(maxCurrent))
-	}
-
-	if phaseModes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(phaseModes) > 0 {
+	if phaseModes := model.SettablePhaseModes(state.GridType, state.Phases); len(phaseModes) > 0 {
 		options = append(options, chargepoint.WithSupportedPhaseModes(phaseModes...))
 	}
 
@@ -169,8 +197,8 @@ func (t *thingFactory) supportedStates() []chargepoint.State {
 	var supportedStates []chargepoint.State
 
 	for _, s := range model.SupportedChargingStates() {
-		if !slices.Contains(supportedStates, s.ToFimpState()) {
-			supportedStates = append(supportedStates, s.ToFimpState())
+		if state := s.ToFimpState(); !slices.Contains(supportedStates, state) {
+			supportedStates = append(supportedStates, state)
 		}
 	}
 
@@ -195,50 +223,6 @@ func (t *thingFactory) meterElecSpecification(adapter adapter.Adapter, thingStat
 	)
 }
 
-func (t *thingFactory) newChargepointService(
-	publisher adapter.ServicePublisher,
-	ad adapter.Adapter,
-	thingState adapter.ThingState,
-	groups []string,
-	controller Controller,
-	state *State,
-) adapter.Service {
-	return chargepoint.NewService(publisher, &chargepoint.Config{
-		Specification: t.chargepointSpecification(ad, thingState, groups, state),
-		Controller:    controller,
-	})
-}
-
-func (t *thingFactory) newMeterElecService(publisher adapter.ServicePublisher,
-	ad adapter.Adapter,
-	thingState adapter.ThingState,
-	groups []string,
-	controller Controller,
-) adapter.Service {
-	return numericmeter.NewService(publisher, &numericmeter.Config{
-		Specification:     t.meterElecSpecification(ad, thingState, groups),
-		Reporter:          controller,
-		ReportingStrategy: cliffCache.ReportAtLeastEvery(time.Minute),
-	})
-}
-
-func (t *thingFactory) newParametersService(publisher adapter.ServicePublisher,
-	ad adapter.Adapter,
-	thingState adapter.ThingState,
-	groups []string,
-	controller Controller,
-) adapter.Service {
-	return parameters.NewService(publisher, &parameters.Config{
-		Specification: t.parametersSpecification(ad, thingState, groups),
-		Controller:    controller,
-	})
-}
-
-func (t *thingFactory) parametersSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
-	return parameters.Specification(adapter.Name().Str(), adapter.Address(), thingState.Address(), groups)
-}
-
-// parameterSpecificationCableAlwaysLocked returns parameter specification for the associated configuration option.
 func parameterSpecificationCableAlwaysLocked() *parameters.ParameterSpecification {
 	return &parameters.ParameterSpecification{
 		ID:          model.CableAlwaysLockedParameter,

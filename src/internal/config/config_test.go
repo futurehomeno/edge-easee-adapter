@@ -91,6 +91,27 @@ func TestService_OfferedCurrentWaitTime_MatchesPackagedDefault(t *testing.T) {
 	}
 }
 
+func TestService_InitialChargingCurrent_MatchesPackagedDefault(t *testing.T) {
+	body, err := os.ReadFile("../../../package/debian/usr/share/futurehome/easee/defaults/config.json")
+	require.NoError(t, err)
+
+	packaged := &config.Config{}
+	require.NoError(t, json.Unmarshal(body, packaged))
+
+	// Asserted on the raw field, not through the getter: a packaged key that stopped binding
+	// (renamed struct tag, typo) reads as 0 and the getter would still answer 16.
+	assert.Equal(t, 16, packaged.InitialChargingCurrent, "packaged JSON key no longer binds to the config field")
+
+	for name, cfg := range map[string]*config.Config{"packaged": packaged, "unset": {}} {
+		t.Run(name, func(t *testing.T) {
+			st := &mockedstorage.Storage[*config.Config]{}
+			st.On("Model").Return(cfg)
+
+			assert.Equal(t, 16, config.NewService(st).InitialChargingCurrent())
+		})
+	}
+}
+
 func TestConfig_MigrateSignalRFinalBackoff(t *testing.T) {
 	tests := []struct {
 		name     string

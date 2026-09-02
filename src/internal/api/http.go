@@ -15,7 +15,6 @@ import (
 	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
-	"github.com/thoas/go-funk"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
@@ -39,6 +38,7 @@ const (
 	chargerSettingsURITemplate = "/api/chargers/%s/settings"
 	chargerStopURITemplate     = "/api/chargers/%s/commands/pause_charging"
 	cableLockURITemplate       = "/api/chargers/%s/commands/lock_state"
+	phaseModeURITemplate       = "/api/chargers/%s/commands/set_phase_mode"
 	chargerSessionsURITemplate = "/api/sessions/charger/%s/sessions/descending?limit=2"
 	chargerDetailsURITemplate  = "/api/chargers/%s/details?alwaysGetChargerAccessLevel=false"
 
@@ -48,29 +48,22 @@ const (
 	jsonContentType = "application/*+json"
 )
 
-// HTTPClient represents Easee HTTP API Client.
 type HTTPClient interface {
-	// UpdateMaxCurrent updates max charger current.
 	UpdateMaxCurrent(accessToken, chargerID string, current float64) error
-	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
+	// UpdateDynamicCurrent sets the dynamic current, which Easee uses as the offered current.
 	UpdateDynamicCurrent(accessToken, chargerID string, current float64) error
-	// Login logs the user in the Easee API and retrieves credentials.
 	Login(userName, password string) (*model.Credentials, error)
-	// RefreshToken retrieves new credentials based on an access token and a refresh token.
+	// RefreshToken exchanges an access/refresh token pair for a new one.
 	RefreshToken(accessToken, refreshToken string) (*model.Credentials, error)
-	// StopCharging stops charging session for the selected charger.
 	StopCharging(accessToken, chargerID string) error
-	// ChargerConfig retrieves charger config.
 	ChargerConfig(accessToken, chargerID string) (*model.ChargerConfig, error)
-	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
+	// ChargerSiteInfo retrieves the rated current, used as the supported max current.
 	ChargerSiteInfo(accessToken, chargerID string) (*model.ChargerSiteInfo, error)
-	// Chargers returns all available chargers.
 	Chargers(accessToken string) ([]model.Charger, error)
-	// ChargerDetails returns product's name.
+	// ChargerDetails carries the product name.
 	ChargerDetails(accessToken string, chargerID string) (model.ChargerDetails, error)
-	// SetCableAlwaysLocked sets cable always lock state.
 	SetCableAlwaysLocked(accessToken string, chargerID string, locked bool) error
-	// Ping checks if an external service is available.
+	SetPhaseMode(accessToken string, chargerID string, phaseMode int) error
 	Ping(accessToken string) error
 }
 
@@ -83,7 +76,6 @@ type httpClient struct {
 	lastMaxCurrentSet map[string]time.Time
 }
 
-// NewHTTPClient returns a new instance of Easee HTTPClient.
 func NewHTTPClient(cfgSrv *config.Service, http *http.Client, baseURL string) HTTPClient {
 	return &httpClient{
 		httpClient:        http,
@@ -99,7 +91,7 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 		Password: strings.TrimSpace(password),
 	}
 
-	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, c.buildURL(loginURI), body,
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, c.baseURL+loginURI, body,
 		map[string]string{contentTypeHeader: jsonContentType})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create login request")
@@ -125,6 +117,10 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 		return nil, errors.Wrap(err, "could not read response body")
 	}
 
+	if credentials.AccessToken == "" {
+		return nil, errors.New("login response carries no access token")
+	}
+
 	return credentials, nil
 }
 
@@ -134,7 +130,7 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 		RefreshToken: refreshToken,
 	}
 
-	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, c.buildURL(tokenRefreshURI), body,
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, c.baseURL+tokenRefreshURI, body,
 		map[string]string{contentTypeHeader: jsonContentType})
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create token refresh request")
@@ -157,6 +153,10 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 
 	if err = c.readResponseBody(resp, loginData); err != nil {
 		return nil, errors.Wrap(err, "could not read token refresh response body")
+	}
+
+	if loginData.AccessToken == "" {
+		return nil, errors.New("token refresh response carries no access token")
 	}
 
 	return loginData, nil
@@ -219,8 +219,8 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 }
 
 func (c *httpClient) StopCharging(accessToken, chargerID string) error {
-	// When stop charging command is sent, Easee sets dynamic current to 0.
-	// That's why a protection against changing offered current more often than once in 30 seconds is needed.
+	// Easee zeroes the dynamic current on stop, so offered-current changes are rate-limited
+	// against it (OfferedCurrentWaitTime).
 	if c.shouldBackoffWithMaxCurrentChange(chargerID) {
 		return errors.New("client: failed to stop charging: too many requests to the charger")
 	}
@@ -274,68 +274,71 @@ func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked 
 	return nil
 }
 
+func (c *httpClient) SetPhaseMode(accessToken, chargerID string, phaseMode int) error {
+	u := c.buildURL(phaseModeURITemplate, chargerID)
+
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, phaseModeBody{PhaseMode: phaseMode},
+		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken), contentTypeHeader: jsonContentType})
+	if err != nil {
+		return errors.Wrap(err, "failed to create phase mode request")
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("transport error: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	// Unlike the other command endpoints this one is documented to answer 200, but Easee
+	// has been observed answering 202 as well.
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
+		c.logFailedResponse(resp)
+
+		return c.handleFailedResponse(resp, "phase mode request failed: unexpected status code")
+	}
+
+	return nil
+}
+
 func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*model.ChargerConfig, error) {
 	var chargerConfig model.ChargerConfig
-	rsp, err := c.getResponse(&chargerConfig, c.buildURL(chargerConfigURITemplate, chargerID), accessToken)
-	if err != nil {
+	if err := c.getResponse(&chargerConfig, c.buildURL(chargerConfigURITemplate, chargerID), accessToken); err != nil {
 		return nil, err
 	}
 
-	ret, ok := rsp.(*model.ChargerConfig)
-	if !ok {
-		return nil, fmt.Errorf("failed to cast response to charger config (%T)", ret)
-	}
-
-	return ret, nil
+	return &chargerConfig, nil
 }
 
 func (c *httpClient) ChargerSiteInfo(accessToken, chargerID string) (*model.ChargerSiteInfo, error) {
 	var siteInfo model.ChargerSiteInfo
-	rsp, err := c.getResponse(&siteInfo, c.buildURL(chargerSiteURITemplate, chargerID), accessToken)
-	if err != nil {
+	if err := c.getResponse(&siteInfo, c.buildURL(chargerSiteURITemplate, chargerID), accessToken); err != nil {
 		return nil, err
 	}
 
-	ret, ok := rsp.(*model.ChargerSiteInfo)
-	if !ok {
-		return nil, errors.New("failed to cast response to charger site info")
-	}
-
-	return ret, nil
+	return &siteInfo, nil
 }
 
 func (c *httpClient) Chargers(accessToken string) ([]model.Charger, error) {
 	var chargers []model.Charger
-	rsp, err := c.getResponse(&chargers, c.buildURL(chargersURI), accessToken)
-	if err != nil {
+	if err := c.getResponse(&chargers, c.baseURL+chargersURI, accessToken); err != nil {
 		return nil, err
 	}
 
-	ret, ok := rsp.(*[]model.Charger)
-	if !ok {
-		return nil, errors.New("failed to cast response to chargers slice")
-	}
-
-	return *ret, nil
+	return chargers, nil
 }
 
 func (c *httpClient) ChargerDetails(accessToken string, chargerID string) (model.ChargerDetails, error) {
 	var details model.ChargerDetails
-	ret, err := c.getResponse(&details, c.buildURL(chargerDetailsURITemplate, chargerID), accessToken)
-	if err != nil {
+	if err := c.getResponse(&details, c.buildURL(chargerDetailsURITemplate, chargerID), accessToken); err != nil {
 		return model.ChargerDetails{}, err
 	}
 
-	result, ok := ret.(*model.ChargerDetails)
-	if !ok {
-		return model.ChargerDetails{}, errors.New("failed to cast response to charger details")
-	}
-
-	return *result, nil
+	return details, nil
 }
 
 func (c *httpClient) Ping(accessToken string) error {
-	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodGet, c.buildURL(healthURI), nil,
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodGet, c.baseURL+healthURI, nil,
 		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken)})
 	if err != nil {
 		return errors.Wrap(err, "failed to create ping request")
@@ -362,7 +365,13 @@ func (c *httpClient) buildURL(path string, args ...any) string {
 }
 
 func (c *httpClient) handleFailedResponse(resp *http.Response, message string) error {
-	return fmt.Errorf("%s, status code: %d: %w", message, resp.StatusCode, httpclient.ErrorFromResponse(resp))
+	// ErrorFromResponse is nil below 300, and the command endpoints treat anything but 202 as a
+	// failure - Easee answers some of them 200. Wrapping nil renders as %!w(<nil>).
+	if err := httpclient.ErrorFromResponse(resp); err != nil {
+		return fmt.Errorf("%s, status code: %d: %w", message, resp.StatusCode, err)
+	}
+
+	return fmt.Errorf("%s, status code: %d", message, resp.StatusCode)
 }
 
 func (c *httpClient) logFailedResponse(resp *http.Response) {
@@ -386,10 +395,6 @@ func (c *httpClient) readResponseBody(r *http.Response, body any) error {
 	err := json.NewDecoder(r.Body).Decode(body)
 	if err != nil {
 		return errors.Wrap(err, "could not decode response body")
-	}
-
-	if funk.IsEmpty(body) {
-		return errors.New("response body does not contain expected data")
 	}
 
 	return nil
@@ -422,16 +427,16 @@ func (c *httpClient) registerMaxCurrentChange(chargerID string) {
 	c.lastMaxCurrentSet[chargerID] = clock.Now()
 }
 
-func (c *httpClient) getResponse(state any, url, accessToken string) (any, error) {
+func (c *httpClient) getResponse(state any, url, accessToken string) error {
 	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodGet, url, nil,
 		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken)})
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create request")
+		return errors.Wrap(err, "failed to create request")
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("transport error: %w", err)
+		return fmt.Errorf("transport error: %w", err)
 	}
 
 	defer func() {
@@ -442,13 +447,12 @@ func (c *httpClient) getResponse(state any, url, accessToken string) (any, error
 
 	if resp.StatusCode != http.StatusOK {
 		c.logFailedResponse(resp)
-		return nil, c.handleFailedResponse(resp, "unexpected status code")
+		return c.handleFailedResponse(resp, "unexpected status code")
 	}
 
-	err = c.readResponseBody(resp, state)
-	if err != nil {
-		return nil, errors.Wrap(err, "could not read response body")
+	if err = c.readResponseBody(resp, state); err != nil {
+		return errors.Wrap(err, "could not read response body")
 	}
 
-	return state, nil
+	return nil
 }

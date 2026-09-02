@@ -16,6 +16,8 @@ import (
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
 	cliffStorage "github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/task"
+	"github.com/futurehomeno/cliffhanger/telemetry"
+	telemetryTypes "github.com/futurehomeno/cliffhanger/telemetry/types"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
@@ -30,7 +32,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/tasks"
 )
 
-// services is a container for services that are common dependencies.
 var services = &serviceContainer{}
 
 // serviceContainer is a type representing a dependency injection container to be used during bootstrap of the application.
@@ -40,6 +41,9 @@ type serviceContainer struct {
 	defaultStore     *cliffCfg.DefaultStore
 	lifecycle        *lifecycle.Lifecycle
 	mqtt             *fimpgo.MqttTransport
+	telemetry        telemetry.Telemetry
+	telemetryTried   bool
+	version          string
 
 	application     app.ApplicationWithToken
 	manifestLoader  manifest.Loader
@@ -140,7 +144,7 @@ func getLifecycle() *lifecycle.Lifecycle {
 func getEventListener(cfg *config.Config) event.Listener {
 	if services.eventListener == nil {
 		services.eventListener = event.NewListener(
-			getEventManager(cfg),
+			getEventManager(),
 			parameters.NewInclusionReportSentEventHandler(getAdapter(cfg)),
 		)
 	}
@@ -152,9 +156,7 @@ func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 	if services.sessionStorage == nil {
 		dataBase, err := database.NewDatabase(cfg.WorkDir)
 		if err != nil {
-			log.Errorf("[db] Create database. err: %v", err)
-
-			return nil
+			log.Fatalf("[db] Create database. err: %v", err)
 		}
 
 		services.sessionStorage = db.NewSessionStorage(dataBase)
@@ -198,6 +200,7 @@ func getApplication(cfg *config.Config) app.ApplicationWithToken {
 			getAuthenticator(cfg),
 			getSignalRClient(cfg),
 			getCredentialsStore(),
+			getSessionStorage(cfg),
 		)
 	}
 
@@ -216,7 +219,7 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 	if services.adapter == nil {
 		services.adapter = adapter.NewAdapter(
 			getMQTT(cfg),
-			getEventManager(cfg),
+			getEventManager(),
 			getThingFactory(cfg),
 			getAdapterState(),
 			fimptype.EaseeRn,
@@ -227,7 +230,7 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 	return services.adapter
 }
 
-func getEventManager(_ *config.Config) event.Manager {
+func getEventManager() event.Manager {
 	if services.eventManager == nil {
 		services.eventManager = event.NewManager()
 	}
@@ -303,6 +306,9 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 			notification.NewNotification(getMQTT(cfg)),
 			getMQTT(cfg),
 			fimptype.EaseeService,
+			// Resolved lazily: the application is built on top of this authenticator, so it
+			// cannot be handed over at construction time.
+			func() error { return getApplication(cfg).Logout() },
 		)
 	}
 
@@ -311,7 +317,7 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 
 func getSignalRClient(cfg *config.Config) signalr.Client {
 	if services.signalRClient == nil {
-		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator(cfg).AccessToken)
+		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator(cfg).AccessToken, getTelemetry(cfg))
 	}
 
 	return services.signalRClient
@@ -319,10 +325,52 @@ func getSignalRClient(cfg *config.Config) signalr.Client {
 
 func getSignalRManager(cfg *config.Config) signalr.Manager {
 	if services.signalRManager == nil {
-		services.signalRManager = signalr.NewManager(getConfigService(), getSignalRClient(cfg))
+		services.signalRManager = signalr.NewManager(getConfigService(), getSignalRClient(cfg), getTelemetry(cfg))
 	}
 
 	return services.signalRManager
+}
+
+// getTelemetry builds the telemetry reporter. It publishes nothing until the cloud enables it,
+// but wiring it here is what lets the root app and the SignalR loops report a panic.
+func getTelemetry(cfg *config.Config) telemetry.Telemetry {
+	if services.telemetry != nil || services.telemetryTried {
+		return services.telemetry
+	}
+
+	// Every caller runs inside a single Build(), so a failure here cannot become a success later;
+	// remembering the attempt keeps one broken init from logging once per call site.
+	services.telemetryTried = true
+
+	store := getDefaultStore()
+
+	if err := seedTelemetryDisabled(store); err != nil {
+		log.Errorf("[cmd] Seed telemetry config err: %v", err)
+
+		return nil
+	}
+
+	t, err := telemetry.New(getMQTT(cfg), fimptype.EaseeRn, store, services.version)
+	if err != nil {
+		log.Errorf("[cmd] Init telemetry err: %v", err)
+
+		return nil
+	}
+
+	services.telemetry = t
+
+	return services.telemetry
+}
+
+// seedTelemetryDisabled writes a disabled telemetry block when the config has none. cliffhanger's
+// telemetry.New seeds a missing block as enabled for 30 days, which would make reporting opt-out
+// on a fresh install and on upgrades from a config predating telemetry.
+func seedTelemetryDisabled(store *cliffCfg.DefaultStore) error {
+	if _, err := store.Telemetry(); err == nil {
+		return nil
+	}
+
+	return store.SetTelemetry(&telemetryTypes.TelemetryConfig{})
 }
 
 func newRouting(cfg *config.Config) []*cliffRouter.Routing {
@@ -331,6 +379,7 @@ func newRouting(cfg *config.Config) []*cliffRouter.Routing {
 		getLifecycle(),
 		getApplication(cfg),
 		getAdapter(cfg),
+		getTelemetry(cfg),
 	)
 }
 
