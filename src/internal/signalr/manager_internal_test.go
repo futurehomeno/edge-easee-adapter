@@ -192,6 +192,82 @@ func TestArmedRetryDoesNotDisarmTheChainThatReplacedIt(t *testing.T) {
 	assert.True(t, charger.retryArmed, "the chain armed during the hand-off must stay armed")
 }
 
+// The run loop is the only drainer of the observation channel, so subscribing on it stalled
+// that drain for up to SignalRInvokeTimeout per charger - while the server was already
+// streaming the initial batch that same subscribe asked for, overflowing the buffer and
+// losing the edge-triggered session records among the drops.
+func TestRunLoopKeepsDrainingObservationsWhileASubscribeIsInFlight(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	observations := make(chan model.Observation, 1)
+	client.observations = observations
+
+	handled := make(chan struct{})
+	m.chargers[chargerID].handler = &recordingHandler{handled: handled}
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	go m.run()
+
+	m.enqueueSubscription(chargerID)
+
+	<-client.entered
+
+	// The subscribe is parked mid-invoke, exactly where the loop used to sit. An observation
+	// delivered now must still be picked up.
+	observations <- model.Observation{ID: model.ChargerOPState, ChargerID: chargerID}
+
+	select {
+	case <-handled:
+	case <-time.After(time.Second):
+		t.Fatal("observations must be handled while a subscribe invoke is in flight")
+	}
+
+	close(client.release)
+}
+
+// A subscribe spanning a reconnect describes a connection that no longer exists: its result
+// must not mark the charger subscribed on the new one, and must not leave the guard set on
+// the fresh attempt the reconnect sweep enqueued.
+func TestSubscribeResultFromAPreviousConnectionIsDropped(t *testing.T) {
+	client := &racingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	m.handleClientState(model.ClientStateConnected)
+
+	close(client.release)
+	<-subscribed
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	charger := m.chargers[chargerID]
+
+	assert.False(t, charger.isSubscribed, "a result from the retired connection must not mark the new one subscribed")
+	assert.False(t, charger.subscribing, "the stale result must not leave the guard set against the fresh attempt")
+	assert.Zero(t, client.unsubscribeCalls(), "the retired connection took its own subscription with it")
+}
+
 // A Subscribe invoke that outlives Unregister can still succeed after Unregister's own
 // Unsubscribe already ran, silently re-establishing the cloud subscription with no local
 // charger left to receive its observations. handleSubscription must undo that itself.
@@ -385,6 +461,9 @@ type blockingSubscribeClient struct {
 	enterOnce sync.Once
 	entered   chan struct{}
 	release   chan struct{}
+
+	// Set only by the test that drives the real run loop; nil elsewhere, as the embedded stub returns.
+	observations chan model.Observation
 }
 
 func (c *blockingSubscribeClient) SubscribeCharger(string) error {
@@ -392,6 +471,22 @@ func (c *blockingSubscribeClient) SubscribeCharger(string) error {
 	<-c.release
 
 	return errors.New("not logged in")
+}
+
+func (c *blockingSubscribeClient) ObservationC() <-chan model.Observation { return c.observations }
+
+// recordingHandler closes handled on the first observation the run loop dispatches to it.
+type recordingHandler struct {
+	once    sync.Once
+	handled chan struct{}
+}
+
+func (h *recordingHandler) IsOnline() bool { return true }
+
+func (h *recordingHandler) HandleObservation(model.Observation) error {
+	h.once.Do(func() { close(h.handled) })
+
+	return nil
 }
 
 // racingSubscribeClient parks in SubscribeCharger until released, then succeeds or fails per

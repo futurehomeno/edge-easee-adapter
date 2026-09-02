@@ -42,6 +42,10 @@ type manager struct {
 
 	subscriptions chan string
 
+	// Bumped on every connect, so a subscribe that spans a reconnect can tell its result
+	// belongs to a connection that is already gone.
+	epoch uint64
+
 	client   Client
 	tel      telemetry.Telemetry
 	chargers map[string]*charger
@@ -196,9 +200,18 @@ func (m *manager) run() {
 			return
 
 		case chargerID := <-m.subscriptions:
-			if err := m.handleSubscription(chargerID); err != nil {
-				log.Warnf("Handle subscription chargerID=%s err: %v", chargerID, err)
-			}
+			// Off the loop: SubscribeCharger blocks for up to SignalRInvokeTimeout, and this
+			// goroutine is the only drainer of the observation channel. Subscribing inline
+			// stalled that drain for one timeout per charger while the server was already
+			// streaming the initial batch the subscribe itself asked for, overflowing the
+			// buffer and losing the edge-triggered session records among the drops.
+			go func() {
+				defer telemetry.RecoverAndEmit(m.tel, "manager.subscribe", true)
+
+				if err := m.handleSubscription(chargerID); err != nil {
+					log.Warnf("Handle subscription chargerID=%s err: %v", chargerID, err)
+				}
+			}()
 
 		case state := <-states:
 			m.handleClientState(state)
@@ -222,22 +235,40 @@ func (m *manager) handleSubscription(chargerID string) error {
 	}
 
 	// A retry armed before a disconnect can fire after the reconnect sweep already
-	// re-subscribed this charger; don't subscribe twice on the same connection.
-	if charger.isSubscribed {
+	// re-subscribed this charger; don't subscribe twice on the same connection. Since
+	// subscribes now run concurrently, subscribing is also a state to skip on, not just
+	// subscribed - otherwise two enqueues for one charger invoke at the same time.
+	if charger.isSubscribed || charger.subscribing {
 		m.mu.Unlock()
 
 		return nil
 	}
 
+	charger.subscribing = true
+	epoch := m.epoch
+
 	m.mu.Unlock()
 
-	// Invoked unlocked: SubscribeCharger blocks for up to SignalRInvokeTimeout, and this runs
-	// on the run loop, the only drainer of the observation channel. Holding m.mu across it
-	// stalled Connected(), Register() and every observation lookup for the whole invocation.
+	// Invoked unlocked: SubscribeCharger blocks for up to SignalRInvokeTimeout. Holding m.mu
+	// across it stalled Connected(), Register() and every observation lookup for the whole
+	// invocation.
 	err := m.client.SubscribeCharger(chargerID)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	// A reconnect during the invoke retired this connection. The sweep already cleared the
+	// flag and enqueued a fresh subscribe, so touching charger state here would corrupt that
+	// attempt - unmark its flag, or mark it subscribed on a result that predates it. Nothing
+	// to unsubscribe either: whatever this invoke established server-side belonged to the
+	// connection that is now gone.
+	if epoch != m.epoch {
+		return nil
+	}
+
+	// Cleared even when the charger loses the identity check below: the struct this call
+	// marked is the one to unmark, and a re-registered charger is a different struct.
+	charger.subscribing = false
 
 	// Unregister can drop this charger - and a later Register re-add a different struct under
 	// the same ID - while the invoke ran unlocked, so identity is the test, not presence.
@@ -322,11 +353,16 @@ func (m *manager) handleClientState(state model.ClientState) {
 		m.mu.Lock()
 		chargersIDs := make([]string, 0, len(m.chargers))
 
+		// A subscribe still in flight belongs to the previous connection: its result must not
+		// mark this one subscribed, and it must not block the re-subscribe enqueued below.
+		m.epoch++
+
 		for chargerID, charger := range m.chargers {
 			// A subscription belongs to the connection that made it. Clearing the flag here
 			// rather than trusting the disconnect notice makes this sweep the authority: a
 			// missed notice would otherwise leave the charger permanently unsubscribed.
 			charger.isSubscribed = false
+			charger.subscribing = false
 			chargersIDs = append(chargersIDs, chargerID)
 			// A new connection starts a new failure streak, so its first failure has to warn
 			// again - otherwise the only visible sign of a charger that never comes back is a
@@ -385,6 +421,7 @@ func (m *manager) handleObservation(observation model.Observation) error {
 type charger struct {
 	handler         Handler
 	isSubscribed    bool
+	subscribing     bool
 	subscribeFailed bool
 	retryArmed      bool
 	backoff         backoff.Stateful
