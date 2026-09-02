@@ -23,9 +23,8 @@ const (
 
 // Client is the interface for the SignalR client.
 type Client interface {
-	// Start is idempotent and never blocks. A start racing an in-flight Close is dropped
-	// rather than queued, so a caller that needs the client running after closing it must
-	// order the two itself - Register does, and app-level login re-arms it the same way.
+	// Start is idempotent and never blocks. A start racing an in-flight Close is remembered
+	// and applied when that close completes, so callers need not order the two themselves.
 	Start()
 	Close() error
 
@@ -41,7 +40,10 @@ type client struct {
 	wg      sync.WaitGroup
 	running bool
 	closing bool
-	cancel  context.CancelFunc
+	// startRequested records a Start that arrived while a Close was draining, so the
+	// close can re-arm the client instead of dropping the request on the floor.
+	startRequested bool
+	cancel         context.CancelFunc
 
 	connection    signalr.Client
 	cfg           *config.Service
@@ -103,12 +105,25 @@ func (c *client) Start() {
 
 	// handleConnection takes c.mu on its way out, so Close() cannot hold the lock across
 	// wg.Wait(). Starting in that window either panics ("Add called concurrently with Wait")
-	// or hands Wait a goroutine holding a fresh, uncancelled context. Register re-arms the
-	// client once the close completes.
-	if c.running || c.closing {
+	// or hands Wait a goroutine holding a fresh, uncancelled context. Remember the request
+	// instead: Close re-arms the client on its way out, or a login racing the auth-loss
+	// teardown would leave every charger unsubscribed until the process restarts.
+	if c.closing {
+		c.startRequested = true
+
 		return
 	}
 
+	if c.running {
+		return
+	}
+
+	c.launch()
+}
+
+// launch starts the connection goroutine. The caller must hold c.mu and have established
+// that the client is not already running.
+func (c *client) launch() {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 
@@ -127,6 +142,10 @@ func (c *client) Close() error {
 	c.mu.Lock()
 
 	if !c.running || c.closing {
+		// A close arriving here is the newest shutdown intent, so it must outrank a Start
+		// this or an in-flight close already deferred - otherwise the drain re-arms the
+		// client after this caller was told it was closed.
+		c.startRequested = false
 		c.mu.Unlock()
 
 		return nil
@@ -145,6 +164,17 @@ func (c *client) Close() error {
 	c.wg.Wait()
 
 	c.mu.Lock()
+
+	// closing stays true until the deferred Start is applied, so a Close racing this
+	// tail still takes the early-exit guard above and clears startRequested. Dropping
+	// the lock to call Start() instead would re-arm the client from a stale local read
+	// after that closer was already told it was closed.
+	if c.startRequested {
+		c.startRequested = false
+
+		c.launch()
+	}
+
 	c.closing = false
 	c.mu.Unlock()
 

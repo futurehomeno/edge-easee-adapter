@@ -35,6 +35,10 @@ const (
 	configSelectedDevices = "selected_devices"
 )
 
+// errMissingSelected marks a re-seed refused because a selected charger is absent from the
+// chargers list, so the caller can leave the retry budget that refusal just spent intact.
+var errMissingSelected = errors.New("selected devices missing")
+
 type ApplicationWithToken interface {
 	Application
 	RefreshToken()
@@ -330,9 +334,14 @@ func (a *application) Initialize() error {
 			log.Warnf("[app] Re-seed chargers on initialize err: %v", err)
 
 			// The budget belongs to a login attempt; a failed re-seed must not spend it, or the
-			// next real login starts partway through its retries.
-			a.missingRetries = 0
-			a.lastMissing = ""
+			// next real login starts partway through its retries. A refusal over a missing
+			// selected charger is the exception: it is the budget doing its job, and clearing
+			// it here would let a permanently vanished charger block the re-seed on every boot
+			// without ever reaching the prune.
+			if !errors.Is(err, errMissingSelected) {
+				a.missingRetries = 0
+				a.lastMissing = ""
+			}
 		}
 	}
 
@@ -416,8 +425,8 @@ func (a *application) configureChargers(selected selection.Selection) error {
 		if a.missingRetries < maxMissingSelectedRetries {
 			a.missingRetries++
 
-			return fmt.Errorf("selected devices %v not found in chargers list; refusing partial re-seed (%d/%d)",
-				missing, a.missingRetries, maxMissingSelectedRetries)
+			return fmt.Errorf("%w: selected devices %v not found in chargers list; refusing partial re-seed (%d/%d)",
+				errMissingSelected, missing, a.missingRetries, maxMissingSelectedRetries)
 		}
 
 		log.Warnf("[app] Selected devices %v still missing after %d retries, seed without them", missing, maxMissingSelectedRetries)

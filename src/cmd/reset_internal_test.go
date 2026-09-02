@@ -34,7 +34,7 @@ func TestUninstall_resetAndReMigrate(t *testing.T) {
 	credentials := config.NewCredentialsStore(workDir)
 	require.NoError(t, credentials.Load())
 
-	migrateConfig(cfgSvc, credentials)
+	require.NoError(t, migrateConfig(cfgSvc, credentials))
 	require.Equal(t, 6, cfg.ConfigVersion)
 
 	require.NoError(t, cfgSvc.SetSelectedDevices([]string{"charger-1"}))
@@ -64,7 +64,7 @@ func TestUninstall_resetAndReMigrate(t *testing.T) {
 	// authenticator backoff is rebuilt from the legacy block the defaults still ship, the two
 	// value migrations find the current defaults and do nothing, and the credential migration
 	// has nothing to move.
-	migrateConfig(cfgSvc, credentials)
+	require.NoError(t, migrateConfig(cfgSvc, credentials))
 
 	assert.Equal(t, 6, cfg.ConfigVersion)
 	assert.Equal(t, "info", cfg.LogLevel)

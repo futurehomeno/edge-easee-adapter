@@ -1416,3 +1416,50 @@ func TestApplication_Login_EmptyChargerListDoesNotDestroyThings(t *testing.T) {
 	require.NoError(t, h.login(), "an account that really lists nothing must stop blocking login")
 	assert.Empty(t, h.seeded())
 }
+
+// TestApplication_Initialize_MissingSelectedBudgetSurvivesBoots pins that the boot re-seed can
+// actually spend the missing-selected budget. Clearing it on every failed re-seed made a
+// permanently vanished charger block the re-seed forever: each boot ticked 1/3 and then reset,
+// so the prune that drops it was never reached without a manual login.
+func TestApplication_Initialize_MissingSelectedBudgetSurvivesBoots(t *testing.T) {
+	t.Parallel()
+
+	thing := mockedadapter.NewThing(t)
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("InitializeThings").Return(nil)
+	adapterMock.On("Things").Return([]adapter.Thing{thing}).Maybe()
+	adapterMock.On("ThingByID", "123").Return(thing)
+	adapterMock.On("ThingByID", "gone").Return(nil)
+	adapterMock.On("EnsureThings", mock.Anything).Return(nil).Maybe()
+
+	// "gone" is absent from every response, so only "123" can ever be seeded.
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Ping").Return(nil).Maybe()
+	clientMock.On("Chargers").Return([]model.Charger{{ID: "123"}}, nil)
+	clientMock.On("ChargerDetails", mock.Anything).Return(model.ChargerDetails{}, nil).Maybe()
+	clientMock.On("ChargerConfig", mock.Anything).Return(&model.ChargerConfig{}, nil).Maybe()
+	clientMock.On("ChargerSiteInfo", mock.Anything).Return(&model.ChargerSiteInfo{}, nil).Maybe()
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	require.NoError(t, cfg.SetSelectedDevices(selection.Selection{"123", "gone"}))
+
+	signalRMock := mocksignalr.NewClient(t)
+	signalRMock.On("Start").Maybe()
+
+	application := app.New(
+		adapterMock, cfg, lifecycle.New(nil), nil, clientMock, mockapi.NewAuthenticator(t),
+		signalRMock,
+		newCredentialsStore(t, config.Credentials{AccessToken: "token", RefreshToken: "refresh"}),
+		nil,
+	)
+
+	// Three boots spend the budget; the fourth seeds without the missing charger and prunes it.
+	for range 3 { // maxMissingSelectedRetries
+		require.NoError(t, application.Initialize())
+		assert.Contains(t, cfg.SelectedDevices(), "gone", "the budget must not be spent early")
+	}
+
+	require.NoError(t, application.Initialize())
+	assert.NotContains(t, cfg.SelectedDevices(), "gone", "an exhausted budget must prune the vanished charger")
+}
