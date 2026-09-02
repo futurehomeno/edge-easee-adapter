@@ -221,6 +221,12 @@ func (c *controller) outputPhaseStale(outputPhase types.PhaseMode, outputPhaseSe
 	return state != chargepoint.StateCharging
 }
 
+func (c *controller) charging() bool {
+	state, _ := c.ChargepointStateReport()
+
+	return state == chargepoint.StateCharging
+}
+
 func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 	if err := c.checkConnection(); err != nil {
 		return err
@@ -243,12 +249,16 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 
 	current, internalAt := c.cache.PhaseMode()
 	if target == current {
-		// Nothing to send: Easee stores "one phase", not a chosen leg. Record the request
-		// only while no live observation says which leg is actually in use - the charger
-		// picks it, so a request outranking that observation would report a leg it is not
-		// on. Without the record, a mode the charger never echoes (NL1 -> NL2) leaves the
-		// report republishing the old leg and the UI reverting the user's choice.
-		if outputPhase, outputPhaseSet := c.cache.OutputPhaseType(); outputPhase == "" || c.outputPhaseStale(outputPhase, outputPhaseSet) {
+		// Nothing to send: Easee stores "one phase", not a chosen leg. Skip the record only
+		// while a live observation says which leg is actually in use - the charger picks
+		// it, so a request outranking that observation would report a leg it is not on.
+		// An idle charger is on no leg at all: its cached value is left over from a
+		// finished session, and outputPhaseStale keeps it only because no internal mode
+		// change has happened since. Without the record, a mode the charger never echoes
+		// (NL1 -> NL2) leaves the report republishing the old leg and the UI reverting
+		// the user's choice.
+		if outputPhase, outputPhaseSet := c.cache.OutputPhaseType(); outputPhase == "" ||
+			c.outputPhaseStale(outputPhase, outputPhaseSet) || !c.charging() {
 			requestedAt := outputPhaseSet
 			if internalAt.After(requestedAt) {
 				requestedAt = internalAt

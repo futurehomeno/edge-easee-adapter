@@ -648,13 +648,42 @@ func TestController_SetChargepointPhaseMode_NoOpDoesNotMaskOutputPhase(t *testin
 	// Already locked to a single phase, so asking for another leg changes nothing.
 	cacheMock.On("PhaseMode").Return(1, time.Time{})
 	// A live observation names the leg actually in use, and the charger - not the request -
-	// picks it, so recording NL2 here would report a leg the charger is not on.
+	// picks it, so recording NL2 here would report a leg the charger is not on. Only a
+	// charging charger is on a leg at all, which is what makes the observation live.
 	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL1, time.Now())
+	cacheMock.On("TotalPower").Return(7000.0, time.Time{})
 
 	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
 
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL2))
 	cacheMock.AssertNotCalled(t, "SetRequestedPhaseMode", mock.Anything, mock.Anything)
+}
+
+// An idle charger holds the leg of a finished session, and no internal mode change has
+// happened since - so outputPhaseStale still calls it fresh. Dropping the request there left
+// NL1 -> NL2 unrecorded, and the report republished NL1 until the next session started.
+func TestController_SetChargepointPhaseMode_IdleChargerRecordsRequestOverStaleLeg(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	ended := time.Now().Add(-2 * time.Hour)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	// Locked to a single phase, and the leg was cached when the session ended - nothing has
+	// moved the internal mode since, so the staleness check alone keeps NL1.
+	cacheMock.On("PhaseMode").Return(1, ended)
+	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL1, ended)
+	cacheMock.On("TotalPower").Return(0.0, time.Time{})
+	cacheMock.On("ChargerState").Return(chargepoint.StateReadyToCharge, time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL2, mock.AnythingOfType("time.Time")).Return(true).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL2))
 }
 
 // Bouncing a session to apply a phase mode must put back the current that was running.
