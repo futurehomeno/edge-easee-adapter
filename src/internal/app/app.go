@@ -240,9 +240,9 @@ func (a *application) Uninstall() error {
 		errs = errors.Join(errs, fmt.Errorf("clear credentials: %w", err))
 	}
 
-	// Marked regardless of the errors above: the credentials and the configuration are gone,
-	// so staying marked running would leave the tasks and the UI acting on a session the hub
-	// no longer has.
+	// Marked regardless of the errors above: the wipe may not have fully succeeded, but the
+	// session is unusable either way, and staying marked running would leave the tasks and the
+	// UI acting on a session the hub no longer has. The caller still gets the errors.
 	a.lifecycle.MarkNotConfigured()
 
 	return errs
