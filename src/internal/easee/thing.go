@@ -1,6 +1,7 @@
 package easee
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
+	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
@@ -29,10 +31,10 @@ type Info struct {
 
 // State is an object representing charger persisted mutable information.
 type State struct {
-	GridType            chargepoint.GridType `json:"gridType"`
-	Phases              int                  `json:"phases"`
-	PhaseMode           int                  `json:"phaseMode"`
-	SupportedMaxCurrent int64                `json:"supportedMaxCurrent"`
+	GridType            types.GridType `json:"gridType"`
+	Phases              int            `json:"phases"`
+	PhaseMode           int            `json:"phaseMode"`
+	SupportedMaxCurrent int            `json:"supportedMaxCurrent"`
 }
 
 func (s *State) IsConfigUpdateNeeded() bool {
@@ -80,12 +82,24 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 		log.WithError(err).Warnf("factory: failed to retrieve state: %v", err)
 	}
 
+	usingStoredState := false
+
 	if err := controller.UpdateState(info.ChargerID, state); err != nil {
-		return nil, err
+		if !errors.Is(err, api.ErrNotLoggedIn) {
+			return nil, err
+		}
+
+		log.Warnf("factory: [%s] not logged in, creating thing with stored state", info.ChargerID)
+
+		usingStoredState = true
 	}
 
-	if err := thingState.SetState(state); err != nil {
-		log.WithError(err).Warnf("factory: failed to set state: %v", err)
+	// Not logged in means state was not refreshed from the cloud - persisting it here would
+	// overwrite the stored state with zeros if it had failed to load above.
+	if !usingStoredState {
+		if err := thingState.SetState(state); err != nil {
+			log.WithError(err).Warnf("factory: failed to set state: %v", err)
+		}
 	}
 
 	// using zero time, because we have no idea about the exact time those parameters were set
@@ -142,7 +156,7 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 	}
 
 	return chargepoint.Specification(
-		ad.Name(),
+		ad.Name().Str(),
 		ad.Address(),
 		thingState.Address(),
 		groups,
@@ -221,7 +235,7 @@ func (t *thingFactory) newParametersService(publisher adapter.ServicePublisher,
 }
 
 func (t *thingFactory) parametersSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
-	return parameters.Specification(adapter.Name(), adapter.Address(), thingState.Address(), groups)
+	return parameters.Specification(adapter.Name().Str(), adapter.Address(), thingState.Address(), groups)
 }
 
 // parameterSpecificationCableAlwaysLocked returns parameter specification for the associated configuration option.

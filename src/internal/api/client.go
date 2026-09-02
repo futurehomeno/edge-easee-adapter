@@ -3,6 +3,8 @@ package api
 import (
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
@@ -39,6 +41,7 @@ func NewAPIClient(http HTTPClient, auth Authenticator) Client {
 }
 
 func (a *apiClient) UpdateMaxCurrent(chargerID string, current float64) error {
+	log.Infof("[%s] Update max current to %.1f", chargerID, current)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)
@@ -48,6 +51,7 @@ func (a *apiClient) UpdateMaxCurrent(chargerID string, current float64) error {
 }
 
 func (a *apiClient) SetCableAlwaysLocked(chargerID string, locked bool) error {
+	log.Infof("[%s] Set cable always locked to %t", chargerID, locked)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)
@@ -57,6 +61,7 @@ func (a *apiClient) SetCableAlwaysLocked(chargerID string, locked bool) error {
 }
 
 func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) error {
+	log.Infof("[%s] Update dynamic current to %.1f", chargerID, current)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)
@@ -66,6 +71,7 @@ func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) erro
 }
 
 func (a *apiClient) StopCharging(chargerID string) error {
+	log.Infof("[%s] Stop charging", chargerID)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)
@@ -75,6 +81,7 @@ func (a *apiClient) StopCharging(chargerID string) error {
 }
 
 func (a *apiClient) ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, error) {
+	log.Infof("[%s] Get charger site info", chargerID)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -84,6 +91,7 @@ func (a *apiClient) ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, e
 }
 
 func (a *apiClient) ChargerConfig(chargerID string) (*model.ChargerConfig, error) {
+	log.Infof("[%s] Get charger config", chargerID)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -93,6 +101,7 @@ func (a *apiClient) ChargerConfig(chargerID string) (*model.ChargerConfig, error
 }
 
 func (a *apiClient) Chargers() ([]model.Charger, error) {
+	log.Infof("Get chargers")
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -102,6 +111,7 @@ func (a *apiClient) Chargers() ([]model.Charger, error) {
 }
 
 func (a *apiClient) ChargerDetails(chargerID string) (model.ChargerDetails, error) {
+	log.Infof("[%s] Get charger details", chargerID)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return model.ChargerDetails{}, a.tokenError(err)
@@ -111,6 +121,7 @@ func (a *apiClient) ChargerDetails(chargerID string) (model.ChargerDetails, erro
 }
 
 func (a *apiClient) Ping() error {
+	log.Debugf("Ping")
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)
@@ -120,5 +131,5 @@ func (a *apiClient) Ping() error {
 }
 
 func (a *apiClient) tokenError(err error) error {
-	return fmt.Errorf("unable to get access token: %w", err)
+	return fmt.Errorf("get token err: %w", err)
 }

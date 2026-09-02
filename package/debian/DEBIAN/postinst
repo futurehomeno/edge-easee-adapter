@@ -1,65 +1,105 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
+OLD_DATA=/opt/thingsplex/easee
+NEW_DATA=/var/lib/futurehome/easee
+NEW_LOGS=/var/log/futurehome/easee
+MIGRATE=/usr/lib/futurehome/easee/migrate.sh
+
 add_user_and_group() {
-	if ! getent group thingsplex >/dev/null
+	if ! getent group futurehome >/dev/null
 	then
-		echo -n "Adding group thingsplex..."
+		echo "Add group futurehome"
 		addgroup --quiet \
 			--system \
-			thingsplex 2>/dev/null || true
-		echo "...OK"
+			futurehome 2>/dev/null || true
 	fi
 
 	if ! getent passwd easee >/dev/null
 	then
-		echo -n "Adding user easee..."
+		echo "Add user easee"
 		adduser --quiet \
 			--system \
-			--ingroup thingsplex \
+			--ingroup futurehome \
 			--no-create-home \
 			--disabled-password \
 			easee 2>/dev/null || true
-		echo "...OK"
 	fi
 }
 
-create_dirs_and_files() {
-	echo -n "Creating required directories and files..."
-	mkdir -p /opt/thingsplex/easee/data
-	mkdir -p /var/log/thingsplex/easee
-	touch /var/log/thingsplex/easee/easee.log
-	echo "...OK"
+create_dirs() {
+	# The namespace parents, $NEW_DATA itself and the defaults symlink inside
+	# it ship in the package (dpkg-owned); install -d re-asserts easee
+	# ownership of the leaves on every configure. data/ is created by
+	# create_data_dir after migrate_state has run.
+	# data holds credentials (config.json, secrets.json) so stays group-only;
+	# logs are world-readable so any user can tail them without sudo.
+	install -d -o easee -g futurehome -m 0750 "$NEW_DATA"
+	install -d -o easee -g futurehome -m 0755 "$NEW_LOGS"
+
+	# The defaults symlink sits in an easee-writable directory, and dpkg will
+	# not restore it on upgrade if something replaced it with a real
+	# directory, so re-assert it on every configure. Safe as root: rm -rf
+	# does not follow a planted symlink, and whatever sat at the path was not
+	# package content.
+	if [ "$(readlink "$NEW_DATA/defaults")" != /usr/share/futurehome/easee/defaults ]; then
+		rm -rf "$NEW_DATA/defaults"
+		ln -sn /usr/share/futurehome/easee/defaults "$NEW_DATA/defaults"
+	fi
+}
+
+migrate_state() {
+	# Probe for legacy state as root: an unprivileged [ -d ] is silently false
+	# when an ancestor directory is untraversable, which would skip the
+	# migration instead of failing loudly. migrate.sh may therefore assume the
+	# legacy tree exists and treat any read failure as an error. data.db holds
+	# the charging sessions at the legacy work dir root, not under data/, and
+	# can outlive a data/ that dpkg removed while empty - probe for both. An
+	# orphaned legacy log (data removed, log left behind) is deliberately not
+	# migrated: the log is history, not state.
+	if [ -d "$OLD_DATA/data" ] || [ -f "$OLD_DATA/data.db" ]; then
+		fh-drop easee "$MIGRATE"
+	fi
+}
+
+create_data_dir() {
+	# Runs after migrate_state on purpose: migrate.sh triggers on data/ being
+	# absent, so creating it up front would silently disable the legacy
+	# migration. Fresh installs need it to exist - the service writes
+	# data/config.json and data/secrets.json without creating parents.
+	install -d -o easee -g futurehome -m 0750 "$NEW_DATA/data"
 }
 
 set_ownership() {
-  echo -n "Set proper ownership and rights for files..."
-  chown -R easee:thingsplex /opt/thingsplex/easee || true
-  chown -R easee:thingsplex /var/log/thingsplex/easee || true
-  chmod -R 644 /opt/thingsplex/easee || true
-  chmod 755 /opt/thingsplex/easee || true
-  chmod 755 /opt/thingsplex/easee/defaults || true
-  chmod 755 /opt/thingsplex/easee/data || true
-  chmod 755 /opt/thingsplex/easee/easee || true
-  chmod -R 644 /var/log/thingsplex/easee || true
-  chmod 755 /var/log/thingsplex/easee || true
-  echo "...OK"
+	echo "Set ownership and rights for files"
+	touch "$NEW_LOGS/easee.log" || true
+	# Runs before migrate_state: an interrupted install of an older version
+	# can leave root-owned entries under data/ that the unprivileged
+	# migration (and its sed on config.json) would trip over on every retry.
+	chown -R easee:futurehome "$NEW_DATA" || true
+	chown -R easee:futurehome "$NEW_LOGS" || true
+	chmod 644 "$NEW_LOGS/easee.log" || true
+	# u=rwX,g=rX,o=: data/ holds credentials (config.json, secrets.json), so
+	# the tree stays group-readable but closed to others, matching create_dirs'
+	# 0750 instead of relaxing it back to 755. Symlinks (defaults) are left
+	# alone by the recursive chmod.
+	chmod -R u=rwX,g=rX,o= "$NEW_DATA" || true
 }
 
 configure_service() {
-		echo -n "Configuring service..."
-		systemctl enable easee.service > /dev/null || true
-		systemctl --system daemon-reload >/dev/null || true
-		systemctl start easee.service > /dev/null || true
-
-		echo "...OK"
+	echo "Configure service"
+	systemctl enable easee.service > /dev/null || true
+	systemctl --system daemon-reload >/dev/null || true
+	systemctl start easee.service > /dev/null || true
 }
 
 case "$1" in
 	configure)
 		add_user_and_group
-		create_dirs_and_files
+		create_dirs
 		set_ownership
+		migrate_state
+		create_data_dir
 		configure_service
 	;;
 

@@ -1,7 +1,43 @@
 {
-  "configs":[],
+  "configs":[
+    {
+      "id": "selected_devices",
+      "label": {
+        "en": "Selected Devices"
+      },
+      "val_t": "str_map",
+      "ui": {
+        "type": "list_checkbox",
+        "select": []
+      },
+      "val": {
+        "default": []
+      },
+      "is_required": false,
+      "hidden": true,
+      "config_point": "any"
+    }
+  ],
   "ui_buttons": [],
-  "ui_blocks": [],
+  "ui_blocks": [
+    {
+      "id": "configuration",
+      "header": {
+        "en": "Configuration"
+      },
+      "text": {
+        "en": "Select which chargers should be connected to the system."
+      },
+      "configs": [
+        "selected_devices"
+      ],
+      "buttons": [],
+      "footer": {
+        "en": ""
+      },
+      "hidden": false
+    }
+  ],
   "auth": {
     "type": "password",
     "code_grant_login_page_url" : "",
@@ -89,6 +125,12 @@
         {
           "intf_t": "out",
           "msg_t": "evt.network.all_nodes_report",
+          "val_t": "object",
+          "ver": "1"
+        },
+        {
+          "intf_t": "out",
+          "msg_t": "evt.network.node_report",
           "val_t": "object",
           "ver": "1"
         },

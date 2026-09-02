@@ -58,8 +58,8 @@ func (c *connector) Disconnect(_ adapter.Thing) {
 
 func (c *connector) Connectivity() *adapter.ConnectivityDetails {
 	ret := adapter.ConnectivityDetails{
-		ConnectionStatus: adapter.ConnectionStatusDown,
-		ConnectionType:   adapter.ConnectionTypeIndirect,
+		ConnStatus: adapter.ConnStatusDown,
+		ConnType:   adapter.ConnTypeIndirect,
 	}
 
 	connected, reason := c.manager.Connected(c.chargerID)
@@ -69,7 +69,7 @@ func (c *connector) Connectivity() *adapter.ConnectivityDetails {
 		return &ret
 	}
 
-	ret.ConnectionStatus = adapter.ConnectionStatusUp
+	ret.ConnStatus = adapter.ConnStatusUp
 
 	return &ret
 }

@@ -1,6 +1,5 @@
 package api_test
 
-//nolint:godox
 // TODO: refactor there test to use our internal HTTP testing package.
 
 import (
@@ -10,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	mockedstorage "github.com/futurehomeno/cliffhanger/test/mocks/storage"
 	"github.com/michalkurzeja/go-clock"
 	"github.com/stretchr/testify/assert"
 
@@ -18,6 +16,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
+	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 )
 
 func TestClient_Login(t *testing.T) {
@@ -113,7 +112,7 @@ func TestClient_Login(t *testing.T) {
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -131,7 +130,7 @@ func TestClient_Login(t *testing.T) {
 	}
 }
 
-func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
+func TestClient_RefreshToken(t *testing.T) {
 	testCases := []struct {
 		name          string
 		baseURLAdj    string
@@ -148,7 +147,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 		{
 			name:          "should fail due to 401 error",
 			statusCode:    http.StatusUnauthorized,
-			errorContains: "status code: 401",
+			errorContains: "token refresh request failed, status code: 401",
 		},
 		{
 			name:          "should fail when invalid body",
@@ -164,7 +163,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 		},
 	}
 
-	for _, v := range testCases { //nolint:paralleltest
+	for _, v := range testCases {
 		t.Run(v.name, func(t *testing.T) {
 			handler := func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(v.statusCode)
@@ -176,7 +175,7 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			client := api.NewHTTPClient(cfgSrv, server.Client(), server.URL+v.baseURLAdj)
 			creds, err := client.RefreshToken("", "")
@@ -191,7 +190,8 @@ func TestClient_RefreshToken(t *testing.T) { //nolint:paralleltest
 	}
 }
 
-func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
+//nolint:dupl
+func TestClient_UpdateMaxCurrent(t *testing.T) {
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 
 	t.Cleanup(func() {
@@ -254,7 +254,7 @@ func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
 		},
 	}
 
-	for _, tt := range tests { //nolint:paralleltest
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
 
@@ -268,7 +268,7 @@ func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -285,7 +285,8 @@ func TestClient_UpdateMaxCurrent(t *testing.T) { //nolint:paralleltest
 	}
 }
 
-func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
+//nolint:dupl
+func TestClient_UpdateDynamicCurrent(t *testing.T) {
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 
 	t.Cleanup(func() {
@@ -348,7 +349,7 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
 		},
 	}
 
-	for _, tt := range tests { //nolint:paralleltest
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
 
@@ -362,7 +363,7 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -379,7 +380,7 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) { //nolint:paralleltest
 	}
 }
 
-func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
+func TestClient_StopCharging(t *testing.T) {
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 
 	t.Cleanup(func() {
@@ -438,7 +439,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 		},
 	}
 
-	for _, tt := range tests { //nolint:paralleltest
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
 
@@ -452,7 +453,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -469,7 +470,7 @@ func TestClient_StopCharging(t *testing.T) { //nolint:paralleltest
 	}
 }
 
-func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
+func TestClient_ChargerConfig(t *testing.T) {
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 
 	t.Cleanup(func() {
@@ -530,7 +531,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 		},
 	}
 
-	for _, tt := range tests { //nolint:paralleltest
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
 
@@ -544,7 +545,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -562,7 +563,7 @@ func TestClient_ChargerConfig(t *testing.T) { //nolint:paralleltest
 	}
 }
 
-func TestClient_Ping(t *testing.T) { //nolint:paralleltest
+func TestClient_Ping(t *testing.T) {
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 
 	t.Cleanup(func() {
@@ -613,7 +614,7 @@ func TestClient_Ping(t *testing.T) { //nolint:paralleltest
 		},
 	}
 
-	for _, tt := range tests { //nolint:paralleltest
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
 
@@ -627,7 +628,7 @@ func TestClient_Ping(t *testing.T) { //nolint:paralleltest
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -644,7 +645,7 @@ func TestClient_Ping(t *testing.T) { //nolint:paralleltest
 	}
 }
 
-func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
+func TestClient_Chargers(t *testing.T) {
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
 
 	t.Cleanup(func() {
@@ -669,7 +670,8 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 					"Authorization": "Bearer test.access.token",
 				},
 				responseCode: http.StatusOK,
-				responseBody: `[{"id":"XX12345","name":"XX12345","color":4,"createdOn":"2021-09-22T12:01:43.299176","updatedOn":"2022-01-13T12:33:03.232669","backPlate":null,"levelOfAccess":1,"productCode":1}]`,
+				responseBody: `[{"id":"XX12345","name":"XX12345","color":4,"createdOn":"2021-09-22T12:01:43.299176",
+				"updatedOn":"2022-01-13T12:33:03.232669","backPlate":null,"levelOfAccess":1,"productCode":1}]`,
 			}),
 			want: []model.Charger{
 				{
@@ -709,7 +711,7 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 		},
 	}
 
-	for _, tt := range tests { //nolint:paralleltest
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := httptest.NewServer(tt.serverHandler)
 
@@ -723,7 +725,7 @@ func TestClient_Chargers(t *testing.T) { //nolint:paralleltest
 
 			storage := mockedstorage.Storage[*config.Config]{}
 
-			cfgSrv := config.NewConfigServiceWithStorage(&storage)
+			cfgSrv := config.NewService(&storage)
 
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
@@ -788,7 +790,7 @@ func (t *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	b, err := io.ReadAll(r.Body)
 	assert.NoError(t.testingT, err)

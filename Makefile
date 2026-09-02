@@ -1,83 +1,157 @@
-version="2.5.10"
-version_file=package/debian/opt/thingsplex/$(app_name)/VERSION
-working_dir=$(shell pwd)
-app_name=easee
-remote_host = "fhtunnel@$(prod_host)"
-beta_host = "52.58.200.103"
-prod_host = "34.247.133.26"
-remote_port = "8985"
+define generate_mocks
+    cd src && mockery --exported --packageprefix mocked --name=$(3) --recursive --case underscore --dir ./$(1) --output ./internal/test/mocks/$(2)
+endef
+
+# generate_external_mocks generates mocks against an upstream package found in the Go module cache.
+# Args: $(1) module path (e.g. github.com/futurehomeno/cliffhanger/storage), $(2) output dir, $(3) iface filter
+define generate_external_mocks
+    cd src && mockery --exported --packageprefix mocked --name=$(3) --case underscore --dir $$(go list -m -f '{{.Dir}}' $$(echo $(1) | awk -F/ '{print $$1"/"$$2"/"$$3}'))/$$(echo $(1) | awk -F/ '{for(i=4;i<=NF;i++) printf (i==4?"":"/")$$i}') --output ./internal/test/mocks/$(2)
+endef
+
+SHELL := /bin/bash
+
+VERSION := 3.0.1
+APP_NAME := easee
+
+ARCH ?= armhf
+
+OUT_DIR := package/build
+DEB_DIR := package/debian
+STAGING := $(OUT_DIR)/root
+TARGET_PKG = $(OUT_DIR)/$(APP_NAME)_$(VERSION)_$(ARCH).deb
+
+# clean and configure rm -rf under these paths: refuse to run with OUT_DIR
+# empty (the clean glob would expand to /* and STAGING to /root).
+ifeq ($(strip $(OUT_DIR)),)
+$(error OUT_DIR must not be empty)
+endif
+
+# Filesystem layout (tracked files from DEB_DIR staged into STAGING, then
+# packaged by dpkg-deb - untracked leftovers in DEB_DIR never ship):
+#   /usr/bin/easee                           binary
+#   /usr/lib/futurehome/easee/migrate.sh     maintainer-script helper
+#   /usr/share/futurehome/easee/defaults/    read-only default config (dpkg-owned)
+#   /var/lib/futurehome, /var/log/futurehome root-owned namespace parents
+#   /var/lib/futurehome/easee/defaults       shipped symlink to the /usr/share
+#                                            defaults (dpkg-owned, see postinst)
+# The other easee-owned leaves (data/, data.db, the log dir) are created by
+# postinst and by the service itself.
+BINARY_DIR := $(STAGING)/usr/bin
+CONTROL_DIR := $(STAGING)/DEBIAN
+VAR_LIB_DIR := $(STAGING)/var/lib/futurehome
+VAR_LOG_DIR := $(STAGING)/var/log/futurehome
+TARGET_BIN := $(BINARY_DIR)/$(APP_NAME)
+
+REMOTE_HOST := fhtunnel@3.255.43.28
+PORT := 8000
+
+build-local:
+	cd src ; go build -ldflags="-s -w -X main.Version=$(VERSION) -X main.PackageName=$(APP_NAME)" -o ../$(APP_NAME) main.go
+
+build-arm:
+	cd src ; GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w -X main.Version=$(VERSION) -X main.PackageName=$(APP_NAME)" -o ../$(TARGET_BIN) main.go
+
+build-linux-amd64:
+	cd src ; GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION) -X main.PackageName=$(APP_NAME)" -o ../$(TARGET_BIN) main.go
+
+build-mac-amd64:
+	cd src ; GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$(VERSION) -X main.PackageName=$(APP_NAME)" -o ../$(TARGET_BIN) main.go
 
 clean:
-	-rm ./src/$(app_name)
-	-rm ./package/debian/opt/thingsplex/$(app_name)/$(app_name)
-	find package/debian -name ".DS_Store" -delete
+	-rm -rf ./$(OUT_DIR)/*
+	-rm -f $(APP_NAME)
+	-rm -f test_coverage.out
 
-build-go:
-	cd ./src; go build -o $(app_name) main.go; cd ../
+configure:
+	rm -rf ./$(STAGING)
+	mkdir -p $(STAGING)
+	# Stages tracked files only, so stale artifacts in DEB_DIR never ship.
+	# Requires a git checkout: building from an exported source tarball
+	# (no .git) fails here.
+	git ls-files -z $(DEB_DIR) | tar --null -T - -cf - \
+		| tar -xf - --strip-components=2 -C $(STAGING)
+	mkdir -p $(BINARY_DIR)
+	mkdir -p $(VAR_LIB_DIR)
+	mkdir -p $(VAR_LOG_DIR)
+	mkdir -p $(CONTROL_DIR)
 
-build-go-arm:
-	cd ./src; GOOS=linux GOARCH=arm GOARM=6 go build -ldflags="-s -w" -o $(app_name) main.go; cd ../
+	# Ship the workdir defaults symlink as package content: dpkg then owns it
+	# (removed on remove, restored on reinstall). No easee package ever shipped
+	# a real directory at this path, so nothing has to be displaced on upgrade.
+	mkdir -p $(VAR_LIB_DIR)/$(APP_NAME)
+	ln -sfn /usr/share/futurehome/$(APP_NAME)/defaults $(VAR_LIB_DIR)/$(APP_NAME)/defaults
 
-build-go-amd:
-	cd ./src; GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o $(app_name) main.go; cd ../
-
-configure-arm:
-	sed -i.bak "1s/.*/$(version)/" $(version_file)
-	rm $(version_file).bak
-	sed -i.bak "s/Version: .*/Version: $(version)/" package/debian/DEBIAN/control
-	sed -i.bak "s/Architecture: .*/Architecture: armhf/" package/debian/DEBIAN/control
-	rm package/debian/DEBIAN/control.bak
-
-configure-amd64:
-	sed -i.bak "1s/.*/$(version)/" $(version_file)
-	rm $(version_file).bak
-	sed -i.bak "s/Version: .*/Version: $(version)/" package/debian/DEBIAN/control
-	sed -i.bak "s/Architecture: .*/Architecture: amd64/" package/debian/DEBIAN/control
-	rm package/debian/DEBIAN/control.bak
-
-package-deb-lint:
-	docker run -w /root -v $(working_dir)/package/build/:/root/ -it eddelbuettel/lintian lintian $(app_name)_$(version)_armhf.deb --no-tag-display-limit
+	printf '%s\n' \
+	  "Package: $(APP_NAME)" \
+	  "Version: $(VERSION)" \
+	  "Section: non-free/misc" \
+	  "Priority: optional" \
+	  "Architecture: $(ARCH)" \
+	  "Depends: fh-drop" \
+	  "Maintainer: Futurehome AS <dev@futurehome.no>" \
+	  "Description: Futurehome Easee EV charger adapter" \
+	  > $(CONTROL_DIR)/control
 
 package-deb:
-	@echo "Packaging application using Thingsplex debian package layout..."
-	mkdir -p package/debian/var/log/thingsplex/$(app_name)
-	mkdir -p package/debian/opt/thingsplex/$(app_name)/data
-	chmod -R 755 package/debian
-	chmod 644 package/debian/opt/thingsplex/$(app_name)/defaults/*
-	chmod 644 package/debian/opt/thingsplex/$(app_name)/VERSION
-	chmod 644 package/debian/usr/lib/systemd/system/$(app_name).service
-	cp ./src/$(app_name) package/debian/opt/thingsplex/$(app_name)
-	docker run --rm -v ${working_dir}:/build -w /build --name debuild debian dpkg-deb --build package/debian
-	@echo "Done"
+	@test -x $(TARGET_BIN) || \
+		{ echo "error: $(TARGET_BIN) missing; use 'make deb-arm' or 'make deb-amd'" >&2; exit 1; }
+	chmod 755 $(STAGING)
+	chmod 644 $(CONTROL_DIR)/control
+	chmod -R g-w $(STAGING)
 
-deb-arm: clean configure-arm build-go-arm package-deb
-	mv -f package/debian.deb package/build/$(app_name)_$(version)_armhf.deb
+	@if command -v dpkg-deb >/dev/null && command -v fakeroot >/dev/null; then \
+		echo "Using local dpkg-deb"; \
+		fakeroot dpkg-deb -Zxz -b $(STAGING) $(TARGET_PKG); \
+	else \
+		echo "Using docker dpkg-deb"; \
+		docker run --rm -v "$$(pwd)":/build -w /build debian:stable-slim \
+			bash -c "\
+				apt-get update >/dev/null && \
+				apt-get install -y --no-install-recommends dpkg-dev fakeroot >/dev/null && \
+				fakeroot dpkg-deb -Zxz -b $(STAGING) $(TARGET_PKG)"; \
+	fi
 
-deb-amd: clean configure-amd64 build-go-amd package-deb
-	mv -f package/debian.deb package/build/$(app_name)_$(version)_amd64.deb
+	@echo "Debian package created → $(TARGET_PKG)"
+
+deb-arm: ARCH=armhf
+deb-arm: clean configure build-arm package-deb
+
+deb-amd: ARCH=amd64
+deb-amd: clean configure build-linux-amd64 package-deb
 
 upload:
-	scp -O -P ${remote_port} package/build/$(app_name)_$(version)_armhf.deb $(remote_host):~/
+	@echo "Uploading..."
+	rsync -av --info=progress2 -e "ssh -p $(PORT)" $(TARGET_PKG) $(REMOTE_HOST):/home/fhtunnel/
 
-run: build-go
-	cd ./testdata; ../src/$(app_name) -c ./; cd ../
+# Developer-only targets. dpkg -i does not resolve the fh-drop dependency;
+# developer hubs are assumed to have it installed already.
+deploy: upload
+	ssh -t -p $(PORT) $(REMOTE_HOST) "su - fh -c 'sudo dpkg -i /home/fhtunnel/$(APP_NAME)_$(VERSION)_$(ARCH).deb'"
 
-lint:
-	cd src; golangci-lint run; cd ..
+install:
+	ssh -t -p $(PORT) $(REMOTE_HOST) "su - fh -c 'sudo dpkg -i /home/fhtunnel/$(APP_NAME)_$(VERSION)_$(ARCH).deb'"
 
 test:
-	@echo "\033[92;1mRemoving an old coverage report...\033[0m"
+	# it may require to generate mocks first
 	rm -f test_coverage.out || true
 
-	@echo "\033[92;1mRunning tests...\033[0m"
-	cd src && go test -p 1 -count 1 -v -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
+	@echo "Run tests"
+	cd src && go test -p 1 -count 1 -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
 
-	@echo "\033[92;1mPreparing a new coverage report...\033[0m"
+	@echo "Prepare coverage report"
 	cd src && cat profile_full.cov | grep -v .pb.go | grep -v mock | grep -v test > test_coverage.out
 	mv src/test_coverage.out .
 	rm -f src/profile_full.cov
 
-mocks:
-	cd ./src && mockery --dir ./internal --all --output ./internal/test/mocks --disable-version-string
+generate-mocks:
+	mkdir -p ./src/internal/test/mocks
+	find ./src/internal/test/mocks -type f -not -name "*_helper.go" -delete 2>/dev/null || true
+	$(call generate_mocks,"internal/api","api","Authenticator|Client|HTTPClient")
+	$(call generate_mocks,"internal/app","app","Application")
+	$(call generate_mocks,"internal/cache","cache","Cache")
+	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
+	$(call generate_mocks,"internal/signalr","signalr","Client|Manager")
+	$(call generate_external_mocks,"github.com/futurehomeno/cliffhanger/storage","storage","Storage")
+	$(call generate_external_mocks,"github.com/futurehomeno/cliffhanger/manifest","manifest","Loader")
 
-.phony : clean
+.PHONY: clean test generate-mocks configure package-deb deb-arm deb-amd build-mac-amd64 build-linux-amd64 build-arm build-local upload deploy install

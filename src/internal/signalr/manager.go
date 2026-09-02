@@ -1,12 +1,14 @@
 package signalr
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/root"
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -53,9 +55,10 @@ type manager struct {
 
 func NewManager(cfg *config.Service, client Client) Manager {
 	return &manager{
-		cfg:      cfg,
-		client:   client,
-		chargers: make(map[string]*charger),
+		cfg:           cfg,
+		client:        client,
+		chargers:      make(map[string]*charger),
+		subscriptions: make(chan string, 32),
 	}
 }
 
@@ -65,10 +68,6 @@ func (m *manager) Start() error {
 
 	if m.running {
 		return nil
-	}
-
-	if m.done != nil {
-		close(m.done)
 	}
 
 	m.done = make(chan struct{})
@@ -82,47 +81,55 @@ func (m *manager) Start() error {
 
 func (m *manager) Stop() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if !m.running {
+		m.mu.Unlock()
+
 		return nil
 	}
 
-	if m.done != nil {
-		close(m.done)
-	}
-
 	m.running = false
+	done := m.done
+	m.mu.Unlock()
 
-	return nil
+	err := m.client.Close()
+
+	close(done)
+
+	return err
 }
 
 func (m *manager) Register(chargerID string, handler Handler) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if _, ok := m.chargers[chargerID]; ok {
+		m.mu.Unlock()
 		log.Warnf("Charger '%s' is already registered", chargerID)
 
 		return
 	}
 
-	backoff := backoff.NewStateful(m.cfg.GetSignalRInitialBackoff(),
-		m.cfg.GetSignalRRepeatedBackoff(),
-		m.cfg.GetSignalRFinalBackoff(),
-		m.cfg.GetSignalRInitialFailureCount(),
-		m.cfg.GetSignalRRepeatedFailureCount())
-
 	m.chargers[chargerID] = &charger{
 		handler:      handler,
 		isSubscribed: false,
-		backoff:      backoff,
+		backoff:      m.cfg.SignalRBackoffStateful(),
 	}
 
 	m.ensureClientStarted()
+	m.mu.Unlock()
 
-	if m.subscriptions != nil {
-		m.subscriptions <- chargerID
+	m.enqueueSubscription(chargerID)
+}
+
+// enqueueSubscription hands a charger ID to the run loop for (re)subscription.
+// The send never happens under m.mu and always has a cancellation escape via done.
+func (m *manager) enqueueSubscription(chargerID string) {
+	m.mu.RLock()
+	done := m.done
+	m.mu.RUnlock()
+
+	select {
+	case m.subscriptions <- chargerID:
+	case <-done:
 	}
 }
 
@@ -136,17 +143,19 @@ func (m *manager) Unregister(chargerID string) error {
 
 	delete(m.chargers, chargerID)
 
+	var errs error
+
 	if err := m.client.UnsubscribeCharger(chargerID); err != nil {
-		return err
+		errs = errors.Join(errs, err)
 	}
 
 	if len(m.chargers) == 0 {
 		if err := m.client.Close(); err != nil {
-			return err
+			errs = errors.Join(errs, err)
 		}
 	}
 
-	return nil
+	return errs
 }
 
 func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
@@ -170,19 +179,21 @@ func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
 }
 
 func (m *manager) run() {
+	defer telemetry.RecoverAndEmit(nil, "manager.run", true)
+
+	m.mu.RLock()
+	done := m.done
+	m.mu.RUnlock()
+
 	states := m.client.StateC()
 	observations := m.client.ObservationC()
 
 	for {
 		select {
-		case <-m.done:
+		case <-done:
 			return
 
-		case chargerID, ok := <-m.subscriptions:
-			if !ok {
-				continue
-			}
-
+		case chargerID := <-m.subscriptions:
 			if err := m.handleSubscription(chargerID); err != nil {
 				log.Warnf("Handle subscription chargerID=%s err: %v", chargerID, err)
 			}
@@ -207,11 +218,20 @@ func (m *manager) handleSubscription(chargerID string) error {
 		return fmt.Errorf("unknown charger")
 	}
 
-	if err := m.client.SubscribeCharger(chargerID); err != nil {
-		log.Warnf("Failed to subscribe charger '%s'", chargerID)
+	// A retry armed before a disconnect can fire after the reconnect sweep already
+	// re-subscribed this charger; don't subscribe twice on the same connection.
+	if charger.isSubscribed {
+		return nil
+	}
 
-		if m.subscriptions == nil {
-			return fmt.Errorf("subscriptions channel closed")
+	if err := m.client.SubscribeCharger(chargerID); err != nil {
+		// A sustained outage (e.g. not logged in) retries forever; warn on the first
+		// failure of a streak only, so it does not accumulate thousands of lines.
+		if charger.subscribeFailed {
+			log.Debugf("Failed to subscribe charger '%s'", chargerID)
+		} else {
+			log.Warnf("Failed to subscribe charger '%s': %v", chargerID, err)
+			charger.subscribeFailed = true
 		}
 
 		go m.addChargerSubscription(chargerID, charger)
@@ -221,6 +241,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 	charger.backoff.Reset()
 	charger.isSubscribed = true
+	charger.subscribeFailed = false
 
 	log.Debugf("signalR: subscribed charger '%s'", chargerID)
 	return nil
@@ -229,20 +250,15 @@ func (m *manager) handleSubscription(chargerID string) error {
 func (m *manager) addChargerSubscription(chargerID string, charger *charger) {
 	m.mu.Lock()
 	timer := time.NewTimer(charger.backoff.Next())
+	done := m.done
 	m.mu.Unlock()
 
 	defer timer.Stop()
 
 	select {
-	case <-m.done:
+	case <-done:
 	case <-timer.C:
-		m.mu.Lock()
-		ok := m.subscriptions != nil
-		m.mu.Unlock()
-
-		if ok {
-			m.subscriptions <- chargerID
-		}
+		m.enqueueSubscription(chargerID)
 	}
 }
 
@@ -252,21 +268,31 @@ func (m *manager) handleClientState(state model.ClientState) {
 		log.Info("signalR: client connected")
 
 		m.mu.Lock()
-		m.subscriptions = make(chan string, 1+len(m.chargers))
 		chargersIDs := make([]string, 0, len(m.chargers))
 
-		for chargerID := range m.chargers {
+		for chargerID, charger := range m.chargers {
+			// A subscription belongs to the connection that made it. Clearing the flag here
+			// rather than trusting the disconnect notice makes this sweep the authority: a
+			// missed notice would otherwise leave the charger permanently unsubscribed.
+			charger.isSubscribed = false
 			chargersIDs = append(chargersIDs, chargerID)
+			// A new connection starts a new failure streak, so its first failure has to warn
+			// again - otherwise the only visible sign of a charger that never comes back is a
+			// debug line the hub does not log. Cleared here rather than on disconnect: a retry
+			// armed before the disconnect would otherwise fail during the outage and take the
+			// warning with it.
+			charger.subscribeFailed = false
 		}
 
 		m.mu.Unlock()
 
-		for _, chargerID := range chargersIDs {
-			select {
-			case <-m.done:
-			case m.subscriptions <- chargerID:
+		// Offload the re-subscription sends: this runs on the run() goroutine, which is
+		// also the only drainer of m.subscriptions, so sending inline could self-block.
+		go func() {
+			for _, chargerID := range chargersIDs {
+				m.enqueueSubscription(chargerID)
 			}
-		}
+		}()
 
 	case model.ClientStateDisconnected:
 		log.Warn("signalR: client disconnected")
@@ -275,11 +301,6 @@ func (m *manager) handleClientState(state model.ClientState) {
 		for _, charger := range m.chargers {
 			charger.backoff.Reset()
 			charger.isSubscribed = false
-		}
-
-		if m.subscriptions != nil {
-			close(m.subscriptions)
-			m.subscriptions = nil
 		}
 
 		m.mu.Unlock()
@@ -337,7 +358,8 @@ func (m *manager) ensureClientStarted() {
 }
 
 type charger struct {
-	handler      Handler
-	isSubscribed bool
-	backoff      backoff.Stateful
+	handler         Handler
+	isSubscribed    bool
+	subscribeFailed bool
+	backoff         backoff.Stateful
 }

@@ -2,12 +2,14 @@ package test
 
 import (
 	"context"
-	"errors"
+	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	libsignalr "github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -27,7 +29,7 @@ type SignalRServer struct {
 	router  *http.ServeMux
 	hub     *signalRHub
 
-	running            bool
+	running            atomic.Bool
 	mockedObservations []observationBatch
 }
 
@@ -53,20 +55,42 @@ func NewSignalRServer(t *testing.T, address string) *SignalRServer {
 }
 
 func (s *SignalRServer) Start() {
-	if s.running {
+	// Atomically check if not running AND set to running
+	// Returns false if already running (prevents duplicate goroutines)
+	if !s.running.CompareAndSwap(false, true) {
 		return
 	}
 
 	log.Infof("signalR test server: starting on addr %s", s.http.Addr)
 
-	go s.scheduleObservations()
-	go s.runHTTPServer() //nolint:staticcheck
+	started := make(chan error, 1)
+	go func() {
+		defer telemetry.RecoverAndEmit(nil, "SignalRServer.Start", true)
 
-	s.running = true
+		defer s.running.Store(false)
+		ln, err := net.Listen("tcp", s.http.Addr)
+		if err != nil {
+			started <- err
+			return
+		}
+
+		close(started) // Signal successful start
+
+		if err := s.http.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Errorf("http server stopped with error: %v", err)
+		}
+	}()
+
+	// Wait for startup result
+	if err := <-started; err != nil {
+		s.t.Fatalf("failed to start signalR test server: %v", err)
+	}
+
+	go s.scheduleObservations()
 }
 
 func (s *SignalRServer) Close() {
-	if !s.running {
+	if !s.running.Load() {
 		return
 	}
 
@@ -75,7 +99,7 @@ func (s *SignalRServer) Close() {
 	err := s.http.Shutdown(context.Background())
 	require.NoError(s.t, err)
 
-	s.running = false
+	s.running.Store(false)
 }
 
 func (s *SignalRServer) MockObservations(delay time.Duration, o []model.Observation) {
@@ -86,16 +110,11 @@ func (s *SignalRServer) MockObservations(delay time.Duration, o []model.Observat
 }
 
 func (s *SignalRServer) scheduleObservations() {
+	defer telemetry.RecoverAndEmit(nil, "SignalRServer.scheduleObservations", true)
+
 	for _, batch := range s.mockedObservations {
 		time.Sleep(batch.delay)
-
 		s.hub.propagate(batch.observations)
-	}
-}
-
-func (s *SignalRServer) runHTTPServer() {
-	if err := s.http.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-		s.t.Fatal("signalR test server: http server error", err) //nolint:staticcheck
 	}
 }
 

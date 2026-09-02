@@ -10,6 +10,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
+	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -127,22 +128,30 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 	}
 
 	locked, _ := c.cache.CableLocked()
-	current, _ := c.cache.CableCurrent()
+	cable := 0
 
-	if !locked || (current != nil && *current < 0) {
-		locked = false
+	if !locked {
+		return &chargepoint.CableReport{
+			CableLock:    false,
+			CableCurrent: &cable,
+		}, nil
+	}
 
-		current = new(int64)
-		*current = 0
+	cable, cableTime := c.cache.CableCurrent()
+
+	if !cableTime.IsZero() && cable >= 0 {
+		return &chargepoint.CableReport{
+			CableLock:    locked,
+			CableCurrent: &cable,
+		}, nil
 	}
 
 	return &chargepoint.CableReport{
-		CableLock:    locked,
-		CableCurrent: current,
+		CableLock: locked,
 	}, nil
 }
 
-func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error) {
+func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	if err := c.checkConnection(); err != nil {
 		return "", err
 	}
@@ -174,18 +183,18 @@ func (c *controller) ChargepointPhaseModeReport() (chargepoint.PhaseMode, error)
 	return "", errors.New(errMsg)
 }
 
-func (c *controller) SetChargepointMaxCurrent(current int64) error {
+func (c *controller) SetChargepointMaxCurrent(current int) error {
 	err := c.client.UpdateMaxCurrent(c.chargerID, float64(current))
 	if err != nil {
 		return err
 	}
 
-	c.cache.WaitForMaxCurrent(current, c.cfgService.GetCurrentWaitDuration())
+	c.cache.WaitForMaxCurrent(current, c.cfgService.CurrentWaitDuration())
 
 	return nil
 }
 
-func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
+func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 	if err := c.checkConnection(); err != nil {
 		return 0, err
 	}
@@ -195,7 +204,33 @@ func (c *controller) ChargepointMaxCurrentReport() (int64, error) {
 	return current, nil
 }
 
-func (c *controller) SetChargepointOfferedCurrent(current int64) error {
+func (c *controller) SetChargepointOfferedCurrent(current int) error {
+	return c.setOfferedCurrent(current, false)
+}
+
+// setOfferedCurrent is the shared implementation behind SetChargepointOfferedCurrent and the
+// Start path. When force is true the recent-value dedup is bypassed - this matters for
+// (re)starting a stopped session, where the charger needs the UpdateDynamicCurrent call to
+// resume charging even if the cached value matches what was sent before the stop.
+func (c *controller) setOfferedCurrent(current int, force bool) error {
+	limit, _ := c.cache.MaxCurrent()
+	if limit == 0 {
+		limit = maxCurrentValue
+	}
+
+	if current > limit {
+		log.Warnf("[%s] Clamp offered current %dA to max %dA", c.chargerID, current, limit)
+		current = limit
+	}
+
+	if !force {
+		lastValue, lastSet := c.cache.RequestedOfferedCurrent()
+
+		if time.Since(lastSet) < c.cfgService.OfferedCurrentWaitTime() && current == lastValue {
+			return nil
+		}
+	}
+
 	err := c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
 	if err != nil {
 		return err
@@ -203,24 +238,24 @@ func (c *controller) SetChargepointOfferedCurrent(current int64) error {
 
 	c.cache.SetRequestedOfferedCurrent(current, time.Now())
 
-	c.cache.WaitForOfferedCurrent(current, c.cfgService.GetCurrentWaitDuration())
+	c.cache.WaitForOfferedCurrent(current, c.cfgService.CurrentWaitDuration())
 
 	return nil
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
 	maxCurrent, _ := c.cache.MaxCurrent()
-	startCurrent := float64(maxCurrent)
+	startCurrent := maxCurrent
 
 	if offered, _ := c.cache.RequestedOfferedCurrent(); offered > 0 {
-		startCurrent = float64(offered)
+		startCurrent = offered
 	}
 
 	if strings.ToLower(settings.Mode) == model.ChargingModeSlow {
-		slowCurrent := c.cfgService.GetSlowChargingCurrentInAmperes()
+		slowCurrent := c.cfgService.SlowChargingCurrentInAmperes()
 
 		if slowCurrent > 0 {
-			startCurrent = slowCurrent
+			startCurrent = int(math.Round(slowCurrent))
 		}
 	}
 
@@ -228,9 +263,12 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		return errors.New("invalid start current")
 	}
 
-	// resume charing request is not used because it clears dynamic current value.
-	// update current will resume charging.
-	return c.client.UpdateDynamicCurrent(c.chargerID, startCurrent)
+	// resume charging request is not used because it clears dynamic current value.
+	// update current will resume charging. Bypass the dedup - if the user pressed Start
+	// within OfferedCurrentWaitTime of a Stop the cached value still matches startCurrent
+	// (cache is only cleared async via the SignalR session-finished observation), and
+	// dedup-suppressing the call would leave the charger stopped.
+	return c.setOfferedCurrent(startCurrent, true)
 }
 
 func (c *controller) StopChargepointCharging() error {
@@ -367,7 +405,7 @@ func (c *controller) updateChargerSiteState(chargerID string, state *State) erro
 		return nil
 	}
 
-	state.SupportedMaxCurrent = min(int64(math.Round(siteInfo.RatedCurrent)), maxCurrentValue)
+	state.SupportedMaxCurrent = min(int(math.Round(siteInfo.RatedCurrent)), maxCurrentValue)
 
 	return nil
 }

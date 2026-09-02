@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
-	"slices"
-
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -144,24 +144,34 @@ const (
 	DetectedPowerGridType ObservationID = 21
 	LockCablePermanently  ObservationID = 30
 	PhaseMode             ObservationID = 38
+	LEDBrightness         ObservationID = 40 // TODO
 	MaxChargerCurrent     ObservationID = 47
 	DynamicChargerCurrent ObservationID = 48
+	SoftwareVersion       ObservationID = 80 // TODO
+	NoCurrentReason       ObservationID = 96 // TODO
 	CableLocked           ObservationID = 103
 	CableRating           ObservationID = 104
 	ChargerOPState        ObservationID = 109
 	OutputPhase           ObservationID = 110
+	ErrorString           ObservationID = 118 // TODO
+	ErrorCode             ObservationID = 119 // TODO
 	TotalPower            ObservationID = 120
 	EnergySession         ObservationID = 121
 	LifetimeEnergy        ObservationID = 124
 	ChargingSessionStop   ObservationID = 129
+	CellRSSI              ObservationID = 130 // TODO
+	WiFiRSSI              ObservationID = 132 // TODO
+	RadioRSSI             ObservationID = 136 // TODO
+	ConnectionType        ObservationID = 141 // TODO
 	InCurrentT3           ObservationID = 183
 	InCurrentT4           ObservationID = 184
 	InCurrentT5           ObservationID = 185
 	ChargingSessionStart  ObservationID = 223
 	CloudConnected        ObservationID = 250
+	CloudDisconnectReason ObservationID = 251 // TODO
 )
 
-//nolint:cyclop
+//nolint:cyclop,exhaustive
 func (o ObservationID) Str() string {
 	switch o {
 	case DetectedPowerGridType:
@@ -285,6 +295,33 @@ const (
 	ChargerStateDeAuthenticating
 )
 
+func (s ChargerState) Str() string {
+	switch s {
+	case ChargerStateUnknown:
+		return "unknown"
+	case ChargerStateOffline:
+		return "offline"
+	case ChargerStateDisconnected:
+		return "disconnected"
+	case ChargerStateAwaitingStart:
+		return "await_start"
+	case ChargerStateCharging:
+		return "charging"
+	case ChargerStateCompleted:
+		return "completed"
+	case ChargerStateError:
+		return "error"
+	case ChargerStateReadyToCharge:
+		return "ready_to_charge"
+	case ChargerStateAwaitingAuthentication:
+		return "await_auth"
+	case ChargerStateDeAuthenticating:
+		return "de_auth"
+	}
+
+	return fmt.Sprintf("unknown(%d)", s)
+}
+
 type OutputPhaseType int
 
 const (
@@ -301,28 +338,31 @@ const (
 	P3T2T3T4T5TN OutputPhaseType = 30
 )
 
-func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode { //nolint:cyclop
-	switch o { //nolint:exhaustive
+//nolint:cyclop
+func (o OutputPhaseType) ToFimpState() types.PhaseMode {
+	switch o {
 	case P1T2T3TN:
-		return chargepoint.PhaseModeNL1
+		return types.PhaseModeNL1
 	case P1T2T3IT:
-		return chargepoint.PhaseModeL1L2
+		return types.PhaseModeL1L2
 	case P1T2T4TN:
-		return chargepoint.PhaseModeNL2
+		return types.PhaseModeNL2
 	case P1T2T4IT:
-		return chargepoint.PhaseModeL3L1
+		return types.PhaseModeL3L1
 	case P1T2T5TN:
-		return chargepoint.PhaseModeNL3
+		return types.PhaseModeNL3
 	case P1T3T4IT:
-		return chargepoint.PhaseModeL2L3
+		return types.PhaseModeL2L3
 	case P2T2T3T4TN:
-		return chargepoint.PhaseModeNL1L2
+		return types.PhaseModeNL1L2
 	case P2T2T4T5TN:
-		return chargepoint.PhaseModeNL2L3
+		return types.PhaseModeNL2L3
 	case P2T2T3T4IT:
-		return chargepoint.PhaseModeL1L2L3
+		return types.PhaseModeL1L2L3
 	case P3T2T3T4T5TN:
-		return chargepoint.PhaseModeNL1L2L3
+		return types.PhaseModeNL1L2L3
+	case Unassigned:
+		fallthrough
 	default:
 		return ""
 	}
@@ -428,7 +468,7 @@ const (
 )
 
 // ToFimpGridType returns grid type and phases.
-func (g GridType) ToFimpGridType() (chargepoint.GridType, int) {
+func (g GridType) ToFimpGridType() (types.GridType, int) {
 	if g >= GridTypeWarningTN2PhasePin235 {
 		log.Warnf("faulty grid type detected: %s", g)
 	}
@@ -487,7 +527,7 @@ func (g GridType) String() string { //nolint:cyclop
 }
 
 type networkType struct {
-	gridType chargepoint.GridType
+	gridType types.GridType
 	phases   int
 }
 
@@ -495,22 +535,22 @@ var easeeNetworkTypeMap = map[GridType]networkType{
 	GridTypeUnknown:                         {"", 0},
 	GridTypeNotYetDetected:                  {"", 0},
 	GridTypeErrorNoValidPowerGridFound:      {"", 0},
-	GridTypeErrorTN400VNeutralOnWrongPin:    {chargepoint.GridTypeTN, 0},
-	GridTypeErrorITGroundConnectedToPin2Or3: {chargepoint.GridTypeIT, 0},
-	GridTypeTN3Phase:                        {chargepoint.GridTypeTN, 3},
-	GridTypeTN2PhasePin23:                   {chargepoint.GridTypeTN, 2},
-	GridTypeTN1Phase:                        {chargepoint.GridTypeTN, 1},
-	GridTypeIT3Phase:                        {chargepoint.GridTypeIT, 3},
-	GridTypeIT1Phase:                        {chargepoint.GridTypeIT, 1},
-	GridTypeWarningTN2PhasePin235:           {chargepoint.GridTypeTN, 2},
-	GridTypeWarningTN1PhaseNeutralOnPin3:    {chargepoint.GridTypeTN, 1},
-	GridTypeWarningIT3PhaseGNDFault:         {chargepoint.GridTypeIT, 3},
-	GridTypeWarningIT1PhaseGNDFault:         {chargepoint.GridTypeIT, 1},
-	GridTypeWarningIT3PhaseGNDFaultL3:       {chargepoint.GridTypeIT, 3},
-	GridTypeWarningIT1PhaseGNDFaultL3:       {chargepoint.GridTypeIT, 1},
-	GridTypeWarningTN2PhasePIN234:           {chargepoint.GridTypeTN, 2},
-	GridTypeWarningTN3PhaseGNDFault:         {chargepoint.GridTypeTN, 3},
-	GridTypeWarningTN2PhaseGNDFault:         {chargepoint.GridTypeTN, 2},
+	GridTypeErrorTN400VNeutralOnWrongPin:    {types.GridTypeTN, 0},
+	GridTypeErrorITGroundConnectedToPin2Or3: {types.GridTypeIT, 0},
+	GridTypeTN3Phase:                        {types.GridTypeTN, 3},
+	GridTypeTN2PhasePin23:                   {types.GridTypeTN, 2},
+	GridTypeTN1Phase:                        {types.GridTypeTN, 1},
+	GridTypeIT3Phase:                        {types.GridTypeIT, 3},
+	GridTypeIT1Phase:                        {types.GridTypeIT, 1},
+	GridTypeWarningTN2PhasePin235:           {types.GridTypeTN, 2},
+	GridTypeWarningTN1PhaseNeutralOnPin3:    {types.GridTypeTN, 1},
+	GridTypeWarningIT3PhaseGNDFault:         {types.GridTypeIT, 3},
+	GridTypeWarningIT1PhaseGNDFault:         {types.GridTypeIT, 1},
+	GridTypeWarningIT3PhaseGNDFaultL3:       {types.GridTypeIT, 3},
+	GridTypeWarningIT1PhaseGNDFaultL3:       {types.GridTypeIT, 1},
+	GridTypeWarningTN2PhasePIN234:           {types.GridTypeTN, 2},
+	GridTypeWarningTN3PhaseGNDFault:         {types.GridTypeTN, 3},
+	GridTypeWarningTN2PhaseGNDFault:         {types.GridTypeTN, 2},
 }
 
 type TimestampedValue[T any] struct {
@@ -524,10 +564,6 @@ type StartChargingSession struct {
 	Start      time.Time `json:"Start"`
 }
 
-func (s *StartChargingSession) IDString() string {
-	return strconv.FormatInt(s.ID, 10)
-}
-
 type StopChargingSession struct {
 	ID              int64     `json:"Id"`
 	Energy          float64   `json:"EnergyKwh"`
@@ -535,8 +571,4 @@ type StopChargingSession struct {
 	MeterValueStop  float64   `json:"MeterValueStop"`
 	Start           time.Time `json:"Start"`
 	Stop            time.Time `json:"Stop"`
-}
-
-func (s *StopChargingSession) IDString() string {
-	return strconv.FormatInt(s.ID, 10)
 }

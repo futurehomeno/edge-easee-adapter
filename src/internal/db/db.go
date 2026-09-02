@@ -7,6 +7,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/database"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
@@ -64,20 +65,20 @@ func (s *sessionStorage) RegisterSessionStart(chargerID string, session model.St
 	if latest != nil && latest.Stop.IsZero() {
 		latest.Stop = session.Start
 
-		err = s.db.Set(bucket, latest.IDString(), latest)
+		err = s.db.Set(bucket, idString(latest.ID), latest)
 		if err != nil {
 			return errors.Wrap(err, "register start session: can't update previous charging session")
 		}
 	}
 
-	return s.db.Set(bucket, session.IDString(), ChargingSession{
+	return s.db.Set(bucket, idString(session.ID), ChargingSession{
 		ID:    session.ID,
 		Start: session.Start,
 	})
 }
 
 func (s *sessionStorage) RegisterSessionStop(chargerID string, session model.StopChargingSession) error {
-	return s.db.Set(s.bucketName(chargerID), session.IDString(), ChargingSession{
+	return s.db.Set(s.bucketName(chargerID), idString(session.ID), ChargingSession{
 		ID:     session.ID,
 		Start:  session.Start,
 		Stop:   session.Stop,
@@ -93,10 +94,16 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 		return nil, err
 	}
 
-	keys := make([]int, 0, len(stringKeys))
+	keys := make([]int64, 0, len(stringKeys))
 
 	for _, k := range stringKeys {
-		key, _ := strconv.Atoi(k)
+		key, err := strconv.ParseInt(k, 10, 64)
+		if err != nil {
+			log.Errorf("session storage: skipping unparsable session key %q in bucket %s: %v", k, bucket, err)
+
+			continue
+		}
+
 		keys = append(keys, key)
 	}
 
@@ -110,7 +117,7 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 	for _, k := range keys {
 		var session *ChargingSession
 
-		ok, err := s.db.Get(bucket, strconv.Itoa(k), &session)
+		ok, err := s.db.Get(bucket, strconv.FormatInt(k, 10), &session)
 		if !ok || err != nil {
 			return nil, err
 		}
@@ -136,8 +143,8 @@ type ChargingSession struct {
 	Energy float64   `json:"energy"`
 }
 
-func (s *ChargingSession) IDString() string {
-	return strconv.FormatInt(s.ID, 10)
+func idString(id int64) string {
+	return strconv.FormatInt(id, 10)
 }
 
 type ChargingSessions []*ChargingSession
