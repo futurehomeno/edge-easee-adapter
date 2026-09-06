@@ -8,6 +8,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/router"
+	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,6 +42,7 @@ type fakeThingState struct {
 	adapter.ThingState
 
 	info          easee.Info
+	state         easee.State
 	stateErr      error
 	setStateCalls int
 	setStateArg   easee.State
@@ -54,8 +56,14 @@ func (f *fakeThingState) Info(m any) error {
 	return nil
 }
 
-func (f *fakeThingState) State(any) error {
-	return f.stateErr
+func (f *fakeThingState) State(m any) error {
+	if f.stateErr != nil {
+		return f.stateErr
+	}
+
+	*m.(*easee.State) = f.state //nolint:forcetypeassert
+
+	return nil
 }
 
 func (f *fakeThingState) SetState(m any) error {
@@ -196,10 +204,11 @@ func TestThingFactory_Create_RegistersPhaseModeSet(t *testing.T) {
 
 	spec := services[0].Specification()
 
-	// The charger sits in Easee's locked-3-phase mode, yet every mode stays advertised -
-	// otherwise switching back to a single phase would be impossible.
+	// The charger sits in Easee's locked-3-phase mode, yet both modes stay advertised -
+	// otherwise switching back to a single phase would be impossible. Only one phase is offered:
+	// the charger cannot choose which phase it uses.
 	assert.Equal(t,
-		[]string{"NL1", "NL2", "NL3", "NL1L2L3"},
+		[]string{"NL1", "NL1L2L3"},
 		spec.PropertyStrings(chargepoint.PropertySupportedPhaseModes),
 	)
 	assert.Contains(t, spec.Interfaces, fimptype.Interface{
@@ -259,5 +268,34 @@ func TestThingFactory_Create_AdvertisesDeduplicatedFimpStates(t *testing.T) {
 	assert.Equal(t,
 		[]string{"unknown", "disconnected", "ready_to_charge", "charging", "finished", "error", "suspended_by_ev", "requesting"},
 		services[0].Specification().PropertyStrings(chargepoint.PropertySupportedStates),
+	)
+}
+
+// An Easee always uses the phase it is wired to, so once an OutputPhase observation has revealed
+// it, sup_phase_modes must offer that phase instead of NL1 - a hub asking for NL1 on a charger
+// wired to L3 never gets it and retries forever.
+func TestThingFactory_Create_AdvertisesPersistedOutputPhase(t *testing.T) {
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("ChargerConfig", "test-charger").Return(&model.ChargerConfig{
+		DetectedPowerGridType: model.GridTypeTN3Phase,
+		PhaseMode:             2,
+	}, nil)
+	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
+
+	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+
+	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
+		info:  easee.Info{ChargerID: "test-charger", Product: "Home"},
+		state: easee.State{OutputPhase: types.PhaseModeNL3},
+	})
+	require.NoError(t, err)
+
+	services := thing.Services(chargepoint.Chargepoint)
+	require.Len(t, services, 1)
+
+	assert.Equal(t,
+		[]string{"NL3", "NL1L2L3"},
+		services[0].Specification().PropertyStrings(chargepoint.PropertySupportedPhaseModes),
 	)
 }
