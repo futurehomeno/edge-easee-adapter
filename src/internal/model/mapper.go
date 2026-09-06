@@ -25,8 +25,8 @@ func SettablePhaseModes(gridType types.GridType, phases int) []types.PhaseMode {
 }
 
 // AdvertisedPhaseModes returns the settable modes with every single-phase entry collapsed to
-// one. An Easee cannot choose its leg: it always uses the phase it is wired to, so advertising
-// the others makes a hub ask for a leg the charger will never report and retry forever.
+// one. An Easee cannot choose its phase: it always uses the phase it is wired to, so advertising
+// the others makes a hub ask for a phase the charger will never report and retry forever.
 func AdvertisedPhaseModes(gridType types.GridType, phases int, outputPhase types.PhaseMode) []types.PhaseMode {
 	modes := SettablePhaseModes(gridType, phases)
 

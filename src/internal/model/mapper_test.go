@@ -173,13 +173,13 @@ func TestAdvertisedPhaseModes(t *testing.T) {
 		want        []types.PhaseMode
 	}{
 		{
-			name:     "TN 3-phase without a reading keeps the first leg only",
+			name:     "TN 3-phase without a reading keeps the first phase only",
 			gridType: types.GridTypeTN,
 			phases:   3,
 			want:     []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL1L2L3},
 		},
 		{
-			name:        "TN 3-phase advertises the observed leg",
+			name:        "TN 3-phase advertises the observed phase",
 			gridType:    types.GridTypeTN,
 			phases:      3,
 			outputPhase: types.PhaseModeNL3,
@@ -193,14 +193,14 @@ func TestAdvertisedPhaseModes(t *testing.T) {
 			want:        []types.PhaseMode{types.PhaseModeL2L3, types.PhaseModeL1L2L3},
 		},
 		{
-			name:        "a three-phase reading does not pick a leg",
+			name:        "a three-phase reading does not pick a phase",
 			gridType:    types.GridTypeTT,
 			phases:      3,
 			outputPhase: types.PhaseModeL1L2L3,
 			want:        []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL1L2L3},
 		},
 		{
-			name:        "a leg the grid does not offer is ignored",
+			name:        "a phase the grid does not offer is ignored",
 			gridType:    types.GridTypeTN,
 			phases:      3,
 			outputPhase: types.PhaseModeL2L3,

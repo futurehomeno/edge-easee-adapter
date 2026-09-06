@@ -60,6 +60,7 @@ type phaseThing struct {
 
 	srv       *mockedchargepoint.Service
 	inclusion int
+	fail      int
 }
 
 func (t *phaseThing) Services(fimptype.ServiceNameT) []adapter.Service {
@@ -69,6 +70,12 @@ func (t *phaseThing) Update(...adapter.ThingUpdate) error { return nil }
 
 func (t *phaseThing) SendInclusionReport(bool) (bool, error) {
 	t.inclusion++
+
+	if t.fail > 0 {
+		t.fail--
+
+		return false, assert.AnError
+	}
 
 	return true, nil
 }
@@ -85,8 +92,8 @@ func (s *fakePhaseStore) SetOutputPhase(mode types.PhaseMode) error {
 	return nil
 }
 
-// An Easee always uses the leg it is wired to, so the first OutputPhase observation must narrow
-// sup_phase_modes to that leg - a hub asking for any other one retries forever. A repeat
+// An Easee always uses the phase it is wired to, so the first OutputPhase observation must narrow
+// sup_phase_modes to that phase - a hub asking for any other one retries forever. A repeat
 // observation carries no news, so it must not republish the inclusion report.
 func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T) {
 	t.Parallel()
@@ -131,5 +138,43 @@ func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T
 
 	require.NoError(t, handler.HandleObservation(observation))
 
-	assert.Equal(t, 1, thing.inclusion, "an unchanged leg must not republish the inclusion report")
+	assert.Equal(t, 1, thing.inclusion, "an unchanged phase must not republish the inclusion report")
+}
+
+// A republish that fails must not be recorded as done: the next observation has to retry it.
+func TestObservationsHandler_OutputPhaseRepublishRetriedAfterFailure(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true)
+	cacheMock.On("GridType").Return(types.GridTypeTN, now)
+	cacheMock.On("Phases").Return(3, now)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{}})
+	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+
+	thing := &phaseThing{srv: srv, fail: 1}
+	store := &fakePhaseStore{}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store)
+	require.NoError(t, err)
+
+	observation := model.Observation{
+		ID:        model.OutputPhase,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.P1T2T5TN)),
+	}
+
+	require.Error(t, handler.HandleObservation(observation))
+	assert.Equal(t, types.PhaseModeUnknown, store.mode, "a failed republish must not be persisted")
+
+	require.NoError(t, handler.HandleObservation(observation))
+	assert.Equal(t, types.PhaseModeNL3, store.mode)
+	assert.Equal(t, 2, thing.inclusion)
 }

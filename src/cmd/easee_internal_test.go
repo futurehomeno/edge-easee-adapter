@@ -506,7 +506,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			{
 				// Supported phase modes must not narrow to whatever internal mode the charger
 				// happens to sit in - locking to a single phase would otherwise make the switch
-				// back unreachable. Only one leg is ever offered: the charger cannot choose one.
+				// back unreachable. Only one phase is ever offered: the charger cannot choose one.
 				Name: "Inclusion report: phase modes do not narrow with the internal mode",
 				//nolint:dupl
 				Setup: serviceSetup(

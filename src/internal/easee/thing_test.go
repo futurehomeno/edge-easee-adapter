@@ -205,7 +205,7 @@ func TestThingFactory_Create_RegistersPhaseModeSet(t *testing.T) {
 	spec := services[0].Specification()
 
 	// The charger sits in Easee's locked-3-phase mode, yet both modes stay advertised -
-	// otherwise switching back to a single phase would be impossible. Only one leg is offered:
+	// otherwise switching back to a single phase would be impossible. Only one phase is offered:
 	// the charger cannot choose which phase it uses.
 	assert.Equal(t,
 		[]string{"NL1", "NL1L2L3"},
@@ -271,8 +271,8 @@ func TestThingFactory_Create_AdvertisesDeduplicatedFimpStates(t *testing.T) {
 	)
 }
 
-// An Easee always uses the leg it is wired to, so once an OutputPhase observation has revealed
-// it, sup_phase_modes must offer that leg instead of NL1 - a hub asking for NL1 on a charger
+// An Easee always uses the phase it is wired to, so once an OutputPhase observation has revealed
+// it, sup_phase_modes must offer that phase instead of NL1 - a hub asking for NL1 on a charger
 // wired to L3 never gets it and retries forever.
 func TestThingFactory_Create_AdvertisesPersistedOutputPhase(t *testing.T) {
 	clientMock := mockapi.NewClient(t)

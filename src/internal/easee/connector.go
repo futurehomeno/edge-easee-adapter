@@ -97,7 +97,7 @@ func (c *connector) Ping() *adapter.PingDetails {
 	}
 }
 
-// phaseStore reads and writes the observed leg in the persisted thing state.
+// phaseStore reads and writes the observed phase in the persisted thing state.
 type phaseStore struct {
 	state adapter.ThingState
 }

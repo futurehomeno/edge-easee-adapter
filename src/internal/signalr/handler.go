@@ -30,7 +30,7 @@ type Handler interface {
 	HandleObservation(observation model.Observation) error
 }
 
-// PhaseStore persists the leg the charger reported using, so the advertised phase mode
+// PhaseStore persists the phase the charger reported using, so the advertised phase mode
 // survives a restart. Implemented in the easee package, which owns the thing state.
 type PhaseStore interface {
 	OutputPhase() types.PhaseMode
@@ -404,8 +404,8 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	return h.persistOutputPhase(outPhaseType)
 }
 
-// persistOutputPhase stores the leg the charger reported and re-advertises sup_phase_modes if
-// that changes the list - the hub otherwise keeps requesting a leg the charger cannot use.
+// persistOutputPhase stores the phase the charger reported and re-advertises sup_phase_modes if
+// that changes the list - the hub otherwise keeps requesting a phase the charger cannot use.
 func (h *observationsHandler) persistOutputPhase(outPhaseType types.PhaseMode) error {
 	if h.phaseStore == nil || outPhaseType.EffectivePhasesCnt() != 1 {
 		return nil
@@ -420,17 +420,16 @@ func (h *observationsHandler) persistOutputPhase(outPhaseType types.PhaseMode) e
 	phases, _ := h.cache.Phases()
 
 	before := model.AdvertisedPhaseModes(gridType, phases, stored)
-
-	if err := h.phaseStore.SetOutputPhase(outPhaseType); err != nil {
-		return err
-	}
-
 	after := model.AdvertisedPhaseModes(gridType, phases, outPhaseType)
-	if slices.Equal(before, after) {
-		return nil
+
+	// Persisted only after a successful republish, so a failed one is retried on the next observation.
+	if !slices.Equal(before, after) {
+		if err := h.republishChargepointProps(map[string]any{chargepoint.PropertySupportedPhaseModes: after}); err != nil {
+			return err
+		}
 	}
 
-	return h.republishChargepointProps(map[string]any{chargepoint.PropertySupportedPhaseModes: after})
+	return h.phaseStore.SetOutputPhase(outPhaseType)
 }
 
 func (h *observationsHandler) handleDetectedPowerGridType(observation model.Observation) error {
@@ -571,15 +570,25 @@ func (h *observationsHandler) handleChargingSessionStart(observation model.Obser
 }
 
 func (h *observationsHandler) ensureChargepointProps(srv chargepoint.Service, props map[string]interface{}) chargepoint.Service {
+	// Swapped in as a copy: the router reads these props while handling commands.
+	spec := srv.Specification()
+	updated := make(map[string]interface{}, len(spec.Props)+len(props))
+
+	for k, v := range spec.Props {
+		updated[k] = v
+	}
+
 	for k, v := range props {
 		if funk.IsEmpty(v) {
-			delete(srv.Specification().Props, k)
+			delete(updated, k)
 
 			continue
 		}
 
-		srv.Specification().Props[k] = v
+		updated[k] = v
 	}
+
+	spec.Props = updated
 
 	return srv
 }
