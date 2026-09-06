@@ -173,7 +173,10 @@ func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
 		return false, ChargerNotRegistered
 	}
 
-	if !charger.isSubscribed {
+	// An in-flight subscribe counts as connected: the server streams the initial batch as soon
+	// as the invoke is made, so gating on isSubscribed alone failed the follow-up report of
+	// every observation in that batch and left the app on stale values until the next one.
+	if !charger.isSubscribed && !charger.subscribing {
 		return false, ChargerNotSubscribed
 	}
 
