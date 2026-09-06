@@ -3,6 +3,7 @@ package signalr
 import (
 	"errors"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
+	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 	"github.com/thoas/go-funk"
@@ -28,6 +30,13 @@ type Handler interface {
 	HandleObservation(observation model.Observation) error
 }
 
+// PhaseStore persists the leg the charger reported using, so the advertised phase mode
+// survives a restart. Implemented in the easee package, which owns the thing state.
+type PhaseStore interface {
+	OutputPhase() types.PhaseMode
+	SetOutputPhase(types.PhaseMode) error
+}
+
 type observationsHandler struct {
 	cache          cache.Cache
 	handlers       map[model.ObservationID]func(model.Observation) error
@@ -36,6 +45,7 @@ type observationsHandler struct {
 	sessionStorage db.ChargingSessionStorage
 	chargerID      string
 	storedObs      map[model.ObservationID]model.Observation
+	phaseStore     PhaseStore
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
@@ -47,6 +57,7 @@ func NewObservationsHandler(
 	confSrv *config.Service,
 	sessionStorage db.ChargingSessionStorage,
 	chargerID string,
+	phaseStore PhaseStore,
 ) (Handler, error) {
 	handler := observationsHandler{
 		cache:          cache,
@@ -55,6 +66,7 @@ func NewObservationsHandler(
 		sessionStorage: sessionStorage,
 		chargerID:      chargerID,
 		storedObs:      make(map[model.ObservationID]model.Observation),
+		phaseStore:     phaseStore,
 	}
 
 	handler.isCloudOnline.Store(true)
@@ -389,7 +401,36 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 
 	h.sendPhaseModeReport(chargepointSrv)
 
-	return nil
+	return h.persistOutputPhase(outPhaseType)
+}
+
+// persistOutputPhase stores the leg the charger reported and re-advertises sup_phase_modes if
+// that changes the list - the hub otherwise keeps requesting a leg the charger cannot use.
+func (h *observationsHandler) persistOutputPhase(outPhaseType types.PhaseMode) error {
+	if h.phaseStore == nil || outPhaseType.EffectivePhasesCnt() != 1 {
+		return nil
+	}
+
+	stored := h.phaseStore.OutputPhase()
+	if stored == outPhaseType {
+		return nil
+	}
+
+	gridType, _ := h.cache.GridType()
+	phases, _ := h.cache.Phases()
+
+	before := model.AdvertisedPhaseModes(gridType, phases, stored)
+
+	if err := h.phaseStore.SetOutputPhase(outPhaseType); err != nil {
+		return err
+	}
+
+	after := model.AdvertisedPhaseModes(gridType, phases, outPhaseType)
+	if slices.Equal(before, after) {
+		return nil
+	}
+
+	return h.republishChargepointProps(map[string]any{chargepoint.PropertySupportedPhaseModes: after})
 }
 
 func (h *observationsHandler) handleDetectedPowerGridType(observation model.Observation) error {
@@ -423,22 +464,29 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		return nil
 	}
 
+	outputPhase := types.PhaseMode("")
+	if h.phaseStore != nil {
+		outputPhase = h.phaseStore.OutputPhase()
+	}
+
+	return h.republishChargepointProps(map[string]any{
+		chargepoint.PropertyGridType:            supportedGridType,
+		chargepoint.PropertyPhases:              supportedPhases,
+		chargepoint.PropertySupportedPhaseModes: model.AdvertisedPhaseModes(supportedGridType, supportedPhases, outputPhase),
+	})
+}
+
+// republishChargepointProps updates props only. The phase-mode interfaces are derived from
+// sup_phase_modes once, in chargepoint.NewService, so a charger created without a grid type -
+// stored state that is empty or legacy - gains the property here but not the interfaces until it
+// is rebuilt on the next adapter restart. Recreating the service would need the controller here.
+func (h *observationsHandler) republishChargepointProps(props map[string]any) error {
 	service, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
 	}
 
-	supportedModes := model.SettablePhaseModes(supportedGridType, supportedPhases)
-
-	// Props only. The phase-mode interfaces are derived from sup_phase_modes once, in
-	// chargepoint.NewService, so a charger created without a grid type - stored state that is
-	// empty or legacy - gains the property here but not the interfaces until it is rebuilt on
-	// the next adapter restart. Recreating the service would need the controller down here.
-	service = h.ensureChargepointProps(service, map[string]any{
-		chargepoint.PropertyGridType:            supportedGridType,
-		chargepoint.PropertyPhases:              supportedPhases,
-		chargepoint.PropertySupportedPhaseModes: supportedModes,
-	})
+	service = h.ensureChargepointProps(service, props)
 
 	if err := h.thing.Update(adapter.ThingUpdateRemoveService(service), adapter.ThingUpdateAddService(service)); err != nil {
 		return err

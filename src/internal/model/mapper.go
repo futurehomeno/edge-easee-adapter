@@ -24,6 +24,33 @@ func SettablePhaseModes(gridType types.GridType, phases int) []types.PhaseMode {
 	return SupportedPhaseModes(gridType, EaseePhaseModeAuto, phases)
 }
 
+// AdvertisedPhaseModes returns the settable modes with every single-phase entry collapsed to
+// one. An Easee cannot choose its leg: it always uses the phase it is wired to, so advertising
+// the others makes a hub ask for a leg the charger will never report and retry forever.
+func AdvertisedPhaseModes(gridType types.GridType, phases int, outputPhase types.PhaseMode) []types.PhaseMode {
+	modes := SettablePhaseModes(gridType, phases)
+
+	single := slices.IndexFunc(modes, func(m types.PhaseMode) bool { return m.EffectivePhasesCnt() == 1 })
+	if single < 0 {
+		return modes
+	}
+
+	kept := modes[single]
+	if outputPhase.EffectivePhasesCnt() == 1 && slices.Contains(modes, outputPhase) {
+		kept = outputPhase
+	}
+
+	advertised := []types.PhaseMode{kept}
+
+	for _, m := range modes {
+		if m.EffectivePhasesCnt() > 1 {
+			advertised = append(advertised, m)
+		}
+	}
+
+	return advertised
+}
+
 // ToEaseePhaseMode maps a FIMP phase mode onto Easee's internal phase mode.
 func ToEaseePhaseMode(gridType types.GridType, phases int, mode types.PhaseMode) (int, error) {
 	if slices.Contains(SupportedPhaseModes(gridType, easeePhaseModeSingle, phases), mode) {

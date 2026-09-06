@@ -31,10 +31,11 @@ type Info struct {
 
 // State is the mutable charger information persisted with the thing.
 type State struct {
-	GridType            types.GridType `json:"gridType"`
-	Phases              int            `json:"phases"`
-	PhaseMode           int            `json:"phaseMode"`
-	SupportedMaxCurrent int            `json:"supportedMaxCurrent"`
+	GridType            types.GridType  `json:"gridType"`
+	Phases              int             `json:"phases"`
+	PhaseMode           int             `json:"phaseMode"`
+	SupportedMaxCurrent int             `json:"supportedMaxCurrent"`
+	OutputPhase         types.PhaseMode `json:"outputPhase,omitempty"`
 }
 
 func (s *State) IsConfigUpdateNeeded() bool {
@@ -132,7 +133,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	return adapter.NewThing(publisher, thingState, &adapter.ThingConfig{
-		Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage),
+		Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage, thingState),
 		InclusionReport: t.inclusionReport(info, thingState, groups),
 	}, services...), nil
 }
@@ -179,7 +180,7 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 		options = append(options, chargepoint.WithGridType(gridType))
 	}
 
-	if phaseModes := model.SettablePhaseModes(state.GridType, state.Phases); len(phaseModes) > 0 {
+	if phaseModes := model.AdvertisedPhaseModes(state.GridType, state.Phases, state.OutputPhase); len(phaseModes) > 0 {
 		options = append(options, chargepoint.WithSupportedPhaseModes(phaseModes...))
 	}
 
