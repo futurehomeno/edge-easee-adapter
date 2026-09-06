@@ -278,6 +278,102 @@ func TestRunLoopKeepsDrainingObservationsWhileASubscribeIsInFlight(t *testing.T)
 	close(client.release)
 }
 
+// The server streams the initial batch as soon as the subscribe invoke is made, so the charger
+// has to count as connected while that invoke is still in flight: gating on isSubscribed alone
+// failed the follow-up report of every observation in that batch.
+func TestChargerIsConnectedWhileItsSubscribeIsInFlight(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+	t.Cleanup(func() { close(client.release) })
+
+	go func() { _ = m.handleSubscription(chargerID) }()
+
+	<-client.entered
+
+	connected, reason := m.Connected(chargerID)
+
+	assert.True(t, connected, "a charger must be connected while its subscribe is in flight")
+	assert.Empty(t, reason)
+}
+
+// A disconnect retires the connection the in-flight subscribe belongs to, so the charger must
+// stop counting as connected at once rather than when the invoke finally times out.
+func TestDisconnectEndsTheConnectedWindowOfAnInFlightSubscribe(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+	t.Cleanup(func() { close(client.release) })
+
+	go func() { _ = m.handleSubscription(chargerID) }()
+
+	<-client.entered
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	connected, reason := m.Connected(chargerID)
+
+	assert.False(t, connected)
+	assert.Equal(t, ChargerNotSubscribed, reason)
+}
+
+// A subscribe that lands after the disconnect describes the connection just lost, so its result
+// must not mark the charger subscribed - and the disconnect must still leave it able to retry.
+func TestDisconnectRetiresAPendingSubscribeResult(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	close(client.release)
+	<-done
+
+	m.mu.RLock()
+	isSubscribed := m.chargers[chargerID].isSubscribed
+	m.mu.RUnlock()
+
+	assert.False(t, isSubscribed, "a subscribe completing after the disconnect must not mark the charger subscribed")
+}
+
+// Retiring the epoch on disconnect makes disarmRetry a no-op for a chain armed on the lost
+// connection, so the disconnect itself has to clear the flag - otherwise that charger can never
+// arm another retry and stops re-subscribing for good.
+func TestDisconnectClearsARetryArmedOnTheLostConnection(t *testing.T) {
+	m := newTestManagerWithClient(t, &failingSubscribeClient{})
+
+	m.mu.Lock()
+	m.chargers[chargerID].retryArmed = true
+	m.mu.Unlock()
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	m.mu.RLock()
+	retryArmed := m.chargers[chargerID].retryArmed
+	m.mu.RUnlock()
+
+	assert.False(t, retryArmed)
+}
+
 // A subscribe spanning a reconnect describes a connection that no longer exists: its result
 // must not mark the charger subscribed on the new one, and must not leave the guard set on
 // the fresh attempt the reconnect sweep enqueued.
@@ -449,7 +545,7 @@ func newTestManagerWithClient(t *testing.T, client Client) *manager {
 	m.done = make(chan struct{})
 	close(m.done)
 
-	m.chargers[chargerID] = &charger{backoff: m.cfg.SignalRBackoffStateful()}
+	m.chargers[chargerID] = &charger{handler: &recordingHandler{handled: make(chan struct{})}, backoff: m.cfg.SignalRBackoffStateful()}
 
 	return m
 }

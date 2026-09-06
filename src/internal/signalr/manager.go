@@ -173,7 +173,10 @@ func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
 		return false, ChargerNotRegistered
 	}
 
-	if !charger.isSubscribed {
+	// An in-flight subscribe counts as connected: the server streams the initial batch as soon
+	// as the invoke is made, so gating on isSubscribed alone failed the follow-up report of
+	// every observation in that batch and left the app on stale values until the next one.
+	if !charger.isSubscribed && !charger.subscribing {
 		return false, ChargerNotSubscribed
 	}
 
@@ -391,9 +394,20 @@ func (m *manager) handleClientState(state model.ClientState) {
 		log.Warn("signalR: client disconnected")
 
 		m.mu.Lock()
+
+		// A subscribe that returns after this point describes the connection just lost, so it
+		// must not mark the charger subscribed on it.
+		m.epoch++
+
 		for _, charger := range m.chargers {
 			charger.backoff.Reset()
 			charger.isSubscribed = false
+			// Connected() counts an in-flight subscribe as connected; left set, it would keep
+			// reporting a dead connection healthy until the invoke times out.
+			charger.subscribing = false
+			// Retiring the epoch above also makes disarmRetry a no-op for every chain armed on
+			// the lost connection, so clear the flag here or nothing ever arms a retry again.
+			charger.retryArmed = false
 		}
 
 		m.mu.Unlock()
