@@ -112,6 +112,19 @@ func (s *SignalRServer) MockObservations(delay time.Duration, o []model.Observat
 func (s *SignalRServer) scheduleObservations() {
 	defer telemetry.RecoverAndEmit(nil, "SignalRServer.scheduleObservations", true)
 
+	if len(s.mockedObservations) == 0 {
+		return
+	}
+
+	// Timed from the first subscribe, not from server start: the adapter's startup ate an
+	// unpredictable share of the first delay, so a slow host subscribed after the opening
+	// batch had already been replaced and never saw it.
+	select {
+	case <-s.hub.subscribed:
+	case <-time.After(30 * time.Second):
+		return
+	}
+
 	for _, batch := range s.mockedObservations {
 		time.Sleep(batch.delay)
 		s.hub.propagate(batch.observations)
@@ -126,12 +139,15 @@ type signalRHub struct {
 
 	numSubscriptions int
 	observations     []model.Observation
+
+	subscribed    chan struct{}
+	subscribeOnce sync.Once
 }
 
 func newSignalRHub(t *testing.T) *signalRHub {
 	t.Helper()
 
-	return &signalRHub{t: t}
+	return &signalRHub{t: t, subscribed: make(chan struct{})}
 }
 
 func (h *signalRHub) SubscribeWithCurrentState(chargerID string, sendInitialObservations bool) {
@@ -141,6 +157,7 @@ func (h *signalRHub) SubscribeWithCurrentState(chargerID string, sendInitialObse
 	defer h.mu.Unlock()
 
 	h.numSubscriptions++
+	h.subscribeOnce.Do(func() { close(h.subscribed) })
 
 	for _, o := range h.observations {
 		h.Clients().Caller().Send("productUpdate", o)
