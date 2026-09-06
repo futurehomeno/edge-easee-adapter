@@ -53,6 +53,7 @@ func NewController(
 	cache cache.Cache,
 	cfgService *config.Service,
 	sessionStorage db.ChargingSessionStorage,
+	persistedPhase func() types.PhaseMode,
 ) Controller {
 	return &controller{
 		client:         client,
@@ -61,6 +62,7 @@ func NewController(
 		cfgService:     cfgService,
 		chargerID:      chargerID,
 		sessionStorage: sessionStorage,
+		persistedPhase: persistedPhase,
 	}
 }
 
@@ -71,6 +73,7 @@ type controller struct {
 	cfgService     *config.Service
 	chargerID      string
 	sessionStorage db.ChargingSessionStorage
+	persistedPhase func() types.PhaseMode
 }
 
 func (c *controller) SetParameter(p *parameters.Parameter) error {
@@ -166,6 +169,12 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		// just made with a single leg whenever the cache is empty - after an adapter restart.
 		if state.PhaseMode == model.EaseePhaseModeAuto {
 			return modes[len(modes)-1], nil
+		}
+
+		// The cache is empty after a restart; the persisted phase keeps the report on the
+		// same phase the inclusion report advertises.
+		if persisted := c.persistedPhase(); slices.Contains(modes, persisted) {
+			return persisted, nil
 		}
 
 		return modes[0], nil

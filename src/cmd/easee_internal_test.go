@@ -504,9 +504,9 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
-				// Supported phase modes advertise everything the charger can be switched to, so
-				// they must not narrow to whatever internal mode it happens to sit in - locking
-				// to a single phase would otherwise make the switch back unreachable.
+				// Supported phase modes must not narrow to whatever internal mode the charger
+				// happens to sit in - locking to a single phase would otherwise make the switch
+				// back unreachable. Only one phase is ever offered: the charger cannot choose one.
 				Name: "Inclusion report: phase modes do not narrow with the internal mode",
 				//nolint:dupl
 				Setup: serviceSetup(
@@ -559,7 +559,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(3),
 								chargepoint.PropertyGridType:            "TN",
-								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL2", "NL3", "NL1L2L3"},
+								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL1L2L3"},
 							}, nil),
 						},
 					},
@@ -609,7 +609,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(3),
 								chargepoint.PropertyGridType:            "TN",
-								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL2", "NL3", "NL1L2L3"},
+								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL1L2L3"},
 							}, nil),
 						},
 					},
