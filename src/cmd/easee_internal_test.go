@@ -1363,8 +1363,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{
 							waitForRunning(),
-							func(_ *testing.T) {
-								time.Sleep(10 * time.Millisecond)
+							func(t *testing.T) {
+								t.Helper()
+
+								testContainer.signalRServer.WaitForObservations(t)
 							},
 						},
 						Command: suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.current_session.get_report", "chargepoint"),
@@ -1409,8 +1411,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{
 							waitForRunning(),
-							func(_ *testing.T) {
-								time.Sleep(10 * time.Millisecond)
+							func(t *testing.T) {
+								t.Helper()
+
+								testContainer.signalRServer.WaitForObservations(t)
 							},
 						},
 						Expectations: []*suite.Expectation{
@@ -1452,8 +1456,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{
 							waitForRunning(),
-							func(_ *testing.T) {
-								time.Sleep(10 * time.Millisecond)
+							func(t *testing.T) {
+								t.Helper()
+
+								testContainer.signalRServer.WaitForObservations(t)
 							},
 						},
 						Expectations: []*suite.Expectation{

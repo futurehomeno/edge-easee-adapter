@@ -31,6 +31,7 @@ type SignalRServer struct {
 
 	running            atomic.Bool
 	mockedObservations []observationBatch
+	delivered          chan struct{}
 }
 
 // NewSignalRServer creates a new test signalR server.
@@ -46,11 +47,12 @@ func NewSignalRServer(t *testing.T, address string) *SignalRServer {
 	srv.MapHTTP(libsignalr.WithHTTPServeMux(router), "/hubs/chargers")
 
 	return &SignalRServer{
-		t:       t,
-		router:  router,
-		hub:     hub,
-		signalr: srv,
-		http:    &http.Server{Addr: address, Handler: router}, //nolint:gosec
+		t:         t,
+		router:    router,
+		hub:       hub,
+		signalr:   srv,
+		http:      &http.Server{Addr: address, Handler: router}, //nolint:gosec
+		delivered: make(chan struct{}),
 	}
 }
 
@@ -112,6 +114,8 @@ func (s *SignalRServer) MockObservations(delay time.Duration, o []model.Observat
 func (s *SignalRServer) scheduleObservations() {
 	defer telemetry.RecoverAndEmit(nil, "SignalRServer.scheduleObservations", true)
 
+	defer close(s.delivered)
+
 	if len(s.mockedObservations) == 0 {
 		return
 	}
@@ -128,6 +132,19 @@ func (s *SignalRServer) scheduleObservations() {
 	for _, batch := range s.mockedObservations {
 		time.Sleep(batch.delay)
 		s.hub.propagate(batch.observations)
+	}
+}
+
+// WaitForObservations blocks until every mocked batch has been sent, so a test asserting on the
+// last one does not race the schedule. A fixed sleep cannot: the batches are timed from the
+// adapter's subscribe, which lands whenever the host gets round to it.
+func (s *SignalRServer) WaitForObservations(t *testing.T) {
+	t.Helper()
+
+	select {
+	case <-s.delivered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("signalR test server: mocked observations were never delivered")
 	}
 }
 
