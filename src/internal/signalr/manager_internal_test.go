@@ -323,6 +323,57 @@ func TestDisconnectEndsTheConnectedWindowOfAnInFlightSubscribe(t *testing.T) {
 	assert.Equal(t, ChargerNotSubscribed, reason)
 }
 
+// A subscribe that lands after the disconnect describes the connection just lost, so its result
+// must not mark the charger subscribed - and the disconnect must still leave it able to retry.
+func TestDisconnectRetiresAPendingSubscribeResult(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	close(client.release)
+	<-done
+
+	m.mu.RLock()
+	isSubscribed := m.chargers[chargerID].isSubscribed
+	m.mu.RUnlock()
+
+	assert.False(t, isSubscribed, "a subscribe completing after the disconnect must not mark the charger subscribed")
+}
+
+// Retiring the epoch on disconnect makes disarmRetry a no-op for a chain armed on the lost
+// connection, so the disconnect itself has to clear the flag - otherwise that charger can never
+// arm another retry and stops re-subscribing for good.
+func TestDisconnectClearsARetryArmedOnTheLostConnection(t *testing.T) {
+	m := newTestManagerWithClient(t, &failingSubscribeClient{})
+
+	m.mu.Lock()
+	m.chargers[chargerID].retryArmed = true
+	m.mu.Unlock()
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	m.mu.RLock()
+	retryArmed := m.chargers[chargerID].retryArmed
+	m.mu.RUnlock()
+
+	assert.False(t, retryArmed)
+}
+
 // A subscribe spanning a reconnect describes a connection that no longer exists: its result
 // must not mark the charger subscribed on the new one, and must not leave the guard set on
 // the fresh attempt the reconnect sweep enqueued.

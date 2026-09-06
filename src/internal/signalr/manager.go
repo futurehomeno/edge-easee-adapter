@@ -394,12 +394,20 @@ func (m *manager) handleClientState(state model.ClientState) {
 		log.Warn("signalR: client disconnected")
 
 		m.mu.Lock()
+
+		// A subscribe that returns after this point describes the connection just lost, so it
+		// must not mark the charger subscribed on it.
+		m.epoch++
+
 		for _, charger := range m.chargers {
 			charger.backoff.Reset()
 			charger.isSubscribed = false
 			// Connected() counts an in-flight subscribe as connected; left set, it would keep
 			// reporting a dead connection healthy until the invoke times out.
 			charger.subscribing = false
+			// Retiring the epoch above also makes disarmRetry a no-op for every chain armed on
+			// the lost connection, so clear the flag here or nothing ever arms a retry again.
+			charger.retryArmed = false
 		}
 
 		m.mu.Unlock()
