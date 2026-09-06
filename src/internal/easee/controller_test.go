@@ -32,8 +32,14 @@ func newTestController(
 	clientMock *mockapi.Client,
 	sessionStorage *mockeddb.ChargingSessionStorage,
 	cfg *config.Config,
+	persisted ...types.PhaseMode,
 ) easee.Controller {
 	t.Helper()
+
+	var persistedPhase types.PhaseMode
+	if len(persisted) > 0 {
+		persistedPhase = persisted[0]
+	}
 
 	if cfg == nil {
 		cfg = &config.Config{}
@@ -49,6 +55,7 @@ func newTestController(
 		cacheMock,
 		cfgService,
 		sessionStorage,
+		func() types.PhaseMode { return persistedPhase },
 	)
 }
 
@@ -609,6 +616,31 @@ func TestController_ChargepointPhaseModeReport_VoidsStaleOutputPhase(t *testing.
 	mode, err := ctrl.ChargepointPhaseModeReport()
 	assert.NoError(t, err)
 	assert.Equal(t, types.PhaseModeNL1L2L3, mode)
+}
+
+// After a restart the cache holds no output phase, so the report falls back to the cloud
+// config. In single mode that used to mean modes[0] (NL1) while the inclusion report already
+// advertised the persisted phase, leaving the guard with a mode outside sup_phase_modes.
+func TestController_ChargepointPhaseModeReport_UsesPersistedPhaseAfterRestart(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("ChargerConfig", "test-charger").
+		Return(&model.ChargerConfig{DetectedPowerGridType: model.GridTypeTN3Phase, PhaseMode: 1}, nil)
+	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil, types.PhaseModeNL3)
+
+	mode, err := ctrl.ChargepointPhaseModeReport()
+	assert.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL3, mode)
 }
 
 // The charger applies a new phase mode only at a session boundary, so a mode changed mid-session

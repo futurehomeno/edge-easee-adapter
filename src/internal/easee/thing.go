@@ -75,7 +75,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	thingCache := cache.NewCache(info.ChargerID)
-	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage)
+	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage, (&phaseStore{state: thingState}).OutputPhase)
 
 	state := &State{}
 	if err := thingState.State(state); err != nil {
