@@ -56,6 +56,9 @@ type client struct {
 	observations chan model.Observation
 
 	connState model.ClientState
+
+	// newConn is a test seam; nil means the real getClient.
+	newConn func(ctx context.Context) (signalr.Client, error)
 }
 
 func NewClient(cfg *config.Service, tokenProvider func() (string, error), tel telemetry.Telemetry) Client {
@@ -208,18 +211,23 @@ func (c *client) handleConnection(ctx context.Context) {
 	defer telemetry.RecoverAndEmit(c.tel, "handleConnection", true)
 
 	for {
-		if conn, err := c.getClient(ctx); err != nil {
+		if conn, err := c.dial(ctx); err != nil {
 			log.Warnf("Unable to start signalr client err: %v", err)
 		} else {
 			c.setConnection(conn)
+
+			// The library does not replay the current state to a late observer, so a fast
+			// handshake would lose ClientConnected if we registered after Start().
+			states := make(chan signalr.ClientState, 1)
+			cancelObserve := conn.ObserveStateChanged(states)
+
 			conn.Start()
+			c.notifyState(ctx, states)
 
-			c.notifyState(ctx, conn)
-
-			// Each signalr.NewClient derives a cancellable child of ctx and releases it only
-			// in Stop(). Dropping the superseded connection without stopping it leaked one
-			// per reconnect, for the lifetime of the process.
+			// Stop first: it cancels the library context that unblocks a pending state
+			// send, which holds the mutex the observer cancellation needs.
 			conn.Stop()
+			cancelObserve()
 		}
 
 		c.setConnection(nil)
@@ -239,14 +247,28 @@ func (c *client) setConnection(conn signalr.Client) {
 	c.connection = conn
 }
 
-func (c *client) notifyState(ctx context.Context, conn signalr.Client) {
-	ch := make(chan signalr.ClientState, 1)
+func (c *client) dial(ctx context.Context) (signalr.Client, error) {
+	if c.newConn != nil {
+		return c.newConn(ctx)
+	}
 
-	cancel := conn.ObserveStateChanged(ch)
-	defer cancel()
+	return c.getClient(ctx)
+}
+
+func (c *client) notifyState(ctx context.Context, ch <-chan signalr.ClientState) {
+	// Bounds a connection that runs but never reports connected; without it the adapter
+	// stays subscribed to nothing until the server drops the zombie hours later.
+	timeout := c.cfg.SignalRTimeoutInterval()
+	connectDeadline := time.NewTimer(timeout)
+	defer connectDeadline.Stop()
 
 	for {
 		select {
+		case <-connectDeadline.C:
+			log.Warnf("signalR: no connected state within %s, reconnecting", timeout)
+
+			return
+
 		case <-ctx.Done():
 			// Close() cancels the context, so this is the only notice of a shutdown the
 			// manager gets; swallowing it leaves its per-charger subscriptions marked live
@@ -262,10 +284,17 @@ func (c *client) notifyState(ctx context.Context, conn signalr.Client) {
 			return
 
 		case clientState := <-ch:
+			// The library delivers each state from its own goroutine, so a Connecting can land
+			// after Connected; only Connected and Closed carry information for the adapter.
+			if clientState != signalr.ClientConnected && clientState != signalr.ClientClosed {
+				continue
+			}
+
 			state := model.ClientStateDisconnected
 			if clientState == signalr.ClientConnected {
 				state = model.ClientStateConnected
 
+				connectDeadline.Stop()
 				c.backoff.Reset()
 			}
 
