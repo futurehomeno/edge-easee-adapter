@@ -284,6 +284,12 @@ func (c *client) notifyState(ctx context.Context, ch <-chan signalr.ClientState)
 			return
 
 		case clientState := <-ch:
+			// The library delivers each state from its own goroutine, so a Connecting can land
+			// after Connected; only Connected and Closed carry information for the adapter.
+			if clientState != signalr.ClientConnected && clientState != signalr.ClientClosed {
+				continue
+			}
+
 			state := model.ClientStateDisconnected
 			if clientState == signalr.ClientConnected {
 				state = model.ClientStateConnected

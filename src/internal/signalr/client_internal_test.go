@@ -134,6 +134,8 @@ type fakeLibClient struct {
 	state     signalr.ClientState
 	observers []chan signalr.ClientState
 	connect   bool
+	// sequence, when set, replaces the default Start states and is delivered strictly in order.
+	sequence []signalr.ClientState
 
 	// stopped, when set, is closed by Stop so a cancellation can tell whether it came first.
 	stopped             chan struct{}
@@ -142,6 +144,17 @@ type fakeLibClient struct {
 }
 
 func (f *fakeLibClient) Start() {
+	if f.sequence != nil {
+		// Delivered off Start and one at a time, so the order is fixed and the reader can run.
+		go func() {
+			for _, state := range f.sequence {
+				f.deliver(state)
+			}
+		}()
+
+		return
+	}
+
 	f.setState(signalr.ClientConnecting)
 
 	if !f.connect {
@@ -192,6 +205,24 @@ func (f *fakeLibClient) ObserveStateChanged(ch chan signalr.ClientState) context
 				break
 			}
 		}
+	}
+}
+
+func (f *fakeLibClient) deliver(state signalr.ClientState) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.state = state
+
+	for _, ch := range f.observers {
+		timer := time.NewTimer(5 * time.Second)
+
+		select {
+		case ch <- state:
+		case <-timer.C:
+		}
+
+		timer.Stop()
 	}
 }
 
@@ -306,6 +337,27 @@ func TestClient_StopsConnectionBeforeCancellingObserver(t *testing.T) {
 	defer fake.mu.Unlock()
 
 	assert.False(t, fake.cancelledBeforeStop, "observer was cancelled before the connection was stopped")
+}
+
+// A Connecting delivered after Connected is stale, not a disconnect: publishing it would make
+// the manager drop every subscription on a live connection with nothing left to restore them.
+func TestClient_IgnoresStaleConnectingAfterConnected(t *testing.T) {
+	c := newTestClient(t, time.Minute, func(context.Context) (signalr.Client, error) {
+		return &fakeLibClient{sequence: []signalr.ClientState{signalr.ClientConnected, signalr.ClientConnecting}}, nil
+	})
+
+	c.Start()
+	t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+	assert.Equal(t, model.ClientStateConnected, waitForClientState(t, c.StateC()))
+
+	select {
+	case state := <-c.StateC():
+		t.Fatalf("unexpected state %s after a stale Connecting", state)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	assert.True(t, c.Connected())
 }
 
 func waitForClientState(t *testing.T, states <-chan model.ClientState) model.ClientState {
