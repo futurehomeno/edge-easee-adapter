@@ -397,6 +397,9 @@ func (m *manager) handleClientState(state model.ClientState) {
 		for _, charger := range m.chargers {
 			charger.backoff.Reset()
 			charger.isSubscribed = false
+			// Connected() counts an in-flight subscribe as connected; left set, it would keep
+			// reporting a dead connection healthy until the invoke times out.
+			charger.subscribing = false
 		}
 
 		m.mu.Unlock()

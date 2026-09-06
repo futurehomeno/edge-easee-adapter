@@ -288,6 +288,7 @@ func TestChargerIsConnectedWhileItsSubscribeIsInFlight(t *testing.T) {
 	}
 
 	m := newTestManagerWithClient(t, client)
+	t.Cleanup(func() { close(client.release) })
 
 	go func() { _ = m.handleSubscription(chargerID) }()
 
@@ -295,10 +296,31 @@ func TestChargerIsConnectedWhileItsSubscribeIsInFlight(t *testing.T) {
 
 	connected, reason := m.Connected(chargerID)
 
-	close(client.release)
-
 	assert.True(t, connected, "a charger must be connected while its subscribe is in flight")
 	assert.Empty(t, reason)
+}
+
+// A disconnect retires the connection the in-flight subscribe belongs to, so the charger must
+// stop counting as connected at once rather than when the invoke finally times out.
+func TestDisconnectEndsTheConnectedWindowOfAnInFlightSubscribe(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+	t.Cleanup(func() { close(client.release) })
+
+	go func() { _ = m.handleSubscription(chargerID) }()
+
+	<-client.entered
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	connected, reason := m.Connected(chargerID)
+
+	assert.False(t, connected)
+	assert.Equal(t, ChargerNotSubscribed, reason)
 }
 
 // A subscribe spanning a reconnect describes a connection that no longer exists: its result
