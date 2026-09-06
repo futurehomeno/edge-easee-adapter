@@ -224,8 +224,10 @@ func (c *client) handleConnection(ctx context.Context) {
 			conn.Start()
 			c.notifyState(ctx, states)
 
-			cancelObserve()
+			// Stop first: it cancels the library context that unblocks a pending state
+			// send, which holds the mutex the observer cancellation needs.
 			conn.Stop()
+			cancelObserve()
 		}
 
 		c.setConnection(nil)
@@ -256,13 +258,14 @@ func (c *client) dial(ctx context.Context) (signalr.Client, error) {
 func (c *client) notifyState(ctx context.Context, ch <-chan signalr.ClientState) {
 	// Bounds a connection that runs but never reports connected; without it the adapter
 	// stays subscribed to nothing until the server drops the zombie hours later.
-	connectDeadline := time.NewTimer(c.cfg.SignalRTimeoutInterval())
+	timeout := c.cfg.SignalRTimeoutInterval()
+	connectDeadline := time.NewTimer(timeout)
 	defer connectDeadline.Stop()
 
 	for {
 		select {
 		case <-connectDeadline.C:
-			log.Warnf("signalR: no connected state within %s, reconnecting", c.cfg.SignalRTimeoutInterval())
+			log.Warnf("signalR: no connected state within %s, reconnecting", timeout)
 
 			return
 

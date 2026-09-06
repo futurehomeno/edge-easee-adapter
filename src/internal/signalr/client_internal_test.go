@@ -134,6 +134,11 @@ type fakeLibClient struct {
 	state     signalr.ClientState
 	observers []chan signalr.ClientState
 	connect   bool
+
+	// stopped, when set, is closed by Stop so a cancellation can tell whether it came first.
+	stopped             chan struct{}
+	stopOnce            sync.Once
+	cancelledBeforeStop bool
 }
 
 func (f *fakeLibClient) Start() {
@@ -149,6 +154,10 @@ func (f *fakeLibClient) Start() {
 func (f *fakeLibClient) Stop() {
 	f.wg.Wait()
 	f.setState(signalr.ClientClosed)
+
+	if f.stopped != nil {
+		f.stopOnce.Do(func() { close(f.stopped) })
+	}
 }
 
 func (f *fakeLibClient) State() signalr.ClientState {
@@ -167,6 +176,14 @@ func (f *fakeLibClient) ObserveStateChanged(ch chan signalr.ClientState) context
 	return func() {
 		f.mu.Lock()
 		defer f.mu.Unlock()
+
+		if f.stopped != nil {
+			select {
+			case <-f.stopped:
+			default:
+				f.cancelledBeforeStop = true
+			}
+		}
 
 		for i, observer := range f.observers {
 			if observer == ch {
@@ -264,6 +281,31 @@ func TestClient_RedialsWhenConnectedNeverArrives(t *testing.T) {
 			t.Fatalf("timed out waiting for dial %d", i+1)
 		}
 	}
+}
+
+// The library's pending state sends hold its mutex until the client context ends, and the
+// observer cancellation needs that mutex: cancelling before Stop can deadlock the loop.
+func TestClient_StopsConnectionBeforeCancellingObserver(t *testing.T) {
+	fake := &fakeLibClient{stopped: make(chan struct{})}
+
+	c := newTestClient(t, 50*time.Millisecond, func(context.Context) (signalr.Client, error) {
+		return fake, nil
+	})
+
+	c.Start()
+
+	select {
+	case <-fake.stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the connection to be stopped")
+	}
+
+	require.NoError(t, c.Close())
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+
+	assert.False(t, fake.cancelledBeforeStop, "observer was cancelled before the connection was stopped")
 }
 
 func waitForClientState(t *testing.T, states <-chan model.ClientState) model.ClientState {
