@@ -290,13 +290,22 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		return err
 	}
 
-	// Published before the flag flips: SendStateReport goes through the controller's
-	// checkConnection, which rejects it as ChargerOffline once IsOnline reads false. Flipping
-	// first meant the report announcing the offline state was the one report never sent, and
-	// the app kept the last online state until the charger came back.
+	// The report has to cross the controller's checkConnection, which rejects it as
+	// ChargerOffline while IsOnline reads false - so the flag has to be on the online side of
+	// the send in both directions. Going offline: send first, or the report announcing it is
+	// the one report never sent. Coming back: flip first, or the recovery report is refused by
+	// the offline state it is there to clear.
+	goingOffline := state == model.ChargerStateOffline
+
+	if !goingOffline {
+		h.isStateOnline.Store(true)
+	}
+
 	_, err = chargepointSrv.SendStateReport(false)
 
-	h.isStateOnline.Store(state != model.ChargerStateOffline)
+	if goingOffline {
+		h.isStateOnline.Store(false)
+	}
 
 	return err
 }
@@ -459,11 +468,16 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		log.Warnf("[%s] Send grid type alarm reports err: %v", h.chargerID, err)
 	}
 
-	// A faulted grid type maps to ("", 0), which is not a topology - it is the absence of one.
-	// Writing it would delete grid_type, phases and sup_phase_modes from the props, and the
-	// equivalence check above short-circuits every repeat, so the charger could not restore
-	// them while the fault persisted. The alarm above is the report for this case.
-	if supportedGridType == "" || supportedPhases == 0 {
+	// An unmapped or unknown grid type yields ("", 0), which is not a topology - it is the
+	// absence of one. Writing it would delete grid_type, phases and sup_phase_modes from the
+	// props, and the equivalence check above short-circuits every repeat, so the charger could
+	// not restore them while the fault persisted. The alarm above is the report for that case.
+	//
+	// Tested on the grid type alone, not the phase count: the error types preserve a known one
+	// with zero phases (TN400VNeutralOnWrongPin -> (TN, 0), ITGroundConnectedToPin2Or3 ->
+	// (IT, 0)), and those must still update grid_type. Zero phases clears the phase-dependent
+	// props below rather than being discarded here.
+	if supportedGridType == "" {
 		return nil
 	}
 
