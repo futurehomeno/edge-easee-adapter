@@ -141,27 +141,80 @@ func (m *manager) enqueueSubscription(chargerID string) {
 
 func (m *manager) Unregister(chargerID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if _, ok := m.chargers[chargerID]; !ok {
+		m.mu.Unlock()
+
 		return nil
 	}
 
 	delete(m.chargers, chargerID)
 
+	m.mu.Unlock()
+
+	// Both calls block on the connection - UnsubscribeCharger up to SignalRInvokeTimeout - so
+	// they run after the map write is published rather than under m.mu, which would stall
+	// Connected(), Register() and every observation lookup for the whole invocation. Stop()
+	// already takes this shape.
 	var errs error
 
 	if err := m.client.UnsubscribeCharger(chargerID); err != nil {
 		errs = errors.Join(errs, err)
 	}
 
-	if len(m.chargers) == 0 {
+	// Re-tested under the lock rather than snapshotted before the invoke above: Register adds
+	// its charger and calls Start() while holding m.mu, so it can complete entirely while this
+	// unsubscribe blocks. Closing on the stale answer would stop the client out from under a
+	// charger that had just started it, and nothing restarts it until another registration.
+	// The unsubscribe above names the charger by ID, with nothing tying it to the instance this
+	// call removed. A Register for the same ID that lands and subscribes while it is parked
+	// therefore has its server-side subscription torn down by it, and the manager goes on
+	// believing that charger is subscribed - so its observations stop until a reconnect.
+	// Clearing isSubscribed is what makes the re-subscribe below take effect: handleSubscription
+	// returns early on a charger that still claims to be subscribed, which is precisely the
+	// stale claim this torn-down subscription left behind.
+	m.repairReplacedSubscription(chargerID)
+
+	m.mu.Lock()
+	last := len(m.chargers) == 0
+	m.mu.Unlock()
+
+	if last {
 		if err := m.client.Close(); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
 
 	return errs
+}
+
+// repairReplacedSubscription re-establishes the subscription of a charger that was registered
+// under an ID while a by-ID UnsubscribeCharger for the previous instance was in flight. That
+// unsubscribe carries nothing tying it to the instance it was issued for, so it can tear down
+// the replacement's server-side subscription while the manager still believes it subscribed -
+// and its observations then stop until a reconnect.
+//
+// The flag is cleared whether or not a subscribe is in flight. Clearing it only for an idle
+// charger left the in-flight case unrepaired: that subscribe sets isSubscribed on completion,
+// and handleSubscription's early return then discards the retry this enqueues. Clearing it
+// first means the retry finds a charger that makes no claim, and re-subscribes.
+func (m *manager) repairReplacedSubscription(chargerID string) {
+	m.mu.Lock()
+
+	replaced, reRegistered := m.chargers[chargerID]
+	if reRegistered {
+		replaced.isSubscribed = false
+		// Retires any subscribe already in flight: it would otherwise set isSubscribed on
+		// return, and the retry enqueued below would then short-circuit on that claim while
+		// the server-side subscription this repair exists for is already torn down.
+		replaced.subscribeEpoch++
+	}
+
+	m.mu.Unlock()
+
+	if reRegistered {
+		m.enqueueSubscription(chargerID)
+	}
 }
 
 func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
@@ -247,6 +300,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 	charger.subscribing = true
 	epoch := m.epoch
+	subscribeEpoch := charger.subscribeEpoch
 
 	m.mu.Unlock()
 
@@ -254,6 +308,34 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// across it stalled Connected(), Register() and every observation lookup for the whole
 	// invocation.
 	err := m.client.SubscribeCharger(chargerID)
+
+	// Compensation for the unregister race below, issued once the lock is released: it is the
+	// same blocking invoke the subscribe above unlocks for.
+	orphaned := false
+
+	// Set when a repair retires this subscribe. The repair enqueues its own retry, but the
+	// guard above drops that retry when it arrives while this subscribe is still in flight, so
+	// the charger would be left idle with nothing pending. Enqueued after the unlock below:
+	// enqueueSubscription takes m.mu itself.
+	retired := false
+
+	defer func() {
+		if retired {
+			m.enqueueSubscription(chargerID)
+		}
+
+		if !orphaned {
+			return
+		}
+
+		if unsubErr := m.client.UnsubscribeCharger(chargerID); unsubErr != nil {
+			log.Warnf("signalR: cleanup after unregister race chargerID=%s err: %v", chargerID, unsubErr)
+		}
+
+		// This unsubscribe names the charger by ID too, so it can tear down a replacement's
+		// subscription exactly the way Unregister's can.
+		m.repairReplacedSubscription(chargerID)
+	}()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -276,9 +358,12 @@ func (m *manager) handleSubscription(chargerID string) error {
 		// the invoke reported: a local timeout does not cancel the server-side operation,
 		// so an error is no proof the subscription was not established. Unsubscribing one
 		// that never existed is a no-op, which is the cheaper way to be wrong.
-		if unsubErr := m.client.UnsubscribeCharger(chargerID); unsubErr != nil {
-			log.Warnf("signalR: cleanup after unregister race chargerID=%s err: %v", chargerID, unsubErr)
-		}
+		//
+		// Issued after the deferred unlock rather than here: this is the same blocking
+		// invoke the subscribe above deliberately dropped the lock for, and holding m.mu
+		// across it would reintroduce exactly the stall - with Unregister now waiting on
+		// the same mutex to finish the removal that triggered this branch.
+		orphaned = true
 
 		return nil
 	}
@@ -301,6 +386,16 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 			go m.addChargerSubscription(chargerID, charger)
 		}
+
+		return nil
+	}
+
+	// A repair retired this subscribe while it ran unlocked: the subscription it established
+	// was torn down by the stale unsubscribe that triggered the repair, so claiming it here
+	// would leave the retry the repair enqueued short-circuiting on a subscription that no
+	// longer exists - silent until the next reconnect.
+	if charger.subscribeEpoch != subscribeEpoch {
+		retired = true
 
 		return nil
 	}
@@ -444,4 +539,9 @@ type charger struct {
 	subscribeFailed bool
 	retryArmed      bool
 	backoff         backoff.Stateful
+
+	// Bumped whenever a stale UnsubscribeCharger tears this charger's subscription down, so a
+	// subscribe that was already in flight cannot report success for a subscription that is
+	// gone. The manager-wide epoch above covers a reconnect; this one covers a repair.
+	subscribeEpoch uint64
 }

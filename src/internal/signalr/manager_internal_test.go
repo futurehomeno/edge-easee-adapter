@@ -672,3 +672,281 @@ func (c *racingSubscribeClient) unsubscribeCalls() int {
 
 	return c.unsubscribes
 }
+
+// blockingUnsubscribeClient blocks inside UnsubscribeCharger the way the real one blocks on a
+// connection, so a test can observe whether m.mu is held across it.
+type blockingUnsubscribeClient struct {
+	failingSubscribeClient
+
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+
+	mu       sync.Mutex
+	closeCnt int
+}
+
+func (c *blockingUnsubscribeClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.closeCnt++
+
+	return nil
+}
+
+func (c *blockingUnsubscribeClient) closes() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.closeCnt
+}
+
+func (c *blockingUnsubscribeClient) UnsubscribeCharger(string) error {
+	c.enterOnce.Do(func() { close(c.entered) })
+	<-c.release
+
+	return nil
+}
+
+// Unregister held m.mu across both UnsubscribeCharger and Close, each of which blocks on the
+// connection for up to SignalRInvokeTimeout - stalling Connected(), Register() and every
+// observation lookup for the whole invocation. Stop() already did this correctly.
+func TestUnregister_DoesNotHoldTheLockDuringInvoke(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	m.chargers[chargerID] = &charger{handler: &recordingHandler{handled: make(chan struct{})}, backoff: m.cfg.SignalRBackoffStateful()}
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	queried := make(chan struct{})
+
+	go func() {
+		defer close(queried)
+
+		m.Connected(chargerID)
+	}()
+
+	select {
+	case <-queried:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Connected blocked while an unsubscribe invoke was in flight")
+	}
+
+	release()
+	<-unregistered
+}
+
+// Register adds its charger and calls Start() while holding m.mu, so it can complete entirely
+// while an Unregister is blocked in UnsubscribeCharger. Deciding "was that the last charger?"
+// before that invoke closed the client out from under the new registration, and nothing
+// restarts it until another Register lands.
+func TestUnregister_DoesNotCloseAClientARegisterJustStarted(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	// A fresh registration lands while the unsubscribe is still parked.
+	m.Register("YY67890", &recordingHandler{handled: make(chan struct{})})
+
+	release()
+	<-unregistered
+
+	assert.Zero(t, client.closes(), "the client must stay up for the charger registered mid-unregister")
+}
+
+// UnsubscribeCharger names the charger by ID, with nothing tying it to the instance Unregister
+// removed. A Register for the same ID that subscribes while that invoke is parked has its
+// server-side subscription torn down by it, and the manager keeps believing it is subscribed -
+// so its observations stop until a reconnect. The replacement must be re-subscribed instead.
+func TestUnregister_ReSubscribesAChargerReRegisteredUnderTheSameID(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	// An open done channel lets enqueueSubscription hand off instead of taking the cancel path.
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	// The same ID is registered again and reaches subscribed while the unsubscribe is parked.
+	m.Register(chargerID, &recordingHandler{handled: make(chan struct{})})
+
+	m.mu.Lock()
+	m.chargers[chargerID].isSubscribed = true
+	m.mu.Unlock()
+
+	release()
+	<-unregistered
+
+	m.mu.RLock()
+	stillClaimsSubscribed := m.chargers[chargerID].isSubscribed
+	m.mu.RUnlock()
+
+	assert.False(t, stillClaimsSubscribed, "the stale unsubscribe tore the subscription down, so the flag must not survive it")
+	assert.NotEmpty(t, m.subscriptions, "the replacement must be handed back for a fresh subscribe")
+}
+
+// A replacement registered under the same ID must end up subscribed even when its own subscribe
+// was already in flight when the stale by-ID unsubscribe tore it down. Clearing isSubscribed
+// only for an idle charger left this case unrepaired: the in-flight subscribe set the flag on
+// completion, and handleSubscription's early return then discarded the enqueued retry.
+func TestUnregister_RepairsAReplacementWhoseSubscribeWasInFlight(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	// The replacement is registered and is mid-subscribe when the stale unsubscribe lands.
+	m.Register(chargerID, &recordingHandler{handled: make(chan struct{})})
+
+	// Mid-subscribe, and that subscribe has just landed: this is the state the old guard
+	// skipped, leaving the stale claim in place.
+	m.mu.Lock()
+	m.chargers[chargerID].subscribing = true
+	m.chargers[chargerID].isSubscribed = true
+	m.mu.Unlock()
+
+	release()
+	<-unregistered
+
+	m.mu.RLock()
+	claimsSubscribed := m.chargers[chargerID].isSubscribed
+	m.mu.RUnlock()
+
+	assert.False(t, claimsSubscribed, "the replacement must not be left claiming a subscription the stale unsubscribe removed")
+	assert.NotEmpty(t, m.subscriptions, "the replacement must be handed back for a fresh subscribe")
+}
+
+// blockingSuccessfulSubscribeClient parks inside SubscribeCharger and then reports success, so a
+// test can land a repair while the subscribe is in flight and watch what the completion claims.
+type blockingSuccessfulSubscribeClient struct {
+	failingSubscribeClient
+
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+}
+
+func (c *blockingSuccessfulSubscribeClient) SubscribeCharger(string) error {
+	c.enterOnce.Do(func() { close(c.entered) })
+	<-c.release
+
+	return nil
+}
+
+// A repair runs while a subscribe for the same charger is in flight: the stale unsubscribe it
+// compensates for has already torn the subscription down, so the subscribe's success is void.
+// Without the epoch it set isSubscribed on completion, and the retry the repair enqueued then
+// short-circuited on that claim - leaving the charger silent until the next reconnect.
+func TestHandleSubscription_RepairRetiresAnInFlightSubscribe(t *testing.T) {
+	client := &blockingSuccessfulSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	// The repair lands while the subscribe above is parked: this is the stale by-ID unsubscribe
+	// having torn down whatever that subscribe is about to report success for.
+	m.repairReplacedSubscription(chargerID)
+
+	// The repair's own retry, consumed while this subscribe is still in flight: handleSubscription
+	// drops it on the subscribing guard. Draining it here is that same loss, made deterministic -
+	// what is left pending afterwards can only come from the retired subscribe itself.
+	<-m.subscriptions
+
+	release()
+	<-subscribed
+
+	m.mu.RLock()
+	claimsSubscribed := m.chargers[chargerID].isSubscribed
+	subscribing := m.chargers[chargerID].subscribing
+	m.mu.RUnlock()
+
+	assert.False(t, claimsSubscribed,
+		"a subscribe retired by a repair must not claim a subscription the stale unsubscribe removed")
+	assert.False(t, subscribing, "a retired subscribe must still clear the flag on its way out")
+	assert.NotEmpty(t, m.subscriptions, "the retired subscribe must leave an attempt pending, not strand the charger")
+}
