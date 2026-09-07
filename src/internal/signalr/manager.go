@@ -455,8 +455,23 @@ func (m *manager) handleObservation(observation model.Observation) {
 
 	// Dropped rather than blocking the loop when a charger falls far enough behind to fill its
 	// queue: waiting here would stall every other charger's stream, which is the failure this
-	// dispatch exists to prevent. Observations carry absolute values, so the next one for the
-	// same ID supersedes whatever was dropped.
+	// dispatch exists to prevent. Safe for the state observations, which carry absolute values,
+	// so the next one for the same ID supersedes whatever was dropped.
+	//
+	// The session edges are the exception: their handlers persist a session record, so a
+	// dropped one is a charging session missing from the history for good - there is no later
+	// observation carrying the same event. Those block until the queue drains, or the manager
+	// stops. A charger far enough behind to fill 100 slots is already degraded; losing its
+	// billing history to keep the loop moving is the worse trade.
+	if observation.ID == model.ChargingSessionStart || observation.ID == model.ChargingSessionStop {
+		select {
+		case charger.observations <- observation:
+		case <-done:
+		}
+
+		return
+	}
+
 	select {
 	case charger.observations <- observation:
 	case <-done:

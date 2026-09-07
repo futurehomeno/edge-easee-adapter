@@ -565,7 +565,15 @@ func startDispatch(t *testing.T, m *manager, chargerID string) {
 	c := m.chargers[chargerID]
 	go m.dispatchObservations(chargerID, c)
 
-	t.Cleanup(func() { close(c.dispatchDone) })
+	// Unregister closes this same channel, so a test that unregisters after starting the
+	// dispatcher would panic on the double close. Cleanup only closes it if it is still open.
+	t.Cleanup(func() {
+		select {
+		case <-c.dispatchDone:
+		default:
+			close(c.dispatchDone)
+		}
+	})
 }
 
 // instantBackoff fires the retry timer immediately, so a test does not wait out the real
