@@ -111,6 +111,32 @@ func TestMigrateScript_copiesLegacyState(t *testing.T) {
 	assert.Equal(t, tree.migratedConfig(), readFile(t, filepath.Join(tree.newData, "data/config.json")), "a re-run is idempotent")
 }
 
+// The legacy tree is kept for a downgrade, but its config.json carries the tokens inline
+// until the v5->v6 credential migration runs, so it must not stay world-readable.
+func TestMigrateScript_closesLegacyTreeToOthers(t *testing.T) {
+	t.Parallel()
+
+	tree := newLegacyTree(t)
+	writeFile(t, filepath.Join(tree.oldData, "data/config.json"), tree.legacyConfig())
+	// The modes the v2 postinst left behind - the leak this migration closes.
+	require.NoError(t, os.Chmod(filepath.Join(tree.oldData, "data"), 0o755))             //nolint:gosec
+	require.NoError(t, os.Chmod(filepath.Join(tree.oldData, "data/config.json"), 0o644)) //nolint:gosec
+
+	tree.run(t)
+
+	require.NoError(t, filepath.WalkDir(filepath.Join(tree.oldData, "data"), func(path string, _ fs.DirEntry, err error) error {
+		require.NoError(t, err)
+
+		info, err := os.Lstat(path)
+		require.NoError(t, err)
+		assert.Zero(t, info.Mode().Perm()&0o007, "%s must be closed to others", path)
+
+		return nil
+	}))
+
+	assert.Equal(t, tree.legacyConfig(), readFile(t, filepath.Join(tree.oldData, "data/config.json")), "still readable by easee for a downgrade")
+}
+
 // Once data/, data.db or a written log exist in the new tree the service owns them: a retried
 // postinst must not roll the hub back to the legacy copies.
 func TestMigrateScript_neverOverwritesExistingState(t *testing.T) {
