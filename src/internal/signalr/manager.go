@@ -451,6 +451,12 @@ func (m *manager) handleObservation(observation model.Observation) {
 	m.mu.RLock()
 	charger, ok := m.chargers[observation.ChargerID]
 	done := m.done
+
+	var dispatchDone chan struct{}
+	if ok {
+		dispatchDone = charger.dispatchDone
+	}
+
 	m.mu.RUnlock()
 
 	if !ok {
@@ -469,9 +475,14 @@ func (m *manager) handleObservation(observation model.Observation) {
 	// observation carrying the same event. Those block until the queue drains, or the manager
 	// stops. A charger far enough behind to fill 100 slots is already degraded; losing its
 	// billing history to keep the loop moving is the worse trade.
+	//
+	// dispatchDone escapes the third case: an Unregister landing after the RUnlock above stops
+	// the dispatcher, and a blocking send on a queue nothing drains any more would park the run
+	// loop for good - stalling every other charger, the failure this dispatch exists to prevent.
 	if observation.ID == model.ChargingSessionStart || observation.ID == model.ChargingSessionStop {
 		select {
 		case charger.observations <- observation:
+		case <-dispatchDone:
 		case <-done:
 		}
 

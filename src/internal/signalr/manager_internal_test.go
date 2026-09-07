@@ -566,15 +566,9 @@ func startDispatch(t *testing.T, m *manager, chargerID string) {
 	c := m.chargers[chargerID]
 	go m.dispatchObservations(chargerID, c)
 
-	// Unregister closes this same channel, so a test that unregisters after starting the
-	// dispatcher would panic on the double close. Cleanup only closes it if it is still open.
-	t.Cleanup(func() {
-		select {
-		case <-c.dispatchDone:
-		default:
-			close(c.dispatchDone)
-		}
-	})
+	// Unregister and Stop close this same channel, so cleanup goes through stopDispatch: its
+	// sync.Once makes the close idempotent, where a select-then-close still races them.
+	t.Cleanup(c.stopDispatch)
 }
 
 // instantBackoff fires the retry timer immediately, so a test does not wait out the real
@@ -789,4 +783,47 @@ func TestStop_EndsEveryChargerDispatcher(t *testing.T) {
 
 	// A second stop must not double-close either charger's channel.
 	assert.NotPanics(t, func() { _ = m.Stop() })
+}
+
+// The blocking session-edge send has to give up when the charger it was queued for is
+// unregistered mid-flight: the lookup succeeds, then Unregister lands before the send, so the
+// dispatcher is gone and nothing drains a full queue. Without an escape the send parks the run
+// loop - stalling dispatch for every other charger, the failure this dispatch exists to prevent.
+func TestSessionEdgeDoesNotHangAfterUnregister(t *testing.T) {
+	client := &failingSubscribeClient{}
+	m := newTestManagerWithClient(t, client)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	c := m.chargers[chargerID]
+
+	// No dispatcher is started, so nothing drains: fill the queue to force the blocking path.
+	for range observationQueueSize {
+		c.observations <- model.Observation{ID: model.ChargerOPState, ChargerID: chargerID}
+	}
+
+	// Held for the whole send, so the charger is still in the map when handleObservation looks
+	// it up and gone by the time it blocks - the window the escape has to cover.
+	m.mu.RLock()
+
+	returned := make(chan struct{})
+
+	go func() {
+		defer close(returned)
+
+		m.handleObservation(model.Observation{ID: model.ChargingSessionStart, ChargerID: chargerID})
+	}()
+
+	// Let the lookup take the RLock and reach the blocking send.
+	time.Sleep(50 * time.Millisecond)
+	m.mu.RUnlock()
+
+	require.NoError(t, m.Unregister(chargerID))
+
+	select {
+	case <-returned:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleObservation parked on a full queue after the charger was unregistered")
+	}
 }
