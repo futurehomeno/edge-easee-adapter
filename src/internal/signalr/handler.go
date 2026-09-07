@@ -281,8 +281,6 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		return nil
 	}
 
-	h.isStateOnline.Store(state != model.ChargerStateOffline)
-
 	if state.IsSessionFinished() {
 		h.cache.SetRequestedOfferedCurrent(0, time.Now())
 	}
@@ -292,7 +290,13 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		return err
 	}
 
+	// Published before the flag flips: SendStateReport goes through the controller's
+	// checkConnection, which rejects it as ChargerOffline once IsOnline reads false. Flipping
+	// first meant the report announcing the offline state was the one report never sent, and
+	// the app kept the last online state until the charger came back.
 	_, err = chargepointSrv.SendStateReport(false)
+
+	h.isStateOnline.Store(state != model.ChargerStateOffline)
 
 	return err
 }
@@ -445,11 +449,22 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 
 	// Several raw grid types map onto the same FIMP pair, so faults must be reported
 	// before the equivalence check below short-circuits an otherwise unchanged topology.
+	// Logged rather than returned: the alarm is reportable while the charger is offline, where
+	// the send is refused, and abandoning here would drop the grid-type update with it - the
+	// topology change is the more durable of the two, and nothing republishes it afterwards.
 	if err := h.sendAlarmReports(map[string]bool{
 		alarm.EventGroundingFault: model.GridType(val).IsGroundFault(),
 		alarm.EventGridTypeFault:  model.GridType(val).IsWiringFault(),
 	}, observation.Timestamp); err != nil {
-		return err
+		log.Warnf("[%s] Send grid type alarm reports err: %v", h.chargerID, err)
+	}
+
+	// A faulted grid type maps to ("", 0), which is not a topology - it is the absence of one.
+	// Writing it would delete grid_type, phases and sup_phase_modes from the props, and the
+	// equivalence check above short-circuits every repeat, so the charger could not restore
+	// them while the fault persisted. The alarm above is the report for this case.
+	if supportedGridType == "" || supportedPhases == 0 {
+		return nil
 	}
 
 	if supportedGridType == gridType && supportedPhases == phases {
@@ -485,7 +500,12 @@ func (h *observationsHandler) republishChargepointProps(props map[string]any) er
 		return err
 	}
 
-	service = h.ensureChargepointProps(service, props)
+	// Replaces the map rather than mutating the one in place: Specification() hands out the
+	// live *fimptype.Service, and the chargepoint service reads these props (PropertyStrings,
+	// PropertyInteger) while handling a command on another goroutine. Building the replacement
+	// first and assigning it makes the props the router sees either the old set or the new one,
+	// never a map being written as it is read.
+	service.Specification().Props = chargepointPropsUpdate(service, props)
 
 	if err := h.thing.Update(adapter.ThingUpdateRemoveService(service), adapter.ThingUpdateAddService(service)); err != nil {
 		return err
@@ -569,8 +589,11 @@ func (h *observationsHandler) handleChargingSessionStart(observation model.Obser
 	return err
 }
 
-func (h *observationsHandler) ensureChargepointProps(srv chargepoint.Service, props map[string]interface{}) chargepoint.Service {
-	// Swapped in as a copy: the router reads these props while handling commands.
+// chargepointPropsUpdate returns the props the service should carry once props is applied,
+// leaving the live specification untouched. Specification() hands out the *fimptype.Service the
+// router reads while handling commands, so assigning to its Props here would be an
+// unsynchronised write to a map another goroutine may be ranging over.
+func chargepointPropsUpdate(srv chargepoint.Service, props map[string]interface{}) map[string]interface{} {
 	spec := srv.Specification()
 	updated := make(map[string]interface{}, len(spec.Props)+len(props))
 
@@ -588,9 +611,7 @@ func (h *observationsHandler) ensureChargepointProps(srv chargepoint.Service, pr
 		updated[k] = v
 	}
 
-	spec.Props = updated
-
-	return srv
+	return updated
 }
 
 type energyHandler struct {
