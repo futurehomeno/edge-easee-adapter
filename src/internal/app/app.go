@@ -103,8 +103,40 @@ type application struct {
 
 	sessionStorage db.ChargingSessionStorage
 
+	// Guards the two fields below. They are written from configureChargers and Initialize,
+	// which the task manager and the router-locked command handlers can reach concurrently.
+	missingMu      sync.Mutex
 	missingRetries int
 	lastMissing    string
+}
+
+// tickMissingBudget records another refusal for the given missing set, resetting the count when
+// the set itself changed so a newly missing charger gets full retries instead of inheriting an
+// exhausted counter. It reports the attempt number and whether the budget is spent.
+func (a *application) tickMissingBudget(key string) (int, bool) {
+	a.missingMu.Lock()
+	defer a.missingMu.Unlock()
+
+	if key != a.lastMissing {
+		a.lastMissing = key
+		a.missingRetries = 0
+	}
+
+	if a.missingRetries >= maxMissingSelectedRetries {
+		return a.missingRetries, true
+	}
+
+	a.missingRetries++
+
+	return a.missingRetries, false
+}
+
+func (a *application) resetMissingBudget() {
+	a.missingMu.Lock()
+	defer a.missingMu.Unlock()
+
+	a.missingRetries = 0
+	a.lastMissing = ""
 }
 
 func (a *application) ErrorsReport() ([]string, error) {
@@ -158,25 +190,16 @@ func (a *application) Configure(model any) error {
 		return err
 	}
 
-	// An absent selection includes every charger and must not silently drop live ones down
-	// to the auto-cap: keep what is already seeded, minus chargers Easee no longer lists -
-	// persisting a stale ID makes every later boot burn its missing-selected retries before
-	// it gives up on them. An empty one is the user deselecting everything, and is obeyed.
-	selected := cfg.SelectedDevices
-	if selected.IncludeAll() {
-		if owned := a.ownedListedChargers(chargers); len(owned) > 0 {
-			selected = owned
-		}
-	}
-
 	// An empty list must not materialise the implicit include-all into an explicit empty
 	// selection: that is indistinguishable from the user deselecting everything and would
 	// suppress auto-selection for good, even once the account lists chargers again. The
-	// login path guards the same case in configureChargers. The request itself is still
-	// honoured — a user clearing an explicit subset to restore include-all must not have
-	// the stale subset survive on disk because the fetch happened to come back empty.
-	if len(chargers) == 0 && selected.IncludeAll() {
-		if cfg.SelectedDevices.IncludeAll() && !a.cfgService.SelectedDevices().IncludeAll() {
+	// request itself is still honoured — a user clearing an explicit subset to restore
+	// include-all must not have the stale subset survive on disk because the fetch happened
+	// to come back empty. Handled here rather than in the shared policy: only a user request
+	// can be "clear the subset", and the policy below would put the owned chargers through
+	// the retry budget instead.
+	if len(chargers) == 0 && cfg.SelectedDevices.IncludeAll() {
+		if !a.cfgService.SelectedDevices().IncludeAll() {
 			if err := a.cfgService.SetSelectedDevices(nil); err != nil {
 				return fmt.Errorf("configure: persist selected_devices: %w", err)
 			}
@@ -185,13 +208,23 @@ func (a *application) Configure(model any) error {
 		return nil
 	}
 
-	selected, err = a.applyChargers(chargers, effectiveSelection(chargers, selected))
-	if err != nil {
-		return err
+	// Shared with the login and boot paths rather than filtering the selection here: dropping
+	// chargers this response omits would destroy their things outright, where the shared
+	// policy retries a few times first and only then prunes. A partial /chargers response is
+	// the common case this guards - it is indistinguishable from a real removal at one
+	// glance, so the budget is what tells them apart.
+	if err := a.reconcileChargers(chargers, cfg.SelectedDevices); err != nil {
+		return fmt.Errorf("configure: %w", err)
 	}
 
-	if err := a.cfgService.SetSelectedDevices(selected); err != nil {
-		return fmt.Errorf("configure: persist selected_devices: %w", err)
+	// The shared policy only writes a selection its own rules changed, because its other
+	// callers read theirs off disk to begin with. Configure's arrives from the user, so a
+	// request the policy left alone is still unsaved here. After the reconcile, never before:
+	// a failed seed must not leave the requested selection on disk.
+	if !cfg.SelectedDevices.IncludeAll() {
+		if err := a.cfgService.SetSelectedDevices(cfg.SelectedDevices); err != nil {
+			return fmt.Errorf("configure: persist selected_devices: %w", err)
+		}
 	}
 
 	return nil
@@ -339,9 +372,16 @@ func (a *application) Initialize() error {
 			// it here would let a permanently vanished charger block the re-seed on every boot
 			// without ever reaching the prune.
 			if !errors.Is(err, errMissingSelected) {
-				a.missingRetries = 0
-				a.lastMissing = ""
+				a.resetMissingBudget()
 			}
+
+			a.RefreshToken()
+
+			// Returned rather than swallowed: cliffhanger's init task marks the app
+			// STARTUP_ERROR and re-runs Initialize on its interval when this fails, which is
+			// the only thing that retries the re-seed. Reporting success left a hub that
+			// started up with no things showing healthy until a manual re-login.
+			return fmt.Errorf("re-seed chargers on initialize: %w", err)
 		}
 	}
 
@@ -381,6 +421,14 @@ func (a *application) configureChargers(selected selection.Selection) error {
 		return fmt.Errorf("fetch available chargers: %w", err)
 	}
 
+	return a.reconcileChargers(chargers, selected)
+}
+
+// reconcileChargers holds the one selection policy every caller shares. Configure fetches the
+// list itself so it can validate the request against it before mutating anything, and hands
+// the same response here rather than provoking a second fetch that could disagree with the
+// first.
+func (a *application) reconcileChargers(chargers []model.Charger, selected selection.Selection) error {
 	// A hub upgraded while logged out never reached the boot-time adoption, because
 	// Initialize returns before it when the secrets store is empty. Catch up here.
 	// Adopt every owned charger, not just the listed ones: a selection filtered against
@@ -417,16 +465,9 @@ func (a *application) configureChargers(selected selection.Selection) error {
 		// re-ticking the same devices in another order would look like a new set.
 		slices.Sort(missing)
 
-		if key := strings.Join(missing, ","); key != a.lastMissing {
-			a.lastMissing = key
-			a.missingRetries = 0
-		}
-
-		if a.missingRetries < maxMissingSelectedRetries {
-			a.missingRetries++
-
+		if attempt, exhausted := a.tickMissingBudget(strings.Join(missing, ",")); !exhausted {
 			return fmt.Errorf("%w: selected devices %v not found in chargers list; refusing partial re-seed (%d/%d)",
-				errMissingSelected, missing, a.missingRetries, maxMissingSelectedRetries)
+				errMissingSelected, missing, attempt, maxMissingSelectedRetries)
 		}
 
 		log.Warnf("[app] Selected devices %v still missing after %d retries, seed without them", missing, maxMissingSelectedRetries)
@@ -445,8 +486,7 @@ func (a *application) configureChargers(selected selection.Selection) error {
 		}
 	}
 
-	a.missingRetries = 0
-	a.lastMissing = ""
+	a.resetMissingBudget()
 
 	// Persist an auto-selection so the manifest and the seeds work off the same list
 	// instead of each re-deriving it.
