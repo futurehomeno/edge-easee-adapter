@@ -410,7 +410,11 @@ func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
 		}
 	}
 
-	err := c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
+	// force is threaded through rather than stopping at the cache dedup above: the client keeps
+	// its own OfferedCurrentWaitTime throttle, so a start within that window of any
+	// offered-current write was refused locally and the charger stayed paused while
+	// cmd.charge.start answered failed.
+	err := c.client.UpdateDynamicCurrent(c.chargerID, float64(current), force)
 	if err != nil {
 		return false, err
 	}
