@@ -178,3 +178,171 @@ func TestObservationsHandler_OutputPhaseRepublishRetriedAfterFailure(t *testing.
 	assert.Equal(t, types.PhaseModeNL3, store.mode)
 	assert.Equal(t, 2, thing.inclusion)
 }
+
+// The offline state report is the one report that must survive the offline gate. The handler
+// used to flip isStateOnline before sending, so the controller's checkConnection rejected the
+// very report announcing the charger had gone offline, and the app kept the last online state
+// until it came back.
+func TestObservationsHandler_OfflineStateIsReportedBeforeTheFlagFlips(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
+	cacheMock.On("SetChargerState", chargepoint.StateUnknown, now).Return(true)
+	// Offline counts as a finished session, so the requested current is cleared on the way.
+	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	// isCloudOnline starts true, so the handler is online until this observation lands.
+	online := make(chan bool, 1)
+	srv.On("SendStateReport", false).Run(func(mock.Arguments) {
+		online <- handler.IsOnline()
+	}).Return(true, nil)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID:        model.ChargerOPState,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.ChargerStateOffline)),
+	}))
+
+	assert.True(t, <-online, "the report must be sent while the charger still counts as online, or the offline gate refuses it")
+	assert.False(t, handler.IsOnline(), "the flag flips once the report is away")
+}
+
+// The mirror of the case above: coming back online, the flag has to flip BEFORE the send, or
+// the recovery report is refused by the very offline state it exists to clear. The flag must be
+// on the online side of the send in both directions, not simply always after it.
+func TestObservationsHandler_RecoveryStateIsReportedWhileAlreadyOnline(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
+	cacheMock.On("SetChargerState", chargepoint.StateUnknown, now).Return(true)
+	cacheMock.On("SetChargerState", chargepoint.StateSuspendedByEV, now).Return(true)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	// Drive it offline first, so the recovery below is a real transition.
+	srv.On("SendStateReport", false).Return(true, nil).Once()
+	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+		Timestamp: now, Value: strconv.Itoa(int(model.ChargerStateOffline)),
+	}))
+	require.False(t, handler.IsOnline())
+
+	online := make(chan bool, 1)
+	srv.On("SendStateReport", false).Run(func(mock.Arguments) {
+		online <- handler.IsOnline()
+	}).Return(true, nil).Once()
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+		Timestamp: now, Value: strconv.Itoa(int(model.ChargerStateReadyToCharge)),
+	}))
+
+	assert.True(t, <-online, "the recovery report must be sent once the charger already counts as online")
+	assert.True(t, handler.IsOnline())
+}
+
+// The error grid types keep a known grid type with zero phases - TN400VNeutralOnWrongPin maps
+// to (TN, 0) and ITGroundConnectedToPin2Or3 to (IT, 0). Discarding those on the phase count
+// left grid_type advertising the previous topology; the update has to land, with the
+// phase-dependent props cleared rather than the whole write skipped.
+func TestObservationsHandler_ZeroPhaseFaultStillUpdatesGridType(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeIT, now)
+	cacheMock.On("Phases").Return(1, now)
+	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 0, now).Return(true)
+
+	props := map[string]interface{}{
+		chargepoint.PropertyGridType:            types.GridTypeIT,
+		chargepoint.PropertyPhases:              1,
+		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{types.PhaseModeNL1},
+	}
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: props}).Maybe()
+
+	thing := &phaseThing{srv: srv}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID:        model.DetectedPowerGridType,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.GridTypeErrorTN400VNeutralOnWrongPin)),
+	}))
+
+	assert.Equal(t, types.GridTypeTN, srv.Specification().Props[chargepoint.PropertyGridType],
+		"the known grid type of the fault must be advertised")
+	assert.NotContains(t, srv.Specification().Props, chargepoint.PropertyPhases,
+		"zero phases clears the phase count rather than advertising a stale one")
+	assert.NotContains(t, srv.Specification().Props, chargepoint.PropertySupportedPhaseModes)
+	assert.Equal(t, 1, thing.inclusion)
+}
+
+// A faulted grid type maps to ("", 0), which is the absence of a topology rather than a new
+// one. Writing it deleted grid_type, phases and sup_phase_modes from the props, and the
+// equivalence check short-circuits every repeat, so the charger could not restore them while
+// the fault persisted. The alarm is the report for this case.
+func TestObservationsHandler_FaultGridTypeKeepsTheChargepointProps(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, now)
+	cacheMock.On("Phases").Return(3, now)
+
+	props := map[string]interface{}{
+		chargepoint.PropertyGridType: types.GridTypeTN,
+		chargepoint.PropertyPhases:   3,
+	}
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: props}).Maybe()
+
+	thing := &phaseThing{srv: srv}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID:        model.DetectedPowerGridType,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.GridTypeWarningTN3PhaseGNDFault)),
+	}))
+
+	assert.Equal(t, types.GridTypeTN, srv.Specification().Props[chargepoint.PropertyGridType],
+		"a fault must not delete the known grid type")
+	assert.Equal(t, 3, srv.Specification().Props[chargepoint.PropertyPhases],
+		"a fault must not delete the known phase count")
+	assert.Zero(t, thing.inclusion, "nothing to republish when the topology did not change")
+}
