@@ -32,9 +32,9 @@ create_dirs() {
 	# it ship in the package (dpkg-owned); install -d re-asserts easee
 	# ownership of the leaves on every configure. data/ is created by
 	# create_data_dir after migrate_state has run.
-	# data/ is world-readable like logs; secrets.json and key.txt protect
-	# themselves at the file level (storage.NewSecrets writes 0640,
-	# security.GetKey chmods 0600), independent of the directory mode.
+	# data/ is world-readable like logs; secrets.json is tightened to 0640 by
+	# set_ownership below (storage.NewSecrets enforces 0640 on Save, but not
+	# on Load, so a pre-existing file needs an explicit re-chmod too).
 	install -d -o easee -g futurehome -m 0755 "$NEW_DATA"
 	install -d -o easee -g futurehome -m 0755 "$NEW_LOGS"
 
@@ -80,11 +80,28 @@ set_ownership() {
 	chown -R easee:futurehome "$NEW_DATA" || true
 	chown -R easee:futurehome "$NEW_LOGS" || true
 	chmod 644 "$NEW_LOGS/easee.log" || true
-	# u=rwX,go=rX: world-readable like create_dirs' 0755. secrets.json and
-	# key.txt keep their own tighter file mode (0640/0600, see create_dirs)
-	# regardless of this directory-level pass. Symlinks (defaults) are left
-	# alone by the recursive chmod.
+	# u=rwX,go=rX: world-readable like create_dirs' 0755. secrets.json is not
+	# self-protecting here: cliffhanger's storage.Load() never chmods, only
+	# Save() does, so this recursive pass would otherwise leave a
+	# pre-existing secrets.json (and its .bak) at the directory's
+	# world-readable mode until the next credential write. Symlinks
+	# (defaults) are left alone by the recursive chmod.
 	chmod -R u=rwX,go=rX "$NEW_DATA" || true
+
+	# secrets.json holds the adapter's OAuth tokens and must stay closed to
+	# "other" even though data/ is now world-readable. Named directly, not
+	# via a wildcard, so a symlink planted at this exact path would be
+	# followed by chmod as root; guard it the same way the log file above is
+	# guarded.
+	for f in "$NEW_DATA/data/secrets.json" "$NEW_DATA/data/secrets.json.bak"; do
+		if [ -L "$f" ]; then
+			echo "Warning: $f is a symlink, removing" >&2
+			rm -f "$f" || true
+		fi
+		if [ -e "$f" ]; then
+			chmod 0640 "$f" || true
+		fi
+	done
 }
 
 configure_service() {
