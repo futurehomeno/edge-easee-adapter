@@ -40,6 +40,17 @@ func (s *CredentialsStore) Load() error {
 	return s.storage.Load()
 }
 
+// DiscardLoaded empties the in-memory credentials without touching the file. json.Unmarshal
+// writes each field as it decodes, so a secrets file that fails partway leaves whatever it had
+// already parsed in the model - enough for the app to report itself authenticated with half a
+// session. Used on the boot path, where the file is kept for inspection rather than reset.
+func (s *CredentialsStore) DiscardLoaded() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	*s.storage.Model() = Credentials{}
+}
+
 func (s *CredentialsStore) Credentials() Credentials {
 	s.lock.RLock()
 	defer s.lock.RUnlock()

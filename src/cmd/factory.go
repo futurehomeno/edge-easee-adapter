@@ -88,12 +88,20 @@ func getCredentialsStore() *config.CredentialsStore {
 	if services.credentialsStore == nil {
 		services.credentialsStore = config.NewCredentialsStore(bootstrap.GetConfigurationDirectory())
 
-		// Logged, not fatal: a corrupt secrets file is otherwise a boot loop, and the
-		// degraded start already exists - the store stays empty, Initialize marks the app
-		// not configured, and a login rewrites the file. Unlike the migration below, nothing
-		// is lost by continuing that a restart would recover.
+		// Logged, not fatal: a corrupt secrets file is otherwise a boot loop, and the degraded
+		// start already exists - Initialize marks the app not configured and a login rewrites
+		// the file. Unlike the migration below, nothing is lost by continuing that a restart
+		// would recover.
+		//
+		// The model is discarded rather than trusted: json.Unmarshal writes each field as it
+		// decodes, so a file that fails partway through leaves what it had already parsed
+		// behind - enough for the app to come up claiming a session it only half has. The
+		// error itself is not logged: cliffhanger's loadFile embeds the whole file body in it,
+		// which for secrets.json is the tokens.
 		if err := services.credentialsStore.Load(); err != nil {
-			log.Errorf("[config] Load credentials, starting logged out. err: %v", err)
+			services.credentialsStore.DiscardLoaded()
+
+			log.Errorf("[config] Load credentials failed, starting logged out (error omitted: it carries the file body)")
 		}
 	}
 
