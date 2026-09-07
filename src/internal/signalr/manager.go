@@ -21,6 +21,10 @@ const (
 	ChargerNotRegistered DisconnectionReason = "charger is not registered in a manager"
 	ChargerNotSubscribed DisconnectionReason = "charger is not subscribed for SignalR observations"
 	ChargerOffline       DisconnectionReason = "charger is offline"
+
+	// Per-charger dispatch queue depth. Deep enough to absorb the initial batch a subscribe
+	// triggers while a command holds the chargepoint service mutex.
+	observationQueueSize = 100
 )
 
 // Manager owns the single signalR connection and the chargers subscribed on it.
@@ -107,11 +111,16 @@ func (m *manager) Register(chargerID string, handler Handler) {
 		return
 	}
 
-	m.chargers[chargerID] = &charger{
+	c := &charger{
 		handler:      handler,
 		isSubscribed: false,
 		backoff:      m.cfg.SignalRBackoffStateful(),
+		observations: make(chan model.Observation, observationQueueSize),
+		dispatchDone: make(chan struct{}),
 	}
+	m.chargers[chargerID] = c
+
+	go m.dispatchObservations(chargerID, c)
 
 	m.client.Start()
 
@@ -143,11 +152,19 @@ func (m *manager) Unregister(chargerID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, ok := m.chargers[chargerID]; !ok {
+	charger, ok := m.chargers[chargerID]
+	if !ok {
 		return nil
 	}
 
 	delete(m.chargers, chargerID)
+
+	// Stops this charger's observation dispatcher; anything still queued is abandoned along
+	// with the charger it belonged to. Nil for a charger assembled directly in a test rather
+	// than through Register.
+	if charger.dispatchDone != nil {
+		close(charger.dispatchDone)
+	}
 
 	var errs error
 
@@ -219,9 +236,7 @@ func (m *manager) run() {
 			m.handleClientState(state)
 
 		case observation := <-observations:
-			if err := m.handleObservation(observation); err != nil {
-				log.Warnf("Handle observation chargerID=%s err: %v", observation.ChargerID, err)
-			}
+			m.handleObservation(observation)
 		}
 	}
 }
@@ -417,24 +432,56 @@ func (m *manager) handleClientState(state model.ClientState) {
 	}
 }
 
-func (m *manager) handleObservation(observation model.Observation) error {
+// handleObservation hands the observation to the charger's own dispatcher rather than running
+// the handler here: this is the sole drainer of the client's observation channel, and a handler
+// blocks on the chargepoint service mutex whenever a command is mid-flight - which is how a
+// successful cmd.charge.start came back reported as failed, the command timing out waiting for
+// the very observation stuck behind it.
+func (m *manager) handleObservation(observation model.Observation) {
 	if !observation.ID.Supported() {
-		return nil
+		return
 	}
 
 	m.mu.RLock()
-	chargerHandler, ok := m.chargers[observation.ChargerID]
+	charger, ok := m.chargers[observation.ChargerID]
+	done := m.done
 	m.mu.RUnlock()
 
 	if !ok {
-		return errors.New("no handler")
+		log.Warnf("Handle observation chargerID=%s err: no handler", observation.ChargerID)
+
+		return
 	}
 
-	if err := chargerHandler.handler.HandleObservation(observation); err != nil {
-		return fmt.Errorf("obs='%s' err: %w", observation.ID.Str(), err)
+	// Dropped rather than blocking the loop when a charger falls far enough behind to fill its
+	// queue: waiting here would stall every other charger's stream, which is the failure this
+	// dispatch exists to prevent. Observations carry absolute values, so the next one for the
+	// same ID supersedes whatever was dropped.
+	select {
+	case charger.observations <- observation:
+	case <-done:
+	default:
+		log.Warnf("Drop observation chargerID=%s obs='%s': dispatch queue full",
+			observation.ChargerID, observation.ID.Str())
 	}
+}
 
-	return nil
+// dispatchObservations runs one charger's handler, in arrival order, until the charger is
+// unregistered or the manager stops.
+func (m *manager) dispatchObservations(chargerID string, c *charger) {
+	defer telemetry.RecoverAndEmit(m.tel, "manager.dispatch", true)
+
+	for {
+		select {
+		case <-c.dispatchDone:
+			return
+		case observation := <-c.observations:
+			if err := c.handler.HandleObservation(observation); err != nil {
+				log.Warnf("Handle observation chargerID=%s obs='%s' err: %v",
+					chargerID, observation.ID.Str(), err)
+			}
+		}
+	}
 }
 
 type charger struct {
@@ -444,4 +491,12 @@ type charger struct {
 	subscribeFailed bool
 	retryArmed      bool
 	backoff         backoff.Stateful
+
+	// Observations for this charger are handled on their own goroutine, off the single run
+	// loop, so a handler that blocks - every Send* goes through a service mutex a command may
+	// already hold - stops draining only its own charger rather than every charger's stream.
+	// One goroutine per charger, not per observation: the handler advances cached state, so
+	// its observations have to stay in the order they arrived.
+	observations chan model.Observation
+	dispatchDone chan struct{}
 }

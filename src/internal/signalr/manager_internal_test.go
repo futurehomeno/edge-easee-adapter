@@ -256,6 +256,8 @@ func TestRunLoopKeepsDrainingObservationsWhileASubscribeIsInFlight(t *testing.T)
 	handled := make(chan struct{})
 	m.chargers[chargerID].handler = &recordingHandler{handled: handled}
 
+	startDispatch(t, m, chargerID)
+
 	m.done = make(chan struct{})
 	t.Cleanup(func() { close(m.done) })
 
@@ -545,9 +547,25 @@ func newTestManagerWithClient(t *testing.T, client Client) *manager {
 	m.done = make(chan struct{})
 	close(m.done)
 
-	m.chargers[chargerID] = &charger{handler: &recordingHandler{handled: make(chan struct{})}, backoff: m.cfg.SignalRBackoffStateful()}
+	m.chargers[chargerID] = &charger{
+		handler:      &recordingHandler{handled: make(chan struct{})},
+		backoff:      m.cfg.SignalRBackoffStateful(),
+		observations: make(chan model.Observation, observationQueueSize),
+		dispatchDone: make(chan struct{}),
+	}
 
 	return m
+}
+
+// startDispatch runs the per-charger observation dispatcher the way Register does, for tests
+// that assemble the charger directly and then feed it observations.
+func startDispatch(t *testing.T, m *manager, chargerID string) {
+	t.Helper()
+
+	c := m.chargers[chargerID]
+	go m.dispatchObservations(chargerID, c)
+
+	t.Cleanup(func() { close(c.dispatchDone) })
 }
 
 // instantBackoff fires the retry timer immediately, so a test does not wait out the real
@@ -671,4 +689,72 @@ func (c *racingSubscribeClient) unsubscribeCalls() int {
 	defer c.mu.Unlock()
 
 	return c.unsubscribes
+}
+
+// blockingHandler parks inside HandleObservation, standing in for a handler waiting on the
+// chargepoint service mutex while a command holds it.
+type blockingHandler struct {
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+}
+
+func (h *blockingHandler) IsOnline() bool { return true }
+
+func (h *blockingHandler) HandleObservation(model.Observation) error {
+	h.enterOnce.Do(func() { close(h.entered) })
+	<-h.release
+
+	return nil
+}
+
+// The run loop is the sole drainer of the client's observation channel, so a handler that
+// blocks on a service mutex used to stall every charger's stream - including the observation
+// the command holding that mutex was waiting for, which is how a successful cmd.charge.start
+// came back reported as failed. Each charger now drains on its own goroutine.
+func TestObservationsForOneChargerDoNotBlockAnother(t *testing.T) {
+	const otherID = "YY67890"
+
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	close(client.release)
+
+	m := newTestManagerWithClient(t, client)
+
+	observations := make(chan model.Observation, 2)
+	client.observations = observations
+
+	blocked := &blockingHandler{entered: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(func() { close(blocked.release) })
+
+	m.chargers[chargerID].handler = blocked
+	startDispatch(t, m, chargerID)
+
+	handled := make(chan struct{})
+	m.chargers[otherID] = &charger{
+		handler:      &recordingHandler{handled: handled},
+		backoff:      m.cfg.SignalRBackoffStateful(),
+		observations: make(chan model.Observation, observationQueueSize),
+		dispatchDone: make(chan struct{}),
+	}
+	startDispatch(t, m, otherID)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	go m.run()
+
+	observations <- model.Observation{ID: model.ChargerOPState, ChargerID: chargerID}
+	<-blocked.entered
+
+	// The first charger's handler is parked. The second's observation must still be handled.
+	observations <- model.Observation{ID: model.ChargerOPState, ChargerID: otherID}
+
+	select {
+	case <-handled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a blocked handler must not stall another charger's observations")
+	}
 }
