@@ -158,25 +158,16 @@ func (a *application) Configure(model any) error {
 		return err
 	}
 
-	// An absent selection includes every charger and must not silently drop live ones down
-	// to the auto-cap: keep what is already seeded, minus chargers Easee no longer lists -
-	// persisting a stale ID makes every later boot burn its missing-selected retries before
-	// it gives up on them. An empty one is the user deselecting everything, and is obeyed.
-	selected := cfg.SelectedDevices
-	if selected.IncludeAll() {
-		if owned := a.ownedListedChargers(chargers); len(owned) > 0 {
-			selected = owned
-		}
-	}
-
 	// An empty list must not materialise the implicit include-all into an explicit empty
 	// selection: that is indistinguishable from the user deselecting everything and would
 	// suppress auto-selection for good, even once the account lists chargers again. The
-	// login path guards the same case in configureChargers. The request itself is still
-	// honoured — a user clearing an explicit subset to restore include-all must not have
-	// the stale subset survive on disk because the fetch happened to come back empty.
-	if len(chargers) == 0 && selected.IncludeAll() {
-		if cfg.SelectedDevices.IncludeAll() && !a.cfgService.SelectedDevices().IncludeAll() {
+	// request itself is still honoured — a user clearing an explicit subset to restore
+	// include-all must not have the stale subset survive on disk because the fetch happened
+	// to come back empty. Handled here rather than in the shared policy: only a user request
+	// can be "clear the subset", and the policy below would put the owned chargers through
+	// the retry budget instead.
+	if len(chargers) == 0 && cfg.SelectedDevices.IncludeAll() {
+		if !a.cfgService.SelectedDevices().IncludeAll() {
 			if err := a.cfgService.SetSelectedDevices(nil); err != nil {
 				return fmt.Errorf("configure: persist selected_devices: %w", err)
 			}
@@ -185,13 +176,23 @@ func (a *application) Configure(model any) error {
 		return nil
 	}
 
-	selected, err = a.applyChargers(chargers, effectiveSelection(chargers, selected))
-	if err != nil {
-		return err
+	// Shared with the login and boot paths rather than filtering the selection here: dropping
+	// chargers this response omits would destroy their things outright, where the shared
+	// policy retries a few times first and only then prunes. A partial /chargers response is
+	// the common case this guards - it is indistinguishable from a real removal at one
+	// glance, so the budget is what tells them apart.
+	if err := a.reconcileChargers(chargers, cfg.SelectedDevices); err != nil {
+		return fmt.Errorf("configure: %w", err)
 	}
 
-	if err := a.cfgService.SetSelectedDevices(selected); err != nil {
-		return fmt.Errorf("configure: persist selected_devices: %w", err)
+	// The shared policy only writes a selection its own rules changed, because its other
+	// callers read theirs off disk to begin with. Configure's arrives from the user, so a
+	// request the policy left alone is still unsaved here. After the reconcile, never before:
+	// a failed seed must not leave the requested selection on disk.
+	if !cfg.SelectedDevices.IncludeAll() {
+		if err := a.cfgService.SetSelectedDevices(cfg.SelectedDevices); err != nil {
+			return fmt.Errorf("configure: persist selected_devices: %w", err)
+		}
 	}
 
 	return nil
@@ -381,6 +382,14 @@ func (a *application) configureChargers(selected selection.Selection) error {
 		return fmt.Errorf("fetch available chargers: %w", err)
 	}
 
+	return a.reconcileChargers(chargers, selected)
+}
+
+// reconcileChargers holds the one selection policy every caller shares. Configure fetches the
+// list itself so it can validate the request against it before mutating anything, and hands
+// the same response here rather than provoking a second fetch that could disagree with the
+// first.
+func (a *application) reconcileChargers(chargers []model.Charger, selected selection.Selection) error {
 	// A hub upgraded while logged out never reached the boot-time adoption, because
 	// Initialize returns before it when the secrets store is empty. Catch up here.
 	// Adopt every owned charger, not just the listed ones: a selection filtered against
