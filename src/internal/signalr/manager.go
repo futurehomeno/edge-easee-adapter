@@ -141,21 +141,29 @@ func (m *manager) enqueueSubscription(chargerID string) {
 
 func (m *manager) Unregister(chargerID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	if _, ok := m.chargers[chargerID]; !ok {
+		m.mu.Unlock()
+
 		return nil
 	}
 
 	delete(m.chargers, chargerID)
+	last := len(m.chargers) == 0
 
+	m.mu.Unlock()
+
+	// Both calls block on the connection - UnsubscribeCharger up to SignalRInvokeTimeout - so
+	// they run after the map write is published rather than under m.mu, which would stall
+	// Connected(), Register() and every observation lookup for the whole invocation. Stop()
+	// already takes this shape.
 	var errs error
 
 	if err := m.client.UnsubscribeCharger(chargerID); err != nil {
 		errs = errors.Join(errs, err)
 	}
 
-	if len(m.chargers) == 0 {
+	if last {
 		if err := m.client.Close(); err != nil {
 			errs = errors.Join(errs, err)
 		}
@@ -255,6 +263,20 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// invocation.
 	err := m.client.SubscribeCharger(chargerID)
 
+	// Compensation for the unregister race below, issued once the lock is released: it is the
+	// same blocking invoke the subscribe above unlocks for.
+	orphaned := false
+
+	defer func() {
+		if !orphaned {
+			return
+		}
+
+		if unsubErr := m.client.UnsubscribeCharger(chargerID); unsubErr != nil {
+			log.Warnf("signalR: cleanup after unregister race chargerID=%s err: %v", chargerID, unsubErr)
+		}
+	}()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -276,9 +298,12 @@ func (m *manager) handleSubscription(chargerID string) error {
 		// the invoke reported: a local timeout does not cancel the server-side operation,
 		// so an error is no proof the subscription was not established. Unsubscribing one
 		// that never existed is a no-op, which is the cheaper way to be wrong.
-		if unsubErr := m.client.UnsubscribeCharger(chargerID); unsubErr != nil {
-			log.Warnf("signalR: cleanup after unregister race chargerID=%s err: %v", chargerID, unsubErr)
-		}
+		//
+		// Issued after the deferred unlock rather than here: this is the same blocking
+		// invoke the subscribe above deliberately dropped the lock for, and holding m.mu
+		// across it would reintroduce exactly the stall - with Unregister now waiting on
+		// the same mutex to finish the removal that triggered this branch.
+		orphaned = true
 
 		return nil
 	}

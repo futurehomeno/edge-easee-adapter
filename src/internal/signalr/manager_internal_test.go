@@ -672,3 +672,64 @@ func (c *racingSubscribeClient) unsubscribeCalls() int {
 
 	return c.unsubscribes
 }
+
+// blockingUnsubscribeClient blocks inside UnsubscribeCharger the way the real one blocks on a
+// connection, so a test can observe whether m.mu is held across it.
+type blockingUnsubscribeClient struct {
+	failingSubscribeClient
+
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+}
+
+func (c *blockingUnsubscribeClient) UnsubscribeCharger(string) error {
+	c.enterOnce.Do(func() { close(c.entered) })
+	<-c.release
+
+	return nil
+}
+
+// Unregister held m.mu across both UnsubscribeCharger and Close, each of which blocks on the
+// connection for up to SignalRInvokeTimeout - stalling Connected(), Register() and every
+// observation lookup for the whole invocation. Stop() already did this correctly.
+func TestUnregister_DoesNotHoldTheLockDuringInvoke(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	m.chargers[chargerID] = &charger{handler: &recordingHandler{handled: make(chan struct{})}, backoff: m.cfg.SignalRBackoffStateful()}
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	queried := make(chan struct{})
+
+	go func() {
+		defer close(queried)
+
+		m.Connected(chargerID)
+	}()
+
+	select {
+	case <-queried:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Connected blocked while an unsubscribe invoke was in flight")
+	}
+
+	release()
+	<-unregistered
+}
