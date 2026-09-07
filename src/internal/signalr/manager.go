@@ -313,7 +313,17 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// same blocking invoke the subscribe above unlocks for.
 	orphaned := false
 
+	// Set when a repair retires this subscribe. The repair enqueues its own retry, but the
+	// guard above drops that retry when it arrives while this subscribe is still in flight, so
+	// the charger would be left idle with nothing pending. Enqueued after the unlock below:
+	// enqueueSubscription takes m.mu itself.
+	retired := false
+
 	defer func() {
+		if retired {
+			m.enqueueSubscription(chargerID)
+		}
+
 		if !orphaned {
 			return
 		}
@@ -385,6 +395,8 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// would leave the retry the repair enqueued short-circuiting on a subscription that no
 	// longer exists - silent until the next reconnect.
 	if charger.subscribeEpoch != subscribeEpoch {
+		retired = true
+
 		return nil
 	}
 

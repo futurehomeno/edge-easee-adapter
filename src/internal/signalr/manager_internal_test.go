@@ -932,14 +932,21 @@ func TestHandleSubscription_RepairRetiresAnInFlightSubscribe(t *testing.T) {
 	// having torn down whatever that subscribe is about to report success for.
 	m.repairReplacedSubscription(chargerID)
 
+	// The repair's own retry, consumed while this subscribe is still in flight: handleSubscription
+	// drops it on the subscribing guard. Draining it here is that same loss, made deterministic -
+	// what is left pending afterwards can only come from the retired subscribe itself.
+	<-m.subscriptions
+
 	release()
 	<-subscribed
 
 	m.mu.RLock()
 	claimsSubscribed := m.chargers[chargerID].isSubscribed
+	subscribing := m.chargers[chargerID].subscribing
 	m.mu.RUnlock()
 
 	assert.False(t, claimsSubscribed,
 		"a subscribe retired by a repair must not claim a subscription the stale unsubscribe removed")
-	assert.NotEmpty(t, m.subscriptions, "the repair's retry must still be pending")
+	assert.False(t, subscribing, "a retired subscribe must still clear the flag on its way out")
+	assert.NotEmpty(t, m.subscriptions, "the retired subscribe must leave an attempt pending, not strand the charger")
 }
