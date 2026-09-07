@@ -51,7 +51,9 @@ const (
 type HTTPClient interface {
 	UpdateMaxCurrent(accessToken, chargerID string, current float64) error
 	// UpdateDynamicCurrent sets the dynamic current, which Easee uses as the offered current.
-	UpdateDynamicCurrent(accessToken, chargerID string, current float64) error
+	// force bypasses the local rate limit: a start has to reach the charger even when an
+	// offered-current write landed moments ago, or the session never resumes.
+	UpdateDynamicCurrent(accessToken, chargerID string, current float64, force bool) error
 	Login(userName, password string) (*model.Credentials, error)
 	// RefreshToken exchanges an access/refresh token pair for a new one.
 	RefreshToken(accessToken, refreshToken string) (*model.Credentials, error)
@@ -187,8 +189,8 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 	return nil
 }
 
-func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current float64) error {
-	if c.shouldBackoffWithMaxCurrentChange(chargerID) {
+func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current float64, force bool) error {
+	if !force && c.shouldBackoffWithMaxCurrentChange(chargerID) {
 		return errors.New("client: failed to update dynamic current: too many requests")
 	}
 
