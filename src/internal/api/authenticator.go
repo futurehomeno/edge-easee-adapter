@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/auth"
@@ -89,6 +90,14 @@ func NewAuthenticator(
 }
 
 func (a *authenticator) Login(userName, password string) error {
+	// Refuse blank credentials locally rather than spending a request on them: Easee counts
+	// failed logins per account and locks it out for roughly an hour, which then rejects the
+	// user's own valid logins too. TrimSpace matches what the client sends, so a whitespace-only
+	// password is the same empty string to the API.
+	if strings.TrimSpace(userName) == "" || strings.TrimSpace(password) == "" {
+		return ErrEmptyCredentials
+	}
+
 	creds, err := a.http.Login(userName, password)
 	if err != nil {
 		return err
