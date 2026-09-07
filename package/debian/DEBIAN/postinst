@@ -32,9 +32,10 @@ create_dirs() {
 	# it ship in the package (dpkg-owned); install -d re-asserts easee
 	# ownership of the leaves on every configure. data/ is created by
 	# create_data_dir after migrate_state has run.
-	# data holds credentials (config.json, secrets.json) so stays group-only;
-	# logs are world-readable so any user can tail them without sudo.
-	install -d -o easee -g futurehome -m 0750 "$NEW_DATA"
+	# data/ is world-readable like logs; secrets.json and key.txt protect
+	# themselves at the file level (storage.NewSecrets writes 0640,
+	# security.GetKey chmods 0600), independent of the directory mode.
+	install -d -o easee -g futurehome -m 0755 "$NEW_DATA"
 	install -d -o easee -g futurehome -m 0755 "$NEW_LOGS"
 
 	# The defaults symlink sits in an easee-writable directory, and dpkg will
@@ -67,7 +68,7 @@ create_data_dir() {
 	# absent, so creating it up front would silently disable the legacy
 	# migration. Fresh installs need it to exist - the service writes
 	# data/config.json and data/secrets.json without creating parents.
-	install -d -o easee -g futurehome -m 0750 "$NEW_DATA/data"
+	install -d -o easee -g futurehome -m 0755 "$NEW_DATA/data"
 }
 
 set_ownership() {
@@ -79,11 +80,11 @@ set_ownership() {
 	chown -R easee:futurehome "$NEW_DATA" || true
 	chown -R easee:futurehome "$NEW_LOGS" || true
 	chmod 644 "$NEW_LOGS/easee.log" || true
-	# u=rwX,g=rX,o=: data/ holds credentials (config.json, secrets.json), so
-	# the tree stays group-readable but closed to others, matching create_dirs'
-	# 0750 instead of relaxing it back to 755. Symlinks (defaults) are left
+	# u=rwX,go=rX: world-readable like create_dirs' 0755. secrets.json and
+	# key.txt keep their own tighter file mode (0640/0600, see create_dirs)
+	# regardless of this directory-level pass. Symlinks (defaults) are left
 	# alone by the recursive chmod.
-	chmod -R u=rwX,g=rX,o= "$NEW_DATA" || true
+	chmod -R u=rwX,go=rX "$NEW_DATA" || true
 }
 
 configure_service() {
