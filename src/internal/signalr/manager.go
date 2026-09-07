@@ -149,7 +149,6 @@ func (m *manager) Unregister(chargerID string) error {
 	}
 
 	delete(m.chargers, chargerID)
-	last := len(m.chargers) == 0
 
 	m.mu.Unlock()
 
@@ -161,6 +160,32 @@ func (m *manager) Unregister(chargerID string) error {
 
 	if err := m.client.UnsubscribeCharger(chargerID); err != nil {
 		errs = errors.Join(errs, err)
+	}
+
+	// Re-tested under the lock rather than snapshotted before the invoke above: Register adds
+	// its charger and calls Start() while holding m.mu, so it can complete entirely while this
+	// unsubscribe blocks. Closing on the stale answer would stop the client out from under a
+	// charger that had just started it, and nothing restarts it until another registration.
+	// The unsubscribe above names the charger by ID, with nothing tying it to the instance this
+	// call removed. A Register for the same ID that lands and subscribes while it is parked
+	// therefore has its server-side subscription torn down by it, and the manager goes on
+	// believing that charger is subscribed - so its observations stop until a reconnect.
+	// Clearing isSubscribed is what makes the re-subscribe below take effect: handleSubscription
+	// returns early on a charger that still claims to be subscribed, which is precisely the
+	// stale claim this torn-down subscription left behind.
+	m.mu.Lock()
+
+	replaced, reRegistered := m.chargers[chargerID]
+	if reRegistered && !replaced.subscribing {
+		replaced.isSubscribed = false
+	}
+
+	last := len(m.chargers) == 0
+
+	m.mu.Unlock()
+
+	if reRegistered {
+		m.enqueueSubscription(chargerID)
 	}
 
 	if last {

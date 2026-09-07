@@ -681,6 +681,25 @@ type blockingUnsubscribeClient struct {
 	enterOnce sync.Once
 	entered   chan struct{}
 	release   chan struct{}
+
+	mu       sync.Mutex
+	closeCnt int
+}
+
+func (c *blockingUnsubscribeClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.closeCnt++
+
+	return nil
+}
+
+func (c *blockingUnsubscribeClient) closes() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.closeCnt
 }
 
 func (c *blockingUnsubscribeClient) UnsubscribeCharger(string) error {
@@ -732,4 +751,85 @@ func TestUnregister_DoesNotHoldTheLockDuringInvoke(t *testing.T) {
 
 	release()
 	<-unregistered
+}
+
+// Register adds its charger and calls Start() while holding m.mu, so it can complete entirely
+// while an Unregister is blocked in UnsubscribeCharger. Deciding "was that the last charger?"
+// before that invoke closed the client out from under the new registration, and nothing
+// restarts it until another Register lands.
+func TestUnregister_DoesNotCloseAClientARegisterJustStarted(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	// A fresh registration lands while the unsubscribe is still parked.
+	m.Register("YY67890", &recordingHandler{handled: make(chan struct{})})
+
+	release()
+	<-unregistered
+
+	assert.Zero(t, client.closes(), "the client must stay up for the charger registered mid-unregister")
+}
+
+// UnsubscribeCharger names the charger by ID, with nothing tying it to the instance Unregister
+// removed. A Register for the same ID that subscribes while that invoke is parked has its
+// server-side subscription torn down by it, and the manager keeps believing it is subscribed -
+// so its observations stop until a reconnect. The replacement must be re-subscribed instead.
+func TestUnregister_ReSubscribesAChargerReRegisteredUnderTheSameID(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	// An open done channel lets enqueueSubscription hand off instead of taking the cancel path.
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	// The same ID is registered again and reaches subscribed while the unsubscribe is parked.
+	m.Register(chargerID, &recordingHandler{handled: make(chan struct{})})
+
+	m.mu.Lock()
+	m.chargers[chargerID].isSubscribed = true
+	m.mu.Unlock()
+
+	release()
+	<-unregistered
+
+	m.mu.RLock()
+	stillClaimsSubscribed := m.chargers[chargerID].isSubscribed
+	m.mu.RUnlock()
+
+	assert.False(t, stillClaimsSubscribed, "the stale unsubscribe tore the subscription down, so the flag must not survive it")
+	assert.NotEmpty(t, m.subscriptions, "the replacement must be handed back for a fresh subscribe")
 }
