@@ -2,6 +2,7 @@ package signalr
 
 import (
 	"errors"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -765,4 +766,27 @@ func TestObservationsForOneChargerDoNotBlockAnother(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("a blocked handler must not stall another charger's observations")
 	}
+}
+
+// Stop does not unregister, so a dispatcher watching only its own dispatchDone outlived the
+// manager - one leaked goroutine per registered charger, on every stop.
+func TestStop_EndsEveryChargerDispatcher(t *testing.T) {
+	client := &failingSubscribeClient{}
+	m := newTestManagerWithClient(t, client)
+
+	require.NoError(t, m.Start())
+
+	m.Register("YY67890", &recordingHandler{handled: make(chan struct{})})
+
+	before := runtime.NumGoroutine()
+
+	require.NoError(t, m.Stop())
+
+	// Both dispatchers must return; NumGoroutine is noisy, so allow it to settle.
+	assert.Eventually(t, func() bool {
+		return runtime.NumGoroutine() < before
+	}, 2*time.Second, 10*time.Millisecond, "every dispatch goroutine must end with the manager")
+
+	// A second stop must not double-close either charger's channel.
+	assert.NotPanics(t, func() { _ = m.Stop() })
 }

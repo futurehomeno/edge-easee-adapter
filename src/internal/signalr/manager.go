@@ -92,6 +92,14 @@ func (m *manager) Stop() error {
 
 	m.running = false
 	done := m.done
+
+	// Every dispatcher is stopped here, not left to Unregister: Stop does not unregister, so
+	// watching only dispatchDone leaked one goroutine per registered charger on every stop.
+	// stopDispatch guards the close, since Unregister closes the same channel.
+	for _, c := range m.chargers {
+		c.stopDispatch()
+	}
+
 	m.mu.Unlock()
 
 	err := m.client.Close()
@@ -162,9 +170,7 @@ func (m *manager) Unregister(chargerID string) error {
 	// Stops this charger's observation dispatcher; anything still queued is abandoned along
 	// with the charger it belonged to. Nil for a charger assembled directly in a test rather
 	// than through Register.
-	if charger.dispatchDone != nil {
-		close(charger.dispatchDone)
-	}
+	charger.stopDispatch()
 
 	var errs error
 
@@ -488,6 +494,10 @@ func (m *manager) dispatchObservations(chargerID string, c *charger) {
 
 	for {
 		select {
+		// Two exits, because the charger can go away either way round: dispatchDone for its own
+		// Unregister, done for a Stop that takes the whole manager with it. Watching only the
+		// first leaked a goroutine per registered charger on every Stop, since Stop never
+		// unregisters. Closing dispatchDone from Stop instead would race Unregister's close.
 		case <-c.dispatchDone:
 			return
 		case observation := <-c.observations:
@@ -514,4 +524,16 @@ type charger struct {
 	// its observations have to stay in the order they arrived.
 	observations chan model.Observation
 	dispatchDone chan struct{}
+	dispatchOnce sync.Once
+}
+
+// stopDispatch ends this charger's observation dispatcher. Both Unregister and Stop reach it -
+// a charger can go away on its own or with the whole manager - so the close is guarded.
+// dispatchDone is nil for a charger a test assembled directly rather than through Register.
+func (c *charger) stopDispatch() {
+	if c.dispatchDone == nil {
+		return
+	}
+
+	c.dispatchOnce.Do(func() { close(c.dispatchDone) })
 }
