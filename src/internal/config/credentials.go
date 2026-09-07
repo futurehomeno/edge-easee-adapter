@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/futurehomeno/cliffhanger/auth"
@@ -9,7 +11,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const credentialsFileName = "secrets.json"
+const (
+	credentialsFileName = "secrets.json"
+	configFileName      = "config.json"
+	backupExtension     = ".bak"
+)
 
 // CredentialsStore persists the Easee tokens outside the world-readable config.json.
 // storage.Model() hands out the live model unlocked, so every access is guarded here:
@@ -126,4 +132,17 @@ func MigrateCredentials(cfg *Config, store *CredentialsStore) error {
 	log.Info("[config] Move credentials to the secrets storage")
 
 	return nil
+}
+
+// DropConfigBackup removes the config backup cliffhanger's Save() leaves behind. The rename in
+// makeBackup carries the pre-migration config over, tokens and all, and chmods it to the config
+// store's world-readable 0644 - so the credentials this migration just moved into the 0640
+// secrets file stay legible to any local user in data/config.json.bak. Best-effort: the backup
+// only serves corruption recovery, and a stale one is worth less than the leak.
+func DropConfigBackup(workDir string) {
+	path := filepath.Join(workDir, "data", configFileName+backupExtension)
+
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		log.Warnf("[config] Remove %s. err: %v", path, err)
+	}
 }

@@ -89,11 +89,14 @@ set_ownership() {
 	chmod -R u=rwX,go=rX "$NEW_DATA" || true
 
 	# secrets.json holds the adapter's OAuth tokens and must stay closed to
-	# "other" even though data/ is now world-readable. Named directly, not
-	# via a wildcard, so a symlink planted at this exact path would be
-	# followed by chmod as root; guard it the same way the log file above is
-	# guarded.
-	for f in "$NEW_DATA/data/secrets.json" "$NEW_DATA/data/secrets.json.bak"; do
+	# "other" even though data/ is now world-readable. config.json.bak joins
+	# it: an upgrade from v2 has not run the credential migration yet, so the
+	# config - and the backup cliffhanger renames it to - still carry the
+	# tokens inline. Named directly, not via a wildcard, so a symlink planted
+	# at one of these paths would be followed by chmod as root; detect and
+	# remove any such symlink first.
+	for f in "$NEW_DATA/data/secrets.json" "$NEW_DATA/data/secrets.json.bak" \
+		"$NEW_DATA/data/config.json.bak"; do
 		if [ -L "$f" ]; then
 			echo "Warning: $f is a symlink, removing" >&2
 			rm -f "$f" || true

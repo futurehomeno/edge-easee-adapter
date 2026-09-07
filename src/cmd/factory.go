@@ -103,6 +103,8 @@ func getCredentialsStore() *config.CredentialsStore {
 func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore) error {
 	cfg := cfgSvc.Model()
 
+	var migrated bool
+
 	resetLogDefaults := func() error {
 		cfg.LogLevel = "info"
 		cfg.LogFormat = "budzik"
@@ -116,10 +118,21 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		cliffCfg.Migration{From: 2, To: 3, Do: cfg.MigrateAuthBackoff},
 		cliffCfg.Migration{From: 3, To: 4, Do: cfg.MigrateOfferedCurrentWaitTime},
 		cliffCfg.Migration{From: 4, To: 5, Do: cfg.MigrateSignalRFinalBackoff},
-		cliffCfg.Migration{From: 5, To: 6, Do: func() error { return config.MigrateCredentials(cfg, credentials) }},
+		cliffCfg.Migration{From: 5, To: 6, Do: func() error {
+			migrated = true
+
+			return config.MigrateCredentials(cfg, credentials)
+		}},
 	)
 	if err != nil {
 		return fmt.Errorf("migrate config: %w", err)
+	}
+
+	// The v5->v6 step saves the config, which renames the pre-migration copy - tokens included -
+	// to a world-readable data/config.json.bak. Only that step leaves a token-bearing backup, so
+	// the steady-state corruption fallback survives untouched.
+	if migrated {
+		config.DropConfigBackup(bootstrap.GetConfigurationDirectory())
 	}
 
 	return nil
