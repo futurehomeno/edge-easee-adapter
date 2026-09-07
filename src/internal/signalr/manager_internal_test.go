@@ -882,3 +882,64 @@ func TestUnregister_RepairsAReplacementWhoseSubscribeWasInFlight(t *testing.T) {
 	assert.False(t, claimsSubscribed, "the replacement must not be left claiming a subscription the stale unsubscribe removed")
 	assert.NotEmpty(t, m.subscriptions, "the replacement must be handed back for a fresh subscribe")
 }
+
+// blockingSuccessfulSubscribeClient parks inside SubscribeCharger and then reports success, so a
+// test can land a repair while the subscribe is in flight and watch what the completion claims.
+type blockingSuccessfulSubscribeClient struct {
+	failingSubscribeClient
+
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+}
+
+func (c *blockingSuccessfulSubscribeClient) SubscribeCharger(string) error {
+	c.enterOnce.Do(func() { close(c.entered) })
+	<-c.release
+
+	return nil
+}
+
+// A repair runs while a subscribe for the same charger is in flight: the stale unsubscribe it
+// compensates for has already torn the subscription down, so the subscribe's success is void.
+// Without the epoch it set isSubscribed on completion, and the retry the repair enqueued then
+// short-circuited on that claim - leaving the charger silent until the next reconnect.
+func TestHandleSubscription_RepairRetiresAnInFlightSubscribe(t *testing.T) {
+	client := &blockingSuccessfulSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	// The repair lands while the subscribe above is parked: this is the stale by-ID unsubscribe
+	// having torn down whatever that subscribe is about to report success for.
+	m.repairReplacedSubscription(chargerID)
+
+	release()
+	<-subscribed
+
+	m.mu.RLock()
+	claimsSubscribed := m.chargers[chargerID].isSubscribed
+	m.mu.RUnlock()
+
+	assert.False(t, claimsSubscribed,
+		"a subscribe retired by a repair must not claim a subscription the stale unsubscribe removed")
+	assert.NotEmpty(t, m.subscriptions, "the repair's retry must still be pending")
+}

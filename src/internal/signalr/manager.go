@@ -204,6 +204,10 @@ func (m *manager) repairReplacedSubscription(chargerID string) {
 	replaced, reRegistered := m.chargers[chargerID]
 	if reRegistered {
 		replaced.isSubscribed = false
+		// Retires any subscribe already in flight: it would otherwise set isSubscribed on
+		// return, and the retry enqueued below would then short-circuit on that claim while
+		// the server-side subscription this repair exists for is already torn down.
+		replaced.subscribeEpoch++
 	}
 
 	m.mu.Unlock()
@@ -296,6 +300,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 	charger.subscribing = true
 	epoch := m.epoch
+	subscribeEpoch := charger.subscribeEpoch
 
 	m.mu.Unlock()
 
@@ -372,6 +377,14 @@ func (m *manager) handleSubscription(chargerID string) error {
 			go m.addChargerSubscription(chargerID, charger)
 		}
 
+		return nil
+	}
+
+	// A repair retired this subscribe while it ran unlocked: the subscription it established
+	// was torn down by the stale unsubscribe that triggered the repair, so claiming it here
+	// would leave the retry the repair enqueued short-circuiting on a subscription that no
+	// longer exists - silent until the next reconnect.
+	if charger.subscribeEpoch != subscribeEpoch {
 		return nil
 	}
 
@@ -514,4 +527,9 @@ type charger struct {
 	subscribeFailed bool
 	retryArmed      bool
 	backoff         backoff.Stateful
+
+	// Bumped whenever a stale UnsubscribeCharger tears this charger's subscription down, so a
+	// subscribe that was already in flight cannot report success for a subscription that is
+	// gone. The manager-wide epoch above covers a reconnect; this one covers a repair.
+	subscribeEpoch uint64
 }
