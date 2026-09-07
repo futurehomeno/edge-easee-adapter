@@ -119,6 +119,14 @@ func TestLoginRejectsEmptyCredentialsWithoutCallingTheAPI(t *testing.T) {
 // currently collapses onto one path - no retry policy distinguishes a rate limit (retry later)
 // from bad credentials (never retry) from a server fault. This asserts today's behaviour so
 // that differentiating them later is a deliberate, visible change.
+//
+// Known gap, deliberately pinned rather than blessed: a rejection here has no side effects at
+// all. cliffhanger only escalates auth loss from the refresh-token path (OnAuthLoss is wired
+// into auth.NewAuthenticator), so a login rejected by Easee leaves any existing session in
+// place - no credential clearing, no push notification, no cmd.auth.logout. See
+// TestLoginRejectionLeavesAnExistingSessionInPlace below. Per RFC 6749 section 5.2 a token
+// endpoint answers 400 invalid_grant for bad resource-owner credentials (401 is reserved for
+// invalid_client), so 400 is the status that should drive that escalation, not 401.
 func TestLoginFailureByStatusCode(t *testing.T) {
 	t.Parallel()
 
@@ -187,6 +195,38 @@ func TestLoginFailureByStatusCode(t *testing.T) {
 			assert.True(t, credentials.Credentials().Empty(), "a failed login must not store credentials")
 		})
 	}
+}
+
+// TestLoginRejectionLeavesAnExistingSessionInPlace documents a gap rather than endorsing it.
+// A user re-logging in with a wrong password gets an error, but the previously stored session
+// survives untouched: nothing clears the credentials, notifies, or publishes cmd.auth.logout,
+// because that escalation is wired only into cliffhanger's refresh-token path.
+//
+// Whether an interactive login SHOULD tear down a working session is a product decision - a
+// mistyped password arguably must not log the user out. This test exists so that decision is
+// made deliberately, and so the current behaviour cannot change unnoticed.
+func TestLoginRejectionLeavesAnExistingSessionInPlace(t *testing.T) {
+	t.Parallel()
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"bad credentials"}`))
+	}))
+	t.Cleanup(s.Close)
+
+	cfgStorage := mockedstorage.Storage[*config.Config]{}
+	httpClient := api.NewHTTPClient(config.NewService(&cfgStorage), s.Client(), s.URL)
+
+	existing := config.Credentials{AccessToken: "old-access", RefreshToken: "old-refresh"}
+	credentials := newCredentialsStore(t, existing)
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+	require.Error(t, authenticator.Login("user", "wrong-password"))
+
+	assert.False(t, credentials.Credentials().Empty(), "the rejected login leaves the old session in place")
+	assert.Equal(t, "old-access", credentials.Credentials().AccessToken)
 }
 
 // TestLogoutThenLoginStoresTheNewSession covers the round trip: a logout must leave nothing
