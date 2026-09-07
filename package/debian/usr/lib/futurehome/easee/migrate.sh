@@ -14,10 +14,11 @@ if [ "$(id -u)" = 0 ]; then
 	exit 1
 fi
 
-OLD_DATA=/opt/thingsplex/easee
-OLD_LOGS=/var/log/thingsplex/easee
-NEW_DATA=/var/lib/futurehome/easee
-NEW_LOGS=/var/log/futurehome/easee
+# Overridable so the Go tests can drive the script against a temp tree.
+OLD_DATA=${OLD_DATA:-/opt/thingsplex/easee}
+OLD_LOGS=${OLD_LOGS:-/var/log/thingsplex/easee}
+NEW_DATA=${NEW_DATA:-/var/lib/futurehome/easee}
+NEW_LOGS=${NEW_LOGS:-/var/log/futurehome/easee}
 
 # data/ holds credentials (config.json, secrets.json): everything created below
 # must be closed to others from the start. postinst's permission
