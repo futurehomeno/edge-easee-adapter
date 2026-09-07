@@ -3,6 +3,8 @@ package api_test
 import (
 	"encoding/base64"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -73,6 +75,159 @@ func TestLogin(t *testing.T) {
 			assert.False(t, credentials.Credentials().RefreshTokenExpiresAt.IsZero())
 		})
 	}
+}
+
+// TestLoginRejectsEmptyCredentialsWithoutCallingTheAPI pins the guard that keeps a blank
+// login off the wire. Easee counts failed logins per account and locks it out for about an
+// hour, which then rejects the user's own valid logins too - so an empty password must never
+// reach the API. Regression coverage for the zaptec 3.0.3 failure mode.
+func TestLoginRejectsEmptyCredentialsWithoutCallingTheAPI(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		userName string
+		password string
+	}{
+		{name: "empty password", userName: "user", password: ""},
+		{name: "whitespace password", userName: "user", password: "   "},
+		{name: "empty username", userName: "", password: "pwd"},
+		{name: "whitespace username", userName: "\t", password: "pwd"},
+		{name: "both empty", userName: "", password: ""},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			credentials := newCredentialsStore(t, config.Credentials{})
+			// No On("Login") expectation: mockery fails the test if the API is called at all.
+			httpClient := mockapi.NewHTTPClient(t)
+
+			authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+			err := authenticator.Login(tt.userName, tt.password)
+
+			require.ErrorIs(t, err, api.ErrEmptyCredentials)
+			assert.True(t, credentials.Credentials().Empty(), "a refused login must not store credentials")
+		})
+	}
+}
+
+// TestLoginFailureByStatusCode pins how each Easee failure reaches the caller. Every non-200
+// currently collapses onto one path - no retry policy distinguishes a rate limit (retry later)
+// from bad credentials (never retry) from a server fault. This asserts today's behaviour so
+// that differentiating them later is a deliberate, visible change.
+func TestLoginFailureByStatusCode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		responseCode  int
+		responseBody  string
+		errorContains string
+	}{
+		{
+			name:          "429 rate limited",
+			responseCode:  http.StatusTooManyRequests,
+			responseBody:  `{"title":"Too many requests","status":429}`,
+			errorContains: "status code: 429",
+		},
+		{
+			name:          "400 bad request",
+			responseCode:  http.StatusBadRequest,
+			responseBody:  `{"title":"Bad credentials","status":400}`,
+			errorContains: "status code: 400",
+		},
+		{
+			name:          "500 server error",
+			responseCode:  http.StatusInternalServerError,
+			responseBody:  `{"title":"oops","status":500}`,
+			errorContains: "status code: 500",
+		},
+		{
+			name:          "401 unauthorized",
+			responseCode:  http.StatusUnauthorized,
+			responseBody:  `{"title":"unauthorized","status":401}`,
+			errorContains: "status code: 401",
+		},
+		{
+			// A 200 carrying no token is a failed login too: without this the adapter would
+			// store an empty access token and report itself authenticated.
+			name:          "200 without an access token",
+			responseCode:  http.StatusOK,
+			responseBody:  `{"accessToken":"","refreshToken":"refresh-token"}`,
+			errorContains: "no access token",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.responseCode)
+				_, _ = w.Write([]byte(tt.responseBody))
+			}))
+			t.Cleanup(s.Close)
+
+			cfgStorage := mockedstorage.Storage[*config.Config]{}
+			httpClient := api.NewHTTPClient(config.NewService(&cfgStorage), s.Client(), s.URL)
+
+			credentials := newCredentialsStore(t, config.Credentials{})
+			authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+			err := authenticator.Login("user", "pwd")
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errorContains)
+			assert.True(t, credentials.Credentials().Empty(), "a failed login must not store credentials")
+		})
+	}
+}
+
+// TestLogoutThenLoginStoresTheNewSession covers the round trip: a logout must leave nothing
+// behind that a later login inherits, and the second login's tokens must be the ones that end
+// up stored.
+func TestLogoutThenLoginStoresTheNewSession(t *testing.T) {
+	t.Parallel()
+
+	firstAccess := jwtWithExpiry(time.Now().Add(time.Hour))
+	firstRefresh := jwtWithExpiry(time.Now().Add(24 * time.Hour))
+	secondAccess := jwtWithExpiry(time.Now().Add(2 * time.Hour))
+	secondRefresh := jwtWithExpiry(time.Now().Add(48 * time.Hour))
+
+	credentials := newCredentialsStore(t, config.Credentials{})
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").
+		Return(&model.Credentials{AccessToken: firstAccess, RefreshToken: firstRefresh}, nil).Once()
+	httpClient.On("Login", "other", "other-pwd").
+		Return(&model.Credentials{AccessToken: secondAccess, RefreshToken: secondRefresh}, nil).Once()
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+	require.NoError(t, authenticator.Login("user", "pwd"))
+	assert.Equal(t, firstAccess, credentials.Credentials().AccessToken)
+
+	require.NoError(t, authenticator.Logout())
+	assert.True(t, credentials.Credentials().Empty(), "logout must clear the stored session")
+
+	token, err := authenticator.AccessToken()
+	require.Error(t, err, "no token is available while logged out")
+	assert.Empty(t, token)
+
+	require.NoError(t, authenticator.Login("other", "other-pwd"))
+
+	assert.Equal(t, secondAccess, credentials.Credentials().AccessToken)
+	assert.Equal(t, secondRefresh, credentials.Credentials().RefreshToken, "the first session must not survive the relogin")
+
+	token, err = authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, secondAccess, token)
 }
 
 func TestLoginSurvivesAFailedCredentialsSave(t *testing.T) {
