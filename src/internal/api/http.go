@@ -25,6 +25,9 @@ var (
 	ErrNotLoggedIn = auth.ErrNotLoggedIn
 	// ErrRefreshBackoff is returned while the authenticator is in backoff after refresh-token failures, to avoid hammering the API.
 	ErrRefreshBackoff = errors.New("too many requests: backoff")
+	// ErrEmptyCredentials is returned when a login is attempted without a username or password,
+	// so the request is never spent against Easee's per-account failed-login lockout.
+	ErrEmptyCredentials = errors.New("username and password must not be empty")
 )
 
 const (
