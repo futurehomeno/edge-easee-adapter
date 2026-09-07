@@ -798,6 +798,10 @@ func TestApplication_Configure_Selection(t *testing.T) {
 		wantErr      string
 		wantSeeded   []string
 		wantSelected selection.Selection
+		// Set when a failing configure is still expected to leave a selection on disk: the
+		// shared policy adopts the owned chargers up front so the retry budget has something
+		// to measure against, and that adoption is deliberately persisted before it refuses.
+		wantAdoptedOnErr selection.Selection
 	}{
 		{
 			name:         "valid subset is seeded and persisted",
@@ -828,11 +832,15 @@ func TestApplication_Configure_Selection(t *testing.T) {
 			wantSelected: []string{"123"},
 		},
 		{
-			name:         "an absent selection drops owned chargers Easee no longer lists",
-			chargers:     []model.Charger{{ID: "123"}},
-			owned:        []string{"123", "gone"},
-			wantSeeded:   []string{"123"},
-			wantSelected: []string{"123"},
+			// The omitted charger goes through the shared retry budget rather than being
+			// dropped on sight: a partial /chargers response looks exactly like a real
+			// removal, and seeding without it destroys its thing for good. The budget is
+			// what tells the two apart, and it prunes on its own once the retries run out.
+			name:             "an absent selection retries an owned charger Easee no longer lists",
+			chargers:         []model.Charger{{ID: "123"}},
+			owned:            []string{"123", "gone"},
+			wantErr:          "not found in chargers list",
+			wantAdoptedOnErr: []string{"123", "gone"},
 		},
 		{
 			// An empty response must leave the implicit include-all implicit: persisting []
@@ -892,7 +900,12 @@ func TestApplication_Configure_Selection(t *testing.T) {
 
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
-				assert.Empty(t, h.cfg.SelectedDevices(), "a failed configure must not persist a selection")
+
+				if tt.wantAdoptedOnErr != nil {
+					assert.Equal(t, tt.wantAdoptedOnErr, h.cfg.SelectedDevices(), "the adopted selection is kept so the retry budget can measure against it")
+				} else {
+					assert.Empty(t, h.cfg.SelectedDevices(), "a failed configure must not persist a selection")
+				}
 
 				return
 			}
@@ -901,6 +914,24 @@ func TestApplication_Configure_Selection(t *testing.T) {
 			assert.Equal(t, tt.wantSelected, h.cfg.SelectedDevices())
 		})
 	}
+}
+
+// TestApplication_Configure_PartialChargerListKeepsThings is the regression this routing
+// exists for. Configure used to seed straight from a filtered list, so a /chargers response
+// that transiently omitted a charger pruned its thing and persisted the truncated selection -
+// nothing re-seeded it afterwards, so one short response destroyed the device permanently.
+// It now shares the login path's retry budget, which refuses the partial re-seed instead.
+func TestApplication_Configure_PartialChargerListKeepsThings(t *testing.T) {
+	t.Parallel()
+
+	// Easee lists only one of the two chargers this hub already holds as things.
+	h := newSelectionHarness(t, []model.Charger{{ID: "123"}}, nil, []string{"123", "456"}, nil)
+
+	err := h.app.Configure(&config.Config{})
+
+	require.ErrorContains(t, err, "not found in chargers list", "a partial list must be refused, not seeded")
+	assert.Empty(t, h.seeded(), "nothing is re-seeded, so the omitted thing is left alone")
+	assert.Equal(t, selection.Selection{"123", "456"}, h.cfg.SelectedDevices(), "the omitted charger stays selected so a later sync can restore it")
 }
 
 func TestApplication_Login_Selection(t *testing.T) {
