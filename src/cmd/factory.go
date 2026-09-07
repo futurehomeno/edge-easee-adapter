@@ -88,8 +88,12 @@ func getCredentialsStore() *config.CredentialsStore {
 	if services.credentialsStore == nil {
 		services.credentialsStore = config.NewCredentialsStore(bootstrap.GetConfigurationDirectory())
 
+		// Logged, not fatal: a corrupt secrets file is otherwise a boot loop, and the
+		// degraded start already exists - the store stays empty, Initialize marks the app
+		// not configured, and a login rewrites the file. Unlike the migration below, nothing
+		// is lost by continuing that a restart would recover.
 		if err := services.credentialsStore.Load(); err != nil {
-			log.Fatalf("[config] Load credentials. err: %v", err)
+			log.Errorf("[config] Load credentials, starting logged out. err: %v", err)
 		}
 	}
 
