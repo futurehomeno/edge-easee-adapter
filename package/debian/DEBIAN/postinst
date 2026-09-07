@@ -32,9 +32,12 @@ create_dirs() {
 	# it ship in the package (dpkg-owned); install -d re-asserts easee
 	# ownership of the leaves on every configure. data/ is created by
 	# create_data_dir after migrate_state has run.
-	# data holds credentials (config.json, secrets.json) so stays group-only;
-	# logs are world-readable so any user can tail them without sudo.
-	install -d -o easee -g futurehome -m 0750 "$NEW_DATA"
+	# data/ is world-traversable like logs; the secret files under it keep
+	# their own mode - set_data_modes widens no regular file, and pins
+	# secrets.json and the token-bearing backups to 0640 (storage.NewSecrets
+	# enforces 0640 on Save, but not on Load, so a pre-existing file needs an
+	# explicit re-chmod too).
+	install -d -o easee -g futurehome -m 0755 "$NEW_DATA"
 	install -d -o easee -g futurehome -m 0755 "$NEW_LOGS"
 
 	# The defaults symlink sits in an easee-writable directory, and dpkg will
@@ -67,23 +70,89 @@ create_data_dir() {
 	# absent, so creating it up front would silently disable the legacy
 	# migration. Fresh installs need it to exist - the service writes
 	# data/config.json and data/secrets.json without creating parents.
-	install -d -o easee -g futurehome -m 0750 "$NEW_DATA/data"
+	# $NEW_DATA is easee-writable, so data/ may have been replaced by a planted
+	# symlink, and install -d applied owner and mode by path, handing whatever it
+	# points at to easee. mkdir fails on any symlink (EEXIST, dangling or not)
+	# instead of following it and -m sets the mode on the inode it creates, so no
+	# by-path chmod is left for a re-planted link to redirect; an existing
+	# directory keeps its mode, easee owns it anyway. chown -h changes a
+	# re-planted link, not its target.
+	if [ -L "$NEW_DATA/data" ]; then
+		echo "Warning: $NEW_DATA/data is a symlink, removing" >&2
+		rm -f "$NEW_DATA/data" || true
+	fi
+	if [ ! -d "$NEW_DATA/data" ] || [ -L "$NEW_DATA/data" ]; then
+		mkdir -m 0755 "$NEW_DATA/data" || exit 1
+	fi
+	if [ ! -d "$NEW_DATA/data" ] || [ -L "$NEW_DATA/data" ]; then
+		echo "Error: $NEW_DATA/data is not a directory" >&2
+		exit 1
+	fi
+	chown -h easee:futurehome "$NEW_DATA/data"
 }
 
 set_ownership() {
 	echo "Set ownership and rights for files"
-	touch "$NEW_LOGS/easee.log" || true
+	# $NEW_LOGS is easee-writable, so nothing here may name easee.log in a
+	# command that dereferences its argument (touch, chmod, install): a planted
+	# symlink would be followed as root, and a check before such a call only
+	# narrows the race. The log is pre-created (the adapter would make it 0600)
+	# in the root-owned parent and linked in - link(2) never follows and fails
+	# if anything already sits at the path (-T, or ln would link into a
+	# symlinked directory) - so the symlink check below is cleanup, not
+	# protection: a re-plant after it only makes the link fail. The recursive
+	# chown/chmod need no guard - neither follows a symlink met during a
+	# traversal.
+	if [ -L "$NEW_LOGS/easee.log" ]
+	then
+		echo "Warning: $NEW_LOGS/easee.log is a symlink, removing" >&2
+		rm -f "$NEW_LOGS/easee.log" || true
+	fi
+
+	tmp=$(mktemp "${NEW_LOGS%/*}/.easee.log.XXXXXX") && { ln -T "$tmp" "$NEW_LOGS/easee.log" 2>/dev/null || true; rm -f "$tmp"; }
 	# Runs before migrate_state: an interrupted install of an older version
 	# can leave root-owned entries under data/ that the unprivileged
 	# migration (and its sed on config.json) would trip over on every retry.
 	chown -R easee:futurehome "$NEW_DATA" || true
 	chown -R easee:futurehome "$NEW_LOGS" || true
-	chmod 644 "$NEW_LOGS/easee.log" || true
-	# u=rwX,g=rX,o=: data/ holds credentials (config.json, secrets.json), so
-	# the tree stays group-readable but closed to others, matching create_dirs'
-	# 0750 instead of relaxing it back to 755. Symlinks (defaults) are left
-	# alone by the recursive chmod.
-	chmod -R u=rwX,g=rX,o= "$NEW_DATA" || true
+	chmod -R u=rwX,go=rX "$NEW_LOGS" || true
+}
+
+# Split out of set_ownership and called after migrate_state: the tree migrate.sh
+# publishes is renamed into place after set_ownership has already run, so a
+# single pre-migration pass never sees the migrated files and the 0640 pin below
+# would miss exactly the v2 upgrade it exists for. migrate.sh's own umask
+# protects that copy, but this is what enforces the mode rather than inheriting it.
+set_data_modes() {
+	# Directories only: data/ must be traversable like logs, but the secrets
+	# under it (secrets.json and its .bak, config.json.bak) keep whatever mode
+	# they were written with. A recursive u=rwX,go=rX would widen every one of
+	# them to 0644 - cliffhanger's storage.Load() only reads, so a pre-existing
+	# secrets.json would stay world-readable until the next credential write,
+	# and would be world-readable in the window before the pin below. Symlinks
+	# (defaults) are left alone by both passes.
+	find "$NEW_DATA" -type d -exec chmod u=rwx,go=rx {} + || true
+	find "$NEW_DATA" -type f -exec chmod go-w {} + || true
+
+	# secrets.json holds the adapter's OAuth tokens and must stay closed to
+	# "other" even though data/ is now world-readable. config.json.bak joins
+	# it: an upgrade from v2 has not run the credential migration yet, so the
+	# config - and the backup cliffhanger renames it to - still carry the
+	# tokens inline. Repairs installs already widened by the recursive chmod
+	# the find pair above replaced, which cannot lower a mode it does not know.
+	# Named directly, not via a wildcard, so a symlink planted at one of these
+	# paths would be followed by chmod as root; detect and remove any such
+	# symlink first.
+	for f in "$NEW_DATA/data/secrets.json" "$NEW_DATA/data/secrets.json.bak" \
+		"$NEW_DATA/data/config.json.bak"; do
+		if [ -L "$f" ]; then
+			echo "Warning: $f is a symlink, removing" >&2
+			rm -f "$f" || true
+		fi
+		if [ -e "$f" ]; then
+			chmod 0640 "$f" || true
+		fi
+	done
 }
 
 configure_service() {
@@ -100,6 +169,7 @@ case "$1" in
 		set_ownership
 		migrate_state
 		create_data_dir
+		set_data_modes
 		configure_service
 	;;
 
