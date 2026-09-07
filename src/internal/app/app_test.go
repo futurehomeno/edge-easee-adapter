@@ -811,6 +811,19 @@ func TestApplication_Configure_Selection(t *testing.T) {
 			wantSelected: []string{"456"},
 		},
 		{
+			// The shared policy leaves an explicit request alone, so Configure has to store it
+			// itself - including when the stored selection is already an explicit subset. The
+			// thing was seeded either way, so a selection left unwritten here reverts on the
+			// next boot to one that disagrees with the things on the hub.
+			name:         "an explicit subset replacing another explicit subset is persisted",
+			chargers:     []model.Charger{{ID: "123"}, {ID: "456"}},
+			owned:        []string{"123"},
+			stored:       []string{"123"},
+			selected:     []string{"456"},
+			wantSeeded:   []string{"456"},
+			wantSelected: []string{"456"},
+		},
+		{
 			name:         "an absent selection includes every charger and is materialised",
 			chargers:     []model.Charger{{ID: "123"}, {ID: "456"}},
 			wantSeeded:   []string{"123", "456"},

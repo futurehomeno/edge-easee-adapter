@@ -189,7 +189,7 @@ func (a *application) Configure(model any) error {
 	// callers read theirs off disk to begin with. Configure's arrives from the user, so a
 	// request the policy left alone is still unsaved here. After the reconcile, never before:
 	// a failed seed must not leave the requested selection on disk.
-	if a.cfgService.SelectedDevices().IncludeAll() && !cfg.SelectedDevices.IncludeAll() {
+	if !cfg.SelectedDevices.IncludeAll() {
 		if err := a.cfgService.SetSelectedDevices(cfg.SelectedDevices); err != nil {
 			return fmt.Errorf("configure: persist selected_devices: %w", err)
 		}
