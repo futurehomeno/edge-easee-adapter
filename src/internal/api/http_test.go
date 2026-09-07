@@ -946,4 +946,9 @@ func TestClient_UpdateDynamicCurrent_ForceBypassesTheLocalThrottle(t *testing.T)
 
 	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 16, true), "a forced write must reach the charger")
 	assert.Equal(t, 2, calls)
+
+	// The forced write must still arm the throttle for the writes after it, or the bypass
+	// would leak: one forced call would leave the window open for every unforced one behind it.
+	require.Error(t, c.UpdateDynamicCurrent("token", "test-charger", 16, false), "the forced write must still register its timestamp")
+	assert.Equal(t, 2, calls)
 }
