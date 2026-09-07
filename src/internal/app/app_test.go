@@ -623,7 +623,7 @@ func TestApplication_Initialize(t *testing.T) {
 	}{
 		{
 			name: "successful thing initialization",
-			cfg:  &config.Config{},
+			cfg:  &config.Config{PublicConfig: config.PublicConfig{SelectedDevices: selection.Selection{}}},
 			credentials: config.Credentials{
 				AccessToken:          "access-token",
 				RefreshToken:         "refresh-token",
@@ -650,7 +650,7 @@ func TestApplication_Initialize(t *testing.T) {
 		},
 		{
 			name: "empty credentials - unconfigure lifecycle",
-			cfg:  &config.Config{},
+			cfg:  &config.Config{PublicConfig: config.PublicConfig{SelectedDevices: selection.Selection{}}},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
@@ -669,7 +669,7 @@ func TestApplication_Initialize(t *testing.T) {
 		},
 		{
 			name: "error on thing initialization",
-			cfg:  &config.Config{},
+			cfg:  &config.Config{PublicConfig: config.PublicConfig{SelectedDevices: selection.Selection{}}},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
@@ -689,7 +689,7 @@ func TestApplication_Initialize(t *testing.T) {
 		},
 		{
 			name: "successful thing initialization, but ping failed",
-			cfg:  &config.Config{},
+			cfg:  &config.Config{PublicConfig: config.PublicConfig{SelectedDevices: selection.Selection{}}},
 			credentials: config.Credentials{
 				AccessToken:          "access-token",
 				RefreshToken:         "refresh-token",
@@ -739,8 +739,10 @@ func TestApplication_Initialize(t *testing.T) {
 				tt.mockClient(clientMock)
 			}
 
-			// Initialize re-seeds when credentials exist but no things do, which these cases
-			// do not exercise; a failure there is logged and does not affect the outcome.
+			// Initialize re-seeds when credentials exist but no things do, which these cases do
+			// not exercise. A failure there now fails Initialize - so the init task retries
+			// instead of the app reporting healthy with no things - which would drown out what
+			// these cases assert; the explicitly empty selection skips the re-seed entirely.
 			clientMock.On("Chargers").Return(nil, errors.New("not under test")).Maybe()
 
 			defer func() {
@@ -1143,7 +1145,9 @@ func TestApplication_Initialize_MarksLifecycleBeforeReSeeding(t *testing.T) {
 		nil,
 	)
 
-	require.NoError(t, application.Initialize())
+	// The re-seed itself fails under this fixture; what matters here is when the lifecycle was
+	// marked relative to it, which the returned error does not affect.
+	_ = application.Initialize()
 
 	assert.Equal(t, lifecycle.AuthStateAuthenticated, authWhileReSeeding,
 		"the lifecycle must be marked before the re-seed, so an auth loss it triggers is not overwritten")
@@ -1184,7 +1188,8 @@ func TestApplication_Initialize_ReSeedsWhenSelectedChargerHasNoThing(t *testing.
 		nil,
 	)
 
-	require.NoError(t, application.Initialize())
+	// Whether the re-seed succeeds is not the point; that it was attempted is.
+	_ = application.Initialize()
 
 	assert.True(t, reSeeded, "a selected charger without a thing must re-seed, not just an empty adapter")
 }
@@ -1499,11 +1504,61 @@ func TestApplication_Initialize_MissingSelectedBudgetSurvivesBoots(t *testing.T)
 	)
 
 	// Three boots spend the budget; the fourth seeds without the missing charger and prunes it.
+	// The refusals surface from Initialize so the init task retries the re-seed rather than the
+	// app reporting healthy with a charger it never seeded.
 	for range 3 { // maxMissingSelectedRetries
-		require.NoError(t, application.Initialize())
+		require.ErrorContains(t, application.Initialize(), "not found in chargers list")
 		assert.Contains(t, cfg.SelectedDevices(), "gone", "the budget must not be spent early")
 	}
 
 	require.NoError(t, application.Initialize())
 	assert.NotContains(t, cfg.SelectedDevices(), "gone", "an exhausted budget must prune the vanished charger")
+}
+
+// missingRetries and lastMissing are written from configureChargers and Initialize, which the
+// task manager and the router-locked command handlers reach concurrently. They were plain
+// fields on a struct with no mutex; run under -race this fails without the guard.
+func TestApplication_MissingSelectedBudgetIsRaceFree(t *testing.T) {
+	t.Parallel()
+
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("InitializeThings").Return(nil).Maybe()
+	adapterMock.On("Things").Return([]adapter.Thing{}).Maybe()
+	adapterMock.On("ThingByID", mock.Anything).Return(nil).Maybe()
+	adapterMock.On("EnsureThings", mock.Anything).Return(nil).Maybe()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Chargers").Return([]model.Charger{{ID: "123"}}, nil).Maybe()
+	clientMock.On("ChargerDetails", mock.Anything).Return(model.ChargerDetails{}, nil).Maybe()
+	clientMock.On("Ping").Return(nil).Maybe()
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{
+		PublicConfig: config.PublicConfig{SelectedDevices: selection.Selection{"123", "gone"}},
+	}, config.Factory))
+
+	signalRMock := mocksignalr.NewClient(t)
+	signalRMock.On("Start").Maybe()
+
+	authMock := mockapi.NewAuthenticator(t)
+	authMock.On("AccessToken").Return("token", nil).Maybe()
+
+	application := app.New(
+		adapterMock, cfg, lifecycle.New(nil), nil, clientMock, authMock, signalRMock,
+		newCredentialsStore(t, config.Credentials{AccessToken: "token", RefreshToken: "refresh"}),
+		nil,
+	)
+
+	var wg sync.WaitGroup
+
+	for range 8 {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			_ = application.Initialize()
+		}()
+	}
+
+	wg.Wait()
 }

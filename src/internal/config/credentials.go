@@ -40,6 +40,17 @@ func (s *CredentialsStore) Load() error {
 	return s.storage.Load()
 }
 
+// DiscardLoaded empties the in-memory credentials without touching the file. json.Unmarshal
+// writes each field as it decodes, so a secrets file that fails partway leaves whatever it had
+// already parsed in the model - enough for the app to report itself authenticated with half a
+// session. Used on the boot path, where the file is kept for inspection rather than reset.
+func (s *CredentialsStore) DiscardLoaded() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	*s.storage.Model() = Credentials{}
+}
+
 func (s *CredentialsStore) Credentials() Credentials {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -77,9 +88,21 @@ func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected 
 		return nil
 	}
 
+	// Written to the model only once the save succeeded. The framework retries a refused
+	// rotation through persistUnsaved, which reads this store back to decide what is still
+	// outstanding - so a model updated ahead of a failed write reports a token the disk does
+	// not have, and the retry concludes there is nothing left to persist. SetCredentials keeps
+	// the opposite behaviour deliberately: a login's session stays usable until the restart.
+	previous := *s.storage.Model()
 	*s.storage.Model() = credentials
 
-	return s.storage.Save()
+	if err := s.storage.Save(); err != nil {
+		*s.storage.Model() = previous
+
+		return err
+	}
+
+	return nil
 }
 
 func (s *CredentialsStore) ClearCredentials() error {

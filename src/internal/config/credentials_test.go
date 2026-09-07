@@ -201,3 +201,28 @@ func writeConfigBackup(t *testing.T, path, body string) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
 }
+
+// json.Unmarshal writes each field as it decodes, so a secrets file that fails partway leaves
+// what it already parsed in the model. Continuing past a failed load - which the boot path now
+// does rather than exiting - would otherwise bring the app up claiming half a session.
+func TestDiscardLoadedEmptiesAPartiallyDecodedModel(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o750))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "data", "secrets.json"),
+		[]byte(`{"accessToken":"SECRET-TOKEN","refreshToken":123}`),
+		0o600,
+	))
+
+	store := config.NewCredentialsStore(dir)
+
+	require.Error(t, store.Load(), "a type-invalid secrets file must fail to load")
+	require.False(t, store.Credentials().Empty(), "the decoder leaves the fields it already parsed behind")
+
+	store.DiscardLoaded()
+
+	assert.True(t, store.Credentials().Empty(), "the half-decoded session must not survive the failed load")
+}

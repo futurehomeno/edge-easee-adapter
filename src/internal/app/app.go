@@ -103,8 +103,40 @@ type application struct {
 
 	sessionStorage db.ChargingSessionStorage
 
+	// Guards the two fields below. They are written from configureChargers and Initialize,
+	// which the task manager and the router-locked command handlers can reach concurrently.
+	missingMu      sync.Mutex
 	missingRetries int
 	lastMissing    string
+}
+
+// tickMissingBudget records another refusal for the given missing set, resetting the count when
+// the set itself changed so a newly missing charger gets full retries instead of inheriting an
+// exhausted counter. It reports the attempt number and whether the budget is spent.
+func (a *application) tickMissingBudget(key string) (int, bool) {
+	a.missingMu.Lock()
+	defer a.missingMu.Unlock()
+
+	if key != a.lastMissing {
+		a.lastMissing = key
+		a.missingRetries = 0
+	}
+
+	if a.missingRetries >= maxMissingSelectedRetries {
+		return a.missingRetries, true
+	}
+
+	a.missingRetries++
+
+	return a.missingRetries, false
+}
+
+func (a *application) resetMissingBudget() {
+	a.missingMu.Lock()
+	defer a.missingMu.Unlock()
+
+	a.missingRetries = 0
+	a.lastMissing = ""
 }
 
 func (a *application) ErrorsReport() ([]string, error) {
@@ -340,9 +372,16 @@ func (a *application) Initialize() error {
 			// it here would let a permanently vanished charger block the re-seed on every boot
 			// without ever reaching the prune.
 			if !errors.Is(err, errMissingSelected) {
-				a.missingRetries = 0
-				a.lastMissing = ""
+				a.resetMissingBudget()
 			}
+
+			a.RefreshToken()
+
+			// Returned rather than swallowed: cliffhanger's init task marks the app
+			// STARTUP_ERROR and re-runs Initialize on its interval when this fails, which is
+			// the only thing that retries the re-seed. Reporting success left a hub that
+			// started up with no things showing healthy until a manual re-login.
+			return fmt.Errorf("re-seed chargers on initialize: %w", err)
 		}
 	}
 
@@ -426,16 +465,9 @@ func (a *application) reconcileChargers(chargers []model.Charger, selected selec
 		// re-ticking the same devices in another order would look like a new set.
 		slices.Sort(missing)
 
-		if key := strings.Join(missing, ","); key != a.lastMissing {
-			a.lastMissing = key
-			a.missingRetries = 0
-		}
-
-		if a.missingRetries < maxMissingSelectedRetries {
-			a.missingRetries++
-
+		if attempt, exhausted := a.tickMissingBudget(strings.Join(missing, ",")); !exhausted {
 			return fmt.Errorf("%w: selected devices %v not found in chargers list; refusing partial re-seed (%d/%d)",
-				errMissingSelected, missing, a.missingRetries, maxMissingSelectedRetries)
+				errMissingSelected, missing, attempt, maxMissingSelectedRetries)
 		}
 
 		log.Warnf("[app] Selected devices %v still missing after %d retries, seed without them", missing, maxMissingSelectedRetries)
@@ -454,8 +486,7 @@ func (a *application) reconcileChargers(chargers []model.Charger, selected selec
 		}
 	}
 
-	a.missingRetries = 0
-	a.lastMissing = ""
+	a.resetMissingBudget()
 
 	// Persist an auto-selection so the manifest and the seeds work off the same list
 	// instead of each re-deriving it.
