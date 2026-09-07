@@ -808,15 +808,19 @@ func TestSessionEdgeDoesNotHangAfterUnregister(t *testing.T) {
 	m.mu.RLock()
 
 	returned := make(chan struct{})
+	started := make(chan struct{})
 
 	go func() {
 		defer close(returned)
 
+		close(started)
+
 		m.handleObservation(model.Observation{ID: model.ChargingSessionStart, ChargerID: chargerID})
 	}()
 
-	// Let the lookup take the RLock and reach the blocking send.
-	time.Sleep(50 * time.Millisecond)
+	// The goroutine is running and its next move is the RLock, which this test holds: releasing
+	// here hands it the lookup, so it reaches the blocking send before Unregister lands.
+	<-started
 	m.mu.RUnlock()
 
 	require.NoError(t, m.Unregister(chargerID))

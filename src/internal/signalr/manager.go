@@ -505,10 +505,10 @@ func (m *manager) dispatchObservations(chargerID string, c *charger) {
 
 	for {
 		select {
-		// Two exits, because the charger can go away either way round: dispatchDone for its own
-		// Unregister, done for a Stop that takes the whole manager with it. Watching only the
-		// first leaked a goroutine per registered charger on every Stop, since Stop never
-		// unregisters. Closing dispatchDone from Stop instead would race Unregister's close.
+		// One exit for both ways the charger can go away: Unregister and Stop each reach it
+		// through stopDispatch, whose sync.Once makes the concurrent close safe. Watching only
+		// Unregister's close leaked a goroutine per registered charger on every Stop, since
+		// Stop never unregisters.
 		case <-c.dispatchDone:
 			return
 		case observation := <-c.observations:
