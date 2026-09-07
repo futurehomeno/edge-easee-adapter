@@ -173,20 +173,11 @@ func (m *manager) Unregister(chargerID string) error {
 	// Clearing isSubscribed is what makes the re-subscribe below take effect: handleSubscription
 	// returns early on a charger that still claims to be subscribed, which is precisely the
 	// stale claim this torn-down subscription left behind.
+	m.repairReplacedSubscription(chargerID)
+
 	m.mu.Lock()
-
-	replaced, reRegistered := m.chargers[chargerID]
-	if reRegistered && !replaced.subscribing {
-		replaced.isSubscribed = false
-	}
-
 	last := len(m.chargers) == 0
-
 	m.mu.Unlock()
-
-	if reRegistered {
-		m.enqueueSubscription(chargerID)
-	}
 
 	if last {
 		if err := m.client.Close(); err != nil {
@@ -195,6 +186,31 @@ func (m *manager) Unregister(chargerID string) error {
 	}
 
 	return errs
+}
+
+// repairReplacedSubscription re-establishes the subscription of a charger that was registered
+// under an ID while a by-ID UnsubscribeCharger for the previous instance was in flight. That
+// unsubscribe carries nothing tying it to the instance it was issued for, so it can tear down
+// the replacement's server-side subscription while the manager still believes it subscribed -
+// and its observations then stop until a reconnect.
+//
+// The flag is cleared whether or not a subscribe is in flight. Clearing it only for an idle
+// charger left the in-flight case unrepaired: that subscribe sets isSubscribed on completion,
+// and handleSubscription's early return then discards the retry this enqueues. Clearing it
+// first means the retry finds a charger that makes no claim, and re-subscribes.
+func (m *manager) repairReplacedSubscription(chargerID string) {
+	m.mu.Lock()
+
+	replaced, reRegistered := m.chargers[chargerID]
+	if reRegistered {
+		replaced.isSubscribed = false
+	}
+
+	m.mu.Unlock()
+
+	if reRegistered {
+		m.enqueueSubscription(chargerID)
+	}
 }
 
 func (m *manager) Connected(chargerID string) (bool, DisconnectionReason) {
@@ -300,6 +316,10 @@ func (m *manager) handleSubscription(chargerID string) error {
 		if unsubErr := m.client.UnsubscribeCharger(chargerID); unsubErr != nil {
 			log.Warnf("signalR: cleanup after unregister race chargerID=%s err: %v", chargerID, unsubErr)
 		}
+
+		// This unsubscribe names the charger by ID too, so it can tear down a replacement's
+		// subscription exactly the way Unregister's can.
+		m.repairReplacedSubscription(chargerID)
 	}()
 
 	m.mu.Lock()

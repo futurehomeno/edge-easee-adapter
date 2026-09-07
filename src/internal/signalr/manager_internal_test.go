@@ -833,3 +833,52 @@ func TestUnregister_ReSubscribesAChargerReRegisteredUnderTheSameID(t *testing.T)
 	assert.False(t, stillClaimsSubscribed, "the stale unsubscribe tore the subscription down, so the flag must not survive it")
 	assert.NotEmpty(t, m.subscriptions, "the replacement must be handed back for a fresh subscribe")
 }
+
+// A replacement registered under the same ID must end up subscribed even when its own subscribe
+// was already in flight when the stale by-ID unsubscribe tore it down. Clearing isSubscribed
+// only for an idle charger left this case unrepaired: the in-flight subscribe set the flag on
+// completion, and handleSubscription's early return then discarded the enqueued retry.
+func TestUnregister_RepairsAReplacementWhoseSubscribeWasInFlight(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	// The replacement is registered and is mid-subscribe when the stale unsubscribe lands.
+	m.Register(chargerID, &recordingHandler{handled: make(chan struct{})})
+
+	// Mid-subscribe, and that subscribe has just landed: this is the state the old guard
+	// skipped, leaving the stale claim in place.
+	m.mu.Lock()
+	m.chargers[chargerID].subscribing = true
+	m.chargers[chargerID].isSubscribed = true
+	m.mu.Unlock()
+
+	release()
+	<-unregistered
+
+	m.mu.RLock()
+	claimsSubscribed := m.chargers[chargerID].isSubscribed
+	m.mu.RUnlock()
+
+	assert.False(t, claimsSubscribed, "the replacement must not be left claiming a subscription the stale unsubscribe removed")
+	assert.NotEmpty(t, m.subscriptions, "the replacement must be handed back for a fresh subscribe")
+}
