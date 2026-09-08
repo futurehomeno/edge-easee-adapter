@@ -1,9 +1,68 @@
 package model
 
 import (
+	"fmt"
+	"slices"
+
 	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 )
+
+// easeePhaseModeSingle and EaseePhaseModeAuto are Easee's internal phase modes:
+// 1 locks the charger to one phase, 2 lets it choose, 3 locks it to three phases.
+// Three-phase requests map to auto rather than 3, because most EVs refuse a
+// 1->3 phase transition mid-session and would stall on a hard lock.
+const (
+	easeePhaseModeSingle = 1
+	// EaseePhaseModeAuto lets the charger pick, so it is not pinned to any single leg.
+	EaseePhaseModeAuto = 2
+)
+
+// SettablePhaseModes returns every phase mode the charger can be switched to, regardless
+// of the mode it currently sits in. The auto row of the matrix is the union of the others.
+func SettablePhaseModes(gridType types.GridType, phases int) []types.PhaseMode {
+	return SupportedPhaseModes(gridType, EaseePhaseModeAuto, phases)
+}
+
+// AdvertisedPhaseModes returns the settable modes with every single-phase entry collapsed to
+// one. An Easee cannot choose its phase: it always uses the phase it is wired to, so advertising
+// the others makes a hub ask for a phase the charger will never report and retry forever.
+func AdvertisedPhaseModes(gridType types.GridType, phases int, outputPhase types.PhaseMode) []types.PhaseMode {
+	modes := SettablePhaseModes(gridType, phases)
+
+	single := slices.IndexFunc(modes, func(m types.PhaseMode) bool { return m.EffectivePhasesCnt() == 1 })
+	if single < 0 {
+		return modes
+	}
+
+	kept := modes[single]
+	if outputPhase.EffectivePhasesCnt() == 1 && slices.Contains(modes, outputPhase) {
+		kept = outputPhase
+	}
+
+	advertised := []types.PhaseMode{kept}
+
+	for _, m := range modes {
+		if m.EffectivePhasesCnt() > 1 {
+			advertised = append(advertised, m)
+		}
+	}
+
+	return advertised
+}
+
+// ToEaseePhaseMode maps a FIMP phase mode onto Easee's internal phase mode.
+func ToEaseePhaseMode(gridType types.GridType, phases int, mode types.PhaseMode) (int, error) {
+	if slices.Contains(SupportedPhaseModes(gridType, easeePhaseModeSingle, phases), mode) {
+		return easeePhaseModeSingle, nil
+	}
+
+	if slices.Contains(SettablePhaseModes(gridType, phases), mode) {
+		return EaseePhaseModeAuto, nil
+	}
+
+	return 0, fmt.Errorf("phase modes mapper: mode %s unsupported on a %s grid with %d phases", mode, gridType, phases)
+}
 
 func SupportedPhaseModes(gridType types.GridType, phaseMode, phases int) []types.PhaseMode {
 	if gridType == "" || phaseMode == 0 || phases == 0 {

@@ -2,6 +2,7 @@ package easee
 
 import (
 	"github.com/futurehomeno/cliffhanger/adapter"
+	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -19,6 +20,7 @@ type connector struct {
 	chargerID      string
 	cache          cache.Cache
 	sessionStorage db.ChargingSessionStorage
+	thingState     adapter.ThingState
 }
 
 func NewConnector(
@@ -28,6 +30,7 @@ func NewConnector(
 	cache cache.Cache,
 	confSrv *config.Service,
 	sessionStorage db.ChargingSessionStorage,
+	thingState adapter.ThingState,
 ) adapter.Connector {
 	return &connector{
 		manager:        manager,
@@ -36,11 +39,12 @@ func NewConnector(
 		cache:          cache,
 		confSrv:        confSrv,
 		sessionStorage: sessionStorage,
+		thingState:     thingState,
 	}
 }
 
 func (c *connector) Connect(thing adapter.Thing) {
-	handler, err := signalr.NewObservationsHandler(thing, c.cache, c.confSrv, c.sessionStorage, c.chargerID)
+	handler, err := signalr.NewObservationsHandler(thing, c.cache, c.confSrv, c.sessionStorage, c.chargerID, &phaseStore{state: c.thingState})
 	if err != nil {
 		log.WithError(err).Error("failed to create signalRManager callbacks")
 
@@ -91,4 +95,29 @@ func (c *connector) Ping() *adapter.PingDetails {
 	return &adapter.PingDetails{
 		Status: adapter.PingResultSuccess,
 	}
+}
+
+// phaseStore reads and writes the observed phase in the persisted thing state.
+type phaseStore struct {
+	state adapter.ThingState
+}
+
+func (p *phaseStore) OutputPhase() types.PhaseMode {
+	state := State{}
+	if err := p.state.State(&state); err != nil {
+		log.WithError(err).Error("connector: failed to read state")
+	}
+
+	return state.OutputPhase
+}
+
+func (p *phaseStore) SetOutputPhase(mode types.PhaseMode) error {
+	state := State{}
+	if err := p.state.State(&state); err != nil {
+		return err
+	}
+
+	state.OutputPhase = mode
+
+	return p.state.SetState(&state)
 }

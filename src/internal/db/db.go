@@ -16,20 +16,15 @@ const (
 	bucketNamePrefix = "charging-sessions:"
 )
 
-// ChargingSessionStorage is service used to store charging sessions.
+// ChargingSessionStorage stores charging sessions per charger.
 type ChargingSessionStorage interface {
-	// Start starts ChargingSessionStorage service.
 	Start() error
-	// Stop stops ChargingSessionStorage service.
 	Stop() error
-	// Reset ChargingSessionStorage service.
 	Reset() error
 
-	// RegisterSessionStart registers start charging session for charger with chargerID.
 	RegisterSessionStart(chargerID string, session model.StartChargingSession) error
-	// RegisterSessionStop registers stop charging session for charger with chargerID.
 	RegisterSessionStop(chargerID string, session model.StopChargingSession) error
-	// LatestSessionsByChargerID returns latest and previous charging sessions by chargerID.
+	// LatestSessionsByChargerID returns the latest and the previous session.
 	LatestSessionsByChargerID(chargerID string) (ChargingSessions, error)
 }
 
@@ -107,7 +102,7 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 		keys = append(keys, key)
 	}
 
-	// Sort keys (session IDs) in descending order.
+	// Session IDs, newest first.
 	sort.Slice(keys, func(i, j int) bool {
 		return keys[i] > keys[j]
 	})
@@ -118,8 +113,14 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 		var session *ChargingSession
 
 		ok, err := s.db.Get(bucket, strconv.FormatInt(k, 10), &session)
-		if !ok || err != nil {
+		if err != nil {
 			return nil, err
+		}
+
+		// Keys() and Get() are separate transactions, so a session deleted in between is
+		// simply gone - not an error, and no reason to discard the ones already collected.
+		if !ok {
+			continue
 		}
 
 		sessions = append(sessions, session)

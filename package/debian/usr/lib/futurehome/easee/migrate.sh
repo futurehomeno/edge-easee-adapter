@@ -14,10 +14,11 @@ if [ "$(id -u)" = 0 ]; then
 	exit 1
 fi
 
-OLD_DATA=/opt/thingsplex/easee
-OLD_LOGS=/var/log/thingsplex/easee
-NEW_DATA=/var/lib/futurehome/easee
-NEW_LOGS=/var/log/futurehome/easee
+# Overridable so the Go tests can drive the script against a temp tree.
+OLD_DATA=${OLD_DATA:-/opt/thingsplex/easee}
+OLD_LOGS=${OLD_LOGS:-/var/log/thingsplex/easee}
+NEW_DATA=${NEW_DATA:-/var/lib/futurehome/easee}
+NEW_LOGS=${NEW_LOGS:-/var/log/futurehome/easee}
 
 # data/ holds credentials (config.json, secrets.json): everything created below
 # must be closed to others from the start. postinst's permission
@@ -29,15 +30,20 @@ umask 027
 # state is never deleted - once data/ exists the service owns it.
 TMP="$NEW_DATA/.data.tmp"
 rm -rf "$TMP"
-if [ ! -e "$NEW_DATA/data" ] && [ -d "$OLD_DATA/data" ]; then
+if [ ! -e "$NEW_DATA/data" ] && [ -d "$OLD_DATA/data" ] && [ ! -L "$OLD_DATA/data" ]; then
 	echo "easee: migrating legacy state from $OLD_DATA"
 	# cp -R (not -a): drop legacy owner bits; the umask above masks the
 	# copied modes so nothing arrives world-readable.
 	cp -R "$OLD_DATA/data" "$TMP"
 	# Make the copy durable before the rename publishes it: the rename may
-	# reach disk before the file data it points to.
-	sync -f "$TMP"
+	# reach disk before the file data it points to. sync -f is a coreutils
+	# extension, so fall back to a full sync where it is unavailable - a bare
+	# sync -f would abort the upgrade under set -eu.
+	sync -f "$TMP" 2>/dev/null || sync
 	mv "$TMP" "$NEW_DATA/data"
+	# Flush the parent too: the rename creates a directory entry that can
+	# otherwise be lost on power loss even though the contents were synced.
+	sync -f "$NEW_DATA" 2>/dev/null || sync
 fi
 
 # The charging session history (buntdb) lives at the legacy work dir root, not
@@ -48,9 +54,17 @@ rm -f "$DB_TMP"
 if [ ! -e "$NEW_DATA/data.db" ] && [ -f "$OLD_DATA/data.db" ] && [ ! -L "$OLD_DATA/data.db" ]; then
 	echo "easee: migrating charging sessions from $OLD_DATA/data.db"
 	cp "$OLD_DATA/data.db" "$DB_TMP"
-	sync -f "$DB_TMP"
+	sync -f "$DB_TMP" 2>/dev/null || sync
 	mv "$DB_TMP" "$NEW_DATA/data.db"
+	sync -f "$NEW_DATA" 2>/dev/null || sync
 fi
+
+# The legacy tree is kept for downgrade, but the v2 postinst left data/ at 755 +
+# files 644, so config.json - which carries accessToken/refreshToken inline
+# before the v5->v6 credential migration - stays world-readable there and the new
+# workdir modes would only protect the migrated copy. Close it to others; the
+# files remain easee-owned, so a downgraded v2 still reads them.
+chmod -R o= "$OLD_DATA/data" 2>/dev/null || true
 
 # Rewrite legacy absolute paths in a migrated config.json. Idempotent. The .bak is
 # rewritten too: the service falls back to it when config.json is unreadable, and an

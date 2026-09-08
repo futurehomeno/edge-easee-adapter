@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
-	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
@@ -12,6 +11,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/selection"
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
@@ -52,12 +52,12 @@ func routeLogIncoming() *router.Routing {
 	)
 }
 
-// New returns a new routing table.
 func New(
 	cfgSrv *config.Service,
 	appLifecycle *lifecycle.Lifecycle,
 	application app.App,
 	adapter cliffAdapter.Adapter,
+	tel telemetry.Telemetry,
 ) []*router.Routing {
 	// Shared by the app and adapter routes so cmd.thing.delete cannot interleave with
 	// cmd.config.extended_set rewriting the selection it reads.
@@ -70,7 +70,7 @@ func New(
 
 	return router.Combine(
 		[]*router.Routing{routeLogIncoming()},
-		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.PublicConfig() }, nil),
+		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.PublicConfig() }, tel),
 		[]*router.Routing{
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.PollingInterval),
 			cliffConfig.RouteCmdConfigSetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.SetPollingInterval),
@@ -106,6 +106,5 @@ func New(
 		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, locker, application, nil),
 		cliffAdapter.RouteAdapter(adapter, cliffAdapter.WithSelection(devices, locker)),
 		thing.RouteCarCharger(adapter),
-		parameters.RouteService(adapter),
 	)
 }

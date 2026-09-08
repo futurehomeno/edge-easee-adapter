@@ -11,6 +11,7 @@ import (
 
 	"github.com/michalkurzeja/go-clock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -285,6 +286,101 @@ func TestClient_UpdateMaxCurrent(t *testing.T) {
 	}
 }
 
+func TestClient_SetPhaseMode(t *testing.T) {
+	tests := []struct {
+		name             string
+		chargerID        string
+		accessToken      string
+		serverHandler    http.Handler
+		forceServerError bool
+		phaseMode        int
+		wantErr          bool
+	}{
+		{
+			name:        "successful call to Easee API",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/set_phase_mode",
+				requestBody:   `{"phaseMode":1}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusOK,
+			}),
+			phaseMode: 1,
+		},
+		{
+			name:        "accepted is a valid response too",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/set_phase_mode",
+				requestBody:   `{"phaseMode":2}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusAccepted,
+			}),
+			phaseMode: 2,
+		},
+		{
+			name:        "unexpected response code",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/set_phase_mode",
+				requestBody:   `{"phaseMode":1}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			phaseMode: 1,
+			wantErr:   true,
+		},
+		{
+			name:             "http client error",
+			chargerID:        test.ChargerID,
+			accessToken:      test.AccessToken,
+			forceServerError: true,
+			phaseMode:        1,
+			wantErr:          true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			storage := mockedstorage.Storage[*config.Config]{}
+			cfgSrv := config.NewService(&storage)
+
+			c := api.NewHTTPClient(cfgSrv, &http.Client{Timeout: 3 * time.Second}, s.URL)
+
+			err := c.SetPhaseMode(tt.accessToken, tt.chargerID, tt.phaseMode)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
 //nolint:dupl
 func TestClient_UpdateDynamicCurrent(t *testing.T) {
 	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
@@ -368,7 +464,7 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) {
 			httpClient := &http.Client{Timeout: 3 * time.Second}
 			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
 
-			err := c.UpdateDynamicCurrent(tt.accessToken, tt.chargerID, tt.current)
+			err := c.UpdateDynamicCurrent(tt.accessToken, tt.chargerID, tt.current, false)
 			if tt.wantErr {
 				assert.Error(t, err)
 
@@ -502,6 +598,24 @@ func TestClient_ChargerConfig(t *testing.T) {
 			want: &model.ChargerConfig{
 				DetectedPowerGridType: 1,
 			},
+		},
+		{
+			// GridTypeNotYetDetected is 0, so a charger that has not detected its grid yet
+			// answers all-zero. That used to be rejected as "does not contain expected
+			// data", and the charger's thing was then never created at all.
+			name:        "grid type not yet detected",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodGet,
+				requestPath:   "/api/chargers/XX12345/config",
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusOK,
+				responseBody: `{"detectedPowerGridType":0,"phaseMode":0}`,
+			}),
+			want: &model.ChargerConfig{},
 		},
 		{
 			name:        "response code != 200",
@@ -802,4 +916,39 @@ func (t *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(call.responseCode)
 	_, err = w.Write([]byte(call.responseBody))
 	assert.NoError(t.testingT, err)
+}
+
+// The client-side throttle is what a forced start has to get past:
+// shouldBackoffWithMaxCurrentChange refuses any write inside OfferedCurrentWaitTime of the last
+// one, so without the bypass a start that follows an offered-current change never reaches Easee.
+func TestClient_UpdateDynamicCurrent_ForceBypassesTheLocalThrottle(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(s.Close)
+
+	storage := mockedstorage.Storage[*config.Config]{}
+	storage.On("Model").Return(&config.Config{PublicConfig: config.PublicConfig{OfferedCurrentWaitTime: "15s"}}).Maybe()
+
+	c := api.NewHTTPClient(config.NewService(&storage), s.Client(), s.URL)
+
+	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 16, false))
+	assert.Equal(t, 1, calls)
+
+	require.Error(t, c.UpdateDynamicCurrent("token", "test-charger", 16, false), "an unforced write inside the window is refused")
+	assert.Equal(t, 1, calls)
+
+	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 16, true), "a forced write must reach the charger")
+	assert.Equal(t, 2, calls)
+
+	// The forced write must still arm the throttle for the writes after it, or the bypass
+	// would leak: one forced call would leave the window open for every unforced one behind it.
+	require.Error(t, c.UpdateDynamicCurrent("token", "test-charger", 16, false), "the forced write must still register its timestamp")
+	assert.Equal(t, 2, calls)
 }

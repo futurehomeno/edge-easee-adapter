@@ -3,8 +3,11 @@ package signalr
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/futurehomeno/cliffhanger/backoff"
 	log "github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -15,12 +18,12 @@ import (
 	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 )
 
+const chargerID = "XX12345"
+
 // A reconnect starts a new subscription-failure streak, so its first failure has to warn
 // again instead of being downgraded to debug by the flag the previous connection left set.
 func TestReconnectWarnsOnTheFirstSubscribeFailureAgain(t *testing.T) {
-	const chargerID = "XX12345"
-
-	m, hook := newTestManager(t, chargerID)
+	m, hook := newTestManager(t)
 
 	require.NoError(t, m.handleSubscription(chargerID))
 	require.NoError(t, m.handleSubscription(chargerID))
@@ -36,9 +39,7 @@ func TestReconnectWarnsOnTheFirstSubscribeFailureAgain(t *testing.T) {
 // Nothing cancels the retries armed before a disconnect, so one can still fire during the
 // outage. That failure must not consume the warning the next connection is entitled to.
 func TestStaleRetryDuringOutageDoesNotStealTheReconnectWarning(t *testing.T) {
-	const chargerID = "XX12345"
-
-	m, hook := newTestManager(t, chargerID)
+	m, hook := newTestManager(t)
 
 	require.NoError(t, m.handleSubscription(chargerID))
 
@@ -54,6 +55,460 @@ func TestStaleRetryDuringOutageDoesNotStealTheReconnectWarning(t *testing.T) {
 	assert.Equal(t, 1, subscribeWarnings(hook), "a retry firing during the outage must not silence the reconnect")
 }
 
+// handleSubscription used to hold the manager write lock across SubscribeCharger, which
+// blocks for up to SignalRInvokeTimeout - stalling Connected(), Register() and the observation
+// dispatch loop, which runs on the very goroutine making the invoke.
+func TestHandleSubscription_DoesNotHoldTheLockDuringInvoke(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	// Registered up front so a t.Fatal below still unblocks the subscribe goroutine; OnceFunc
+	// keeps the explicit release on the happy path from double-closing.
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	queried := make(chan struct{})
+
+	go func() {
+		defer close(queried)
+
+		m.Connected(chargerID)
+	}()
+
+	select {
+	case <-queried:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Connected blocked while a subscribe invoke was in flight")
+	}
+
+	release()
+	<-subscribed
+}
+
+// Every reconnect enqueues a subscription for every charger, so a charger that keeps failing
+// used to accumulate one more self-perpetuating retry chain - and one more blocking invoke
+// per cycle - on each reconnect.
+func TestHandleSubscription_ArmsAtMostOneRetryPerCharger(t *testing.T) {
+	m, _ := newTestManager(t)
+
+	// An open done channel parks the armed retry on its backoff timer, so it stays armed for
+	// the whole test rather than disarming itself before the next failure is handled.
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	// addChargerSubscription calls Next exactly once, at the top, so the count is the number
+	// of chains armed - unlike runtime.NumGoroutine, which unrelated runtime churn can move.
+	arms := &countingBackoff{Stateful: m.cfg.SignalRBackoffStateful()}
+	m.chargers[chargerID].backoff = arms
+
+	for range 5 {
+		require.NoError(t, m.handleSubscription(chargerID))
+	}
+
+	assert.Eventually(t, func() bool { return arms.count() >= 1 }, time.Second, 10*time.Millisecond)
+	assert.Equal(t, 1, arms.count(), "further failures must not arm a second retry chain")
+}
+
+// The flag has to clear on every exit path of addChargerSubscription. A charger left armed
+// can never schedule another retry, which strands it worse than the duplicate chains the
+// flag exists to prevent.
+func TestArmedRetryIsDisarmedSoItCanArmAgain(t *testing.T) {
+	m, _ := newTestManager(t) // done is already closed, so the retry exits at once
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	charger := m.chargers[chargerID]
+
+	assert.Eventually(t, func() bool {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+
+		return !charger.retryArmed
+	}, time.Second, 10*time.Millisecond, "a retry that returns must disarm the charger")
+}
+
+// addChargerSubscription hands its charger to the run loop and only then returns. The disarm
+// therefore has to happen before the hand-off, never on the way out: the run loop can arm the
+// next chain while this one is still returning, and a deferred disarm would clear that fresh
+// flag - letting the failure after it arm a second, duplicate chain.
+func TestArmedRetryDoesNotDisarmTheChainThatReplacedIt(t *testing.T) {
+	m, _ := newTestManager(t)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	charger := m.chargers[chargerID]
+	charger.backoff = instantBackoff{Stateful: m.cfg.SignalRBackoffStateful()}
+	charger.retryArmed = true
+
+	// Filled to capacity so the hand-off blocks, which pins the retry between its disarm and
+	// its return for as long as the test needs to stand in for the run loop.
+	for len(m.subscriptions) < cap(m.subscriptions) {
+		m.subscriptions <- "filler"
+	}
+
+	finished := make(chan struct{})
+
+	go func() {
+		defer close(finished)
+
+		m.addChargerSubscription(chargerID, charger)
+	}()
+
+	// A cleared flag means the retry is past its disarm, and the full channel means it cannot
+	// be past the hand-off - so it is parked on the send, exactly where the run loop would be
+	// arming the next chain.
+	require.Eventually(t, func() bool {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+
+		return !charger.retryArmed
+	}, time.Second, time.Millisecond, "the retry must disarm before handing off")
+
+	m.mu.Lock()
+	charger.retryArmed = true
+	m.mu.Unlock()
+
+	<-m.subscriptions
+	<-finished
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assert.True(t, charger.retryArmed, "the chain armed during the hand-off must stay armed")
+}
+
+// A retry armed on the previous connection sleeps on a backoff of up to ten minutes, and
+// reconnecting resets that backoff without waking it. While the flag stayed set, the
+// reconnect's own subscribe could not arm a fresh chain on failure, leaving the charger
+// unsubscribed for the remainder of the stale delay.
+func TestReconnectArmsAFreshRetryChain(t *testing.T) {
+	m, _ := newTestManager(t)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	arms := &countingBackoff{Stateful: m.cfg.SignalRBackoffStateful()}
+	m.chargers[chargerID].backoff = arms
+
+	require.NoError(t, m.handleSubscription(chargerID))
+	require.Eventually(t, func() bool { return arms.count() == 1 }, time.Second, time.Millisecond)
+
+	m.handleClientState(model.ClientStateDisconnected)
+	m.handleClientState(model.ClientStateConnected)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Eventually(t, func() bool { return arms.count() == 2 }, time.Second, time.Millisecond,
+		"a failure after reconnect must arm a fresh chain, not wait out the stale one")
+}
+
+// The chain a reconnect retires still fires afterwards; it must not disarm the fresh one.
+func TestStaleRetryDoesNotDisarmTheChainArmedAfterReconnect(t *testing.T) {
+	m, _ := newTestManager(t)
+
+	charger := m.chargers[chargerID]
+	staleEpoch := m.epoch
+
+	m.handleClientState(model.ClientStateConnected)
+
+	m.mu.Lock()
+	charger.retryArmed = true
+	m.mu.Unlock()
+
+	m.disarmRetry(charger, staleEpoch)
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assert.True(t, charger.retryArmed, "a retired chain must not disarm the chain armed after reconnect")
+}
+
+// The run loop is the only drainer of the observation channel, so subscribing on it stalled
+// that drain for up to SignalRInvokeTimeout per charger - while the server was already
+// streaming the initial batch that same subscribe asked for, overflowing the buffer and
+// losing the edge-triggered session records among the drops.
+func TestRunLoopKeepsDrainingObservationsWhileASubscribeIsInFlight(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	observations := make(chan model.Observation, 1)
+	client.observations = observations
+
+	handled := make(chan struct{})
+	m.chargers[chargerID].handler = &recordingHandler{handled: handled}
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	go m.run()
+
+	m.enqueueSubscription(chargerID)
+
+	<-client.entered
+
+	// The subscribe is parked mid-invoke, exactly where the loop used to sit. An observation
+	// delivered now must still be picked up.
+	observations <- model.Observation{ID: model.ChargerOPState, ChargerID: chargerID}
+
+	select {
+	case <-handled:
+	case <-time.After(time.Second):
+		t.Fatal("observations must be handled while a subscribe invoke is in flight")
+	}
+
+	close(client.release)
+}
+
+// The server streams the initial batch as soon as the subscribe invoke is made, so the charger
+// has to count as connected while that invoke is still in flight: gating on isSubscribed alone
+// failed the follow-up report of every observation in that batch.
+func TestChargerIsConnectedWhileItsSubscribeIsInFlight(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+	t.Cleanup(func() { close(client.release) })
+
+	go func() { _ = m.handleSubscription(chargerID) }()
+
+	<-client.entered
+
+	connected, reason := m.Connected(chargerID)
+
+	assert.True(t, connected, "a charger must be connected while its subscribe is in flight")
+	assert.Empty(t, reason)
+}
+
+// A disconnect retires the connection the in-flight subscribe belongs to, so the charger must
+// stop counting as connected at once rather than when the invoke finally times out.
+func TestDisconnectEndsTheConnectedWindowOfAnInFlightSubscribe(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+	t.Cleanup(func() { close(client.release) })
+
+	go func() { _ = m.handleSubscription(chargerID) }()
+
+	<-client.entered
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	connected, reason := m.Connected(chargerID)
+
+	assert.False(t, connected)
+	assert.Equal(t, ChargerNotSubscribed, reason)
+}
+
+// A subscribe that lands after the disconnect describes the connection just lost, so its result
+// must not mark the charger subscribed - and the disconnect must still leave it able to retry.
+func TestDisconnectRetiresAPendingSubscribeResult(t *testing.T) {
+	client := &blockingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	close(client.release)
+	<-done
+
+	m.mu.RLock()
+	isSubscribed := m.chargers[chargerID].isSubscribed
+	m.mu.RUnlock()
+
+	assert.False(t, isSubscribed, "a subscribe completing after the disconnect must not mark the charger subscribed")
+}
+
+// Retiring the epoch on disconnect makes disarmRetry a no-op for a chain armed on the lost
+// connection, so the disconnect itself has to clear the flag - otherwise that charger can never
+// arm another retry and stops re-subscribing for good.
+func TestDisconnectClearsARetryArmedOnTheLostConnection(t *testing.T) {
+	m := newTestManagerWithClient(t, &failingSubscribeClient{})
+
+	m.mu.Lock()
+	m.chargers[chargerID].retryArmed = true
+	m.mu.Unlock()
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	m.mu.RLock()
+	retryArmed := m.chargers[chargerID].retryArmed
+	m.mu.RUnlock()
+
+	assert.False(t, retryArmed)
+}
+
+// A subscribe spanning a reconnect describes a connection that no longer exists: its result
+// must not mark the charger subscribed on the new one, and must not leave the guard set on
+// the fresh attempt the reconnect sweep enqueued.
+func TestSubscribeResultFromAPreviousConnectionIsDropped(t *testing.T) {
+	client := &racingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	m.handleClientState(model.ClientStateConnected)
+
+	close(client.release)
+	<-subscribed
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	charger := m.chargers[chargerID]
+
+	assert.False(t, charger.isSubscribed, "a result from the retired connection must not mark the new one subscribed")
+	assert.False(t, charger.subscribing, "the stale result must not leave the guard set against the fresh attempt")
+	assert.Zero(t, client.unsubscribeCalls(), "the retired connection took its own subscription with it")
+}
+
+// A Subscribe invoke that outlives Unregister can still succeed after Unregister's own
+// Unsubscribe already ran, silently re-establishing the cloud subscription with no local
+// charger left to receive its observations. handleSubscription must undo that itself.
+func TestHandleSubscription_UnregisterRaceCleansUpASubscribeThatWonTheRace(t *testing.T) {
+	client := &racingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	require.NoError(t, m.Unregister(chargerID))
+
+	close(client.release)
+	<-subscribed
+
+	assert.Equal(t, 2, client.unsubscribeCalls(), "the race winner's subscription must be cleaned up in addition to Unregister's own")
+}
+
+// A failed invoke is no proof the cloud subscription was not established: the invoke timeout
+// is local and does not cancel the server-side operation, so a subscribe that timed out here
+// may well have succeeded there. The race is compensated on the error path too.
+func TestHandleSubscription_UnregisterRaceCleansUpAfterAFailedInvokeToo(t *testing.T) {
+	client := &racingSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+		fail:    true,
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	require.NoError(t, m.Unregister(chargerID))
+
+	close(client.release)
+	<-subscribed
+
+	assert.Equal(t, 2, client.unsubscribeCalls(), "a timed-out invoke may have succeeded server-side, so the race is cleaned up regardless")
+}
+
+// The buffer only fills while the run loop is stalled, so a warning per dropped observation
+// would add synchronous logging to the overload path. One per streak, re-armed once a send
+// gets through again.
+func TestObservationDropWarnsOncePerStreak(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	observations := make(chan model.Observation, 1)
+	r := newReceiver(observations)
+
+	obs := model.Observation{ID: model.ChargerOPState, ChargerID: chargerID}
+
+	r.ProductUpdate(obs)
+
+	for range 5 {
+		r.ProductUpdate(obs)
+	}
+
+	assert.Equal(t, 1, dropWarnings(hook), "a streak of drops must warn once, not once per observation")
+
+	// A send that gets through ends the streak, so the next stall is visible again.
+	<-observations
+	r.ProductUpdate(obs)
+	r.ProductUpdate(obs)
+
+	assert.Equal(t, 2, dropWarnings(hook), "a fresh stall after recovery must warn again")
+}
+
+func dropWarnings(hook *logtest.Hook) int {
+	warnings := 0
+
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == log.WarnLevel && strings.Contains(entry.Message, "observation buffer full") {
+			warnings++
+		}
+	}
+
+	return warnings
+}
+
 func subscribeWarnings(hook *logtest.Hook) int {
 	warnings := 0
 
@@ -66,14 +521,23 @@ func subscribeWarnings(hook *logtest.Hook) int {
 	return warnings
 }
 
-func newTestManager(t *testing.T, chargerID string) (*manager, *logtest.Hook) {
+func newTestManager(t *testing.T) (*manager, *logtest.Hook) {
+	t.Helper()
+
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	return newTestManagerWithClient(t, &failingSubscribeClient{}), hook
+}
+
+func newTestManagerWithClient(t *testing.T, client Client) *manager {
 	t.Helper()
 
 	storage := mockedstorage.NewStorage[*config.Config](t)
 	storage.On("Model").Return(&config.Config{}).Maybe()
 	storage.On("Save").Return(nil).Maybe()
 
-	m, ok := NewManager(config.NewService(storage), &failingSubscribeClient{}).(*manager)
+	m, ok := NewManager(config.NewService(storage), client, nil).(*manager)
 	require.True(t, ok)
 
 	// The retries handleSubscription arms are not under test; an already closed done
@@ -81,12 +545,42 @@ func newTestManager(t *testing.T, chargerID string) (*manager, *logtest.Hook) {
 	m.done = make(chan struct{})
 	close(m.done)
 
-	m.chargers[chargerID] = &charger{backoff: m.cfg.SignalRBackoffStateful()}
+	m.chargers[chargerID] = &charger{handler: &recordingHandler{handled: make(chan struct{})}, backoff: m.cfg.SignalRBackoffStateful()}
 
-	hook := logtest.NewLocal(log.StandardLogger())
-	t.Cleanup(hook.Reset)
+	return m
+}
 
-	return m, hook
+// instantBackoff fires the retry timer immediately, so a test does not wait out the real
+// five-second first delay.
+type instantBackoff struct {
+	backoff.Stateful
+}
+
+func (instantBackoff) Next() time.Duration { return time.Nanosecond }
+
+// countingBackoff records how many times a retry chain was armed: addChargerSubscription
+// takes its delay from Next exactly once per chain.
+type countingBackoff struct {
+	backoff.Stateful
+
+	mu   sync.Mutex
+	arms int
+}
+
+func (b *countingBackoff) Next() time.Duration {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.arms++
+
+	return b.Stateful.Next()
+}
+
+func (b *countingBackoff) count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.arms
 }
 
 // failingSubscribeClient is a stub rather than a generated mock: the mock package imports
@@ -100,3 +594,359 @@ func (c *failingSubscribeClient) UnsubscribeCharger(string) error        { retur
 func (c *failingSubscribeClient) Connected() bool                        { return false }
 func (c *failingSubscribeClient) StateC() <-chan model.ClientState       { return nil }
 func (c *failingSubscribeClient) ObservationC() <-chan model.Observation { return nil }
+
+// blockingSubscribeClient parks in SubscribeCharger until released, standing in for an
+// invoke running up to SignalRInvokeTimeout.
+type blockingSubscribeClient struct {
+	failingSubscribeClient
+
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+
+	// Set only by the test that drives the real run loop; nil elsewhere, as the embedded stub returns.
+	observations chan model.Observation
+}
+
+func (c *blockingSubscribeClient) SubscribeCharger(string) error {
+	c.enterOnce.Do(func() { close(c.entered) })
+	<-c.release
+
+	return errors.New("not logged in")
+}
+
+func (c *blockingSubscribeClient) ObservationC() <-chan model.Observation { return c.observations }
+
+// recordingHandler closes handled on the first observation the run loop dispatches to it.
+type recordingHandler struct {
+	once    sync.Once
+	handled chan struct{}
+}
+
+func (h *recordingHandler) IsOnline() bool { return true }
+
+func (h *recordingHandler) HandleObservation(model.Observation) error {
+	h.once.Do(func() { close(h.handled) })
+
+	return nil
+}
+
+// racingSubscribeClient parks in SubscribeCharger until released, then succeeds or fails per
+// fail - standing in for an invoke still in flight when Unregister runs concurrently, and
+// counting Unsubscribe calls to check whether the race is cleaned up exactly once.
+type racingSubscribeClient struct {
+	failingSubscribeClient
+
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+	fail      bool
+
+	mu           sync.Mutex
+	unsubscribes int
+}
+
+func (c *racingSubscribeClient) SubscribeCharger(string) error {
+	c.enterOnce.Do(func() { close(c.entered) })
+	<-c.release
+
+	if c.fail {
+		return errors.New("not logged in")
+	}
+
+	return nil
+}
+
+func (c *racingSubscribeClient) UnsubscribeCharger(string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.unsubscribes++
+
+	return nil
+}
+
+func (c *racingSubscribeClient) unsubscribeCalls() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.unsubscribes
+}
+
+// blockingUnsubscribeClient blocks inside UnsubscribeCharger the way the real one blocks on a
+// connection, so a test can observe whether m.mu is held across it.
+type blockingUnsubscribeClient struct {
+	failingSubscribeClient
+
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+
+	mu       sync.Mutex
+	closeCnt int
+}
+
+func (c *blockingUnsubscribeClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.closeCnt++
+
+	return nil
+}
+
+func (c *blockingUnsubscribeClient) closes() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.closeCnt
+}
+
+func (c *blockingUnsubscribeClient) UnsubscribeCharger(string) error {
+	c.enterOnce.Do(func() { close(c.entered) })
+	<-c.release
+
+	return nil
+}
+
+// Unregister held m.mu across both UnsubscribeCharger and Close, each of which blocks on the
+// connection for up to SignalRInvokeTimeout - stalling Connected(), Register() and every
+// observation lookup for the whole invocation. Stop() already did this correctly.
+func TestUnregister_DoesNotHoldTheLockDuringInvoke(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	m.chargers[chargerID] = &charger{handler: &recordingHandler{handled: make(chan struct{})}, backoff: m.cfg.SignalRBackoffStateful()}
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	queried := make(chan struct{})
+
+	go func() {
+		defer close(queried)
+
+		m.Connected(chargerID)
+	}()
+
+	select {
+	case <-queried:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Connected blocked while an unsubscribe invoke was in flight")
+	}
+
+	release()
+	<-unregistered
+}
+
+// Register adds its charger and calls Start() while holding m.mu, so it can complete entirely
+// while an Unregister is blocked in UnsubscribeCharger. Deciding "was that the last charger?"
+// before that invoke closed the client out from under the new registration, and nothing
+// restarts it until another Register lands.
+func TestUnregister_DoesNotCloseAClientARegisterJustStarted(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	// A fresh registration lands while the unsubscribe is still parked.
+	m.Register("YY67890", &recordingHandler{handled: make(chan struct{})})
+
+	release()
+	<-unregistered
+
+	assert.Zero(t, client.closes(), "the client must stay up for the charger registered mid-unregister")
+}
+
+// UnsubscribeCharger names the charger by ID, with nothing tying it to the instance Unregister
+// removed. A Register for the same ID that subscribes while that invoke is parked has its
+// server-side subscription torn down by it, and the manager keeps believing it is subscribed -
+// so its observations stop until a reconnect. The replacement must be re-subscribed instead.
+func TestUnregister_ReSubscribesAChargerReRegisteredUnderTheSameID(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	// An open done channel lets enqueueSubscription hand off instead of taking the cancel path.
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	// The same ID is registered again and reaches subscribed while the unsubscribe is parked.
+	m.Register(chargerID, &recordingHandler{handled: make(chan struct{})})
+
+	m.mu.Lock()
+	m.chargers[chargerID].isSubscribed = true
+	m.mu.Unlock()
+
+	release()
+	<-unregistered
+
+	m.mu.RLock()
+	stillClaimsSubscribed := m.chargers[chargerID].isSubscribed
+	m.mu.RUnlock()
+
+	assert.False(t, stillClaimsSubscribed, "the stale unsubscribe tore the subscription down, so the flag must not survive it")
+	assert.NotEmpty(t, m.subscriptions, "the replacement must be handed back for a fresh subscribe")
+}
+
+// A replacement registered under the same ID must end up subscribed even when its own subscribe
+// was already in flight when the stale by-ID unsubscribe tore it down. Clearing isSubscribed
+// only for an idle charger left this case unrepaired: the in-flight subscribe set the flag on
+// completion, and handleSubscription's early return then discarded the enqueued retry.
+func TestUnregister_RepairsAReplacementWhoseSubscribeWasInFlight(t *testing.T) {
+	client := &blockingUnsubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	// The replacement is registered and is mid-subscribe when the stale unsubscribe lands.
+	m.Register(chargerID, &recordingHandler{handled: make(chan struct{})})
+
+	// Mid-subscribe, and that subscribe has just landed: this is the state the old guard
+	// skipped, leaving the stale claim in place.
+	m.mu.Lock()
+	m.chargers[chargerID].subscribing = true
+	m.chargers[chargerID].isSubscribed = true
+	m.mu.Unlock()
+
+	release()
+	<-unregistered
+
+	m.mu.RLock()
+	claimsSubscribed := m.chargers[chargerID].isSubscribed
+	m.mu.RUnlock()
+
+	assert.False(t, claimsSubscribed, "the replacement must not be left claiming a subscription the stale unsubscribe removed")
+	assert.NotEmpty(t, m.subscriptions, "the replacement must be handed back for a fresh subscribe")
+}
+
+// blockingSuccessfulSubscribeClient parks inside SubscribeCharger and then reports success, so a
+// test can land a repair while the subscribe is in flight and watch what the completion claims.
+type blockingSuccessfulSubscribeClient struct {
+	failingSubscribeClient
+
+	enterOnce sync.Once
+	entered   chan struct{}
+	release   chan struct{}
+}
+
+func (c *blockingSuccessfulSubscribeClient) SubscribeCharger(string) error {
+	c.enterOnce.Do(func() { close(c.entered) })
+	<-c.release
+
+	return nil
+}
+
+// A repair runs while a subscribe for the same charger is in flight: the stale unsubscribe it
+// compensates for has already torn the subscription down, so the subscribe's success is void.
+// Without the epoch it set isSubscribed on completion, and the retry the repair enqueued then
+// short-circuited on that claim - leaving the charger silent until the next reconnect.
+func TestHandleSubscription_RepairRetiresAnInFlightSubscribe(t *testing.T) {
+	client := &blockingSuccessfulSubscribeClient{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+
+	m := newTestManagerWithClient(t, client)
+
+	release := sync.OnceFunc(func() { close(client.release) })
+	t.Cleanup(release)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	subscribed := make(chan struct{})
+
+	go func() {
+		defer close(subscribed)
+
+		_ = m.handleSubscription(chargerID)
+	}()
+
+	<-client.entered
+
+	// The repair lands while the subscribe above is parked: this is the stale by-ID unsubscribe
+	// having torn down whatever that subscribe is about to report success for.
+	m.repairReplacedSubscription(chargerID)
+
+	// The repair's own retry, consumed while this subscribe is still in flight: handleSubscription
+	// drops it on the subscribing guard. Draining it here is that same loss, made deterministic -
+	// what is left pending afterwards can only come from the retired subscribe itself.
+	<-m.subscriptions
+
+	release()
+	<-subscribed
+
+	m.mu.RLock()
+	claimsSubscribed := m.chargers[chargerID].isSubscribed
+	subscribing := m.chargers[chargerID].subscribing
+	m.mu.RUnlock()
+
+	assert.False(t, claimsSubscribed,
+		"a subscribe retired by a repair must not claim a subscription the stale unsubscribe removed")
+	assert.False(t, subscribing, "a retired subscribe must still clear the flag on its way out")
+	assert.NotEmpty(t, m.subscriptions, "the retired subscribe must leave an attempt pending, not strand the charger")
+}

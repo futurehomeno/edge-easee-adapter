@@ -16,6 +16,8 @@ import (
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
 	cliffStorage "github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/task"
+	"github.com/futurehomeno/cliffhanger/telemetry"
+	telemetryTypes "github.com/futurehomeno/cliffhanger/telemetry/types"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
@@ -30,7 +32,6 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/tasks"
 )
 
-// services is a container for services that are common dependencies.
 var services = &serviceContainer{}
 
 // serviceContainer is a type representing a dependency injection container to be used during bootstrap of the application.
@@ -40,6 +41,9 @@ type serviceContainer struct {
 	defaultStore     *cliffCfg.DefaultStore
 	lifecycle        *lifecycle.Lifecycle
 	mqtt             *fimpgo.MqttTransport
+	telemetry        telemetry.Telemetry
+	telemetryTried   bool
+	version          string
 
 	application     app.ApplicationWithToken
 	manifestLoader  manifest.Loader
@@ -84,8 +88,20 @@ func getCredentialsStore() *config.CredentialsStore {
 	if services.credentialsStore == nil {
 		services.credentialsStore = config.NewCredentialsStore(bootstrap.GetConfigurationDirectory())
 
+		// Logged, not fatal: a corrupt secrets file is otherwise a boot loop, and the degraded
+		// start already exists - Initialize marks the app not configured and a login rewrites
+		// the file. Unlike the migration below, nothing is lost by continuing that a restart
+		// would recover.
+		//
+		// The model is discarded rather than trusted: json.Unmarshal writes each field as it
+		// decodes, so a file that fails partway through leaves what it had already parsed
+		// behind - enough for the app to come up claiming a session it only half has. The
+		// error itself is not logged: cliffhanger's loadFile embeds the whole file body in it,
+		// which for secrets.json is the tokens.
 		if err := services.credentialsStore.Load(); err != nil {
-			log.Fatalf("[config] Load credentials. err: %v", err)
+			services.credentialsStore.DiscardLoaded()
+
+			log.Errorf("[config] Load credentials failed, starting logged out (error omitted: it carries the file body)")
 		}
 	}
 
@@ -98,6 +114,8 @@ func getCredentialsStore() *config.CredentialsStore {
 // The version bump does not land on failure, so the next start retries.
 func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore) error {
 	cfg := cfgSvc.Model()
+
+	var migrated bool
 
 	resetLogDefaults := func() error {
 		cfg.LogLevel = "info"
@@ -112,10 +130,21 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		cliffCfg.Migration{From: 2, To: 3, Do: cfg.MigrateAuthBackoff},
 		cliffCfg.Migration{From: 3, To: 4, Do: cfg.MigrateOfferedCurrentWaitTime},
 		cliffCfg.Migration{From: 4, To: 5, Do: cfg.MigrateSignalRFinalBackoff},
-		cliffCfg.Migration{From: 5, To: 6, Do: func() error { return config.MigrateCredentials(cfg, credentials) }},
+		cliffCfg.Migration{From: 5, To: 6, Do: func() error {
+			migrated = true
+
+			return config.MigrateCredentials(cfg, credentials)
+		}},
 	)
 	if err != nil {
 		return fmt.Errorf("migrate config: %w", err)
+	}
+
+	// The v5->v6 step saves the config, which renames the pre-migration copy - tokens included -
+	// to a world-readable data/config.json.bak. Only that step leaves a token-bearing backup, so
+	// the steady-state corruption fallback survives untouched.
+	if migrated {
+		config.DropConfigBackup(bootstrap.GetConfigurationDirectory())
 	}
 
 	return nil
@@ -140,7 +169,7 @@ func getLifecycle() *lifecycle.Lifecycle {
 func getEventListener(cfg *config.Config) event.Listener {
 	if services.eventListener == nil {
 		services.eventListener = event.NewListener(
-			getEventManager(cfg),
+			getEventManager(),
 			parameters.NewInclusionReportSentEventHandler(getAdapter(cfg)),
 		)
 	}
@@ -152,9 +181,7 @@ func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 	if services.sessionStorage == nil {
 		dataBase, err := database.NewDatabase(cfg.WorkDir)
 		if err != nil {
-			log.Errorf("[db] Create database. err: %v", err)
-
-			return nil
+			log.Fatalf("[db] Create database. err: %v", err)
 		}
 
 		services.sessionStorage = db.NewSessionStorage(dataBase)
@@ -198,6 +225,7 @@ func getApplication(cfg *config.Config) app.ApplicationWithToken {
 			getAuthenticator(cfg),
 			getSignalRClient(cfg),
 			getCredentialsStore(),
+			getSessionStorage(cfg),
 		)
 	}
 
@@ -216,7 +244,7 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 	if services.adapter == nil {
 		services.adapter = adapter.NewAdapter(
 			getMQTT(cfg),
-			getEventManager(cfg),
+			getEventManager(),
 			getThingFactory(cfg),
 			getAdapterState(),
 			fimptype.EaseeRn,
@@ -227,7 +255,7 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 	return services.adapter
 }
 
-func getEventManager(_ *config.Config) event.Manager {
+func getEventManager() event.Manager {
 	if services.eventManager == nil {
 		services.eventManager = event.NewManager()
 	}
@@ -303,6 +331,9 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 			notification.NewNotification(getMQTT(cfg)),
 			getMQTT(cfg),
 			fimptype.EaseeService,
+			// Resolved lazily: the application is built on top of this authenticator, so it
+			// cannot be handed over at construction time.
+			func() error { return getApplication(cfg).Logout() },
 		)
 	}
 
@@ -311,7 +342,7 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 
 func getSignalRClient(cfg *config.Config) signalr.Client {
 	if services.signalRClient == nil {
-		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator(cfg).AccessToken)
+		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator(cfg).AccessToken, getTelemetry(cfg))
 	}
 
 	return services.signalRClient
@@ -319,10 +350,52 @@ func getSignalRClient(cfg *config.Config) signalr.Client {
 
 func getSignalRManager(cfg *config.Config) signalr.Manager {
 	if services.signalRManager == nil {
-		services.signalRManager = signalr.NewManager(getConfigService(), getSignalRClient(cfg))
+		services.signalRManager = signalr.NewManager(getConfigService(), getSignalRClient(cfg), getTelemetry(cfg))
 	}
 
 	return services.signalRManager
+}
+
+// getTelemetry builds the telemetry reporter. It publishes nothing until the cloud enables it,
+// but wiring it here is what lets the root app and the SignalR loops report a panic.
+func getTelemetry(cfg *config.Config) telemetry.Telemetry {
+	if services.telemetry != nil || services.telemetryTried {
+		return services.telemetry
+	}
+
+	// Every caller runs inside a single Build(), so a failure here cannot become a success later;
+	// remembering the attempt keeps one broken init from logging once per call site.
+	services.telemetryTried = true
+
+	store := getDefaultStore()
+
+	if err := seedTelemetryDisabled(store); err != nil {
+		log.Errorf("[cmd] Seed telemetry config err: %v", err)
+
+		return nil
+	}
+
+	t, err := telemetry.New(getMQTT(cfg), fimptype.EaseeRn, store, services.version)
+	if err != nil {
+		log.Errorf("[cmd] Init telemetry err: %v", err)
+
+		return nil
+	}
+
+	services.telemetry = t
+
+	return services.telemetry
+}
+
+// seedTelemetryDisabled writes a disabled telemetry block when the config has none. cliffhanger's
+// telemetry.New seeds a missing block as enabled for 30 days, which would make reporting opt-out
+// on a fresh install and on upgrades from a config predating telemetry.
+func seedTelemetryDisabled(store *cliffCfg.DefaultStore) error {
+	if _, err := store.Telemetry(); err == nil {
+		return nil
+	}
+
+	return store.SetTelemetry(&telemetryTypes.TelemetryConfig{})
 }
 
 func newRouting(cfg *config.Config) []*cliffRouter.Routing {
@@ -331,6 +404,7 @@ func newRouting(cfg *config.Config) []*cliffRouter.Routing {
 		getLifecycle(),
 		getApplication(cfg),
 		getAdapter(cfg),
+		getTelemetry(cfg),
 	)
 }
 

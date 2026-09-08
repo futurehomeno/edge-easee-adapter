@@ -2,6 +2,8 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/futurehomeno/cliffhanger/auth"
@@ -9,7 +11,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const credentialsFileName = "secrets.json"
+const (
+	credentialsFileName = "secrets.json"
+	configFileName      = "config.json"
+	backupExtension     = ".bak"
+)
 
 // CredentialsStore persists the Easee tokens outside the world-readable config.json.
 // storage.Model() hands out the live model unlocked, so every access is guarded here:
@@ -32,6 +38,17 @@ func (s *CredentialsStore) Load() error {
 	defer s.lock.Unlock()
 
 	return s.storage.Load()
+}
+
+// DiscardLoaded empties the in-memory credentials without touching the file. json.Unmarshal
+// writes each field as it decodes, so a secrets file that fails partway leaves whatever it had
+// already parsed in the model - enough for the app to report itself authenticated with half a
+// session. Used on the boot path, where the file is kept for inspection rather than reset.
+func (s *CredentialsStore) DiscardLoaded() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	*s.storage.Model() = Credentials{}
 }
 
 func (s *CredentialsStore) Credentials() Credentials {
@@ -71,9 +88,21 @@ func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected 
 		return nil
 	}
 
+	// Written to the model only once the save succeeded. The framework retries a refused
+	// rotation through persistUnsaved, which reads this store back to decide what is still
+	// outstanding - so a model updated ahead of a failed write reports a token the disk does
+	// not have, and the retry concludes there is nothing left to persist. SetCredentials keeps
+	// the opposite behaviour deliberately: a login's session stays usable until the restart.
+	previous := *s.storage.Model()
 	*s.storage.Model() = credentials
 
-	return s.storage.Save()
+	if err := s.storage.Save(); err != nil {
+		*s.storage.Model() = previous
+
+		return err
+	}
+
+	return nil
 }
 
 func (s *CredentialsStore) ClearCredentials() error {
@@ -126,4 +155,17 @@ func MigrateCredentials(cfg *Config, store *CredentialsStore) error {
 	log.Info("[config] Move credentials to the secrets storage")
 
 	return nil
+}
+
+// DropConfigBackup removes the config backup cliffhanger's Save() leaves behind. The rename in
+// makeBackup carries the pre-migration config over, tokens and all, and chmods it to the config
+// store's world-readable 0644 - so the credentials this migration just moved into the 0640
+// secrets file stay legible to any local user in data/config.json.bak. Best-effort: the backup
+// only serves corruption recovery, and a stale one is worth less than the leak.
+func DropConfigBackup(workDir string) {
+	path := filepath.Join(workDir, "data", configFileName+backupExtension)
+
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		log.Warnf("[config] Remove %s. err: %v", path, err)
+	}
 }

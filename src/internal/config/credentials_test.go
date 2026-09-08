@@ -1,9 +1,12 @@
 package config_test
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/storage"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -138,4 +141,88 @@ func TestMigrateCredentials_MigratesTokensWithoutExpiryClaim(t *testing.T) {
 
 	assert.Equal(t, legacy, store.Credentials(), "both tokens migrate with the expiries left zero")
 	assert.True(t, cfg.Empty(), "the config copy is dropped, so the version can advance")
+}
+
+// The v5->v6 migration saves the config, and cliffhanger's Save renames the pre-migration copy -
+// tokens still inline - to data/config.json.bak at the config store's world-readable 0644. The
+// tokens would then outlive the move into the 0640 secrets file, legible to any local user.
+func TestDropConfigBackup_RemovesTokenBearingBackup(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a backup left by the migration is removed", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		backup := filepath.Join(workDir, "data", "config.json.bak")
+
+		writeConfigBackup(t, backup, `{"accessToken":"leaked","refreshToken":"also-leaked"}`)
+
+		config.DropConfigBackup(workDir)
+
+		_, err := os.Stat(backup)
+		assert.True(t, os.IsNotExist(err), "the token-bearing backup must not survive the migration")
+	})
+
+	t.Run("a missing backup is not an error", func(t *testing.T) {
+		t.Parallel()
+
+		config.DropConfigBackup(t.TempDir())
+	})
+}
+
+// Guards the leak end to end: the real storage, not the fake, so a cliffhanger change that stops
+// renaming the config into a world-readable backup is caught here rather than in production.
+func TestMigrateCredentials_LeavesNoTokensInConfigBackup(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	legacy := config.Credentials{AccessToken: "leaked-access", RefreshToken: "leaked-refresh"}
+
+	writeConfigBackup(t, filepath.Join(workDir, "data", "config.json"), `{"accessToken":"leaked-access"}`)
+
+	cfgStorage := storage.New(&config.Config{Credentials: legacy}, workDir, "config.json")
+	require.NoError(t, cfgStorage.Save())
+
+	backup := filepath.Join(workDir, "data", "config.json.bak")
+
+	body, err := os.ReadFile(backup) //nolint:gosec
+	require.NoError(t, err, "cliffhanger is expected to leave a backup behind")
+	require.Contains(t, string(body), "leaked-access", "the backup carries the pre-migration tokens")
+
+	config.DropConfigBackup(workDir)
+
+	_, err = os.Stat(backup)
+	assert.True(t, os.IsNotExist(err), "no token-bearing backup may outlive the migration")
+}
+
+func writeConfigBackup(t *testing.T, path, body string) {
+	t.Helper()
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+}
+
+// json.Unmarshal writes each field as it decodes, so a secrets file that fails partway leaves
+// what it already parsed in the model. Continuing past a failed load - which the boot path now
+// does rather than exiting - would otherwise bring the app up claiming half a session.
+func TestDiscardLoadedEmptiesAPartiallyDecodedModel(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o750))
+	require.NoError(t, os.WriteFile(
+		filepath.Join(dir, "data", "secrets.json"),
+		[]byte(`{"accessToken":"SECRET-TOKEN","refreshToken":123}`),
+		0o600,
+	))
+
+	store := config.NewCredentialsStore(dir)
+
+	require.Error(t, store.Load(), "a type-invalid secrets file must fail to load")
+	require.False(t, store.Credentials().Empty(), "the decoder leaves the fields it already parsed behind")
+
+	store.DiscardLoaded()
+
+	assert.True(t, store.Credentials().Empty(), "the half-decoded session must not survive the failed load")
 }

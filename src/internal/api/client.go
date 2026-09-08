@@ -10,20 +10,18 @@ import (
 
 // Client is a wrapper around the Easee HTTP Client with authentication capabilities.
 type Client interface {
-	// UpdateMaxCurrent updates max charger current.
 	UpdateMaxCurrent(chargerID string, current float64) error
 	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
-	UpdateDynamicCurrent(chargerID string, current float64) error
-	// StopCharging stops charging session for the selected charger.
+	// force bypasses the local rate limit; see the HTTPClient method it delegates to.
+	UpdateDynamicCurrent(chargerID string, current float64, force bool) error
 	StopCharging(chargerID string) error
-	// ChargerConfig retrieves charger config.
 	ChargerConfig(chargerID string) (*model.ChargerConfig, error)
 	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
 	ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, error)
-	// Chargers returns all available chargers.
 	Chargers() ([]model.Charger, error)
 	ChargerDetails(chargerID string) (model.ChargerDetails, error)
 	SetCableAlwaysLocked(chargerID string, locked bool) error
+	SetPhaseMode(chargerID string, phaseMode int) error
 	// Ping checks if an external service is available.
 	Ping() error
 }
@@ -60,14 +58,24 @@ func (a *apiClient) SetCableAlwaysLocked(chargerID string, locked bool) error {
 	return a.httpClient.SetCableAlwaysLocked(token, chargerID, locked)
 }
 
-func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) error {
+func (a *apiClient) SetPhaseMode(chargerID string, phaseMode int) error {
+	log.Infof("[%s] Set phase mode to %d", chargerID, phaseMode)
+	token, err := a.auth.AccessToken()
+	if err != nil {
+		return a.tokenError(err)
+	}
+
+	return a.httpClient.SetPhaseMode(token, chargerID, phaseMode)
+}
+
+func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64, force bool) error {
 	log.Infof("[%s] Update dynamic current to %.1f", chargerID, current)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)
 	}
 
-	return a.httpClient.UpdateDynamicCurrent(token, chargerID, current)
+	return a.httpClient.UpdateDynamicCurrent(token, chargerID, current, force)
 }
 
 func (a *apiClient) StopCharging(chargerID string) error {
@@ -81,7 +89,7 @@ func (a *apiClient) StopCharging(chargerID string) error {
 }
 
 func (a *apiClient) ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, error) {
-	log.Infof("[%s] Get charger site info", chargerID)
+	log.Debugf("[%s] Get charger site info", chargerID)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -91,7 +99,7 @@ func (a *apiClient) ChargerSiteInfo(chargerID string) (*model.ChargerSiteInfo, e
 }
 
 func (a *apiClient) ChargerConfig(chargerID string) (*model.ChargerConfig, error) {
-	log.Infof("[%s] Get charger config", chargerID)
+	log.Debugf("[%s] Get charger config", chargerID)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return nil, a.tokenError(err)
@@ -111,7 +119,7 @@ func (a *apiClient) Chargers() ([]model.Charger, error) {
 }
 
 func (a *apiClient) ChargerDetails(chargerID string) (model.ChargerDetails, error) {
-	log.Infof("[%s] Get charger details", chargerID)
+	log.Debugf("[%s] Get charger details", chargerID)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return model.ChargerDetails{}, a.tokenError(err)

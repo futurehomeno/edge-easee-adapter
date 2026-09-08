@@ -3,6 +3,8 @@ package api_test
 import (
 	"encoding/base64"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -73,6 +75,199 @@ func TestLogin(t *testing.T) {
 			assert.False(t, credentials.Credentials().RefreshTokenExpiresAt.IsZero())
 		})
 	}
+}
+
+// TestLoginRejectsEmptyCredentialsWithoutCallingTheAPI pins the guard that keeps a blank
+// login off the wire. Easee counts failed logins per account and locks it out for about an
+// hour, which then rejects the user's own valid logins too - so an empty password must never
+// reach the API. Regression coverage for the zaptec 3.0.3 failure mode.
+func TestLoginRejectsEmptyCredentialsWithoutCallingTheAPI(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		userName string
+		password string
+	}{
+		{name: "empty password", userName: "user", password: ""},
+		{name: "whitespace password", userName: "user", password: "   "},
+		{name: "empty username", userName: "", password: "pwd"},
+		{name: "whitespace username", userName: "\t", password: "pwd"},
+		{name: "both empty", userName: "", password: ""},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			credentials := newCredentialsStore(t, config.Credentials{})
+			// No On("Login") expectation: mockery fails the test if the API is called at all.
+			httpClient := mockapi.NewHTTPClient(t)
+
+			authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+			err := authenticator.Login(tt.userName, tt.password)
+
+			require.ErrorIs(t, err, api.ErrEmptyCredentials)
+			assert.True(t, credentials.Credentials().Empty(), "a refused login must not store credentials")
+		})
+	}
+}
+
+// TestLoginFailureByStatusCode pins how each Easee failure reaches the caller. Every non-200
+// currently collapses onto one path - no retry policy distinguishes a rate limit (retry later)
+// from bad credentials (never retry) from a server fault. This asserts today's behaviour so
+// that differentiating them later is a deliberate, visible change.
+//
+// Known gap, deliberately pinned rather than blessed: a rejection here has no side effects at
+// all. cliffhanger only escalates auth loss from the refresh-token path (OnAuthLoss is wired
+// into auth.NewAuthenticator), so a login rejected by Easee leaves any existing session in
+// place - no credential clearing, no push notification, no cmd.auth.logout. See
+// TestLoginRejectionLeavesAnExistingSessionInPlace below. Per RFC 6749 section 5.2 a token
+// endpoint answers 400 invalid_grant for bad resource-owner credentials (401 is reserved for
+// invalid_client), so 400 is the status that should drive that escalation, not 401.
+func TestLoginFailureByStatusCode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		responseCode  int
+		responseBody  string
+		errorContains string
+	}{
+		{
+			name:          "429 rate limited",
+			responseCode:  http.StatusTooManyRequests,
+			responseBody:  `{"title":"Too many requests","status":429}`,
+			errorContains: "status code: 429",
+		},
+		{
+			name:          "400 bad request",
+			responseCode:  http.StatusBadRequest,
+			responseBody:  `{"title":"Bad credentials","status":400}`,
+			errorContains: "status code: 400",
+		},
+		{
+			name:          "500 server error",
+			responseCode:  http.StatusInternalServerError,
+			responseBody:  `{"title":"oops","status":500}`,
+			errorContains: "status code: 500",
+		},
+		{
+			name:          "401 unauthorized",
+			responseCode:  http.StatusUnauthorized,
+			responseBody:  `{"title":"unauthorized","status":401}`,
+			errorContains: "status code: 401",
+		},
+		{
+			// A 200 carrying no token is a failed login too: without this the adapter would
+			// store an empty access token and report itself authenticated.
+			name:          "200 without an access token",
+			responseCode:  http.StatusOK,
+			responseBody:  `{"accessToken":"","refreshToken":"refresh-token"}`,
+			errorContains: "no access token",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tt.responseCode)
+				_, _ = w.Write([]byte(tt.responseBody))
+			}))
+			t.Cleanup(s.Close)
+
+			cfgStorage := mockedstorage.Storage[*config.Config]{}
+			httpClient := api.NewHTTPClient(config.NewService(&cfgStorage), s.Client(), s.URL)
+
+			credentials := newCredentialsStore(t, config.Credentials{})
+			authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+			err := authenticator.Login("user", "pwd")
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.errorContains)
+			assert.True(t, credentials.Credentials().Empty(), "a failed login must not store credentials")
+		})
+	}
+}
+
+// TestLoginRejectionLeavesAnExistingSessionInPlace documents a gap rather than endorsing it.
+// A user re-logging in with a wrong password gets an error, but the previously stored session
+// survives untouched: nothing clears the credentials, notifies, or publishes cmd.auth.logout,
+// because that escalation is wired only into cliffhanger's refresh-token path.
+//
+// Whether an interactive login SHOULD tear down a working session is a product decision - a
+// mistyped password arguably must not log the user out. This test exists so that decision is
+// made deliberately, and so the current behaviour cannot change unnoticed.
+func TestLoginRejectionLeavesAnExistingSessionInPlace(t *testing.T) {
+	t.Parallel()
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"bad credentials"}`))
+	}))
+	t.Cleanup(s.Close)
+
+	cfgStorage := mockedstorage.Storage[*config.Config]{}
+	httpClient := api.NewHTTPClient(config.NewService(&cfgStorage), s.Client(), s.URL)
+
+	existing := config.Credentials{AccessToken: "old-access", RefreshToken: "old-refresh"}
+	credentials := newCredentialsStore(t, existing)
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+	require.Error(t, authenticator.Login("user", "wrong-password"))
+
+	assert.False(t, credentials.Credentials().Empty(), "the rejected login leaves the old session in place")
+	assert.Equal(t, "old-access", credentials.Credentials().AccessToken)
+}
+
+// TestLogoutThenLoginStoresTheNewSession covers the round trip: a logout must leave nothing
+// behind that a later login inherits, and the second login's tokens must be the ones that end
+// up stored.
+func TestLogoutThenLoginStoresTheNewSession(t *testing.T) {
+	t.Parallel()
+
+	firstAccess := jwtWithExpiry(time.Now().Add(time.Hour))
+	firstRefresh := jwtWithExpiry(time.Now().Add(24 * time.Hour))
+	secondAccess := jwtWithExpiry(time.Now().Add(2 * time.Hour))
+	secondRefresh := jwtWithExpiry(time.Now().Add(48 * time.Hour))
+
+	credentials := newCredentialsStore(t, config.Credentials{})
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").
+		Return(&model.Credentials{AccessToken: firstAccess, RefreshToken: firstRefresh}, nil).Once()
+	httpClient.On("Login", "other", "other-pwd").
+		Return(&model.Credentials{AccessToken: secondAccess, RefreshToken: secondRefresh}, nil).Once()
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+	require.NoError(t, authenticator.Login("user", "pwd"))
+	assert.Equal(t, firstAccess, credentials.Credentials().AccessToken)
+
+	require.NoError(t, authenticator.Logout())
+	assert.True(t, credentials.Credentials().Empty(), "logout must clear the stored session")
+
+	token, err := authenticator.AccessToken()
+	require.Error(t, err, "no token is available while logged out")
+	assert.Empty(t, token)
+
+	require.NoError(t, authenticator.Login("other", "other-pwd"))
+
+	assert.Equal(t, secondAccess, credentials.Credentials().AccessToken)
+	assert.Equal(t, secondRefresh, credentials.Credentials().RefreshToken, "the first session must not survive the relogin")
+
+	token, err = authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, secondAccess, token)
 }
 
 func TestLoginSurvivesAFailedCredentialsSave(t *testing.T) {
@@ -256,7 +451,10 @@ func TestUnauthorizedDoesNotImmediatelyLogout(t *testing.T) {
 	_, err = authenticator.AccessToken()
 	require.Error(t, err)
 	assert.True(t, credentials.Credentials().Empty(), "credentials must be cleared once the grace elapsed")
-	assert.True(t, notifier.IsEventReceived("easee_status_offline"))
+	// Published on its own goroutine so a blocked broker cannot hold the authenticator lock.
+	assert.Eventually(t, func() bool {
+		return notifier.IsEventReceived("easee_status_offline")
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 // TestExpiredRefreshTokenLogsOut asserts a refresh token past its local expiry logs the app
@@ -278,7 +476,10 @@ func TestExpiredRefreshTokenLogsOut(t *testing.T) {
 	_, err := authenticator.AccessToken()
 	require.Error(t, err)
 	assert.True(t, credentials.Credentials().Empty())
-	assert.True(t, notifier.IsEventReceived("easee_status_offline"))
+	// Published on its own goroutine so a blocked broker cannot hold the authenticator lock.
+	assert.Eventually(t, func() bool {
+		return notifier.IsEventReceived("easee_status_offline")
+	}, 2*time.Second, 10*time.Millisecond)
 }
 
 // TestRefreshUsesOneSessionForBothTokens asserts that a login landing between the framework's
@@ -388,7 +589,7 @@ func newAuthenticator(
 
 	mqtt := fimpgo.NewMqttTransport("", "", "", "", true, 1, 1, nil)
 
-	return api.NewAuthenticator(httpClient, credentials, cfgSrv, notifier, mqtt, fimptype.EaseeService)
+	return api.NewAuthenticator(httpClient, credentials, cfgSrv, notifier, mqtt, fimptype.EaseeService, nil)
 }
 
 func newCredentialsStore(t *testing.T, credentials config.Credentials) *config.CredentialsStore {
