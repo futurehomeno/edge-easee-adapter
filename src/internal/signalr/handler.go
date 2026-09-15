@@ -412,9 +412,15 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
+	// Props first: the hub matches the reported mode against the sup_phase_modes it currently
+	// holds, so a report naming a leg the old list does not advertise is discarded.
+	if err := h.persistOutputPhase(outPhaseType); err != nil {
+		return err
+	}
+
 	h.sendPhaseModeReport(chargepointSrv)
 
-	return h.persistOutputPhase(outPhaseType)
+	return nil
 }
 
 // persistOutputPhase stores the phase the charger reported and re-advertises sup_phase_modes if

@@ -1189,3 +1189,57 @@ func TestController_StartChargepointCharging_ReportsUnconfirmedStart(t *testing.
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "did not resume")
 }
+
+// The charger is wired to L3 and an observation has already named that leg, but EG - reading a
+// sup_phase_modes list published before the observation - asks for NL1. Recording the request
+// made the forced report echo NL1, so EG saw reported == requested, learned nothing about the
+// fixed phase, and re-proposed NL1 on every balance tick.
+func TestController_SetChargepointPhaseMode_KnownLegIsNotMaskedByTheRequest(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	ended := time.Now().Add(-2 * time.Hour)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(1, ended)
+	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, ended)
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
+
+	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil, types.PhaseModeNL3)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	cacheMock.AssertNotCalled(t, "SetRequestedPhaseMode", mock.Anything, mock.Anything)
+
+	got, err := ctrl.ChargepointPhaseModeReport()
+	assert.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL3, got)
+}
+
+// While no observation has named a leg, the request is all the adapter knows, so the report
+// still echoes it - otherwise the UI reverts the user's choice.
+func TestController_SetChargepointPhaseMode_UnknownLegStillEchoesTheRequest(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(1, time.Time{})
+	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true).Once()
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseModeNL1, time.Now())
+
+	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+
+	got, err := ctrl.ChargepointPhaseModeReport()
+	assert.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL1, got)
+}

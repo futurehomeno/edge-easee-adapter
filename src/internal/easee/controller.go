@@ -258,6 +258,13 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 
 	current, internalAt := c.cache.PhaseMode()
 	if target == current {
+		// An Easee cannot choose its leg, so once one has been observed the report must name
+		// it rather than echo the request: the hub learns the charger is fixed only from that
+		// mismatch, and echoing leaves it re-requesting a leg the charger will never use.
+		if known := c.persistedPhase(); known.EffectivePhasesCnt() == 1 && known != mode {
+			return nil
+		}
+
 		// Nothing to send: Easee stores "one phase", not a chosen leg. Skip the record only
 		// while a live observation says which leg is actually in use - the charger picks
 		// it, so a request outranking that observation would report a leg it is not on.
