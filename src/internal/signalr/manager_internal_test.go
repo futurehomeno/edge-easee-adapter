@@ -625,6 +625,8 @@ type recordingHandler struct {
 
 func (h *recordingHandler) IsOnline() bool { return true }
 
+func (h *recordingHandler) Close() {}
+
 func (h *recordingHandler) HandleObservation(model.Observation) error {
 	h.once.Do(func() { close(h.handled) })
 

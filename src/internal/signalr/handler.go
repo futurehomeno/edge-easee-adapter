@@ -28,6 +28,9 @@ import (
 type Handler interface {
 	IsOnline() bool
 	HandleObservation(observation model.Observation) error
+	// Close drains the pending reports and stops the sender. Must be called once the handler
+	// is unregistered, or its goroutine outlives the thing it reports for.
+	Close()
 }
 
 // PhaseStore persists the phase the charger reported using, so the advertised phase mode
@@ -46,6 +49,15 @@ type observationsHandler struct {
 	chargerID      string
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
+
+	reports  chan func() error
+	senderWG sync.WaitGroup
+
+	// closed guards the send in enqueue: the manager drops a charger from its map and closes
+	// the handler without holding the lock an in-flight observation was looked up under, so a
+	// dispatch can still reach enqueue after Close and must not send on a closed channel.
+	closeMu sync.Mutex
+	closed  bool
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
@@ -67,10 +79,15 @@ func NewObservationsHandler(
 		chargerID:      chargerID,
 		storedObs:      make(map[model.ObservationID]model.Observation),
 		phaseStore:     phaseStore,
+		reports:        make(chan func() error, reportQueueSize),
 	}
 
 	handler.isCloudOnline.Store(true)
 	handler.isStateOnline.Store(true)
+
+	handler.senderWG.Add(1)
+
+	go handler.runSender()
 
 	handler.handlers = map[model.ObservationID]func(model.Observation) error{
 		model.DetectedPowerGridType: handler.handleDetectedPowerGridType,
@@ -95,6 +112,59 @@ func NewObservationsHandler(
 	}
 
 	return &handler, nil
+}
+
+// reportQueueSize bounds the reports waiting on a service lock. A command holds that lock for
+// up to CurrentWaitDuration (3s), and a charger streams a handful of observations per second,
+// so this absorbs the worst stall without letting an unresponsive service grow the queue.
+const reportQueueSize = 64
+
+// enqueue hands a report to the sender goroutine instead of publishing it here. Every report
+// takes the service lock, and a chargepoint command holds that lock while it waits up to
+// CurrentWaitDuration for its echo observation - an observation this goroutine is the only
+// drainer of. Sending inline parks the drain behind the command, so the echo never arrives,
+// the command times out and reports a success as a failure, and meanwhile every charger's
+// observations stall. One sender rather than a goroutine per send keeps the reports in the
+// order the observations arrived: a stale state published after a fresh one is its own defect.
+func (h *observationsHandler) enqueue(label string, send func() error) {
+	h.closeMu.Lock()
+	defer h.closeMu.Unlock()
+
+	if h.closed {
+		return
+	}
+
+	select {
+	case h.reports <- send:
+	default:
+		log.Warnf("[%s] Report queue full, dropping %s report", h.chargerID, label)
+	}
+}
+
+func (h *observationsHandler) runSender() {
+	defer h.senderWG.Done()
+
+	for send := range h.reports {
+		if err := send(); err != nil {
+			log.Warnf("[%s] Send report err: %v", h.chargerID, err)
+		}
+	}
+}
+
+// Close stops the sender once the reports already queued have been published. Safe to call
+// more than once, and safe against an observation still being dispatched concurrently.
+func (h *observationsHandler) Close() {
+	h.closeMu.Lock()
+
+	if !h.closed {
+		h.closed = true
+
+		close(h.reports)
+	}
+
+	h.closeMu.Unlock()
+
+	h.senderWG.Wait()
 }
 
 func (h *observationsHandler) IsOnline() bool {
@@ -143,7 +213,11 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 		return err
 	}
 
-	h.sendPhaseModeReport(chargepointSrv)
+	h.enqueue("phase mode", func() error {
+		_, err := chargepointSrv.SendPhaseModeReport(false)
+
+		return err
+	})
 
 	return nil
 }
@@ -166,9 +240,13 @@ func (h *observationsHandler) handleMaxChargerCurrent(observation model.Observat
 		return err
 	}
 
-	_, err = chargepointSrv.SendMaxCurrentReport(false)
+	h.enqueue("max current", func() error {
+		_, err := chargepointSrv.SendMaxCurrentReport(false)
 
-	return err
+		return err
+	})
+
+	return nil
 }
 
 func (h *observationsHandler) handleCloudConnected(observation model.Observation) error {
@@ -209,9 +287,13 @@ func (h *observationsHandler) handleDynamicChargerCurrent(observation model.Obse
 		return err
 	}
 
-	_, err = chargepointSrv.SendCurrentSessionReport(false)
+	h.enqueue("current session", func() error {
+		_, err := chargepointSrv.SendCurrentSessionReport(false)
 
-	return err
+		return err
+	})
+
+	return nil
 }
 
 func (h *observationsHandler) handleCableLocked(observation model.Observation) error {
@@ -232,9 +314,13 @@ func (h *observationsHandler) handleCableLocked(observation model.Observation) e
 		return err
 	}
 
-	_, err = chargepointSrv.SendCableLockReport(false)
+	h.enqueue("cable lock", func() error {
+		_, err := chargepointSrv.SendCableLockReport(false)
 
-	return err
+		return err
+	})
+
+	return nil
 }
 
 func (h *observationsHandler) handleCableRating(observation model.Observation) error {
@@ -257,9 +343,13 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 		return err
 	}
 
-	_, err = chargepointSrv.SendCableLockReport(false)
+	h.enqueue("cable lock", func() error {
+		_, err := chargepointSrv.SendCableLockReport(false)
 
-	return err
+		return err
+	})
+
+	return nil
 }
 
 func (h *observationsHandler) handleChargerState(observation model.Observation) error {
@@ -294,20 +384,25 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 	// ChargerOffline while IsOnline reads false - so the flag has to be on the online side of
 	// the send in both directions. Going offline: send first, or the report announcing it is
 	// the one report never sent. Coming back: flip first, or the recovery report is refused by
-	// the offline state it is there to clear.
+	// the offline state it is there to clear. Both stores stay with the send rather than here,
+	// or the flag would move while the report is still queued behind an earlier one.
 	goingOffline := state == model.ChargerStateOffline
 
-	if !goingOffline {
-		h.isStateOnline.Store(true)
-	}
+	h.enqueue("state", func() error {
+		if !goingOffline {
+			h.isStateOnline.Store(true)
+		}
 
-	_, err = chargepointSrv.SendStateReport(false)
+		_, err := chargepointSrv.SendStateReport(false)
 
-	if goingOffline {
-		h.isStateOnline.Store(false)
-	}
+		if goingOffline {
+			h.isStateOnline.Store(false)
+		}
 
-	return err
+		return err
+	})
+
+	return nil
 }
 
 func (h *observationsHandler) handleTotalPower(observation model.Observation) error {
@@ -328,14 +423,17 @@ func (h *observationsHandler) handleTotalPower(observation model.Observation) er
 		return err
 	}
 
-	_, err = meterElecSrv.SendMeterReport(numericmeter.UnitW, false)
-	if err != nil {
+	h.enqueue("total power", func() error {
+		if _, err := meterElecSrv.SendMeterReport(numericmeter.UnitW, false); err != nil {
+			return err
+		}
+
+		_, err := meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValuePowerImport}, false)
+
 		return err
-	}
+	})
 
-	_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValuePowerImport}, false)
-
-	return err
+	return nil
 }
 
 func (h *observationsHandler) handleEnergySession(observation model.Observation) error {
@@ -356,9 +454,13 @@ func (h *observationsHandler) handleEnergySession(observation model.Observation)
 		return err
 	}
 
-	_, err = chargepointSrv.SendCurrentSessionReport(false)
+	h.enqueue("current session", func() error {
+		_, err := chargepointSrv.SendCurrentSessionReport(false)
 
-	return err
+		return err
+	})
+
+	return nil
 }
 
 func (h *observationsHandler) handlePhaseCurrent(
@@ -381,9 +483,13 @@ func (h *observationsHandler) handlePhaseCurrent(
 			return err
 		}
 
-		_, err = meterElecSrv.SendMeterExtendedReport(numericmeter.Values{value}, false)
+		h.enqueue(label, func() error {
+			_, err := meterElecSrv.SendMeterExtendedReport(numericmeter.Values{value}, false)
 
-		return err
+			return err
+		})
+
+		return nil
 	}
 }
 
@@ -412,7 +518,11 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
-	h.sendPhaseModeReport(chargepointSrv)
+	h.enqueue("phase mode", func() error {
+		_, err := chargepointSrv.SendPhaseModeReport(false)
+
+		return err
+	})
 
 	return h.persistOutputPhase(outPhaseType)
 }
@@ -548,9 +658,13 @@ func (h *observationsHandler) handleLockCablePermanently(observation model.Obser
 		return err
 	}
 
-	_, err = parameterSrv.SendParameterReport(model.CableAlwaysLockedParameter, true)
+	h.enqueue("parameter", func() error {
+		_, err := parameterSrv.SendParameterReport(model.CableAlwaysLockedParameter, true)
 
-	return err
+		return err
+	})
+
+	return nil
 }
 
 func (h *observationsHandler) handleChargingSessionStop(observation model.Observation) error {
@@ -573,9 +687,13 @@ func (h *observationsHandler) handleChargingSessionStop(observation model.Observ
 		return err
 	}
 
-	_, err = chargepointSrv.SendCurrentSessionReport(false)
+	h.enqueue("current session", func() error {
+		_, err := chargepointSrv.SendCurrentSessionReport(false)
 
-	return err
+		return err
+	})
+
+	return nil
 }
 
 func (h *observationsHandler) handleChargingSessionStart(observation model.Observation) error {
@@ -598,9 +716,13 @@ func (h *observationsHandler) handleChargingSessionStart(observation model.Obser
 		return err
 	}
 
-	_, err = chargepointSrv.SendCurrentSessionReport(false)
+	h.enqueue("current session", func() error {
+		_, err := chargepointSrv.SendCurrentSessionReport(false)
 
-	return err
+		return err
+	})
+
+	return nil
 }
 
 // chargepointPropsUpdate returns the props the service should carry once props is applied,
@@ -800,19 +922,6 @@ func getAlarmService(thing adapter.Thing) (alarm.Service, error) {
 
 func getParametersService(thing adapter.Thing) (parameters.Service, error) {
 	return getService[parameters.Service](thing, parameters.Parameters, "parameters")
-}
-
-// sendPhaseModeReport publishes off the dispatch goroutine. SendPhaseModeReport takes the
-// chargepoint service lock, and cmd.phase_mode.set holds that lock while it waits up to
-// CurrentWaitDuration for an observation - one this very loop is the only drainer of. Sending
-// inline deadlocks the two against each other until the wait times out, stalling every
-// charger's observations meanwhile. The report is unforced, so cliffhanger deduplicates it.
-func (h *observationsHandler) sendPhaseModeReport(srv chargepoint.Service) {
-	go func() {
-		if _, err := srv.SendPhaseModeReport(false); err != nil {
-			log.Warnf("[%s] Send phase mode report err: %v", h.chargerID, err)
-		}
-	}()
 }
 
 func getChargepointService(thing adapter.Thing) (chargepoint.Service, error) {

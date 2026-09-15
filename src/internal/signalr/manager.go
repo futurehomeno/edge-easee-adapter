@@ -142,7 +142,8 @@ func (m *manager) enqueueSubscription(chargerID string) {
 func (m *manager) Unregister(chargerID string) error {
 	m.mu.Lock()
 
-	if _, ok := m.chargers[chargerID]; !ok {
+	charger, ok := m.chargers[chargerID]
+	if !ok {
 		m.mu.Unlock()
 
 		return nil
@@ -151,6 +152,12 @@ func (m *manager) Unregister(chargerID string) error {
 	delete(m.chargers, chargerID)
 
 	m.mu.Unlock()
+
+	// After the map write no further observation reaches this handler, so its report sender has
+	// a bounded amount of work left; closing it here is what keeps the goroutine from outliving
+	// the thing it reports for. Off m.mu: the last queued report can still be waiting on a
+	// service lock a command holds.
+	charger.handler.Close()
 
 	// Both calls block on the connection - UnsubscribeCharger up to SignalRInvokeTimeout - so
 	// they run after the map write is published rather than under m.mu, which would stall

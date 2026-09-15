@@ -2,6 +2,7 @@ package signalr_test
 
 import (
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -215,6 +216,10 @@ func TestObservationsHandler_OfflineStateIsReportedBeforeTheFlagFlips(t *testing
 	}))
 
 	assert.True(t, <-online, "the report must be sent while the charger still counts as online, or the offline gate refuses it")
+
+	// The report is published off the drain, so the flag flips once the sender is done with it.
+	handler.Close()
+
 	assert.False(t, handler.IsOnline(), "the flag flips once the report is away")
 }
 
@@ -237,14 +242,17 @@ func TestObservationsHandler_RecoveryStateIsReportedWhileAlreadyOnline(t *testin
 	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
 	require.NoError(t, err)
 
-	// Drive it offline first, so the recovery below is a real transition.
-	srv.On("SendStateReport", false).Return(true, nil).Once()
+	// Drive it offline first, so the recovery below is a real transition. The sender publishes
+	// off the drain, so wait for the flag rather than reading it straight after the handler.
+	offline := make(chan struct{})
+	srv.On("SendStateReport", false).Run(func(mock.Arguments) { close(offline) }).Return(true, nil).Once()
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
 	require.NoError(t, handler.HandleObservation(model.Observation{
 		ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
 		Timestamp: now, Value: strconv.Itoa(int(model.ChargerStateOffline)),
 	}))
-	require.False(t, handler.IsOnline())
+	<-offline
+	require.Eventually(t, func() bool { return !handler.IsOnline() }, time.Second, time.Millisecond)
 
 	online := make(chan bool, 1)
 	srv.On("SendStateReport", false).Run(func(mock.Arguments) {
@@ -257,6 +265,9 @@ func TestObservationsHandler_RecoveryStateIsReportedWhileAlreadyOnline(t *testin
 	}))
 
 	assert.True(t, <-online, "the recovery report must be sent once the charger already counts as online")
+
+	handler.Close()
+
 	assert.True(t, handler.IsOnline())
 }
 
@@ -345,4 +356,149 @@ func TestObservationsHandler_FaultGridTypeKeepsTheChargepointProps(t *testing.T)
 	assert.Equal(t, 3, srv.Specification().Props[chargepoint.PropertyPhases],
 		"a fault must not delete the known phase count")
 	assert.Zero(t, thing.inclusion, "nothing to republish when the topology did not change")
+}
+
+// Every report the handler sends takes the same service lock a chargepoint command holds while
+// it waits up to CurrentWaitDuration for its echo observation - and that echo can only arrive on
+// the single goroutine draining every charger's observations. Sending inline parks that drain
+// behind the command, so the echo the command is waiting for is never read, the wait times out,
+// and a start that did work is reported as failed. HandleObservation must therefore return
+// while the service lock is still held.
+func TestObservationsHandler_ReportsDoNotBlockTheDrain(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now)
+	cacheMock.On("SetChargerState", chargepoint.StateCharging, now).Return(true)
+	cacheMock.On("OfferedCurrent").Return(0, now)
+	cacheMock.On("SetOfferedCurrent", 16, now).Return(true)
+
+	// Stands in for the service lock a command holds across its echo wait.
+	commandDone := make(chan struct{})
+	releaseCommand := sync.OnceFunc(func() { close(commandDone) })
+
+	defer releaseCommand()
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Run(func(mock.Arguments) { <-commandDone }).Return(true, nil).Maybe()
+	srv.On("SendCurrentSessionReport", false).Return(true, nil).Maybe()
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	defer func() {
+		releaseCommand()
+		handler.Close()
+	}()
+
+	// The drain handles both observations in sequence, as the manager's single goroutine does.
+	drained := make(chan error, 2)
+	go func() {
+		drained <- handler.HandleObservation(model.Observation{
+			ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: now, Value: strconv.Itoa(int(model.ChargerStateCharging)),
+		})
+		drained <- handler.HandleObservation(model.Observation{
+			ID: model.DynamicChargerCurrent, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+			Timestamp: now, Value: "16",
+		})
+	}()
+
+	// Both must come back while the report above is still parked on the service lock.
+	for range 2 {
+		select {
+		case err := <-drained:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("observation drain is parked behind a report waiting on the service lock")
+		}
+	}
+}
+
+// A report queued for a handler that is then torn down must not leave its sender goroutine
+// running, and Close must wait for a send that is still parked on the service lock.
+func TestObservationsHandler_CloseWaitsForTheSender(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now)
+	cacheMock.On("SetChargerState", chargepoint.StateCharging, now).Return(true)
+
+	release := make(chan struct{})
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Run(func(mock.Arguments) { <-release }).Return(true, nil).Maybe()
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+		Timestamp: now, Value: strconv.Itoa(int(model.ChargerStateCharging)),
+	}))
+
+	closed := make(chan struct{})
+	go func() {
+		handler.Close()
+		close(closed)
+	}()
+
+	select {
+	case <-closed:
+		t.Fatal("Close returned while a send was still parked - the sender would outlive it")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return once the parked send completed")
+	}
+}
+
+// The manager looks a handler up under its lock but dispatches the observation after releasing
+// it, so an Unregister can close the handler while a dispatch is still on its way to enqueue.
+// The send must not land on a closed channel.
+func TestObservationsHandler_CloseRacingADispatch(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now).Maybe()
+	cacheMock.On("SetChargerState", mock.Anything, now).Return(true).Maybe()
+	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil).Maybe()
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+
+		for range 50 {
+			_ = handler.HandleObservation(model.Observation{
+				ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+				Timestamp: now, Value: strconv.Itoa(int(model.ChargerStateCharging)),
+			})
+		}
+	}()
+
+	handler.Close()
+	wg.Wait()
 }
