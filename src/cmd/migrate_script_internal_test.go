@@ -44,11 +44,19 @@ func newLegacyTree(t *testing.T) legacyTree {
 func (l legacyTree) run(t *testing.T) {
 	t.Helper()
 
+	out, err := l.runErr(t)
+	require.NoError(t, err, out)
+}
+
+func (l legacyTree) runErr(t *testing.T) (string, error) {
+	t.Helper()
+
 	cmd := exec.CommandContext(t.Context(), "sh", migrateScript)
 	cmd.Env = append(os.Environ(), "OLD_DATA="+l.oldData, "OLD_LOGS="+l.oldLogs, "NEW_DATA="+l.newData, "NEW_LOGS="+l.newLogs)
 
 	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, string(out))
+
+	return string(out), err
 }
 
 func (l legacyTree) legacyConfig() string {
@@ -184,4 +192,21 @@ func TestMigrateScript_skipsSymlinkedSessionsAndLog(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(tree.newData, "data.db"))
 	assert.NoFileExists(t, filepath.Join(tree.newLogs, "easee.log"))
 	assert.False(t, strings.Contains(readFile(t, filepath.Join(tree.newData, "data/config.json")), tree.oldData))
+}
+
+// postinst probes the legacy tree as root with a symlink-following [ -d ], so a symlinked
+// data/ is legacy state that exists and must fail loudly - skipping it silently leaves the
+// hub logged out while postinst's create_data_dir makes the skip permanent.
+func TestMigrateScript_failsOnSymlinkedLegacyDataDir(t *testing.T) {
+	t.Parallel()
+
+	tree := newLegacyTree(t)
+	writeFile(t, filepath.Join(tree.oldData, "elsewhere/config.json"), tree.legacyConfig())
+	require.NoError(t, os.Symlink(filepath.Join(tree.oldData, "elsewhere"), filepath.Join(tree.oldData, "data")))
+
+	out, err := tree.runErr(t)
+
+	require.Error(t, err, out)
+	assert.Contains(t, out, "is a symlink")
+	assert.NoDirExists(t, filepath.Join(tree.newData, "data"))
 }

@@ -140,19 +140,23 @@ set_data_modes() {
 	# config - and the backup cliffhanger renames it to - still carry the
 	# tokens inline. Repairs installs already widened by the recursive chmod
 	# the find pair above replaced, which cannot lower a mode it does not know.
-	# Named directly, not via a wildcard, so a symlink planted at one of these
-	# paths would be followed by chmod as root; detect and remove any such
-	# symlink first.
+	#
+	# A link left at one of these names would have the adapter write the next
+	# token set through it, so plant-cleanup stays. It is cleanup only: easee
+	# can re-plant after the check, and every way sh has to name a path follows
+	# a symlink, so the mode is applied by find - which never follows a link met
+	# during a traversal - rather than by a chmod naming the path.
 	for f in "$NEW_DATA/data/secrets.json" "$NEW_DATA/data/secrets.json.bak" \
 		"$NEW_DATA/data/config.json.bak"; do
 		if [ -L "$f" ]; then
 			echo "Warning: $f is a symlink, removing" >&2
 			rm -f "$f" || true
 		fi
-		if [ -e "$f" ]; then
-			chmod 0640 "$f" || true
-		fi
 	done
+
+	find "$NEW_DATA/data" -maxdepth 1 -type f \
+		\( -name secrets.json -o -name secrets.json.bak -o -name config.json.bak \) \
+		-exec chmod 0640 {} + 2>/dev/null || true
 }
 
 configure_service() {
