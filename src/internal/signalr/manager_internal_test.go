@@ -950,3 +950,75 @@ func TestHandleSubscription_RepairRetiresAnInFlightSubscribe(t *testing.T) {
 	assert.False(t, subscribing, "a retired subscribe must still clear the flag on its way out")
 	assert.NotEmpty(t, m.subscriptions, "the retired subscribe must leave an attempt pending, not strand the charger")
 }
+
+// Unregister read "am I the last charger?" under m.mu but released it before client.Close(). A
+// Register landing in that gap calls client.Start() and is then closed out from under: Start
+// completes, so the client's startRequested rescue never arms, and nothing restarts it until
+// the next sync - leaving the new charger's subscribes failing behind a ten-minute backoff.
+func TestUnregister_KeepsTheClientUpForARegisterLandingBeforeClose(t *testing.T) {
+	client := &gapClient{closing: make(chan struct{}), release: make(chan struct{})}
+
+	m := newTestManagerWithClient(t, client)
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	// The close decision is already made and m.mu released: this is the gap.
+	<-client.closing
+
+	m.Register("YY67890", &recordingHandler{handled: make(chan struct{})})
+
+	close(client.release)
+	<-unregistered
+
+	assert.True(t, client.running(), "the client must be running for the charger registered in the close gap")
+
+	m.mu.RLock()
+	registered := len(m.chargers)
+	m.mu.RUnlock()
+
+	assert.Equal(t, 1, registered, "the replacement charger must still be registered")
+}
+
+// gapClient parks inside Close so a test can land a Register in Unregister's decide-then-close
+// gap, and tracks running the way the real client does.
+type gapClient struct {
+	failingSubscribeClient
+
+	closing chan struct{}
+	release chan struct{}
+
+	mu sync.Mutex
+	up bool
+}
+
+func (c *gapClient) Start() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.up = true
+}
+
+func (c *gapClient) Close() error {
+	close(c.closing)
+	<-c.release
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.up = false
+
+	return nil
+}
+
+func (c *gapClient) running() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.up
+}
