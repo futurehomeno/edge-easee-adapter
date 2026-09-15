@@ -115,8 +115,6 @@ func getCredentialsStore() *config.CredentialsStore {
 func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore) error {
 	cfg := cfgSvc.Model()
 
-	var migrated bool
-
 	resetLogDefaults := func() error {
 		cfg.LogLevel = "info"
 		cfg.LogFormat = "budzik"
@@ -130,22 +128,17 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		cliffCfg.Migration{From: 2, To: 3, Do: cfg.MigrateAuthBackoff},
 		cliffCfg.Migration{From: 3, To: 4, Do: cfg.MigrateOfferedCurrentWaitTime},
 		cliffCfg.Migration{From: 4, To: 5, Do: cfg.MigrateSignalRFinalBackoff},
-		cliffCfg.Migration{From: 5, To: 6, Do: func() error {
-			migrated = true
-
-			return config.MigrateCredentials(cfg, credentials)
-		}},
+		cliffCfg.Migration{From: 5, To: 6, Do: func() error { return config.MigrateCredentials(cfg, credentials) }},
 	)
 	if err != nil {
 		return fmt.Errorf("migrate config: %w", err)
 	}
 
-	// The v5->v6 step saves the config, which renames the pre-migration copy - tokens included -
-	// to a world-readable data/config.json.bak. Only that step leaves a token-bearing backup, so
-	// the steady-state corruption fallback survives untouched.
-	if migrated {
-		config.DropConfigBackup(bootstrap.GetConfigurationDirectory())
-	}
+	// Unconditional, not gated on a step having run this boot: the v5->v6 Save renames the
+	// token-bearing config.json to a world-readable data/config.json.bak, and a crash before the
+	// removal would strand it forever - the next boot is already at version 6 and applies nothing.
+	// Load() above has consumed the backup if it was needed to recover a corrupt config.
+	config.DropConfigBackup(cfg.WorkDir)
 
 	return nil
 }
