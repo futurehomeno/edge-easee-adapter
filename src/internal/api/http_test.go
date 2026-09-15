@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -951,4 +952,31 @@ func TestClient_UpdateDynamicCurrent_ForceBypassesTheLocalThrottle(t *testing.T)
 	// would leak: one forced call would leave the window open for every unforced one behind it.
 	require.Error(t, c.UpdateDynamicCurrent("token", "test-charger", 16, false), "the forced write must still register its timestamp")
 	assert.Equal(t, 2, calls)
+}
+
+// Energy Guard's cmd.charge.stop is unthrottled by design and it routes no evt.error.report,
+// so a stop refused locally after a balancing set_current is dropped silently: the car keeps
+// drawing through the overload while EG blocks on the command timeout.
+func TestClient_StopCharging_IsNotThrottledByAnOfferedCurrentWrite(t *testing.T) {
+	t.Parallel()
+
+	var stops int
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/commands/pause_charging") {
+			stops++
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(s.Close)
+
+	storage := mockedstorage.Storage[*config.Config]{}
+	storage.On("Model").Return(&config.Config{PublicConfig: config.PublicConfig{OfferedCurrentWaitTime: "20s"}}).Maybe()
+
+	c := api.NewHTTPClient(config.NewService(&storage), s.Client(), s.URL)
+
+	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 7, false))
+	require.NoError(t, c.StopCharging("token", "test-charger"), "a stop must reach the charger even inside the offered-current window")
+	assert.Equal(t, 1, stops)
 }

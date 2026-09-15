@@ -223,13 +223,11 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 	return nil
 }
 
+// StopCharging is deliberately exempt from the offered-current throttle: Energy Guard's
+// cmd.charge.stop is unthrottled by design and it routes no evt.error.report, so a stop
+// refused locally after a balancing set_current is dropped silently and the car keeps
+// drawing through the overload.
 func (c *httpClient) StopCharging(accessToken, chargerID string) error {
-	// Easee zeroes the dynamic current on stop, so offered-current changes are rate-limited
-	// against it (OfferedCurrentWaitTime).
-	if c.shouldBackoffWithMaxCurrentChange(chargerID) {
-		return errors.New("client: failed to stop charging: too many requests to the charger")
-	}
-
 	u := c.buildURL(chargerStopURITemplate, chargerID)
 
 	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, nil,
