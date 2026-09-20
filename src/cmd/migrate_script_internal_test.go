@@ -210,3 +210,24 @@ func TestMigrateScript_failsOnSymlinkedLegacyDataDir(t *testing.T) {
 	assert.Contains(t, out, "is a symlink")
 	assert.NoDirExists(t, filepath.Join(tree.newData, "data"))
 }
+
+// The same link, but pointing where the unprivileged script cannot look: an unprivileged [ -d ]
+// through it is false, so a check placed after it never runs, the script exits clean and
+// create_data_dir makes the missed migration permanent. [ -L ] only needs the parent.
+func TestMigrateScript_failsOnSymlinkToAnUntraversableTarget(t *testing.T) {
+	t.Parallel()
+
+	tree := newLegacyTree(t)
+
+	closed := filepath.Join(tree.oldData, "closed")
+	writeFile(t, filepath.Join(closed, "elsewhere/config.json"), tree.legacyConfig())
+	require.NoError(t, os.Chmod(closed, 0))
+	t.Cleanup(func() { _ = os.Chmod(closed, 0o700) }) //nolint:gosec
+	require.NoError(t, os.Symlink(filepath.Join(closed, "elsewhere"), filepath.Join(tree.oldData, "data")))
+
+	out, err := tree.runErr(t)
+
+	require.Error(t, err, out)
+	assert.Contains(t, out, "is a symlink")
+	assert.NoDirExists(t, filepath.Join(tree.newData, "data"))
+}
