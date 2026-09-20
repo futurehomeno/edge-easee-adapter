@@ -212,6 +212,23 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			expectedCurrent:  10,
 		},
 		{
+			// Energy Guard pauses and resumes a balanced charger with a bare cmd.charge.start.
+			// Flooring that to the start current offers up to 10A/phase more than the balancer
+			// budgeted, until the next throttled balance tick claws it back.
+			name:             "bare start resumes at the balanced current",
+			settings:         &chargepoint.ChargingSettings{},
+			maxCurrent:       32,
+			requestedCurrent: 6,
+			expectedCurrent:  6,
+		},
+		{
+			name:             "bare start with no balanced current uses maxCurrent",
+			settings:         &chargepoint.ChargingSettings{},
+			maxCurrent:       32,
+			requestedCurrent: 0,
+			expectedCurrent:  32,
+		},
+		{
 			name:             "returns error when all current sources are zero",
 			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
 			maxCurrent:       0,

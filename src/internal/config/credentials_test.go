@@ -80,6 +80,30 @@ func TestCredentialsStore_RefreshDoesNotResurrectClearedCredentials(t *testing.T
 
 // If the 5->6 migration wrote the secrets but the version bump failed to save, it runs again
 // on the next boot - and must not restore the stale tokens the configuration still carries.
+// The adapter runs as easee, so this pin cannot be redirected: a path chmod by root in an
+// easee-writable directory follows whatever link is planted between its check and the call.
+func TestPinSecretModes_ClosesTokenBearingFilesToOthers(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o750))
+
+	files := []string{"secrets.json", "secrets.json.bak", "config.json.bak"}
+	for _, name := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "data", name), []byte("{}"), 0o644)) //nolint:gosec
+	}
+
+	config.PinSecretModes(dir)
+
+	for _, name := range files {
+		info, err := os.Stat(filepath.Join(dir, "data", name))
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o640), info.Mode().Perm(), name)
+	}
+
+	config.PinSecretModes(t.TempDir())
+}
+
 func TestMigrateCredentials_KeepsAlreadyMigratedSecrets(t *testing.T) {
 	t.Parallel()
 
@@ -149,18 +173,56 @@ func TestMigrateCredentials_MigratesTokensWithoutExpiryClaim(t *testing.T) {
 func TestDropConfigBackup_RemovesTokenBearingBackup(t *testing.T) {
 	t.Parallel()
 
-	t.Run("a backup left by the migration is removed", func(t *testing.T) {
+	t.Run("a backup beside a loadable config is removed", func(t *testing.T) {
 		t.Parallel()
 
 		workDir := t.TempDir()
-		backup := filepath.Join(workDir, "data", "config.json.bak")
+		configPath := filepath.Join(workDir, "data", "config.json")
+		backup := configPath + ".bak"
 
+		writeConfigBackup(t, configPath, `{"config_version":6}`)
 		writeConfigBackup(t, backup, `{"accessToken":"leaked","refreshToken":"also-leaked"}`)
 
 		config.DropConfigBackup(workDir)
 
-		_, err := os.Stat(backup)
-		assert.True(t, os.IsNotExist(err), "the token-bearing backup must not survive the migration")
+		assert.NoFileExists(t, backup, "the token-bearing backup must not survive the migration")
+		body, err := os.ReadFile(configPath) //nolint:gosec
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"config_version":6}`, string(body), "the loadable config is not rewritten")
+	})
+
+	// Load() falls back to the backup when config.json does not decode, but only in memory:
+	// dropping the backup would leave the next boot nothing to load.
+	t.Run("a backup is moved over a config that does not load", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		configPath := filepath.Join(workDir, "data", "config.json")
+		backup := configPath + ".bak"
+
+		writeConfigBackup(t, configPath, `{tru`)
+		writeConfigBackup(t, backup, `{"config_version":6}`)
+
+		config.DropConfigBackup(workDir)
+
+		assert.NoFileExists(t, backup)
+		body, err := os.ReadFile(configPath) //nolint:gosec
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"config_version":6}`, string(body), "the only good copy must be the one left in place")
+	})
+
+	t.Run("a backup is moved into a missing config's place", func(t *testing.T) {
+		t.Parallel()
+
+		workDir := t.TempDir()
+		configPath := filepath.Join(workDir, "data", "config.json")
+
+		writeConfigBackup(t, configPath+".bak", `{"config_version":6}`)
+
+		config.DropConfigBackup(workDir)
+
+		assert.NoFileExists(t, configPath+".bak")
+		assert.FileExists(t, configPath)
 	})
 
 	t.Run("a missing backup is not an error", func(t *testing.T) {

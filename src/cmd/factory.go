@@ -103,6 +103,8 @@ func getCredentialsStore() *config.CredentialsStore {
 
 			log.Errorf("[config] Load credentials failed, starting logged out (error omitted: it carries the file body)")
 		}
+
+		config.PinSecretModes(bootstrap.GetConfigurationDirectory())
 	}
 
 	return services.credentialsStore
@@ -114,8 +116,6 @@ func getCredentialsStore() *config.CredentialsStore {
 // The version bump does not land on failure, so the next start retries.
 func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore) error {
 	cfg := cfgSvc.Model()
-
-	var migrated bool
 
 	resetLogDefaults := func() error {
 		cfg.LogLevel = "info"
@@ -131,8 +131,6 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		cliffCfg.Migration{From: 3, To: 4, Do: cfg.MigrateOfferedCurrentWaitTime},
 		cliffCfg.Migration{From: 4, To: 5, Do: cfg.MigrateSignalRFinalBackoff},
 		cliffCfg.Migration{From: 5, To: 6, Do: func() error {
-			migrated = true
-
 			return config.MigrateCredentials(cfg, credentials)
 		}},
 	)
@@ -140,12 +138,10 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		return fmt.Errorf("migrate config: %w", err)
 	}
 
-	// The v5->v6 step saves the config, which renames the pre-migration copy - tokens included -
-	// to a world-readable data/config.json.bak. Only that step leaves a token-bearing backup, so
-	// the steady-state corruption fallback survives untouched.
-	if migrated {
-		config.DropConfigBackup(bootstrap.GetConfigurationDirectory())
-	}
+	// The v5->v6 Save renames the token-bearing config.json to a world-readable
+	// data/config.json.bak, and a crash before the removal would strand it: the next boot is
+	// already at version 6 and applies nothing, so the backup is cleared on every boot.
+	config.DropConfigBackup(cfg.WorkDir)
 
 	return nil
 }
