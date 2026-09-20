@@ -436,11 +436,12 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		// the session-finished observation cleared it - so the charger starts at the user's max.
 		startCurrent, _ = c.cache.MaxCurrent()
 	case mode == model.ChargingModeNormal:
-		// Only an explicit normal-mode start gets the floor. A start with no mode is a load
-		// balancer resuming a session it paused, and the cached value is the budget it balanced
-		// us to; raising that offers more than it allowed until its next - throttled - tick claws
-		// it back. Slow mode is exempt too: with no slow current configured the throttled cached
-		// value is the closest thing to what the user asked for.
+		// Only an explicit normal-mode start gets the floor. The mode is optional, so a start
+		// without one may be a load balancer resuming a session it paused, and the cached value
+		// the budget it balanced us to; raising that offers more than it allowed for a whole
+		// throttle window. Kept, it costs a user's bare start at most one balancer tick, or a
+		// set_current. Slow mode is exempt too: with no slow current configured the throttled
+		// cached value is the closest thing to what the user asked for.
 		startCurrent = max(startCurrent, c.cfgService.InitialChargingCurrent())
 	}
 
