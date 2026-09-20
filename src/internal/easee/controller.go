@@ -80,8 +80,8 @@ type controller struct {
 	// Easee ignores a dynamic-current write that reaches the charger within ~20s of the
 	// previous one, or of a stop, although the cloud accepts it. Every such write goes through
 	// this channel: sent at once on a quiet channel, otherwise stored in the single slot and
-	// sent at sentAt + OfferedCurrentDeferralTime. A newer command replaces the payload and
-	// never moves that deadline.
+	// sent at sentAt + OfferedCurrentWaitTime. A newer command replaces the payload and never
+	// moves that deadline.
 	pace    sync.Mutex
 	sentAt  time.Time
 	pending *chargerCommand
@@ -112,7 +112,7 @@ func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
 		return true, c.send(cmd)
 	}
 
-	delay := c.cfgService.OfferedCurrentDeferralTime() - clock.Since(c.sentAt)
+	delay := c.cfgService.OfferedCurrentWaitTime() - clock.Since(c.sentAt)
 	if c.pending == nil {
 		clock.AfterFunc(delay, c.sendPending)
 	}

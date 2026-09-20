@@ -8,9 +8,10 @@ channel. The channel SHALL record when it last sent a command to Easee - a stop 
 when the send is attempted, because a call that times out may still have reached Easee. A command
 arriving while nothing is stored and at least `offered_current_wait_time` has passed since the last
 send SHALL be sent at once. Any other command SHALL be stored in the channel's single slot and sent
-at the last send time plus `offered_current_deferral_time` (default 45s); a newer command SHALL
-replace the stored one and SHALL NOT move that deadline, so a stream of commands yields exactly one
-send per deferral period, carrying the latest value. Storing a command SHALL log
+at the last send time plus `offered_current_wait_time` (default 30s) - the moment the channel is
+quiet again; a
+newer command SHALL replace the stored one and SHALL NOT move that deadline, so a stream of commands
+yields exactly one send per wait time, carrying the latest value. Storing a command SHALL log
 `[<id>] Deferred <stop|set_current N>, sending in <d>` and the FIMP command SHALL succeed at once,
 without waiting for the send. The deferred send SHALL run off the command goroutine and outside the
 per-thing service lock; it SHALL stamp the channel, cache the requested current when the command is
@@ -25,11 +26,11 @@ level. A stored command SHALL NOT survive an adapter restart.
 #### Scenario: write inside the window
 - **WHEN** a dynamic-current write arrives within `offered_current_wait_time` of the last send
 - **THEN** it is stored, the command succeeds, and the write is sent at the last send time plus
-  `offered_current_deferral_time`
+  `offered_current_wait_time`
 
 #### Scenario: a stream of writes
 - **WHEN** a new current arrives every 5s
-- **THEN** Easee receives one write per deferral period, carrying the latest value
+- **THEN** Easee receives one write per wait time, carrying the latest value
 
 #### Scenario: a start replaces a stored stop
 - **WHEN** a stop is stored and a start arrives before the deadline

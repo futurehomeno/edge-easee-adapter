@@ -20,21 +20,23 @@ the charger, only later.
 - **One per-charger command channel** in the controller for every dynamic-current write and
   pause. It records when the last command was sent (a stop included). A command that arrives on
   a quiet channel - at least `offered_current_wait_time` since the last send - goes out at once.
-  Any other command is stored in a single slot and sent at `lastSentAt + offered_current_deferral_time`
-  (new setting, 45 s). A newer command replaces the stored payload and never moves the deadline,
-  so a stream of writes every 5 s yields exactly one send per 45 s, carrying the latest value.
+  Any other command is stored in a single slot and sent at `lastSentAt + offered_current_wait_time`,
+  the moment the channel is quiet again. A newer command replaces the stored payload and never
+  moves the deadline, so a stream of writes every 5 s yields exactly one send per wait time,
+  carrying the latest value.
 - **A deferred command succeeds at once.** The FIMP command returns nil; cliffhanger's forced
   report carries the value in effect, and the SignalR echo after the deferred send is the
   confirmation. The deferred send runs on its own goroutine, never under the per-thing service
   lock, awaits the echo only to log it, and logs a refused send at error level.
 - **The phase-mode resume is deferred, not fired.** The pause goes out, the resume is stored and
-  sent 45 s later, and the command reports success once the pause is accepted. A pause that
+  sent one wait time later, and the command reports success once the pause is accepted. A pause that
   itself lands inside the window is replaced by the resume: no bounce, the mode applies at the
   next session boundary - the same outcome the spec already accepts for a failed pause.
+- **`offered_current_wait_time` becomes 30 s** and stays the one pacing setting. Installs on the
+  superseded 15 s or 20 s defaults are lifted by a migration on their next boot.
 - **The HTTP client's throttle and the `force` argument are removed.** `NewHTTPClient` no longer
   takes the config service; `UpdateDynamicCurrent` loses its third argument in both interfaces.
   `force` on the controller's internal setter now means only "bypass the cache dedup".
-- **`offered_current_deferral_time`** (default 45 s) joins the packaged configuration.
 
 ## Superseded
 

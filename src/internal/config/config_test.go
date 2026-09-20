@@ -88,24 +88,7 @@ func TestService_OfferedCurrentWaitTime_MatchesPackagedDefault(t *testing.T) {
 			st := &mockedstorage.Storage[*config.Config]{}
 			st.On("Model").Return(cfg)
 
-			assert.Equal(t, 20*time.Second, config.NewService(st).OfferedCurrentWaitTime())
-		})
-	}
-}
-
-func TestService_OfferedCurrentDeferralTime_MatchesPackagedDefault(t *testing.T) {
-	body, err := os.ReadFile("../../../package/debian/usr/share/futurehome/easee/defaults/config.json")
-	require.NoError(t, err)
-
-	packaged := &config.Config{}
-	require.NoError(t, json.Unmarshal(body, packaged))
-
-	for name, cfg := range map[string]*config.Config{"packaged": packaged, "unset": {}} {
-		t.Run(name, func(t *testing.T) {
-			st := &mockedstorage.Storage[*config.Config]{}
-			st.On("Model").Return(cfg)
-
-			assert.Equal(t, 45*time.Second, config.NewService(st).OfferedCurrentDeferralTime())
+			assert.Equal(t, 30*time.Second, config.NewService(st).OfferedCurrentWaitTime())
 		})
 	}
 }
@@ -159,7 +142,8 @@ func TestConfig_MigrateOfferedCurrentWaitTime(t *testing.T) {
 		current  string
 		expected string
 	}{
-		{name: "superseded packaged default is lifted", current: "15s", expected: "20s"},
+		{name: "the 2.8 packaged default is lifted", current: "15s", expected: "30s"},
+		{name: "the 3.1.2 packaged default is lifted", current: "20s", expected: "30s"},
 		{name: "tuned value is preserved", current: "45s", expected: "45s"},
 		{name: "unset value is left to the getter fallback", current: "", expected: ""},
 	}
