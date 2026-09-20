@@ -590,16 +590,14 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		log.Warnf("[%s] Send grid type alarm reports err: %v", h.chargerID, err)
 	}
 
-	// An unmapped or unknown grid type yields ("", 0), which is not a topology - it is the
-	// absence of one. Writing it would delete grid_type, phases and sup_phase_modes from the
-	// props, and the equivalence check above short-circuits every repeat, so the charger could
-	// not restore them while the fault persisted. The alarm above is the report for that case.
-	//
-	// Tested on the grid type alone, not the phase count: the error types preserve a known one
-	// with zero phases (TN400VNeutralOnWrongPin -> (TN, 0), ITGroundConnectedToPin2Or3 ->
-	// (IT, 0)), and those must still update grid_type. Zero phases clears the phase-dependent
-	// props below rather than being discarded here.
-	if supportedGridType == "" {
+	// Zero phases is the absence of a topology, not a new one: an unknown grid type yields
+	// ("", 0) and the two error types yield (TN, 0) / (IT, 0). Republishing any of them deletes
+	// phases and sup_phase_modes - both empty - so cliffhanger rejects every cmd.phase_mode.set
+	// and energy guard drops the charger from phase balancing, and the equivalence check below
+	// short-circuits every repeat, so nothing restores them while the fault persists. Keeping
+	// the last known topology leaves the recovery observation a genuine change. The alarm above
+	// is the report for this case.
+	if supportedPhases == 0 {
 		return nil
 	}
 

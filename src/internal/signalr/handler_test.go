@@ -271,24 +271,76 @@ func TestObservationsHandler_RecoveryStateIsReportedWhileAlreadyOnline(t *testin
 	assert.True(t, handler.IsOnline())
 }
 
-// The error grid types keep a known grid type with zero phases - TN400VNeutralOnWrongPin maps
-// to (TN, 0) and ITGroundConnectedToPin2Or3 to (IT, 0). Discarding those on the phase count
-// left grid_type advertising the previous topology; the update has to land, with the
-// phase-dependent props cleared rather than the whole write skipped.
-func TestObservationsHandler_ZeroPhaseFaultStillUpdatesGridType(t *testing.T) {
+// The two error grid types map onto a known grid with zero phases - TN400VNeutralOnWrongPin to
+// (TN, 0), ITGroundConnectedToPin2Or3 to (IT, 0). Zero phases is a wiring fault, not a topology:
+// republishing it deletes phases and sup_phase_modes, so cliffhanger rejects every
+// cmd.phase_mode.set and energy guard drops the charger from phase balancing until the fault
+// clears. The alarm above is the report for this case.
+func TestObservationsHandler_ZeroPhaseFaultKeepsTheChargepointProps(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	for _, tc := range []struct {
+		name     string
+		gridType model.GridType
+		cached   types.GridType
+	}{
+		{"TN neutral on wrong pin", model.GridTypeErrorTN400VNeutralOnWrongPin, types.GridTypeTN},
+		{"IT ground on pin 2 or 3", model.GridTypeErrorITGroundConnectedToPin2Or3, types.GridTypeIT},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("GridType").Return(tc.cached, now)
+			cacheMock.On("Phases").Return(3, now)
+
+			props := map[string]interface{}{
+				chargepoint.PropertyGridType:            tc.cached,
+				chargepoint.PropertyPhases:              3,
+				chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{types.PhaseModeNL3, types.PhaseModeNL1L2L3},
+			}
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("Specification").Return(&fimptype.Service{Props: props}).Maybe()
+
+			thing := &phaseThing{srv: srv}
+
+			handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+			require.NoError(t, err)
+
+			require.NoError(t, handler.HandleObservation(model.Observation{
+				ID:        model.DetectedPowerGridType,
+				ChargerID: testChargerID,
+				DataType:  model.ObservationDataTypeInteger,
+				Timestamp: now,
+				Value:     strconv.Itoa(int(tc.gridType)),
+			}))
+
+			assert.Equal(t, props, srv.Specification().Props, "a wiring fault must leave the advertised topology alone")
+			assert.Zero(t, thing.inclusion, "nothing to republish while the phase count is unknown")
+		})
+	}
+}
+
+// The fault-clear path still has to land: once a genuine topology arrives the props are
+// republished. The strict cache mock is what proves the fault in between never reached it.
+func TestObservationsHandler_TopologyAfterZeroPhaseFaultStillRepublishes(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("GridType").Return(types.GridTypeIT, now)
-	cacheMock.On("Phases").Return(1, now)
-	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 0, now).Return(true)
+	cacheMock.On("GridType").Return(types.GridTypeTN, now)
+	cacheMock.On("Phases").Return(3, now)
+	cacheMock.On("SetInstallationParameters", types.GridTypeIT, 1, now).Return(true)
 
 	props := map[string]interface{}{
-		chargepoint.PropertyGridType:            types.GridTypeIT,
-		chargepoint.PropertyPhases:              1,
-		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{types.PhaseModeNL1},
+		chargepoint.PropertyGridType:            types.GridTypeTN,
+		chargepoint.PropertyPhases:              3,
+		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{types.PhaseModeNL3, types.PhaseModeNL1L2L3},
 	}
 
 	srv := mockedchargepoint.NewService(t)
@@ -300,20 +352,19 @@ func TestObservationsHandler_ZeroPhaseFaultStillUpdatesGridType(t *testing.T) {
 	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, handler.HandleObservation(model.Observation{
-		ID:        model.DetectedPowerGridType,
-		ChargerID: testChargerID,
-		DataType:  model.ObservationDataTypeInteger,
-		Timestamp: now,
-		Value:     strconv.Itoa(int(model.GridTypeErrorTN400VNeutralOnWrongPin)),
-	}))
+	for _, gridType := range []model.GridType{model.GridTypeErrorTN400VNeutralOnWrongPin, model.GridTypeIT1Phase} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID:        model.DetectedPowerGridType,
+			ChargerID: testChargerID,
+			DataType:  model.ObservationDataTypeInteger,
+			Timestamp: now,
+			Value:     strconv.Itoa(int(gridType)),
+		}))
+	}
 
-	assert.Equal(t, types.GridTypeTN, srv.Specification().Props[chargepoint.PropertyGridType],
-		"the known grid type of the fault must be advertised")
-	assert.NotContains(t, srv.Specification().Props, chargepoint.PropertyPhases,
-		"zero phases clears the phase count rather than advertising a stale one")
-	assert.NotContains(t, srv.Specification().Props, chargepoint.PropertySupportedPhaseModes)
-	assert.Equal(t, 1, thing.inclusion)
+	assert.Equal(t, types.GridTypeIT, srv.Specification().Props[chargepoint.PropertyGridType])
+	assert.Equal(t, 1, srv.Specification().Props[chargepoint.PropertyPhases])
+	assert.Equal(t, 1, thing.inclusion, "only the recovery republishes")
 }
 
 // A faulted grid type maps to ("", 0), which is the absence of a topology rather than a new
