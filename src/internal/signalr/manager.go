@@ -103,6 +103,7 @@ func (m *manager) Register(chargerID string, handler Handler) {
 	if _, ok := m.chargers[chargerID]; ok {
 		m.mu.Unlock()
 		log.Warnf("Charger '%s' is already registered", chargerID)
+		handler.Close()
 
 		return
 	}

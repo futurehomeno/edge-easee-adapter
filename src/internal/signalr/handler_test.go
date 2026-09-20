@@ -502,3 +502,67 @@ func TestObservationsHandler_CloseRacingADispatch(t *testing.T) {
 	handler.Close()
 	wg.Wait()
 }
+
+// enqueue is lossy once the sender is parked behind a stalled service and the queue is full. A
+// dropped telemetry report is the next observation's problem; a dropped state transition is not,
+// because the online flag it carries gates every later command and report. The flag has to move
+// at the drop, and the stale transitions still queued ahead of it must not move it back when
+// they finally drain.
+func TestObservationsHandler_DroppedStateTransitionStillMovesTheFlag(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
+	cacheMock.On("SetChargerState", mock.Anything, now).Return(true)
+	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
+	cacheMock.On("SetCableLocked", true, now).Return(true)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	observe := func(id model.ObservationID, dataType model.ObservationDataType, value string) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: id, ChargerID: testChargerID, DataType: dataType, Timestamp: now, Value: value,
+		}))
+	}
+
+	state := func(s model.ChargerState) {
+		observe(model.ChargerOPState, model.ObservationDataTypeInteger, strconv.Itoa(int(s)))
+	}
+
+	sent := make(chan struct{})
+	srv.On("SendStateReport", false).Run(func(mock.Arguments) { close(sent) }).Return(true, nil).Once()
+	state(model.ChargerStateOffline)
+	<-sent
+	require.Eventually(t, func() bool { return !handler.IsOnline() }, time.Second, time.Millisecond)
+
+	// Park the sender on a report that does not touch the flag, then fill the queue behind it
+	// with two transitions last: an online one, then the offline one that would win the drain.
+	parked, release := make(chan struct{}), make(chan struct{})
+	srv.On("SendCableLockReport", false).Run(func(mock.Arguments) { close(parked); <-release }).Return(true, nil).Once()
+	srv.On("SendCableLockReport", false).Return(true, nil)
+	srv.On("SendStateReport", false).Return(true, nil)
+
+	observe(model.CableLocked, model.ObservationDataTypeBoolean, "true")
+	<-parked
+
+	for range 62 {
+		observe(model.CableLocked, model.ObservationDataTypeBoolean, "true")
+	}
+
+	state(model.ChargerStateDisconnected)
+	state(model.ChargerStateOffline)
+
+	state(model.ChargerStateReadyToCharge)
+	assert.True(t, handler.IsOnline(), "the dropped recovery must still bring the charger online")
+
+	close(release)
+	handler.Close()
+
+	assert.True(t, handler.IsOnline(), "the offline transition queued before the drop must not win the drain")
+}

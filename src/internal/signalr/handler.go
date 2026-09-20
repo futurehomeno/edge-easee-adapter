@@ -61,6 +61,7 @@ type observationsHandler struct {
 
 	isCloudOnline atomic.Bool
 	isStateOnline atomic.Bool
+	stateSeq      atomic.Uint64
 }
 
 func NewObservationsHandler(
@@ -126,18 +127,21 @@ const reportQueueSize = 64
 // the command times out and reports a success as a failure, and meanwhile every charger's
 // observations stall. One sender rather than a goroutine per send keeps the reports in the
 // order the observations arrived: a stale state published after a fresh one is its own defect.
-func (h *observationsHandler) enqueue(label string, send func() error) {
+func (h *observationsHandler) enqueue(label string, send func() error) bool {
 	h.closeMu.Lock()
 	defer h.closeMu.Unlock()
 
 	if h.closed {
-		return
+		return false
 	}
 
 	select {
 	case h.reports <- send:
+		return true
 	default:
 		log.Warnf("[%s] Report queue full, dropping %s report", h.chargerID, label)
+
+		return false
 	}
 }
 
@@ -385,22 +389,30 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 	// the send in both directions. Going offline: send first, or the report announcing it is
 	// the one report never sent. Coming back: flip first, or the recovery report is refused by
 	// the offline state it is there to clear. Both stores stay with the send rather than here,
-	// or the flag would move while the report is still queued behind an earlier one.
+	// or the flag would move while the report is still queued behind an earlier one. A
+	// transition overtaken while it waited leaves the flag to the newer one, and a dropped one
+	// moves it here: nothing is left to order it against, and losing the flip would gate every
+	// later command on a state the charger has left.
 	goingOffline := state == model.ChargerStateOffline
+	seq := h.stateSeq.Add(1)
 
-	h.enqueue("state", func() error {
-		if !goingOffline {
+	queued := h.enqueue("state", func() error {
+		if !goingOffline && seq == h.stateSeq.Load() {
 			h.isStateOnline.Store(true)
 		}
 
 		_, err := chargepointSrv.SendStateReport(false)
 
-		if goingOffline {
+		if goingOffline && seq == h.stateSeq.Load() {
 			h.isStateOnline.Store(false)
 		}
 
 		return err
 	})
+
+	if !queued {
+		h.isStateOnline.Store(!goingOffline)
+	}
 
 	return nil
 }
