@@ -407,14 +407,14 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return nil
 	}
 
-	chargepointSrv, err := getChargepointService(h.thing)
-	if err != nil {
-		return err
-	}
-
 	// Props first: the hub matches the reported mode against the sup_phase_modes it currently
 	// holds, so a report naming a leg the old list does not advertise is discarded.
 	if err := h.persistOutputPhase(outPhaseType); err != nil {
+		return err
+	}
+
+	chargepointSrv, err := getChargepointService(h.thing)
+	if err != nil {
 		return err
 	}
 
