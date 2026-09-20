@@ -622,14 +622,28 @@ func (c *blockingSubscribeClient) ObservationC() <-chan model.Observation { retu
 type recordingHandler struct {
 	once    sync.Once
 	handled chan struct{}
+	closes  atomic.Int32
 }
 
 func (h *recordingHandler) IsOnline() bool { return true }
+
+func (h *recordingHandler) Close() { h.closes.Add(1) }
 
 func (h *recordingHandler) HandleObservation(model.Observation) error {
 	h.once.Do(func() { close(h.handled) })
 
 	return nil
+}
+
+// A handler's sender goroutine starts in its constructor, so a registration the manager turns
+// away as a duplicate is the only thing left that can stop it.
+func TestRegister_ClosesAHandlerRejectedAsDuplicate(t *testing.T) {
+	m := newTestManagerWithClient(t, &failingSubscribeClient{})
+
+	duplicate := &recordingHandler{handled: make(chan struct{})}
+	m.Register(chargerID, duplicate)
+
+	assert.Equal(t, int32(1), duplicate.closes.Load())
 }
 
 // racingSubscribeClient parks in SubscribeCharger until released, then succeeds or fails per
