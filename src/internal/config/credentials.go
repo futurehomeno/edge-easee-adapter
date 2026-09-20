@@ -163,9 +163,19 @@ func MigrateCredentials(cfg *Config, store *CredentialsStore) error {
 // secrets file stay legible to any local user in data/config.json.bak. Best-effort: the backup
 // only serves corruption recovery, and a stale one is worth less than the leak.
 func DropConfigBackup(workDir string) {
-	path := filepath.Join(workDir, "data", configFileName+backupExtension)
+	path := configBackupPath(workDir)
 
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		log.Warnf("[config] Remove %s. err: %v", path, err)
 	}
+}
+
+func HasConfigBackup(workDir string) bool {
+	_, err := os.Stat(configBackupPath(workDir))
+
+	return err == nil
+}
+
+func configBackupPath(workDir string) string {
+	return filepath.Join(workDir, "data", configFileName+backupExtension)
 }

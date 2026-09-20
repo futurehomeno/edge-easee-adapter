@@ -128,16 +128,26 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		cliffCfg.Migration{From: 2, To: 3, Do: cfg.MigrateAuthBackoff},
 		cliffCfg.Migration{From: 3, To: 4, Do: cfg.MigrateOfferedCurrentWaitTime},
 		cliffCfg.Migration{From: 4, To: 5, Do: cfg.MigrateSignalRFinalBackoff},
-		cliffCfg.Migration{From: 5, To: 6, Do: func() error { return config.MigrateCredentials(cfg, credentials) }},
+		cliffCfg.Migration{From: 5, To: 6, Do: func() error {
+			return config.MigrateCredentials(cfg, credentials)
+		}},
 	)
 	if err != nil {
 		return fmt.Errorf("migrate config: %w", err)
 	}
 
-	// Unconditional, not gated on a step having run this boot: the v5->v6 Save renames the
-	// token-bearing config.json to a world-readable data/config.json.bak, and a crash before the
-	// removal would strand it forever - the next boot is already at version 6 and applies nothing.
-	// Load() above has consumed the backup if it was needed to recover a corrupt config.
+	// The v5->v6 Save renames the token-bearing config.json to a world-readable
+	// data/config.json.bak, and a crash before the removal would strand it: the next boot is
+	// already at version 6 and applies nothing. Load() recovers from the backup in memory only,
+	// so the recovered config is saved before its only copy on disk goes.
+	if !config.HasConfigBackup(cfg.WorkDir) {
+		return nil
+	}
+
+	if err := cfgSvc.Save(); err != nil {
+		return fmt.Errorf("persist config before dropping its backup: %w", err)
+	}
+
 	config.DropConfigBackup(cfg.WorkDir)
 
 	return nil
