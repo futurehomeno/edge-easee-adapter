@@ -1004,10 +1004,12 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) {
 		wantReport *chargepoint.SessionReport
 	}{
 		{
-			name:       "no sessions returns empty report",
+			name:       "no session row still reports the cached offered current",
 			sessions:   db.ChargingSessions{},
 			energy:     1.5,
-			wantReport: &chargepoint.SessionReport{SessionEnergy: 1.5},
+			maxCurrent: 32,
+			offered:    10,
+			wantReport: &chargepoint.SessionReport{SessionEnergy: 1.5, OfferedCurrent: 10},
 		},
 		{
 			name: "active session includes offered current",
@@ -1038,16 +1040,27 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) {
 			},
 		},
 		{
-			name: "finished session has no offered current",
+			name: "closed session row still reports the cached offered current",
 			sessions: db.ChargingSessions{
 				{Start: now, Stop: now.Add(time.Hour), Energy: 5},
 			},
-			energy: 5.0,
+			energy:     5.0,
+			maxCurrent: 32,
+			offered:    10,
 			wantReport: &chargepoint.SessionReport{
-				SessionEnergy: 5.0,
-				StartedAt:     now,
-				FinishedAt:    now.Add(time.Hour),
+				SessionEnergy:  5.0,
+				StartedAt:      now,
+				FinishedAt:     now.Add(time.Hour),
+				OfferedCurrent: 10,
 			},
+		},
+		{
+			name:       "charger genuinely offering nothing reports zero",
+			sessions:   db.ChargingSessions{},
+			energy:     0,
+			maxCurrent: 32,
+			offered:    0,
+			wantReport: &chargepoint.SessionReport{},
 		},
 		{
 			name: "previous session energy is included",
@@ -1081,11 +1094,8 @@ func TestController_ChargepointCurrentSessionReport(t *testing.T) {
 			cacheMock.On("EnergySession").Return(tt.energy, time.Now())
 			sessionMock.On("LatestSessionsByChargerID", "test-charger").Return(tt.sessions, nil)
 
-			// only called when there's an active session
-			if len(tt.sessions) > 0 && tt.sessions[0].Stop.IsZero() {
-				cacheMock.On("OfferedCurrent").Return(tt.offered, time.Now())
-				cacheMock.On("MaxCurrent").Return(tt.maxCurrent, time.Now())
-			}
+			cacheMock.On("OfferedCurrent").Return(tt.offered, time.Now())
+			cacheMock.On("MaxCurrent").Return(tt.maxCurrent, time.Now())
 
 			ctrl := newTestController(t, managerMock, cacheMock, clientMock, sessionMock, nil)
 
