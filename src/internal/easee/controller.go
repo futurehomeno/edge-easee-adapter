@@ -479,9 +479,18 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	}
 
 	energy, _ := c.cache.EnergySession()
+	offeredCurrent, _ := c.cache.OfferedCurrent()
 
+	if maxCurrent, _ := c.cache.MaxCurrent(); maxCurrent > 0 {
+		offeredCurrent = min(offeredCurrent, maxCurrent)
+	}
+
+	// Cliffhanger stamps offered_current on every session report, so gating it on an open
+	// session row publishes 0 for a charger that is offering current - energy-guard then
+	// anchors its ramp on that zero.
 	ret := chargepoint.SessionReport{
-		SessionEnergy: energy,
+		SessionEnergy:  energy,
+		OfferedCurrent: offeredCurrent,
 	}
 
 	sessions, err := c.sessionStorage.LatestSessionsByChargerID(c.chargerID)
@@ -492,17 +501,6 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	if latest := sessions.Latest(); latest != nil {
 		ret.StartedAt = latest.Start
 		ret.FinishedAt = latest.Stop
-
-		if latest.Stop.IsZero() {
-			offeredCurrent, _ := c.cache.OfferedCurrent()
-			maxCurrent, _ := c.cache.MaxCurrent()
-
-			if maxCurrent > 0 {
-				offeredCurrent = min(offeredCurrent, maxCurrent)
-			}
-
-			ret.OfferedCurrent = offeredCurrent
-		}
 	}
 
 	if prev := sessions.Previous(); prev != nil {
