@@ -40,6 +40,12 @@ type manager struct {
 	done    chan struct{}
 	cfg     *config.Service
 
+	// Bumped by every Register that adds a charger. Close() blocks on the network - it
+	// waits out the connection goroutine - so Unregister cannot decide to close and close
+	// under one lock; it snapshots this instead and re-starts the client when a Register
+	// bumped it in between.
+	startEpoch uint64
+
 	subscriptions chan string
 
 	// Bumped on every connect, so a subscribe that spans a reconnect can tell its result
@@ -113,6 +119,8 @@ func (m *manager) Register(chargerID string, handler Handler) {
 		backoff:      m.cfg.SignalRBackoffStateful(),
 	}
 
+	m.startEpoch++
+
 	m.client.Start()
 
 	connected := m.client.Connected()
@@ -177,11 +185,23 @@ func (m *manager) Unregister(chargerID string) error {
 
 	m.mu.Lock()
 	last := len(m.chargers) == 0
+	startEpoch := m.startEpoch
 	m.mu.Unlock()
 
 	if last {
 		if err := m.client.Close(); err != nil {
 			errs = errors.Join(errs, err)
+		}
+
+		m.mu.RLock()
+		raced := m.startEpoch != startEpoch && len(m.chargers) > 0
+		m.mu.RUnlock()
+
+		// That Register ran its Start() before this Close(), so the client's own
+		// startRequested rescue had nothing to defer and the close simply undid it. Unless
+		// its charger has since gone too: then its own Unregister closed the client last.
+		if raced {
+			m.client.Start()
 		}
 	}
 
