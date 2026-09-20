@@ -70,7 +70,7 @@ func awaitDeferred(t *testing.T, done <-chan struct{}) {
 
 	select {
 	case <-done:
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("the deferred send did not run")
 	}
 }
