@@ -785,9 +785,6 @@ func TestController_SetChargepointPhaseMode_UnknownLegStillEchoesTheRequest(t *t
 	assert.Equal(t, types.PhaseModeNL1, got)
 }
 
-// An idle charger holds the leg of a finished session, and no internal mode change has
-// happened since - so outputPhaseStale still calls it fresh. Dropping the request there left
-// NL1 -> NL2 unrecorded, and the report republished NL1 until the next session started.
 // Auto to single is the transition the hub drives whenever it balances phases, and the leg
 // it lands on is the one the charger always uses. The forced report after the set has to
 // name that leg, not echo the request the charger will never honour.
@@ -950,6 +947,9 @@ func TestController_SetChargepointPhaseMode_LiveLegOutranksTheStoredOne(t *testi
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
 }
 
+// An idle charger holds the leg of a finished session, and no internal mode change has
+// happened since - so outputPhaseStale still calls it fresh. Dropping the request there left
+// NL1 -> NL2 unrecorded, and the report republished NL1 until the next session started.
 func TestController_SetChargepointPhaseMode_IdleChargerRecordsRequestOverStaleLeg(t *testing.T) {
 	t.Parallel()
 
