@@ -16,6 +16,7 @@
   "energyLifetimeInterval": "10s",
   "currentWaitDuration": "3s",
   "offered_current_wait_time": "20s",
+  "offered_current_deferral_time": "45s",
   "slowChargingCurrentInAmperes": 10,
   "httpTimeout": "30s",
   "signalR": {

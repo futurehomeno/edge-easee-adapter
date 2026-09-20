@@ -12,8 +12,7 @@ import (
 type Client interface {
 	UpdateMaxCurrent(chargerID string, current float64) error
 	// UpdateDynamicCurrent updates dynamic charger current, dynamic current is used as offered current.
-	// force bypasses the local rate limit; see the HTTPClient method it delegates to.
-	UpdateDynamicCurrent(chargerID string, current float64, force bool) error
+	UpdateDynamicCurrent(chargerID string, current float64) error
 	StopCharging(chargerID string) error
 	ChargerConfig(chargerID string) (*model.ChargerConfig, error)
 	// ChargerSiteInfo retrieves charger rated current, rated current is used as supported max current.
@@ -68,14 +67,14 @@ func (a *apiClient) SetPhaseMode(chargerID string, phaseMode int) error {
 	return a.httpClient.SetPhaseMode(token, chargerID, phaseMode)
 }
 
-func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64, force bool) error {
+func (a *apiClient) UpdateDynamicCurrent(chargerID string, current float64) error {
 	log.Infof("[%s] Update dynamic current to %.1f", chargerID, current)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)
 	}
 
-	return a.httpClient.UpdateDynamicCurrent(token, chargerID, current, force)
+	return a.httpClient.UpdateDynamicCurrent(token, chargerID, current)
 }
 
 func (a *apiClient) StopCharging(chargerID string) error {

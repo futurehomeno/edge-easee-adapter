@@ -291,11 +291,7 @@ func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 
 func getEaseeHTTPClient() api.HTTPClient {
 	if services.easeeHTTPClient == nil {
-		services.easeeHTTPClient = api.NewHTTPClient(
-			getConfigService(),
-			getHTTPClient(),
-			getConfigService().EaseeBaseURL(),
-		)
+		services.easeeHTTPClient = api.NewHTTPClient(getHTTPClient(), getConfigService().EaseeBaseURL())
 	}
 
 	return services.easeeHTTPClient

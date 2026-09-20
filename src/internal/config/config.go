@@ -25,6 +25,7 @@ type PublicConfig struct {
 	HTTPTimeout                  string  `json:"httpTimeout"`
 	SignalR                      SignalR `json:"signalR"`
 	OfferedCurrentWaitTime       string  `json:"offered_current_wait_time"`
+	OfferedCurrentDeferralTime   string  `json:"offered_current_deferral_time"`
 	EnergyLifetimeInterval       string  `json:"energyLifetimeInterval"`
 
 	AuthBackoff         backoffSettings `json:"auth_backoff"`
@@ -333,6 +334,10 @@ func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 
 func (cs *Service) OfferedCurrentWaitTime() time.Duration {
 	return config.GetDuration(cs.Service, func(c *Config) string { return c.OfferedCurrentWaitTime }, 20*time.Second)
+}
+
+func (cs *Service) OfferedCurrentDeferralTime() time.Duration {
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.OfferedCurrentDeferralTime }, 45*time.Second)
 }
 
 func (cs *Service) AuthenticatorBackoffStateful() backoff.Stateful {

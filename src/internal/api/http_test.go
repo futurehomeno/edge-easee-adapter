@@ -14,10 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
-	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
-	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 )
 
 func TestClient_Login(t *testing.T) {
@@ -111,12 +109,8 @@ func TestClient_Login(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.Login(tt.username, tt.password)
 			if tt.wantErr {
@@ -174,11 +168,7 @@ func TestClient_RefreshToken(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(handler))
 			defer server.Close()
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
-			client := api.NewHTTPClient(cfgSrv, server.Client(), server.URL+v.baseURLAdj)
+			client := api.NewHTTPClient(server.Client(), server.URL+v.baseURLAdj)
 			creds, err := client.RefreshToken("", "")
 
 			if v.errorContains != "" {
@@ -267,12 +257,8 @@ func TestClient_UpdateMaxCurrent(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.UpdateMaxCurrent(tt.accessToken, tt.chargerID, tt.current)
 			if tt.wantErr {
@@ -364,10 +350,7 @@ func TestClient_SetPhaseMode(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-			cfgSrv := config.NewService(&storage)
-
-			c := api.NewHTTPClient(cfgSrv, &http.Client{Timeout: 3 * time.Second}, s.URL)
+			c := api.NewHTTPClient(&http.Client{Timeout: 3 * time.Second}, s.URL)
 
 			err := c.SetPhaseMode(tt.accessToken, tt.chargerID, tt.phaseMode)
 			if tt.wantErr {
@@ -383,11 +366,7 @@ func TestClient_SetPhaseMode(t *testing.T) {
 
 //nolint:dupl
 func TestClient_UpdateDynamicCurrent(t *testing.T) {
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
-
-	t.Cleanup(func() {
-		clock.Restore()
-	})
+	t.Parallel()
 
 	tests := []struct {
 		name             string
@@ -457,14 +436,10 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
-			err := c.UpdateDynamicCurrent(tt.accessToken, tt.chargerID, tt.current, false)
+			err := c.UpdateDynamicCurrent(tt.accessToken, tt.chargerID, tt.current)
 			if tt.wantErr {
 				assert.Error(t, err)
 
@@ -477,11 +452,7 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) {
 }
 
 func TestClient_StopCharging(t *testing.T) {
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
-
-	t.Cleanup(func() {
-		clock.Restore()
-	})
+	t.Parallel()
 
 	tests := []struct {
 		name             string
@@ -547,12 +518,8 @@ func TestClient_StopCharging(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.StopCharging(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -657,12 +624,8 @@ func TestClient_ChargerConfig(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.ChargerConfig(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -740,12 +703,8 @@ func TestClient_Ping(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.Ping(tt.accessToken)
 			if tt.wantErr {
@@ -837,12 +796,8 @@ func TestClient_Chargers(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.Chargers(tt.accessToken)
 			if tt.wantErr {
@@ -918,10 +873,10 @@ func (t *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.NoError(t.testingT, err)
 }
 
-// The client-side throttle is what a forced start has to get past:
-// shouldBackoffWithMaxCurrentChange refuses any write inside OfferedCurrentWaitTime of the last
-// one, so without the bypass a start that follows an offered-current change never reaches Easee.
-func TestClient_UpdateDynamicCurrent_ForceBypassesTheLocalThrottle(t *testing.T) {
+// Pacing lives in the controller's per-charger channel, so the client must pass every write
+// through: a second write or a stop right behind the first is the channel's decision, not the
+// client's to refuse.
+func TestClient_UpdateDynamicCurrent_IsNotThrottled(t *testing.T) {
 	t.Parallel()
 
 	var calls int
@@ -933,22 +888,10 @@ func TestClient_UpdateDynamicCurrent_ForceBypassesTheLocalThrottle(t *testing.T)
 	}))
 	t.Cleanup(s.Close)
 
-	storage := mockedstorage.Storage[*config.Config]{}
-	storage.On("Model").Return(&config.Config{PublicConfig: config.PublicConfig{OfferedCurrentWaitTime: "15s"}}).Maybe()
+	c := api.NewHTTPClient(s.Client(), s.URL)
 
-	c := api.NewHTTPClient(config.NewService(&storage), s.Client(), s.URL)
-
-	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 16, false))
-	assert.Equal(t, 1, calls)
-
-	require.Error(t, c.UpdateDynamicCurrent("token", "test-charger", 16, false), "an unforced write inside the window is refused")
-	assert.Equal(t, 1, calls)
-
-	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 16, true), "a forced write must reach the charger")
-	assert.Equal(t, 2, calls)
-
-	// The forced write must still arm the throttle for the writes after it, or the bypass
-	// would leak: one forced call would leave the window open for every unforced one behind it.
-	require.Error(t, c.UpdateDynamicCurrent("token", "test-charger", 16, false), "the forced write must still register its timestamp")
-	assert.Equal(t, 2, calls)
+	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 16))
+	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 10), "a second write right behind the first reaches the server")
+	require.NoError(t, c.StopCharging("token", "test-charger"), "a stop right behind a write reaches the server")
+	assert.Equal(t, 3, calls)
 }

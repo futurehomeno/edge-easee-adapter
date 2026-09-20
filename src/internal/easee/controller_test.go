@@ -6,9 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/types"
+	"github.com/michalkurzeja/go-clock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -57,6 +60,176 @@ func newTestController(
 		sessionStorage,
 		func() types.PhaseMode { return persistedPhase },
 	)
+}
+
+// The channel tests drive the global clock, so they cannot run in parallel. A fired deadline
+// runs on its own goroutine; each test awaits it through done, signalled from the last mock
+// call of that path.
+func awaitDeferred(t *testing.T, done <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("the deferred send did not run")
+	}
+}
+
+func signal(done chan<- struct{}) func(mock.Arguments) {
+	return func(mock.Arguments) { done <- struct{}{} }
+}
+
+// Replays the customer log: a write every 5s. One send opens the window, everything inside it
+// is stored, and the deadline sends the latest value once - three writes on the wire for ten
+// commands, none closer than the wait time.
+func TestController_OfferedCurrentChannel_PacesWrites(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	done := make(chan struct{}, 1)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Once()
+	cacheMock.On("WaitForOfferedCurrent", 18, mock.Anything).Return(true).Run(signal(done)).Once()
+	cacheMock.On("WaitForOfferedCurrent", 19, mock.Anything).Return(true).Run(signal(done)).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(18)).Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(19)).Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 1)
+
+	for current := 11; current <= 18; current++ {
+		clk.Add(5 * time.Second)
+		require.NoError(t, ctrl.SetChargepointOfferedCurrent(current))
+	}
+
+	clk.Add(4 * time.Second) // t0+44s
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 1)
+
+	clk.Add(time.Second) // t0+45s: the deadline the first send opened
+	awaitDeferred(t, done)
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 2)
+	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(18))
+
+	clk.Add(5 * time.Second) // t0+50s: inside the window the deferred send opened
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(19))
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 2)
+
+	clk.Add(40 * time.Second) // t0+90s
+	awaitDeferred(t, done)
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 3)
+}
+
+// A write exactly offered_current_wait_time after the last send is on a quiet channel and goes
+// out synchronously; one inside the window that send opened is stored.
+func TestController_OfferedCurrentChannel_SendsAfterTheWindow(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	done := make(chan struct{}, 1)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Once()
+	cacheMock.On("WaitForOfferedCurrent", 11, mock.Anything).Return(true).Once()
+	cacheMock.On("WaitForOfferedCurrent", 12, mock.Anything).Return(true).Run(signal(done)).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil)
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+	clk.Add(20 * time.Second)
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(11))
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 2)
+
+	clk.Add(19 * time.Second)
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 2)
+
+	clk.Add(26 * time.Second) // 45s after the second send
+	awaitDeferred(t, done)
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 3)
+}
+
+// Easee zeroes the dynamic current on a stop and ignores a write that follows it too closely,
+// so a stop opens the window like any other send.
+func TestController_StopChargepointCharging_StampsTheChannel(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	done := make(chan struct{}, 1)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 10, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Run(signal(done)).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	require.NoError(t, ctrl.StopChargepointCharging())
+	clientMock.AssertCalled(t, "StopCharging", "test-charger")
+
+	clk.Add(time.Second)
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
+
+	clk.Add(44 * time.Second)
+	awaitDeferred(t, done)
+	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(10))
+}
+
+// Latest wins across kinds: a start behind a stored stop replaces it, so the charger is never
+// paused, and the start reports success although its write goes out at the deadline.
+func TestController_StopChargepointCharging_IsReplacedByAStart(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	done := make(chan struct{}, 1)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Once()
+	cacheMock.On("WaitForOfferedCurrent", 16, mock.Anything).Return(true).Run(signal(done)).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.StopChargepointCharging())
+	clientMock.AssertNotCalled(t, "StopCharging", mock.Anything)
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal}))
+
+	clk.Add(35 * time.Second)
+	awaitDeferred(t, done)
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 2)
+	clientMock.AssertNotCalled(t, "StopCharging", mock.Anything)
 }
 
 func TestController_SetChargepointOfferedCurrent(t *testing.T) {
@@ -116,7 +289,7 @@ func TestController_SetChargepointOfferedCurrent(t *testing.T) {
 
 			cacheMock.On("MaxCurrent").Return(tt.maxCurrent, time.Time{})
 			cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
-			clientMock.On("UpdateDynamicCurrent", "test-charger", tt.expectedCurrent, false).Return(nil)
+			clientMock.On("UpdateDynamicCurrent", "test-charger", tt.expectedCurrent).Return(nil)
 			cacheMock.On("SetRequestedOfferedCurrent", int(tt.expectedCurrent), mock.AnythingOfType("time.Time")).Return(true)
 			cacheMock.On("WaitForOfferedCurrent", int(tt.expectedCurrent), mock.AnythingOfType("time.Duration")).Return(true)
 
@@ -125,7 +298,7 @@ func TestController_SetChargepointOfferedCurrent(t *testing.T) {
 			err := ctrl.SetChargepointOfferedCurrent(tt.inputCurrent)
 
 			assert.NoError(t, err)
-			clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", tt.expectedCurrent, false)
+			clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", tt.expectedCurrent)
 		})
 	}
 }
@@ -232,7 +405,7 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			cacheMock.On("RequestedOfferedCurrent").Return(tt.requestedCurrent, time.Time{})
 
 			if !tt.wantErr {
-				clientMock.On("UpdateDynamicCurrent", "test-charger", tt.expectedCurrent, true).Return(nil)
+				clientMock.On("UpdateDynamicCurrent", "test-charger", tt.expectedCurrent).Return(nil)
 				cacheMock.On("SetRequestedOfferedCurrent", int(tt.expectedCurrent), mock.AnythingOfType("time.Time")).Return(true)
 				cacheMock.On("WaitForOfferedCurrent", int(tt.expectedCurrent), mock.AnythingOfType("time.Duration")).Return(true)
 			}
@@ -251,7 +424,7 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			}
 
 			assert.NoError(t, err)
-			clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", tt.expectedCurrent, true)
+			clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", tt.expectedCurrent)
 		})
 	}
 }
@@ -270,10 +443,7 @@ func TestController_StartChargepointCharging_BypassesOfferedCurrentDedup(t *test
 	// the buggy dedup would fire (lastValue == startCurrent && time.Since(lastSet) < wait).
 	cacheMock.On("MaxCurrent").Return(16, time.Time{})
 	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Now())
-	// force must reach the client too: it keeps its own OfferedCurrentWaitTime throttle, so a
-	// start within that window of any offered-current write was refused there instead - the
-	// charger stayed paused while cmd.charge.start answered failed.
-	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16), true).Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
 	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
 	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(true)
 
@@ -283,7 +453,7 @@ func TestController_StartChargepointCharging_BypassesOfferedCurrentDedup(t *test
 
 	err := ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal})
 	assert.NoError(t, err)
-	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(16), true)
+	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(16))
 }
 
 // SetChargepointOfferedCurrent (the non-Start path) must keep the existing dedup so that
@@ -303,7 +473,7 @@ func TestController_SetChargepointOfferedCurrent_KeepsDedup(t *testing.T) {
 
 	err := ctrl.SetChargepointOfferedCurrent(16)
 	assert.NoError(t, err)
-	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything, mock.Anything)
+	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
 }
 
 func TestController_SetChargepointPhaseMode(t *testing.T) {
@@ -417,40 +587,6 @@ func TestController_SetChargepointPhaseMode(t *testing.T) {
 	}
 }
 
-// A charging session keeps its phase count until it is bounced, so the setter has to
-// restart it for the new mode to take effect right away.
-func TestController_SetChargepointPhaseMode_RestartsActiveSession(t *testing.T) {
-	t.Parallel()
-
-	managerMock := mockedsignalr.NewManager(t)
-	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
-
-	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
-	cacheMock.On("Phases").Return(3, time.Time{})
-	cacheMock.On("PhaseMode").Return(2, time.Time{})
-	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
-	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
-	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
-	cacheMock.On("MaxCurrent").Return(16, time.Time{})
-	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
-	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
-	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(true)
-
-	clientMock := mockapi.NewClient(t)
-	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
-	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
-	// force=true: the resume follows the stop inside OfferedCurrentWaitTime, so an unforced
-	// write would be refused by the client throttle and the session would stay paused.
-	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16), true).Return(nil).Once()
-
-	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
-
-	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
-	clientMock.AssertCalled(t, "StopCharging", "test-charger")
-	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(16), mock.Anything)
-}
-
 // Resuming needs a current to resume at. With both cached values empty - the adapter
 // restarted mid-session and the state observation landed before the current ones - the
 // session must not be "resumed" at 0A, which reads as success while the charger stays paused.
@@ -478,41 +614,7 @@ func TestController_SetChargepointPhaseMode_FailsWhenNoResumeCurrentIsKnown(t *t
 
 	assert.Error(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
 	clientMock.AssertNotCalled(t, "StopCharging", "test-charger")
-	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything, mock.Anything)
-}
-
-// Only this adapter writes RequestedOfferedCurrent, so an adapter restart during a session
-// leaves it empty while the charger keeps reporting what it actually delivers. Resuming has to
-// use that rather than falling through to the user's maximum, which would raise a slow session.
-func TestController_SetChargepointPhaseMode_ResumesAtTheEvseCurrentAfterRestart(t *testing.T) {
-	t.Parallel()
-
-	managerMock := mockedsignalr.NewManager(t)
-	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
-
-	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
-	cacheMock.On("Phases").Return(3, time.Time{})
-	cacheMock.On("PhaseMode").Return(2, time.Time{})
-	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
-	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
-	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
-	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
-	cacheMock.On("OfferedCurrent").Return(6, time.Time{})
-	cacheMock.On("MaxCurrent").Return(32, time.Time{})
-	cacheMock.On("SetRequestedOfferedCurrent", 6, mock.AnythingOfType("time.Time")).Return(true)
-	cacheMock.On("WaitForOfferedCurrent", 6, mock.AnythingOfType("time.Duration")).Return(true)
-
-	clientMock := mockapi.NewClient(t)
-	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
-	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
-	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(6), mock.Anything).Return(nil).Once()
-
-	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
-
-	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
-	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(6), mock.Anything)
-	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", "test-charger", float64(32), mock.Anything)
+	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
 }
 
 // outputPhase survives as a stale echo of the previous session, so a mode we just
@@ -723,102 +825,147 @@ func TestController_SetChargepointPhaseMode_IdleChargerRecordsRequestOverStaleLe
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL2))
 }
 
-// Bouncing a session to apply a phase mode must put back the current that was running.
-// Resuming through a normal-mode start floored it to initial_charging_current, silently
-// pushing a 6A slow session to 16A - and nothing records the mode, so it cannot be restored.
+// chargingCharger mocks a charging charger on a three-phase TN grid in auto mode, the state
+// every bounce test starts from, with the three currents the resume can be read from.
+func chargingCharger(t *testing.T, requested, offered, maxCurrent int) (*mockedsignalr.Manager, *mockedcache.Cache) {
+	t.Helper()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(2, time.Time{})
+	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
+	cacheMock.On("MaxCurrent").Return(maxCurrent, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(requested, time.Time{})
+	cacheMock.On("OfferedCurrent").Return(offered, time.Time{}).Maybe()
+
+	return managerMock, cacheMock
+}
+
+// The defect from the customer log: the resume used to follow the pause 10 ms later and Easee
+// ignored it, parking the charger at 0A while the adapter reported success. The pause opens
+// the window, so the resume is stored and sent at the deadline; the command succeeds once
+// the pause is accepted.
+func TestController_SetChargepointPhaseMode_DefersTheResume(t *testing.T) {
+	t0 := time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC)
+	clk := clock.Mock(t0)
+	t.Cleanup(clock.Restore)
+
+	done := make(chan struct{}, 1)
+
+	managerMock, cacheMock := chargingCharger(t, 16, 0, 16)
+	cacheMock.On("SetRequestedOfferedCurrent", 16, t0.Add(45*time.Second)).Return(true).Once()
+	cacheMock.On("WaitForOfferedCurrent", 16, mock.Anything).Return(true).Run(signal(done)).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	clientMock.AssertCalled(t, "StopCharging", "test-charger")
+	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
+
+	clk.Add(45 * time.Second)
+	awaitDeferred(t, done)
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 1)
+	cacheMock.AssertCalled(t, "SetRequestedOfferedCurrent", 16, t0.Add(45*time.Second))
+}
+
+// Bouncing a session must put back the current that was running. Resuming through a
+// normal-mode start floored it to initial_charging_current, silently pushing a 6A slow session
+// to 16A; and after an adapter restart only the charger's own observation still describes the
+// session, so falling through to the user's maximum would raise it to 32A.
 func TestController_SetChargepointPhaseMode_ResumesAtTheSessionCurrent(t *testing.T) {
-	t.Parallel()
+	tests := []struct {
+		name      string
+		requested int
+		offered   int
+	}{
+		{name: "the requested current", requested: 6},
+		{name: "the charger's own current after a restart", offered: 6},
+	}
 
-	managerMock := mockedsignalr.NewManager(t)
-	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
 
-	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
-	cacheMock.On("Phases").Return(3, time.Time{})
-	cacheMock.On("PhaseMode").Return(2, time.Time{})
-	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
-	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
-	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
-	cacheMock.On("MaxCurrent").Return(32, time.Time{})
-	cacheMock.On("RequestedOfferedCurrent").Return(6, time.Time{})
-	cacheMock.On("SetRequestedOfferedCurrent", 6, mock.AnythingOfType("time.Time")).Return(true)
-	cacheMock.On("WaitForOfferedCurrent", 6, mock.AnythingOfType("time.Duration")).Return(true)
+			done := make(chan struct{}, 1)
 
-	clientMock := mockapi.NewClient(t)
-	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
-	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
-	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(6), mock.Anything).Return(nil).Once()
+			managerMock, cacheMock := chargingCharger(t, tt.requested, tt.offered, 32)
+			cacheMock.On("SetRequestedOfferedCurrent", 6, mock.AnythingOfType("time.Time")).Return(true).Once()
+			cacheMock.On("WaitForOfferedCurrent", 6, mock.Anything).Return(true).Run(signal(done)).Once()
 
-	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), &config.Config{
-		PublicConfig: config.PublicConfig{InitialChargingCurrent: 16},
-	})
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+			clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+			clientMock.On("UpdateDynamicCurrent", "test-charger", float64(6)).Return(nil).Once()
 
-	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+			ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), &config.Config{
+				PublicConfig: config.PublicConfig{InitialChargingCurrent: 16},
+			})
+
+			require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+
+			clk.Add(45 * time.Second)
+			awaitDeferred(t, done)
+			clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(6))
+			clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", "test-charger", float64(16))
+			clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", "test-charger", float64(32))
+		})
+	}
 }
 
-// Easee accepting the resume is not the charger acting on it. Without the observation echoing
-// the current back, the session may well still be paused, so reporting success would hide it.
-func TestController_SetChargepointPhaseMode_ReportsUnconfirmedResume(t *testing.T) {
-	t.Parallel()
+// The command answered when the resume was stored, so whatever the deferred send meets -
+// Easee refusing it, or the charger never echoing it back - can only be logged.
+func TestController_SetChargepointPhaseMode_DeferredResumeOutcomesAreLogOnly(t *testing.T) {
+	tests := []struct {
+		name    string
+		refused error
+		echoed  bool
+	}{
+		{name: "refused", refused: errors.New("cloud rejected the resume")},
+		{name: "unconfirmed", echoed: false},
+	}
 
-	managerMock := mockedsignalr.NewManager(t)
-	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
 
-	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
-	cacheMock.On("Phases").Return(3, time.Time{})
-	cacheMock.On("PhaseMode").Return(2, time.Time{})
-	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
-	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
-	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
-	cacheMock.On("MaxCurrent").Return(16, time.Time{})
-	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
-	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
-	// The charger never echoed the current back.
-	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(false)
+			done := make(chan struct{}, 1)
 
-	clientMock := mockapi.NewClient(t)
-	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
-	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
-	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16), mock.Anything).Return(nil).Once()
+			managerMock, cacheMock := chargingCharger(t, 16, 0, 16)
 
-	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+			clientMock.On("StopCharging", "test-charger").Return(nil).Once()
 
-	err := ctrl.SetChargepointPhaseMode(types.PhaseModeNL1)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "did not resume")
-}
+			if tt.refused != nil {
+				clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(tt.refused).Run(signal(done)).Once()
+			} else {
+				clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+				cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true).Once()
+				cacheMock.On("WaitForOfferedCurrent", 16, mock.Anything).Return(tt.echoed).Run(signal(done)).Once()
+			}
 
-// Pausing then failing to resume leaves the car not charging, so the caller has to hear
-// about it even though the phase mode itself was stored successfully.
-func TestController_SetChargepointPhaseMode_ReportsFailedResume(t *testing.T) {
-	t.Parallel()
+			ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
 
-	managerMock := mockedsignalr.NewManager(t)
-	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+			require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
 
-	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
-	cacheMock.On("Phases").Return(3, time.Time{})
-	cacheMock.On("PhaseMode").Return(2, time.Time{})
-	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
-	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
-	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
-	cacheMock.On("MaxCurrent").Return(16, time.Time{})
-	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
-
-	boom := errors.New("cloud rejected the resume")
-
-	clientMock := mockapi.NewClient(t)
-	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
-	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
-	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16), mock.Anything).Return(boom).Once()
-
-	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
-
-	err := ctrl.SetChargepointPhaseMode(types.PhaseModeNL1)
-	assert.ErrorIs(t, err, boom)
-	assert.Contains(t, err.Error(), "left stopped")
+			clk.Add(45 * time.Second)
+			awaitDeferred(t, done)
+			clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 1)
+		})
+	}
 }
 
 // Failing to pause changes nothing on the charger, so it stays a warning.
@@ -1181,11 +1328,278 @@ func TestController_StartChargepointCharging_ReportsUnconfirmedStart(t *testing.
 	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(false)
 
 	clientMock := mockapi.NewClient(t)
-	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16), mock.Anything).Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
 
 	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
 
 	err := ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "did not resume")
+}
+
+// A start the channel stores has to report success at once: the echo it would wait for
+// cannot arrive before the deadline, and failing cmd.charge.start would leave the user
+// re-pressing Start against a write that is already on its way.
+func TestController_StartChargepointCharging_DeferredStartReportsSuccess(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	done := make(chan struct{}, 1)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Once()
+	cacheMock.On("WaitForOfferedCurrent", 16, mock.Anything).Return(true).Run(signal(done)).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal}))
+	cacheMock.AssertNotCalled(t, "WaitForOfferedCurrent", 16, mock.Anything)
+
+	clk.Add(40 * time.Second)
+	awaitDeferred(t, done)
+	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(16))
+}
+
+// Every report goes through the connection gate; a disconnected charger answers with the reason.
+func TestController_Reports_RequireAConnectedCharger(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		call func(c easee.Controller) error
+	}{
+		{"cable lock", func(c easee.Controller) error { _, err := c.ChargepointCableLockReport(); return err }},
+		{"phase mode", func(c easee.Controller) error { _, err := c.ChargepointPhaseModeReport(); return err }},
+		{"max current", func(c easee.Controller) error { _, err := c.ChargepointMaxCurrentReport(); return err }},
+		{"session", func(c easee.Controller) error { _, err := c.ChargepointCurrentSessionReport(); return err }},
+		{"alarm", func(c easee.Controller) error { _, err := c.AlarmReport("evt"); return err }},
+		{"state", func(c easee.Controller) error { _, err := c.ChargepointStateReport(); return err }},
+		{"meter", func(c easee.Controller) error { _, err := c.MeterReport(numericmeter.UnitW); return err }},
+		{"extended meter", func(c easee.Controller) error { _, err := c.MeterExtendedReport(nil); return err }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			managerMock := mockedsignalr.NewManager(t)
+			managerMock.On("Connected", "test-charger").Return(false, signalr.DisconnectionReason("offline"))
+
+			ctrl := newTestController(t, managerMock, mockedcache.NewCache(t), mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+			err := tt.call(ctrl)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "offline")
+		})
+	}
+}
+
+func TestController_ChargepointCableLockReport(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		locked      bool
+		cable       int
+		cableAt     time.Time
+		wantCurrent *int
+	}{
+		{name: "unlocked reports zero", locked: false, cable: 32, cableAt: time.Now(), wantCurrent: new(int)},
+		{name: "locked with an observed rating", locked: true, cable: 20, cableAt: time.Now(), wantCurrent: ptr(20)},
+		{name: "locked with no rating observed", locked: true, cable: 20},
+		{name: "locked with a negative rating", locked: true, cable: -1, cableAt: time.Now()},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			managerMock := mockedsignalr.NewManager(t)
+			managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("CableLocked").Return(tt.locked, time.Time{})
+			cacheMock.On("CableCurrent").Return(tt.cable, tt.cableAt).Maybe()
+
+			ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+			report, err := ctrl.ChargepointCableLockReport()
+			require.NoError(t, err)
+			assert.Equal(t, tt.locked, report.CableLock)
+			assert.Equal(t, tt.wantCurrent, report.CableCurrent)
+		})
+	}
+}
+
+func ptr(v int) *int { return &v }
+
+func TestController_MaxCurrent(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("WaitForMaxCurrent", 20, mock.AnythingOfType("time.Duration")).Return(true).Once()
+	cacheMock.On("MaxCurrent").Return(20, time.Time{})
+
+	boom := errors.New("cloud down")
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateMaxCurrent", "test-charger", float64(20)).Return(nil).Once()
+	clientMock.On("UpdateMaxCurrent", "test-charger", float64(25)).Return(boom).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	require.NoError(t, ctrl.SetChargepointMaxCurrent(20))
+	assert.ErrorIs(t, ctrl.SetChargepointMaxCurrent(25), boom)
+	cacheMock.AssertNumberOfCalls(t, "WaitForMaxCurrent", 1)
+
+	current, err := ctrl.ChargepointMaxCurrentReport()
+	require.NoError(t, err)
+	assert.Equal(t, 20, current)
+}
+
+func TestController_AlarmReport(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("AlarmActive", "burglar").Return(true)
+	cacheMock.On("AlarmActive", "smoke").Return(false)
+
+	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+	report, err := ctrl.AlarmReport("burglar")
+	require.NoError(t, err)
+	assert.Equal(t, &alarm.Report{Event: "burglar", Status: alarm.StatusActivate}, report)
+
+	report, err = ctrl.AlarmReport("smoke")
+	require.NoError(t, err)
+	assert.Equal(t, &alarm.Report{Event: "smoke", Status: alarm.StatusDeactivate}, report)
+}
+
+func TestController_MeterReport(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		unit     numericmeter.Unit
+		energyAt time.Time
+		want     float64
+		wantErr  string
+	}{
+		{name: "power", unit: numericmeter.UnitW, want: 2300},
+		{name: "energy", unit: numericmeter.UnitKWh, energyAt: time.Now(), want: 12.5},
+		{name: "energy never observed", unit: numericmeter.UnitKWh, wantErr: "energy value not updated"},
+		{name: "unsupported unit", unit: numericmeter.UnitA, wantErr: "unsupported unit"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			managerMock := mockedsignalr.NewManager(t)
+			managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("TotalPower").Return(2300.0, time.Time{}).Maybe()
+			cacheMock.On("LifetimeEnergy").Return(12.5, tt.energyAt).Maybe()
+
+			ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+			got, err := ctrl.MeterReport(tt.unit)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.InDelta(t, tt.want, got, 0)
+		})
+	}
+}
+
+// Lifetime energy has no meaningful zero, so it is the one value left out until observed;
+// unknown values are skipped rather than failing the report.
+func TestController_MeterExtendedReport(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		energyAt time.Time
+		want     numericmeter.ValuesReport
+	}{
+		{
+			name:     "energy observed",
+			energyAt: time.Now(),
+			want:     numericmeter.ValuesReport{numericmeter.ValueCurrentPhase1: 10, numericmeter.ValuePowerImport: 2300, numericmeter.ValueEnergyImport: 12.5},
+		},
+		{
+			name: "energy never observed",
+			want: numericmeter.ValuesReport{numericmeter.ValueCurrentPhase1: 10, numericmeter.ValuePowerImport: 2300},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			managerMock := mockedsignalr.NewManager(t)
+			managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("Phase1Current").Return(10.0, time.Time{})
+			cacheMock.On("TotalPower").Return(2300.0, time.Time{})
+			cacheMock.On("LifetimeEnergy").Return(12.5, tt.energyAt)
+
+			ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+			got, err := ctrl.MeterExtendedReport(numericmeter.Values{
+				numericmeter.ValueCurrentPhase1, numericmeter.ValuePowerImport, numericmeter.ValueEnergyImport, numericmeter.Value("unknown"),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestController_Parameters(t *testing.T) {
+	t.Parallel()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("CableAlwaysLocked").Return(true, time.Time{})
+
+	ctrl := newTestController(t, nil, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+	specs, err := ctrl.GetParameterSpecifications()
+	require.NoError(t, err)
+	require.Len(t, specs, 1)
+	assert.Equal(t, model.CableAlwaysLockedParameter, specs[0].ID)
+
+	param, err := ctrl.GetParameter(model.CableAlwaysLockedParameter)
+	require.NoError(t, err)
+	assert.Equal(t, parameters.NewBoolParameter(model.CableAlwaysLockedParameter, true), param)
+
+	_, err = ctrl.GetParameter("other")
+	assert.ErrorContains(t, err, "parameter: other not supported")
+
+	err = ctrl.SetParameter(parameters.NewBoolParameter("other", true))
+	assert.ErrorContains(t, err, "parameter: other not supported")
+
+	err = ctrl.SetParameter(parameters.NewStringParameter(model.CableAlwaysLockedParameter, "yes"))
+	assert.Error(t, err, "a non-boolean value is rejected before anything is sent")
 }
