@@ -173,9 +173,9 @@ func TestMigrateConfig_dropsBackupLeftByAnInterruptedMigration(t *testing.T) {
 }
 
 // Steady state: config.json corrupted by an interrupted runtime Save, a good backup beside it, and
-// no migration step left to run. Load() recovers the backup in memory only, so the drop must
-// persist that copy first or the next boot has nothing to load.
-func TestMigrateConfig_persistsARecoveredConfigBeforeDroppingTheBackup(t *testing.T) {
+// no migration step left to run. Load() recovers the backup in memory only, so the drop has to
+// leave that copy on disk or the next boot has nothing to load.
+func TestMigrateConfig_restoresTheBackupOverACorruptConfig(t *testing.T) {
 	t.Parallel()
 
 	svc, dir := newMigrationConfigService(t, 5)
@@ -185,6 +185,8 @@ func TestMigrateConfig_persistsARecoveredConfigBeforeDroppingTheBackup(t *testin
 	backup := filepath.Join(dir, "data", "config.json.bak")
 
 	require.NoError(t, os.Rename(configPath, backup))
+	good, err := os.ReadFile(backup) //nolint:gosec
+	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(configPath, []byte(`{tru`), 0o600))
 
 	recovered := config.NewService(cliffStorage.New(config.New(dir), dir, "config.json"))
@@ -192,6 +194,10 @@ func TestMigrateConfig_persistsARecoveredConfigBeforeDroppingTheBackup(t *testin
 	require.NoError(t, migrateConfig(recovered, config.NewCredentialsStore(dir)))
 
 	assert.NoFileExists(t, backup)
+
+	restored, err := os.ReadFile(configPath) //nolint:gosec
+	require.NoError(t, err)
+	assert.Equal(t, string(good), string(restored), "the backup is moved into place, not rewritten from memory")
 
 	reloaded := config.New(dir)
 	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load(), "the next boot must still load the config")

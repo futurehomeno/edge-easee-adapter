@@ -138,16 +138,7 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 
 	// The v5->v6 Save renames the token-bearing config.json to a world-readable
 	// data/config.json.bak, and a crash before the removal would strand it: the next boot is
-	// already at version 6 and applies nothing. Load() recovers from the backup in memory only,
-	// so the recovered config is saved before its only copy on disk goes.
-	if !config.HasConfigBackup(cfg.WorkDir) {
-		return nil
-	}
-
-	if err := cfgSvc.Save(); err != nil {
-		return fmt.Errorf("persist config before dropping its backup: %w", err)
-	}
-
+	// already at version 6 and applies nothing, so the backup is cleared on every boot.
 	config.DropConfigBackup(cfg.WorkDir)
 
 	return nil
