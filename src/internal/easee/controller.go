@@ -310,6 +310,15 @@ func (c *controller) legToRecord(mode types.PhaseMode, gridType types.GridType, 
 	}
 
 	known := c.persistedPhase()
+
+	// The leg the charger is delivering on right now outranks the stored one, which lags it
+	// whenever a props republish failed: substituting the stale store there would name a leg
+	// the charger is demonstrably not on, and the hub would learn that as its fixed phase.
+	if outputPhase, outputPhaseSet := c.cache.OutputPhaseType(); outputPhase.EffectivePhasesCnt() == 1 &&
+		!c.outputPhaseStale(outputPhase, outputPhaseSet) && c.charging() {
+		known = outputPhase
+	}
+
 	if known.EffectivePhasesCnt() == 1 && known != mode &&
 		slices.Contains(model.SettablePhaseModes(gridType, phases), known) {
 		return known

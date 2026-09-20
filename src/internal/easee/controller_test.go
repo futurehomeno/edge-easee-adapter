@@ -917,6 +917,39 @@ func TestController_SetChargepointPhaseMode_StaleThreePhaseRequestDoesNotMaskThe
 	assert.Equal(t, types.PhaseModeNL3, got)
 }
 
+// The store lags the cache whenever a props republish failed, so it can still name the previous
+// leg while the charger is charging on a new one. Substituting the stored leg there would report
+// one the charger is demonstrably not on, and the hub would learn it as the fixed phase.
+func TestController_SetChargepointPhaseMode_LiveLegOutranksTheStoredOne(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-2 * time.Hour)
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(model.EaseePhaseModeAuto, observed)
+	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL1, observed.Add(time.Minute))
+	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true).Once()
+	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
+	cacheMock.On("MaxCurrent").Return(16, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(true)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16), true).Return(nil).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil, types.PhaseModeNL3)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+}
+
 func TestController_SetChargepointPhaseMode_IdleChargerRecordsRequestOverStaleLeg(t *testing.T) {
 	t.Parallel()
 
