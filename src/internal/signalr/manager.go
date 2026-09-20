@@ -40,7 +40,7 @@ type manager struct {
 	done    chan struct{}
 	cfg     *config.Service
 
-	// Bumped by every Register that starts the client. Close() blocks on the network - it
+	// Bumped by every Register that adds a charger. Close() blocks on the network - it
 	// waits out the connection goroutine - so Unregister cannot decide to close and close
 	// under one lock; it snapshots this instead and re-starts the client when a Register
 	// bumped it in between.
@@ -194,11 +194,12 @@ func (m *manager) Unregister(chargerID string) error {
 		}
 
 		m.mu.RLock()
-		raced := m.startEpoch != startEpoch
+		raced := m.startEpoch != startEpoch && len(m.chargers) > 0
 		m.mu.RUnlock()
 
 		// That Register ran its Start() before this Close(), so the client's own
-		// startRequested rescue had nothing to defer and the close simply undid it.
+		// startRequested rescue had nothing to defer and the close simply undid it. Unless
+		// its charger has since gone too: then its own Unregister closed the client last.
 		if raced {
 			m.client.Start()
 		}

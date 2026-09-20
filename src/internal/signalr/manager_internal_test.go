@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -987,6 +988,83 @@ func TestUnregister_KeepsTheClientUpForARegisterLandingBeforeClose(t *testing.T)
 
 // gapClient parks inside Close so a test can land a Register in Unregister's decide-then-close
 // gap, and tracks running the way the real client does.
+// The raced Register can itself be gone by the time Close returns: Unregister(A) parks in
+// Close, Register(B) bumps the epoch, Unregister(B) removes the last charger and parks in its
+// own Close. A restart on the epoch alone would then leave the client up for nobody.
+func TestUnregister_DoesNotRestartWhenTheRacedChargerIsGoneToo(t *testing.T) {
+	client := &orderedGapClient{entered: make(chan struct{}), releases: []chan struct{}{make(chan struct{}), make(chan struct{})}}
+
+	m := newTestManagerWithClient(t, client)
+
+	first := make(chan struct{})
+
+	go func() {
+		defer close(first)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	m.Register("YY67890", &recordingHandler{handled: make(chan struct{})})
+
+	second := make(chan struct{})
+
+	go func() {
+		defer close(second)
+
+		_ = m.Unregister("YY67890")
+	}()
+
+	<-client.entered
+
+	close(client.releases[1])
+	<-second
+	close(client.releases[0])
+	<-first
+
+	assert.False(t, client.running(), "no charger is left, so the raced Register must not restart the client")
+}
+
+// orderedGapClient is a gapClient whose every Close parks on its own release, in call order.
+type orderedGapClient struct {
+	failingSubscribeClient
+
+	entered  chan struct{}
+	releases []chan struct{}
+	calls    atomic.Int32
+
+	mu sync.Mutex
+	up bool
+}
+
+func (c *orderedGapClient) Start() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.up = true
+}
+
+func (c *orderedGapClient) Close() error {
+	n := c.calls.Add(1) - 1
+	c.entered <- struct{}{}
+	<-c.releases[n]
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.up = false
+
+	return nil
+}
+
+func (c *orderedGapClient) running() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.up
+}
+
 type gapClient struct {
 	failingSubscribeClient
 
