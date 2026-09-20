@@ -309,13 +309,13 @@ func TestObservationsHandler_ZeroPhaseFaultKeepsTheChargepointProps(t *testing.T
 			}))
 
 			assert.Equal(t, props, srv.Specification().Props, "a wiring fault must leave the advertised topology alone")
-			assert.Zero(t, thing.inclusion, "nothing to republish while the topology is unknown")
+			assert.Zero(t, thing.inclusion, "nothing to republish while the phase count is unknown")
 		})
 	}
 }
 
 // The fault-clear path still has to land: once a genuine topology arrives the props are
-// republished, even though the cache was never poisoned with the zero-phase observation.
+// republished. The strict cache mock is what proves the fault in between never reached it.
 func TestObservationsHandler_TopologyAfterZeroPhaseFaultStillRepublishes(t *testing.T) {
 	t.Parallel()
 
@@ -341,17 +341,19 @@ func TestObservationsHandler_TopologyAfterZeroPhaseFaultStillRepublishes(t *test
 	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, handler.HandleObservation(model.Observation{
-		ID:        model.DetectedPowerGridType,
-		ChargerID: testChargerID,
-		DataType:  model.ObservationDataTypeInteger,
-		Timestamp: now,
-		Value:     strconv.Itoa(int(model.GridTypeIT1Phase)),
-	}))
+	for _, gridType := range []model.GridType{model.GridTypeErrorTN400VNeutralOnWrongPin, model.GridTypeIT1Phase} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID:        model.DetectedPowerGridType,
+			ChargerID: testChargerID,
+			DataType:  model.ObservationDataTypeInteger,
+			Timestamp: now,
+			Value:     strconv.Itoa(int(gridType)),
+		}))
+	}
 
 	assert.Equal(t, types.GridTypeIT, srv.Specification().Props[chargepoint.PropertyGridType])
 	assert.Equal(t, 1, srv.Specification().Props[chargepoint.PropertyPhases])
-	assert.Equal(t, 1, thing.inclusion)
+	assert.Equal(t, 1, thing.inclusion, "only the recovery republishes")
 }
 
 // A faulted grid type maps to ("", 0), which is the absence of a topology rather than a new
