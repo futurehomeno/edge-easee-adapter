@@ -258,10 +258,6 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 
 	current, internalAt := c.cache.PhaseMode()
 	if target == current {
-		if c.knownLegDiffers(mode, gridType, phases) {
-			return nil
-		}
-
 		// Nothing to send: Easee stores "one phase", not a chosen leg. Skip the record only
 		// while a live observation says which leg is actually in use - the charger picks
 		// it, so a request outranking that observation would report a leg it is not on.
@@ -277,7 +273,7 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 				requestedAt = internalAt
 			}
 
-			c.cache.SetRequestedPhaseMode(mode, requestedAt.Add(time.Millisecond))
+			c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), requestedAt.Add(time.Millisecond))
 		}
 
 		return nil
@@ -295,27 +291,31 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		requestedAt = internalAt
 	}
 
-	if !c.knownLegDiffers(mode, gridType, phases) {
-		c.cache.SetRequestedPhaseMode(mode, requestedAt.Add(time.Millisecond))
-	}
+	c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), requestedAt.Add(time.Millisecond))
 
 	return c.restartForPhaseMode(target)
 }
 
-// knownLegDiffers reports whether a single-phase request names a leg other than the one the
-// charger is known to use. An Easee cannot choose its leg, so once one has been observed the
-// report must name it rather than echo the request: the hub learns the charger is fixed only
-// from that mismatch, and echoing leaves it re-requesting a leg the charger will never use.
-// A leg persisted under another topology is no evidence about this one.
-func (c *controller) knownLegDiffers(mode types.PhaseMode, gridType types.GridType, phases int) bool {
+// legToRecord substitutes the leg the charger is known to use for a single-phase request naming
+// a different one. An Easee cannot choose its leg, so the report must name it rather than echo
+// the request: the hub learns the charger is fixed only from that mismatch, and echoing leaves
+// it re-requesting a leg the charger will never use. Recorded rather than left unrecorded,
+// because the record is what outranks the other answers - a leftover three-phase request from
+// the previous balance tick, or the multi-phase leg of a running auto session, both of which
+// would otherwise reach the forced report instead. A leg persisted under another topology is no
+// evidence about this one.
+func (c *controller) legToRecord(mode types.PhaseMode, gridType types.GridType, phases int) types.PhaseMode {
 	if mode.EffectivePhasesCnt() != 1 {
-		return false
+		return mode
 	}
 
 	known := c.persistedPhase()
+	if known.EffectivePhasesCnt() == 1 && known != mode &&
+		slices.Contains(model.SettablePhaseModes(gridType, phases), known) {
+		return known
+	}
 
-	return known.EffectivePhasesCnt() == 1 && known != mode &&
-		slices.Contains(model.SettablePhaseModes(gridType, phases), known)
+	return mode
 }
 
 // restartForPhaseMode bounces an in-progress session, because the charger applies a new

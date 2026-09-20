@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
@@ -57,6 +58,21 @@ func newTestController(
 		sessionStorage,
 		func() types.PhaseMode { return persistedPhase },
 	)
+}
+
+// newLiveCacheController drives the real cache: these cases set a phase mode and then read the
+// report cliffhanger forces right after it, so what the setter records has to reach the report -
+// a static mock cannot express that hand-off.
+func newLiveCacheController(t *testing.T, c cache.Cache, clientMock *mockapi.Client, persisted types.PhaseMode) easee.Controller {
+	t.Helper()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
+
+	return easee.NewController(managerMock, clientMock, "test-charger", c, config.NewService(storage),
+		mockeddb.NewChargingSessionStorage(t), func() types.PhaseMode { return persisted })
 }
 
 func TestController_SetChargepointOfferedCurrent(t *testing.T) {
@@ -730,12 +746,14 @@ func TestController_SetChargepointPhaseMode_KnownLegIsNotMaskedByTheRequest(t *t
 	cacheMock.On("Phases").Return(3, time.Time{})
 	cacheMock.On("PhaseMode").Return(1, ended)
 	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, ended)
+	cacheMock.On("TotalPower").Return(0.0, time.Time{})
+	cacheMock.On("ChargerState").Return(chargepoint.StateReadyToCharge, time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL3, mock.AnythingOfType("time.Time")).Return(true).Once()
 	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 
 	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil, types.PhaseModeNL3)
 
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
-	cacheMock.AssertNotCalled(t, "SetRequestedPhaseMode", mock.Anything, mock.Anything)
 
 	got, err := ctrl.ChargepointPhaseModeReport()
 	assert.NoError(t, err)
@@ -788,6 +806,7 @@ func TestController_SetChargepointPhaseMode_AutoToSingleReportsTheKnownLeg(t *te
 	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, ended)
 	cacheMock.On("TotalPower").Return(0.0, time.Time{})
 	cacheMock.On("ChargerState").Return(chargepoint.StateReadyToCharge, time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL3, mock.AnythingOfType("time.Time")).Return(true).Once()
 	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 
 	clientMock := mockapi.NewClient(t)
@@ -796,7 +815,6 @@ func TestController_SetChargepointPhaseMode_AutoToSingleReportsTheKnownLeg(t *te
 	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil, types.PhaseModeNL3)
 
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
-	cacheMock.AssertNotCalled(t, "SetRequestedPhaseMode", mock.Anything, mock.Anything)
 
 	got, err := ctrl.ChargepointPhaseModeReport()
 	assert.NoError(t, err)
@@ -848,6 +866,55 @@ func TestController_SetChargepointPhaseMode_LegFromAnotherGridIsIgnored(t *testi
 	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil, types.PhaseModeNL3)
 
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeL1L2))
+}
+
+// An auto session charges on three phases, so the cached leg is NL1L2L3 while the store still
+// holds the wired one - persistOutputPhase ignores multi-phase observations. Skipping the record
+// is not enough there: the cached mode is not stale while the internal mode is still auto, so it
+// answers the forced report and the hub sees three phases instead of the leg it has to learn.
+func TestController_SetChargepointPhaseMode_AutoThreePhaseCacheReportsTheKnownLeg(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-2 * time.Hour)
+
+	c := cache.NewCache("test-charger")
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(model.EaseePhaseModeAuto, observed)
+	c.SetOutputPhaseType(types.PhaseModeNL1L2L3, observed.Add(time.Minute))
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+
+	ctrl := newLiveCacheController(t, c, clientMock, types.PhaseModeNL3)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+
+	got, err := ctrl.ChargepointPhaseModeReport()
+	assert.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL3, got)
+}
+
+// The balancer alternates three-phase and single-phase ticks. The three-phase request it recorded
+// outranks the output phase until the charger reports otherwise, and an idle charger reports
+// nothing - so without replacing it the forced report answers the single-phase tick with NL1L2L3.
+func TestController_SetChargepointPhaseMode_StaleThreePhaseRequestDoesNotMaskTheKnownLeg(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-2 * time.Hour)
+
+	c := cache.NewCache("test-charger")
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(1, observed)
+	c.SetOutputPhaseType(types.PhaseModeNL3, observed)
+	c.SetRequestedPhaseMode(types.PhaseModeNL1L2L3, observed.Add(time.Millisecond))
+
+	ctrl := newLiveCacheController(t, c, mockapi.NewClient(t), types.PhaseModeNL3)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+
+	got, err := ctrl.ChargepointPhaseModeReport()
+	assert.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL3, got)
 }
 
 func TestController_SetChargepointPhaseMode_IdleChargerRecordsRequestOverStaleLeg(t *testing.T) {
