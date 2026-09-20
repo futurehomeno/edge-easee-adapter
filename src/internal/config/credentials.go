@@ -33,6 +33,20 @@ func NewCredentialsStoreWithStorage(s storage.Storage[*Credentials]) *Credential
 	return &CredentialsStore{storage: s}
 }
 
+// PinSecretModes closes the token-bearing files to others. cliffhanger enforces the mode on
+// Save but not on Load, and postinst cannot do it safely: a path chmod by root in an
+// easee-writable directory follows whatever link is planted between its check and the call.
+// Here it runs as easee, which a planted link can gain nothing from.
+func PinSecretModes(workDir string) {
+	for _, name := range []string{credentialsFileName, credentialsFileName + backupExtension, configFileName + backupExtension} {
+		path := filepath.Join(workDir, "data", name)
+
+		if err := os.Chmod(path, 0o640); err != nil && !os.IsNotExist(err) { //nolint:gosec // group-readable is the mode secrets.json ships with
+			log.Warnf("[config] Pin mode of %s: %v", path, err)
+		}
+	}
+}
+
 func (s *CredentialsStore) Load() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()

@@ -30,7 +30,17 @@ umask 027
 # state is never deleted - once data/ exists the service owns it.
 TMP="$NEW_DATA/.data.tmp"
 rm -rf "$TMP"
-if [ ! -e "$NEW_DATA/data" ] && [ -d "$OLD_DATA/data" ] && [ ! -L "$OLD_DATA/data" ]; then
+# postinst probed with a symlink-following [ -d ], so a link here is legacy
+# state that exists. Skipping would leave the hub logged out and
+# create_data_dir would then make the skip permanent, so fail the upgrade.
+# Tested before the [ -d ] below, which is unprivileged: through a link into a
+# directory this user cannot traverse it is false, and a check behind it would
+# never run.
+if [ ! -e "$NEW_DATA/data" ] && [ -L "$OLD_DATA/data" ]; then
+	echo "easee: $OLD_DATA/data is a symlink, refusing to migrate" >&2
+	exit 1
+fi
+if [ ! -e "$NEW_DATA/data" ] && [ -d "$OLD_DATA/data" ]; then
 	echo "easee: migrating legacy state from $OLD_DATA"
 	# cp -R (not -a): drop legacy owner bits; the umask above masks the
 	# copied modes so nothing arrives world-readable.

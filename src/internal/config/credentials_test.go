@@ -80,6 +80,30 @@ func TestCredentialsStore_RefreshDoesNotResurrectClearedCredentials(t *testing.T
 
 // If the 5->6 migration wrote the secrets but the version bump failed to save, it runs again
 // on the next boot - and must not restore the stale tokens the configuration still carries.
+// The adapter runs as easee, so this pin cannot be redirected: a path chmod by root in an
+// easee-writable directory follows whatever link is planted between its check and the call.
+func TestPinSecretModes_ClosesTokenBearingFilesToOthers(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o750))
+
+	files := []string{"secrets.json", "secrets.json.bak", "config.json.bak"}
+	for _, name := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "data", name), []byte("{}"), 0o644)) //nolint:gosec
+	}
+
+	config.PinSecretModes(dir)
+
+	for _, name := range files {
+		info, err := os.Stat(filepath.Join(dir, "data", name))
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o640), info.Mode().Perm(), name)
+	}
+
+	config.PinSecretModes(t.TempDir())
+}
+
 func TestMigrateCredentials_KeepsAlreadyMigratedSecrets(t *testing.T) {
 	t.Parallel()
 
