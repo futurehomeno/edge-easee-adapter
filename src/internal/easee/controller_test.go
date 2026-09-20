@@ -753,6 +753,86 @@ func TestController_SetChargepointPhaseMode_UnknownLegStillEchoesTheRequest(t *t
 // An idle charger holds the leg of a finished session, and no internal mode change has
 // happened since - so outputPhaseStale still calls it fresh. Dropping the request there left
 // NL1 -> NL2 unrecorded, and the report republished NL1 until the next session started.
+// Auto to single is the transition the hub drives whenever it balances phases, and the leg
+// it lands on is the one the charger always uses. The forced report after the set has to
+// name that leg, not echo the request the charger will never honour.
+func TestController_SetChargepointPhaseMode_AutoToSingleReportsTheKnownLeg(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	ended := time.Now().Add(-2 * time.Hour)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(model.EaseePhaseModeAuto, time.Time{})
+	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, ended)
+	cacheMock.On("TotalPower").Return(0.0, time.Time{})
+	cacheMock.On("ChargerState").Return(chargepoint.StateReadyToCharge, time.Time{})
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil, types.PhaseModeNL3)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	cacheMock.AssertNotCalled(t, "SetRequestedPhaseMode", mock.Anything, mock.Anything)
+
+	got, err := ctrl.ChargepointPhaseModeReport()
+	assert.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL3, got)
+}
+
+// A known leg says nothing about a three-phase request: dropping that record would leave
+// the report on the old leg until the internal mode observation lands.
+func TestController_SetChargepointPhaseMode_SingleToThreeStillRecordsTheRequest(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	ended := time.Now().Add(-2 * time.Hour)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(1, time.Time{})
+	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, ended)
+	cacheMock.On("TotalPower").Return(0.0, time.Time{})
+	cacheMock.On("ChargerState").Return(chargepoint.StateReadyToCharge, time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1L2L3, mock.AnythingOfType("time.Time")).Return(true).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", model.EaseePhaseModeAuto).Return(nil).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil, types.PhaseModeNL3)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1L2L3))
+}
+
+// The persisted leg outlives a topology change. A TN leg on what is now an IT grid is not a
+// known leg, so a single-phase request there is still recorded.
+func TestController_SetChargepointPhaseMode_LegFromAnotherGridIsIgnored(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeIT, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("PhaseMode").Return(1, time.Time{})
+	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeL1L2, mock.AnythingOfType("time.Time")).Return(true).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil, types.PhaseModeNL3)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeL1L2))
+}
+
 func TestController_SetChargepointPhaseMode_IdleChargerRecordsRequestOverStaleLeg(t *testing.T) {
 	t.Parallel()
 

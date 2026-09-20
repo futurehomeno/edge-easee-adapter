@@ -258,10 +258,7 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 
 	current, internalAt := c.cache.PhaseMode()
 	if target == current {
-		// An Easee cannot choose its leg, so once one has been observed the report must name
-		// it rather than echo the request: the hub learns the charger is fixed only from that
-		// mismatch, and echoing leaves it re-requesting a leg the charger will never use.
-		if known := c.persistedPhase(); known.EffectivePhasesCnt() == 1 && known != mode {
+		if c.knownLegDiffers(mode, gridType, phases) {
 			return nil
 		}
 
@@ -298,9 +295,27 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		requestedAt = internalAt
 	}
 
-	c.cache.SetRequestedPhaseMode(mode, requestedAt.Add(time.Millisecond))
+	if !c.knownLegDiffers(mode, gridType, phases) {
+		c.cache.SetRequestedPhaseMode(mode, requestedAt.Add(time.Millisecond))
+	}
 
 	return c.restartForPhaseMode(target)
+}
+
+// knownLegDiffers reports whether a single-phase request names a leg other than the one the
+// charger is known to use. An Easee cannot choose its leg, so once one has been observed the
+// report must name it rather than echo the request: the hub learns the charger is fixed only
+// from that mismatch, and echoing leaves it re-requesting a leg the charger will never use.
+// A leg persisted under another topology is no evidence about this one.
+func (c *controller) knownLegDiffers(mode types.PhaseMode, gridType types.GridType, phases int) bool {
+	if mode.EffectivePhasesCnt() != 1 {
+		return false
+	}
+
+	known := c.persistedPhase()
+
+	return known.EffectivePhasesCnt() == 1 && known != mode &&
+		slices.Contains(model.SettablePhaseModes(gridType, phases), known)
 }
 
 // restartForPhaseMode bounces an in-progress session, because the charger applies a new
