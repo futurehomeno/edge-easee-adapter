@@ -3,13 +3,11 @@
 ## Purpose
 Hold the adapter's tunable settings, expose them over FIMP config routes, migrate settings written by
 older versions, and keep the Easee credentials in a store separate from the public configuration.
-
 ## Requirements
-
 ### Requirement: Settings And Defaults
 The configuration SHALL expose these settings with the following defaults when unset or unparsable:
 `pollingInterval` 10m, `token_refresh_interval` 30m, `currentWaitDuration` 3s,
-`offered_current_wait_time` 20s, `energyLifetimeInterval` 10s, `httpTimeout` 30s,
+`offered_current_wait_time` 30s, `energyLifetimeInterval` 10s, `httpTimeout` 30s,
 `initial_charging_current` 16A, `auth_max_unauthorized` 2h, SignalR `connCreationTimeout` 30s,
 `keepAliveInterval2` 30s, `timeoutInterval2` 1m and `invokeTimeout` 10s. Duration settings are stored
 as strings and SHALL fall back to their default when they cannot be parsed.
@@ -59,17 +57,18 @@ unchanged and the next startup would retry with the same broken bytes.
 - **THEN** the migration is a no-op
 
 ### Requirement: Superseded Default Migrations
-A stored `offered_current_wait_time` of exactly `15s` SHALL be rewritten to `20s`, and a stored
-SignalR `finalBackoff` of exactly `2m` SHALL be rewritten to `10m`. Any other value SHALL be left
-alone. A value deliberately chosen to match the old default is indistinguishable from it and is
-rewritten too.
+A stored `offered_current_wait_time` of exactly `15s` (the 2.8 packaged default) or `20s` (the
+3.1.2 packaged default) SHALL be rewritten to `30s`, and a stored SignalR `finalBackoff` of exactly
+`2m` SHALL be rewritten to `10m`. Any other value SHALL be left alone. A value deliberately chosen to
+match an old default is indistinguishable from it and is rewritten too. The wait-time migration
+SHALL run again for installs already past it, so a 3.1.2 install is lifted on its next boot.
 
 #### Scenario: old packaged default
-- **WHEN** `offered_current_wait_time` is `15s`
-- **THEN** it becomes `20s`
+- **WHEN** `offered_current_wait_time` is `15s` or `20s`
+- **THEN** it becomes `30s`
 
 #### Scenario: user-chosen value
-- **WHEN** `offered_current_wait_time` is `30s`
+- **WHEN** `offered_current_wait_time` is `45s`
 - **THEN** it is left unchanged
 
 #### Scenario: SignalR final backoff
@@ -174,3 +173,4 @@ abort initialization.
 #### Scenario: save fails
 - **WHEN** persisting the configuration fails
 - **THEN** initialization returns a `failed to save configs` error
+

@@ -60,4 +60,4 @@ is what it asserts.
       `dispatch` and `send` 100%, `sendPending` 84.6%. The lift beyond the change came from
       three table tests over untested wrappers: `api/client_test.go`, the controller's report
       methods, and the config setters/getters.
-- [ ] 4. Draft PR against `release_3.1`; #151 commented and closed as superseded
+- [x] 4. Draft PR against `release_3.1`; #151 commented and closed as superseded
