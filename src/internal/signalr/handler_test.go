@@ -3,20 +3,27 @@ package signalr_test
 import (
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	mockedalarm "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/alarm"
 	mockedchargepoint "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/chargepoint"
+	mockednumericmeter "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockedcache "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/cache"
 )
 
@@ -27,6 +34,14 @@ type serviceLessThing struct {
 }
 
 func (serviceLessThing) Services(fimptype.ServiceNameT) []adapter.Service { return nil }
+
+// flushReports drains the handler's report queue. Close publishes everything already queued and
+// waits for the sender, so it is the flush point a test needs once a report is asynchronous.
+func flushReports(t *testing.T, handler signalr.Handler) {
+	t.Helper()
+
+	handler.Close()
+}
 
 // The session-finished clear is a controller-convention write: it carries the current time
 // rather than the observation's, so a state observation stamped before the last set command
@@ -59,7 +74,11 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 type phaseThing struct {
 	adapter.Thing
 
-	srv       *mockedchargepoint.Service
+	srv *mockedchargepoint.Service
+
+	// The inclusion report is published on the sender goroutine, so the counter and the failure
+	// budget are both touched off the test goroutine.
+	mu        sync.Mutex
 	inclusion int
 	fail      int
 }
@@ -70,6 +89,9 @@ func (t *phaseThing) Services(fimptype.ServiceNameT) []adapter.Service {
 func (t *phaseThing) Update(...adapter.ThingUpdate) error { return nil }
 
 func (t *phaseThing) SendInclusionReport(bool) (bool, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	t.inclusion++
 
 	if t.fail > 0 {
@@ -79,6 +101,29 @@ func (t *phaseThing) SendInclusionReport(bool) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func (t *phaseThing) inclusionCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.inclusion
+}
+
+// waitFor polls until cond holds, for reports that are published on the sender goroutine.
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	t.Fatal("condition not met before the deadline")
 }
 
 type fakePhaseStore struct {
@@ -132,14 +177,17 @@ func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T
 
 	require.NoError(t, handler.HandleObservation(observation))
 
-	assert.Equal(t, types.PhaseModeNL3, store.mode)
+	// The props assignment is synchronous; the report and the phase-store write that follows it
+	// run on the sender goroutine, so both need the queue flushed first.
 	assert.Equal(t, []types.PhaseMode{types.PhaseModeNL3, types.PhaseModeNL1L2L3},
 		srv.Specification().Props[chargepoint.PropertySupportedPhaseModes])
-	assert.Equal(t, 1, thing.inclusion)
 
 	require.NoError(t, handler.HandleObservation(observation))
 
-	assert.Equal(t, 1, thing.inclusion, "an unchanged phase must not republish the inclusion report")
+	flushReports(t, handler)
+
+	assert.Equal(t, types.PhaseModeNL3, store.mode)
+	assert.Equal(t, 1, thing.inclusionCount(), "an unchanged phase must not republish the inclusion report")
 }
 
 // A republish that fails must not be recorded as done: the next observation has to retry it.
@@ -172,12 +220,20 @@ func TestObservationsHandler_OutputPhaseRepublishRetriedAfterFailure(t *testing.
 		Value:     strconv.Itoa(int(model.P1T2T5TN)),
 	}
 
-	require.Error(t, handler.HandleObservation(observation))
+	// The failure now surfaces on the sender goroutine rather than from HandleObservation, so
+	// the drain sees no error; what must still hold is that the phase is not persisted, which is
+	// what makes the next observation retry the republish.
+	require.NoError(t, handler.HandleObservation(observation))
+
+	waitFor(t, func() bool { return thing.inclusionCount() == 1 })
 	assert.Equal(t, types.PhaseModeUnknown, store.mode, "a failed republish must not be persisted")
 
 	require.NoError(t, handler.HandleObservation(observation))
+
+	flushReports(t, handler)
+
 	assert.Equal(t, types.PhaseModeNL3, store.mode)
-	assert.Equal(t, 2, thing.inclusion)
+	assert.Equal(t, 2, thing.inclusionCount())
 }
 
 // The offline state report is the one report that must survive the offline gate. The handler
@@ -320,7 +376,7 @@ func TestObservationsHandler_ZeroPhaseFaultKeepsTheChargepointProps(t *testing.T
 			}))
 
 			assert.Equal(t, props, srv.Specification().Props, "a wiring fault must leave the advertised topology alone")
-			assert.Zero(t, thing.inclusion, "nothing to republish while the phase count is unknown")
+			assert.Zero(t, thing.inclusionCount(), "nothing to republish while the phase count is unknown")
 		})
 	}
 }
@@ -362,9 +418,11 @@ func TestObservationsHandler_TopologyAfterZeroPhaseFaultStillRepublishes(t *test
 		}))
 	}
 
+	flushReports(t, handler)
+
 	assert.Equal(t, types.GridTypeIT, srv.Specification().Props[chargepoint.PropertyGridType])
 	assert.Equal(t, 1, srv.Specification().Props[chargepoint.PropertyPhases])
-	assert.Equal(t, 1, thing.inclusion, "only the recovery republishes")
+	assert.Equal(t, 1, thing.inclusionCount(), "only the recovery republishes")
 }
 
 // A faulted grid type maps to ("", 0), which is the absence of a topology rather than a new
@@ -406,7 +464,7 @@ func TestObservationsHandler_FaultGridTypeKeepsTheChargepointProps(t *testing.T)
 		"a fault must not delete the known grid type")
 	assert.Equal(t, 3, srv.Specification().Props[chargepoint.PropertyPhases],
 		"a fault must not delete the known phase count")
-	assert.Zero(t, thing.inclusion, "nothing to republish when the topology did not change")
+	assert.Zero(t, thing.inclusionCount(), "nothing to republish when the topology did not change")
 }
 
 // Every report the handler sends takes the same service lock a chargepoint command holds while
@@ -616,4 +674,222 @@ func TestObservationsHandler_DroppedStateTransitionStillMovesTheFlag(t *testing.
 	handler.Close()
 
 	assert.True(t, handler.IsOnline(), "the offline transition queued before the drop must not win the drain")
+}
+
+// alarmThing exposes both a chargepoint and an alarm service, so a test can park one report on
+// a service lock and watch whether the other path still reaches the drain.
+type alarmThing struct {
+	adapter.Thing
+
+	cp    *mockedchargepoint.Service
+	alarm *mockedalarm.Service
+
+	// inclusionBlock, when set, parks SendInclusionReport - standing in for a stalled MQTT.
+	inclusionBlock chan struct{}
+}
+
+func (t *alarmThing) Services(name fimptype.ServiceNameT) []adapter.Service {
+	if name == alarm.AlarmSystem {
+		return []adapter.Service{t.alarm}
+	}
+
+	return []adapter.Service{t.cp}
+}
+
+func (t *alarmThing) Update(...adapter.ThingUpdate) error { return nil }
+
+func (t *alarmThing) SendInclusionReport(bool) (bool, error) {
+	if t.inclusionBlock != nil {
+		<-t.inclusionBlock
+	}
+
+	return true, nil
+}
+
+// #167: #158 moved the chargepoint and meter reports onto the queue but left the alarm path
+// publishing inline, so an alarm blocked on the service lock parked the only drainer of the
+// observation channel.
+func TestObservationsHandler_AlarmReportsDoNotBlockTheDrain(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("AlarmActive", alarm.EventOtherChargeErr).Return(false).Maybe()
+	cacheMock.On("SetAlarm", alarm.EventOtherChargeErr, true, now).Return(true)
+	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now).Maybe()
+	cacheMock.On("SetChargerState", chargepoint.StateCharging, now).Return(true).Maybe()
+
+	// Stands in for the service lock a command holds across its echo wait.
+	release := make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+
+	defer releaseOnce()
+
+	alarmSrv := mockedalarm.NewService(t)
+	alarmSrv.On("Name").Return(alarm.AlarmSystem).Maybe()
+	alarmSrv.On("SendAlarmReport", alarm.EventOtherChargeErr, false).
+		Run(func(mock.Arguments) { <-release }).Return(true, nil).Maybe()
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	cp.On("SendStateReport", false).Return(true, nil).Maybe()
+
+	handler, err := signalr.NewObservationsHandler(
+		&alarmThing{cp: cp, alarm: alarmSrv}, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	defer func() {
+		releaseOnce()
+		handler.Close()
+	}()
+
+	drained := make(chan error, 2)
+	go func() {
+		drained <- handler.HandleObservation(model.Observation{
+			ID: model.ErrorCode, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: now, Value: "1",
+		})
+		drained <- handler.HandleObservation(model.Observation{
+			ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: now, Value: strconv.Itoa(int(model.ChargerStateCharging)),
+		})
+	}()
+
+	for range 2 {
+		select {
+		case err := <-drained:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("observation drain is parked behind an alarm report waiting on the service lock")
+		}
+	}
+}
+
+// #167: the inclusion report republished for a topology change had the same problem - it runs
+// on the drain and waits on MQTT.
+func TestObservationsHandler_InclusionReportsDoNotBlockTheDrain(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, now).Maybe()
+	cacheMock.On("Phases").Return(1, now).Maybe()
+	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 3, now).Return(true)
+	cacheMock.On("SetAlarm", mock.Anything, mock.Anything, now).Return(false).Maybe()
+	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now).Maybe()
+	cacheMock.On("SetChargerState", chargepoint.StateCharging, now).Return(true).Maybe()
+
+	release := make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+
+	defer releaseOnce()
+
+	alarmSrv := mockedalarm.NewService(t)
+	alarmSrv.On("Name").Return(alarm.AlarmSystem).Maybe()
+	alarmSrv.On("SendAlarmReport", mock.Anything, false).Return(true, nil).Maybe()
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	cp.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{}})
+	cp.On("SendStateReport", false).Return(true, nil).Maybe()
+
+	thing := &alarmThing{cp: cp, alarm: alarmSrv, inclusionBlock: release}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	defer func() {
+		releaseOnce()
+		handler.Close()
+	}()
+
+	drained := make(chan error, 2)
+	go func() {
+		drained <- handler.HandleObservation(model.Observation{
+			ID: model.DetectedPowerGridType, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: now, Value: strconv.Itoa(int(model.GridTypeTN3Phase)),
+		})
+		drained <- handler.HandleObservation(model.Observation{
+			ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: now, Value: strconv.Itoa(int(model.ChargerStateCharging)),
+		})
+	}()
+
+	for range 2 {
+		select {
+		case err := <-drained:
+			require.NoError(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("observation drain is parked behind an inclusion report waiting on MQTT")
+		}
+	}
+}
+
+// meterThing exposes a meter_elec service alongside the chargepoint, so the lifetime-energy
+// goroutine has somewhere to publish.
+type meterThing struct {
+	adapter.Thing
+
+	cp    *mockedchargepoint.Service
+	meter *mockednumericmeter.Service
+}
+
+func (t *meterThing) Services(name fimptype.ServiceNameT) []adapter.Service {
+	if name == numericmeter.MeterElec {
+		return []adapter.Service{t.meter}
+	}
+
+	return []adapter.Service{t.cp}
+}
+
+func (t *meterThing) Update(...adapter.ThingUpdate) error    { return nil }
+func (t *meterThing) SendInclusionReport(bool) (bool, error) { return true, nil }
+
+// #166: Close closed the report queue and waited for runSender, but never stopped the
+// lifetime-energy goroutine. Unregister calls Close, so after cmd.thing.delete that goroutine
+// still woke at EnergyLifetimeInterval and published a meter report on a torn-down thing.
+func TestObservationsHandler_CloseStopsTheEnergyGoroutine(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	storage := fakes.NewConfigStorage(t, &config.Config{
+		PublicConfig: config.PublicConfig{EnergyLifetimeInterval: "150ms"},
+	}, config.Factory)
+	cfgSrv := config.NewService(storage)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("LifetimeEnergy").Return(0.0, time.Time{})
+	cacheMock.On("SetLifetimeEnergy", mock.Anything, mock.Anything).Return(true).Maybe()
+
+	var published atomic.Bool
+
+	meter := mockednumericmeter.NewService(t)
+	meter.On("Name").Return(numericmeter.MeterElec).Maybe()
+	meter.On("SendMeterReport", numericmeter.UnitKWh, false).
+		Run(func(mock.Arguments) { published.Store(true) }).Return(true, nil).Maybe()
+	meter.On("SendMeterExtendedReport", mock.Anything, false).
+		Run(func(mock.Arguments) { published.Store(true) }).Return(true, nil).Maybe()
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+
+	handler, err := signalr.NewObservationsHandler(
+		&meterThing{cp: cp, meter: meter}, cacheMock, cfgSrv, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	// Starts the energy goroutine and its timer.
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID: model.LifetimeEnergy, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+		Timestamp: now, Value: "123.4",
+	}))
+
+	handler.Close()
+
+	// Past the interval the timer would have fired at.
+	time.Sleep(400 * time.Millisecond)
+
+	assert.False(t, published.Load(), "the energy goroutine published on a thing that was torn down")
 }
