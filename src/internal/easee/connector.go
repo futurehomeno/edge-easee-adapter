@@ -16,6 +16,7 @@ type connector struct {
 	manager    signalr.Manager
 	httpClient api.Client
 	confSrv    *config.Service
+	controller Controller
 
 	chargerID      string
 	cache          cache.Cache
@@ -31,9 +32,11 @@ func NewConnector(
 	confSrv *config.Service,
 	sessionStorage db.ChargingSessionStorage,
 	thingState adapter.ThingState,
+	controller Controller,
 ) adapter.Connector {
 	return &connector{
 		manager:        manager,
+		controller:     controller,
 		httpClient:     httpClient,
 		chargerID:      chargerID,
 		cache:          cache,
@@ -58,6 +61,10 @@ func (c *connector) Disconnect(_ adapter.Thing) {
 	if err := c.manager.Unregister(c.chargerID); err != nil {
 		log.WithError(err).Error("failed to unregister charger within signalR manager")
 	}
+
+	// A deferred stop or current write armed before cmd.thing.delete would otherwise reach a
+	// charger the hub no longer owns.
+	c.controller.Teardown()
 }
 
 func (c *connector) Connectivity() *adapter.ConnectivityDetails {

@@ -299,3 +299,36 @@ func TestThingFactory_Create_AdvertisesPersistedOutputPhase(t *testing.T) {
 		services[0].Specification().PropertyStrings(chargepoint.PropertySupportedPhaseModes),
 	)
 }
+
+// #163: the factory seeds grid type and phase mode into the cache but never the max current,
+// so after a restart both current sources read 0 and a start had nothing to work from. The
+// persisted supported max is what the user's site actually allows; the 32A fallback in the
+// start path is only the last resort.
+func TestThingFactory_Create_SeedsMaxCurrentFromStoredState(t *testing.T) {
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("ChargerConfig", "test-charger").Return((*model.ChargerConfig)(nil), errors.New("signalR and REST both cold"))
+	clientMock.On("ChargerSiteInfo", "test-charger").Return((*model.ChargerSiteInfo)(nil), errors.New("signalR and REST both cold"))
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(20)).Return(nil)
+
+	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+
+	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
+		info:  easee.Info{ChargerID: "test-charger", Product: "Home"},
+		state: easee.State{SupportedMaxCurrent: 20},
+	})
+	require.NoError(t, err)
+
+	services := thing.Services(chargepoint.Chargepoint)
+	require.Len(t, services, 1)
+
+	cp, ok := services[0].(chargepoint.Service)
+	require.True(t, ok)
+
+	// No observation has arrived, so this is the cold-cache path the issue describes. The start
+	// fails on the echo - nothing feeds this cache over SignalR - but the current on the wire is
+	// what the seeding decides, and 32A here would be the blind fallback rather than the site's.
+	_ = cp.StartCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal})
+
+	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(20))
+}

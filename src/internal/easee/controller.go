@@ -46,6 +46,7 @@ type Controller interface {
 	numericmeter.ExtendedReporter
 	alarm.Reporter
 	UpdateState(chargerID string, state *State) error
+	Teardown()
 }
 
 func NewController(
@@ -85,6 +86,9 @@ type controller struct {
 	pace    sync.Mutex
 	sentAt  time.Time
 	pending *chargerCommand
+	// stopTimer cancels the armed deferred send. Held as a closure rather than the timer so the
+	// indirect benbjohnson/clock type this package never otherwise names stays out of the graph.
+	stopTimer func() bool
 }
 
 type chargerCommand struct {
@@ -105,6 +109,18 @@ func (c chargerCommand) String() string {
 func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
 	c.pace.Lock()
 
+	// A stored stop is never displaced by a current write. Both directions of this matter: a
+	// stop is a safety command - an emergency pause among them - and a balancing refresh landing
+	// inside the window must not cancel it, while a stop arriving after a stored write still
+	// takes the slot.
+	if c.pending != nil && c.pending.stop && !cmd.stop {
+		c.pace.Unlock()
+
+		log.Infof("[%s] Dropped %s, a stop holds the slot", c.chargerID, cmd)
+
+		return false, nil
+	}
+
 	if c.pending == nil && clock.Since(c.sentAt) >= c.cfgService.OfferedCurrentWaitTime() {
 		c.sentAt = clock.Now()
 		c.pace.Unlock()
@@ -114,7 +130,7 @@ func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
 
 	delay := c.cfgService.OfferedCurrentWaitTime() - clock.Since(c.sentAt)
 	if c.pending == nil {
-		clock.AfterFunc(delay, c.sendPending)
+		c.stopTimer = clock.AfterFunc(delay, c.sendPending).Stop
 	}
 
 	c.pending = &cmd
@@ -123,6 +139,21 @@ func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
 	log.Infof("[%s] Deferred %s, sending in %s", c.chargerID, cmd, delay.Round(time.Second))
 
 	return false, nil
+}
+
+// Teardown cancels a deferred send. cmd.thing.delete disconnects the thing, and a timer armed
+// before it would otherwise issue StopCharging or UpdateDynamicCurrent for a charger the hub no
+// longer owns. Clearing the slot makes a send that already fired a no-op.
+func (c *controller) Teardown() {
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	if c.stopTimer != nil {
+		c.stopTimer()
+		c.stopTimer = nil
+	}
+
+	c.pending = nil
 }
 
 // pendingDiffers reports whether the slot holds a current this write would supersede.
@@ -161,6 +192,7 @@ func (c *controller) sendPending() {
 
 	cmd := c.pending
 	c.pending = nil
+	c.stopTimer = nil
 
 	if cmd == nil {
 		c.pace.Unlock()
@@ -579,7 +611,13 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	case startCurrent <= 0:
 		// A cached offered current of 0 means "unknown" - either no load balancer ever set one, or
 		// the session-finished observation cleared it - so the charger starts at the user's max.
+		// Both read 0 until the first observation after a restart seeds them, which is not a
+		// charger that cannot charge: fall back to the same ceiling setOfferedCurrent clamps to,
+		// rather than refusing to start while the REST API is reachable.
 		startCurrent, _ = c.cache.MaxCurrent()
+		if startCurrent <= 0 {
+			startCurrent = maxCurrentValue
+		}
 	case mode == model.ChargingModeNormal:
 		// Only an explicit normal-mode start gets the floor. The mode is optional, so a start
 		// without one may be a load balancer resuming a session it paused, and the cached value
