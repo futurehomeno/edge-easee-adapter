@@ -58,13 +58,15 @@ func (c *connector) Connect(thing adapter.Thing) {
 }
 
 func (c *connector) Disconnect(_ adapter.Thing) {
+	// Before the unregister, not after: a deferred stop or current write armed before
+	// cmd.thing.delete would otherwise reach a charger the hub no longer owns, and Unregister
+	// blocks - it closes the observation handler and calls UnsubscribeCharger, up to
+	// SignalRInvokeTimeout - which is long enough for the timer to fire while it is parked.
+	c.controller.Teardown()
+
 	if err := c.manager.Unregister(c.chargerID); err != nil {
 		log.WithError(err).Error("failed to unregister charger within signalR manager")
 	}
-
-	// A deferred stop or current write armed before cmd.thing.delete would otherwise reach a
-	// charger the hub no longer owns.
-	c.controller.Teardown()
 }
 
 func (c *connector) Connectivity() *adapter.ConnectivityDetails {

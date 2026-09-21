@@ -279,8 +279,9 @@ func (c *controller) sendPending() {
 
 	// Promote the pair's second half before releasing the lock, so a command arriving now
 	// displaces the follow-up rather than slipping in ahead of it.
-	if c.followUp != nil {
-		c.pending = c.followUp
+	promoted := c.followUp
+	if promoted != nil {
+		c.pending = promoted
 		c.followUp = nil
 		c.stopTimer = clock.AfterFunc(c.cfgService.OfferedCurrentWaitTime(), c.sendPending).Stop
 	}
@@ -293,6 +294,12 @@ func (c *controller) sendPending() {
 
 	if err := c.send(*cmd); err != nil {
 		log.Errorf("[%s] Deferred %s failed: %v", c.chargerID, cmd, err)
+
+		// The pair's first half never reached Easee, so its promoted second half must not go
+		// out alone - the same cleanup the immediate-send path does.
+		if promoted != nil {
+			c.clearFollowUp(promoted)
+		}
 
 		return
 	}

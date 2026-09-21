@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
@@ -2582,4 +2583,94 @@ func TestController_SetChargepointPhaseMode_FailedPauseLeavesNoResume(t *testing
 
 	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
 	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 1)
+}
+
+// #176: when the pause itself was stored, sendPending promoted the resume and armed its timer
+// before sending the pause. A pause Easee then refused only logged and returned, leaving the
+// promoted resume armed - so half an atomic pair went out on its own, raising the current on a
+// charger that was never paused. The immediate-send path already called clearFollowUp here.
+func TestController_SetChargepointPhaseMode_DeferredFailedPauseLeavesNoResume(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	done := make(chan struct{}, 1)
+
+	managerMock, cacheMock := chargingCharger(t, 16, 0, 32)
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+	// The deferred pause is refused; the resume behind it must never reach Easee.
+	clientMock.On("StopCharging", "test-charger").
+		Return(errors.New("cloud refused the pause")).Run(signal(done)).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	// Opens the window, so the pause is stored rather than sent.
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+
+	// The deadline fires the stored pause, which fails.
+	clk.Add(15 * time.Second)
+	awaitDeferred(t, done)
+
+	// Past the window the promoted resume would have fired in.
+	clk.Add(20 * time.Second)
+	time.Sleep(100 * time.Millisecond)
+
+	clientMock.AssertNumberOfCalls(t, "StopCharging", 1)
+	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", "test-charger", float64(16))
+}
+
+// #176: Disconnect cancelled the controller's deferred-command timer only after
+// manager.Unregister returned, and Unregister blocks - it closes the observation handler and
+// calls UnsubscribeCharger, up to SignalRInvokeTimeout. A stored stop or current write armed
+// before cmd.thing.delete stayed armed for that whole window and reached a charger the hub was
+// already deleting. Teardown belongs before the blocking call.
+func TestConnector_DisconnectStopsDeferredCommandsBeforeUnregistering(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason("")).Maybe()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{}).Maybe()
+	cacheMock.On("RequestedOfferedCurrent").Return(10, time.Time{}).Maybe()
+	cacheMock.On("OfferedCurrent").Return(0, time.Time{}).Maybe()
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true).Maybe()
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Maybe()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	// Opens the window, then stores a write that the deadline would send.
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(20))
+
+	// Unregister blocks, standing in for UnsubscribeCharger's invoke timeout, and advances the
+	// clock past the stored write's deadline while it is parked there.
+	managerMock.On("Unregister", "test-charger").Return(nil).Once().
+		Run(func(mock.Arguments) {
+			clk.Add(20 * time.Second)
+			time.Sleep(100 * time.Millisecond)
+		})
+
+	connector, ok := easee.NewConnector(
+		managerMock, clientMock, "test-charger", cacheMock, config.NewService(
+			fakes.NewConfigStorage(t, pacedConfig(), config.Factory)),
+		mockeddb.NewChargingSessionStorage(t), nil, ctrl).(adapter.ControllableConnector)
+	require.True(t, ok)
+
+	connector.Disconnect(nil)
+
+	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", "test-charger", float64(20))
 }
