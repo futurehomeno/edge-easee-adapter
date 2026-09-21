@@ -233,7 +233,8 @@ level. A stored command SHALL NOT survive an adapter restart.
 
 #### Scenario: a start replaces a stored stop
 - **WHEN** a stop is stored and a start arrives before the deadline
-- **THEN** only the start is sent at the deadline and the charger is never paused
+- **THEN** the start displaces the stop and is sent at the deadline, the dedup notwithstanding; the
+  charger is never paused, and the displacement is logged as `<new> preempts <old>`
 
 #### Scenario: the deferred send is refused
 - **WHEN** Easee refuses the write when the deadline fires

@@ -112,13 +112,13 @@ Because the charger applies a new phase mode only at a session boundary, an in-p
 be bounced after the mode is set: a pause followed by a resume, both through the per-charger command
 channel. The restart SHALL be skipped when the charger state is not charging. A failure to read the
 state, or a failure to pause, SHALL be logged as a warning and treated as success — the mode is
-stored and takes effect on the next session anyway. A pause the channel stores rather than sends
-SHALL be replaced by the resume, so the session is not bounced and the mode likewise takes effect on
-the next session. Once the pause is accepted the resume SHALL be stored - it always follows the pause
-inside `offered_current_wait_time` - and the command SHALL report success; the resume goes out at the
-channel's deadline, and a resume Easee refuses or the charger never echoes back is logged only. A
-resume the channel cannot accept SHALL be returned as `phase mode set to <target>, but the charger
-was left stopped`. The resume SHALL restore the session's own current — the cached requested offered
+stored and takes effect on the next session anyway. The pause and the resume SHALL be dispatched as one
+ordered pair, so a mode change never leaves the charger paused: whether the pause goes out at once
+or is stored, the resume follows it one `offered_current_wait_time` later. The command SHALL report
+success once the pair is accepted. Because the pair is stored as a unit, the resume can no longer
+fail on its own after the pause has been accepted - the failure the `charger was left stopped` error
+reported no longer arises. A resume Easee refuses or the charger never echoes back is logged only.
+The resume SHALL restore the session's own current — the cached requested offered
 current, falling back to the cached offered current the charger itself reports, and to the cached max
 current when both are zero or less — read before the pause, since the session-finished observation
 clears it asynchronously. When none of the three is known the resume SHALL NOT be attempted and the
@@ -142,7 +142,8 @@ so it cannot be reconstructed.
 
 #### Scenario: pause inside the window
 - **WHEN** a dynamic-current write went out within `offered_current_wait_time` before the pause
-- **THEN** the pause is stored, the resume replaces it, and the charger is never paused
+- **THEN** the pause is stored ahead of the resume, is sent at the deadline, and the resume follows
+  it one `offered_current_wait_time` later
 
 #### Scenario: pause fails
 - **WHEN** stopping the session fails

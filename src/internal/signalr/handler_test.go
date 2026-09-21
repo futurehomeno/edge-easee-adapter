@@ -893,3 +893,152 @@ func TestObservationsHandler_CloseStopsTheEnergyGoroutine(t *testing.T) {
 
 	assert.False(t, published.Load(), "the energy goroutine published on a thing that was torn down")
 }
+
+// #176: Close waited for the queued report sender before stopping the lifetime-energy timer, so a
+// report blocked on the service lock held that wait open while the timer kept running - and the
+// energy goroutine published a meter report on a thing the adapter was already tearing down.
+func TestObservationsHandler_CloseStopsTheEnergyGoroutineBeforeDrainingReports(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	storage := fakes.NewConfigStorage(t, &config.Config{
+		PublicConfig: config.PublicConfig{EnergyLifetimeInterval: "150ms"},
+	}, config.Factory)
+	cfgSrv := config.NewService(storage)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("LifetimeEnergy").Return(0.0, time.Time{})
+	cacheMock.On("SetLifetimeEnergy", mock.Anything, mock.Anything).Return(true).Maybe()
+	cacheMock.On("SetCableLocked", mock.Anything, mock.Anything).Return(true).Maybe()
+
+	var published atomic.Bool
+
+	// release unblocks the queued report, standing in for the service lock a command holds for
+	// up to CurrentWaitDuration while the sender is parked on it.
+	release := make(chan struct{})
+
+	meter := mockednumericmeter.NewService(t)
+	meter.On("Name").Return(numericmeter.MeterElec).Maybe()
+	meter.On("SendMeterReport", numericmeter.UnitKWh, false).
+		Run(func(mock.Arguments) { published.Store(true) }).Return(true, nil).Maybe()
+	meter.On("SendMeterExtendedReport", mock.Anything, false).
+		Run(func(mock.Arguments) { published.Store(true) }).Return(true, nil).Maybe()
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	cp.On("SendCableLockReport", false).
+		Run(func(mock.Arguments) { <-release }).Return(true, nil).Maybe()
+
+	handler, err := signalr.NewObservationsHandler(
+		&meterThing{cp: cp, meter: meter}, cacheMock, cfgSrv, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	// Starts the energy goroutine and its timer.
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID: model.LifetimeEnergy, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+		Timestamp: now, Value: "123.4",
+	}))
+
+	// Queues a report that parks the sender, so senderWG.Wait() cannot return on its own.
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID: model.CableLocked, ChargerID: testChargerID, DataType: model.ObservationDataTypeBoolean,
+		Timestamp: now, Value: "false",
+	}))
+
+	closed := make(chan struct{})
+
+	go func() {
+		handler.Close()
+		close(closed)
+	}()
+
+	// Past the interval the energy timer would have fired at, while Close is still waiting.
+	time.Sleep(400 * time.Millisecond)
+
+	assert.False(t, published.Load(),
+		"the energy goroutine published while Close was still draining the report queue")
+
+	close(release)
+
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return after the queued report was released")
+	}
+}
+
+// #176: the topology was written to the cache before the inclusion report was enqueued, so a
+// republish the sender dropped or failed left the cache already holding the new grid type - and
+// the equality check turned every repeat observation away, leaving the hub advertising the old
+// topology until the next restart. persistOutputPhase gates its write on onPublished for the
+// same reason; the grid-type path passed nil.
+func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	// Mirrors the real cache: the setter commits, and the getters return what was committed, so
+	// the equality check in the handler short-circuits exactly when production would.
+	var (
+		cacheMu  sync.Mutex
+		gridType = types.GridTypeTN
+		phases   = 3
+	)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(func() (types.GridType, time.Time) {
+		cacheMu.Lock()
+		defer cacheMu.Unlock()
+
+		return gridType, now
+	})
+	cacheMock.On("Phases").Return(func() (int, time.Time) {
+		cacheMu.Lock()
+		defer cacheMu.Unlock()
+
+		return phases, now
+	})
+	cacheMock.On("SetInstallationParameters", types.GridTypeIT, 1, now).
+		Run(func(mock.Arguments) {
+			cacheMu.Lock()
+			defer cacheMu.Unlock()
+
+			gridType, phases = types.GridTypeIT, 1
+		}).Return(true).Maybe()
+
+	props := map[string]interface{}{
+		chargepoint.PropertyGridType:            types.GridTypeTN,
+		chargepoint.PropertyPhases:              3,
+		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{types.PhaseModeNL3, types.PhaseModeNL1L2L3},
+	}
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: props}).Maybe()
+
+	// The first inclusion report fails; the second must still be attempted.
+	thing := &phaseThing{srv: srv, fail: 1}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	obs := model.Observation{
+		ID:        model.DetectedPowerGridType,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.GridTypeIT1Phase)),
+	}
+
+	require.NoError(t, handler.HandleObservation(obs))
+
+	waitFor(t, func() bool { return thing.inclusionCount() == 1 })
+
+	// The repeat observation must not be short-circuited by a cache the failed republish wrote.
+	require.NoError(t, handler.HandleObservation(obs))
+
+	flushReports(t, handler)
+
+	assert.Equal(t, 2, thing.inclusionCount(), "the dropped topology republish was never retried")
+}

@@ -169,11 +169,13 @@ func (h *observationsHandler) Close() {
 
 	h.closeMu.Unlock()
 
-	h.senderWG.Wait()
-
-	// The lifetime-energy goroutine publishes straight on the thing rather than through the
-	// report queue, so closing that queue does not reach it.
+	// Stopped before the drain, not after: the lifetime-energy goroutine publishes straight on
+	// the thing rather than through the report queue, so closing that queue does not reach it,
+	// and a queued report blocked on the service lock holds the wait below open for as long as
+	// the lock is held - long enough for the timer to fire and publish on a thing being torn down.
 	h.energyHandler.close()
+
+	h.senderWG.Wait()
 }
 
 func (h *observationsHandler) IsOnline() bool {
@@ -622,21 +624,25 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 
 	log.Debugf("[%s] supGridType=%v supPh=%v", h.chargerID, supportedGridType, supportedPhases)
 
-	ok := h.cache.SetInstallationParameters(supportedGridType, supportedPhases, observation.Timestamp)
-	if !ok {
-		return nil
-	}
-
 	outputPhase := types.PhaseMode("")
 	if h.phaseStore != nil {
 		outputPhase = h.phaseStore.OutputPhase()
 	}
 
+	// The cache write is deferred to onPublished, which runs only after the inclusion report has
+	// landed. Committing it up front made a dropped or failed republish permanent: the equality
+	// check above reads the cache, so every repeat observation short-circuited and nothing
+	// re-advertised the topology until the next restart. persistOutputPhase gates its own write
+	// the same way.
 	return h.republishChargepointProps(map[string]any{
 		chargepoint.PropertyGridType:            supportedGridType,
 		chargepoint.PropertyPhases:              supportedPhases,
 		chargepoint.PropertySupportedPhaseModes: model.AdvertisedPhaseModes(supportedGridType, supportedPhases, outputPhase),
-	}, nil)
+	}, func() error {
+		h.cache.SetInstallationParameters(supportedGridType, supportedPhases, observation.Timestamp)
+
+		return nil
+	})
 }
 
 // republishChargepointProps updates props only. The phase-mode interfaces are derived from

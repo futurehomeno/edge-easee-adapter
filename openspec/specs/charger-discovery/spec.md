@@ -102,7 +102,8 @@ seeding is per charger and joins the failures, so the rest are left behind and t
 empty. Initialization SHALL therefore re-seed when credentials are present and either the adapter
 holds no things or a selected charger has no thing. An unconfigured (nil) selection SHALL be judged
 on the no-things test alone, since nothing local says which chargers it covers. A failure there
-SHALL be logged and SHALL NOT fail initialization, and SHALL NOT consume the missing-charger retry
+SHALL be logged and SHALL be returned, so cliffhanger's init task marks the app `STARTUP_ERROR` and
+retries the re-seed - the only mechanism that does. It SHALL NOT consume the missing-charger retry
 budget, which belongs to a login attempt.
 
 #### Scenario: credentials without things
