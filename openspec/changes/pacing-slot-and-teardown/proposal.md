@@ -7,11 +7,12 @@ Three defects in the per-charger pacing channel added by `pace-offered-current-w
 [#162](https://github.com/futurehomeno/edge-easee-adapter/issues/162) and
 [#163](https://github.com/futurehomeno/edge-easee-adapter/issues/163).
 
-- **A later `set_current` cancels a queued stop.** `pendingDiffers` deliberately refuses to let a
-  same-value write displace a stored stop, but `dispatch` replaces `c.pending` unconditionally, so
-  a write with a *different* current does exactly what the same-value guard was written to prevent.
-  A balancing refresh landing inside the 30s window after `cmd.charge.stop` leaves the charger
-  running — including after an emergency pause.
+- **A phase-mode change can stop charging for good.** The restart dispatches a pause and a resume
+  back to back, and the resume is always inside the window the pause just opened, so both compete
+  for the channel's single slot. Whichever rule the slot uses, one half is lost: under "the stop
+  wins" the resume is dropped and the charger stays paused; under "the latest wins" the pause is
+  dropped and the mode never applies. A restart has to be stored as an ordered pair for either
+  outcome to be correct.
 - **The deferred timer outlives the thing.** `dispatch` arms `clock.AfterFunc` and discards the
   handle; `Disconnect` only unregisters the SignalR handler. After `cmd.thing.delete` the timer
   still fires `StopCharging` / `UpdateDynamicCurrent` against a charger the hub no longer owns.
@@ -23,12 +24,14 @@ Three defects in the per-charger pacing channel added by `pace-offered-current-w
 
 ## What Changes
 
-- **A stored stop occupies the slot against any later current write.** A stop is a safety command;
-  a current write must not displace one, whatever value it carries or whichever command issued it.
-  The write is dropped and the stop goes out at its deadline. This supersedes the "latest wins
-  across kinds" rule, under which an explicit `cmd.charge.start` behind a stored stop cancelled it:
-  nothing on this path tells an operator's start from a balancer's resume, so the stop wins over
-  both rather than the adapter deciding a paused charger is safe to resume.
+- **The slot always holds the latest command, whatever its kind.** A stop displaces a stored current
+  write and a current write displaces a stored stop, the dedup notwithstanding. The charger acts on
+  whatever it last heard, so keeping an older command makes the adapter answer a command it did not
+  carry out. The cost is that a balancing refresh inside the window now cancels a pause, an emergency
+  pause among them — nothing on this path tells one stop from another. See `design.md`.
+- **A restart is stored as an ordered pair.** The phase-mode bounce puts the pause and the resume in
+  the channel together; the resume goes out one wait time after the pause, and a later command
+  discards both halves rather than leaving the charger paused or resuming it at a superseded current.
 - **The deferred timer is cancelled on teardown.** `dispatch` keeps the `clock.Timer`, and the
   controller's teardown stops it and clears `pending`, so nothing is sent for a deleted thing.
 - **Start falls back to the stored supported max current, then to 32A.** The factory seeds the

@@ -21,6 +21,10 @@ unconfirmed start may well have left the charger paused.
 - **WHEN** Easee accepts the start but no observation confirms the current within the wait duration
 - **THEN** the command fails rather than reporting a start that may not have happened
 
+#### Scenario: the start is deferred
+- **WHEN** the start arrives within `offered_current_wait_time` of another command
+- **THEN** the command succeeds without waiting for an echo, and the write goes out at the deadline
+
 #### Scenario: normal start with a cached current below the floor
 - **WHEN** the cached requested offered current is 10A and the initial charging current is 16A
 - **THEN** the charger is started at 16A
@@ -42,30 +46,75 @@ unconfirmed start may well have left the charger paused.
 - **THEN** the charger is started at 32A rather than failing with `invalid start current`, because
   an unseeded cache after a restart is not the same as a charger that cannot charge
 
+### Requirement: Deferred Offered-Current Writes
+Every dynamic-current write and every pause for a charger SHALL go through one per-charger command
+channel. The channel SHALL record when it last sent a command to Easee - a stop included - stamped
+when the send is attempted, because a call that times out may still have reached Easee. A command
+arriving while nothing is stored and at least `offered_current_wait_time` has passed since the last
+send SHALL be sent at once. Any other command SHALL be stored in the channel's single slot and sent
+at the last send time plus `offered_current_wait_time` (default 30s) - the moment the channel is
+quiet again; a
+newer command SHALL replace the stored one and SHALL NOT move that deadline, so a stream of commands
+yields exactly one send per wait time, carrying the latest value. Storing a command SHALL log
+`[<id>] <stop|set_current N>, delayed <d>` and the FIMP command SHALL succeed at once,
+without waiting for the send. The deferred send SHALL run off the command goroutine and outside the
+per-thing service lock; it SHALL stamp the channel, cache the requested current when the command is
+a dynamic-current write, wait for the SignalR echo for logging only, and log a refused send at error
+level. A stored command SHALL NOT survive an adapter restart.
+
+#### Scenario: quiet channel
+- **WHEN** a dynamic-current write arrives and at least `offered_current_wait_time` has passed since
+  the last send
+- **THEN** it is sent immediately
+
+#### Scenario: write inside the window
+- **WHEN** a dynamic-current write arrives within `offered_current_wait_time` of the last send
+- **THEN** it is stored, the command succeeds, and the write is sent at the last send time plus
+  `offered_current_wait_time`
+
+#### Scenario: a stream of writes
+- **WHEN** a new current arrives every 5s
+- **THEN** Easee receives one write per wait time, carrying the latest value
+
+#### Scenario: a start replaces a stored stop
+- **WHEN** a stop is stored and a start arrives before the deadline
+- **THEN** only the start is sent at the deadline and the charger is never paused
+
+#### Scenario: the deferred send is refused
+- **WHEN** Easee refuses the write when the deadline fires
+- **THEN** the refusal is logged at error level; the command had already reported success
+
+#### Scenario: storing a command is logged
+- **WHEN** a `set_current 26` is stored with 15s left in the window
+- **THEN** `set_current 26, delayed 15s` is logged for that charger
+
 ## ADDED Requirements
 
-### Requirement: A Stored Stop Holds The Slot
-A stop stored in the per-charger command channel SHALL NOT be displaced by any later
-dynamic-current write, whatever current that write carries and whichever command issued it - an
-explicit `cmd.charge.start` included. A stop is a safety command, an emergency pause among them,
-and a balancing refresh landing inside `offered_current_wait_time` must not cancel it. Nothing on
-this path distinguishes an operator's start from a balancer's resume, so the stop wins over both
-rather than the adapter deciding a paused charger is safe to resume. The later write SHALL be
-dropped, its command SHALL still report success, and the stop SHALL be sent at the deadline the
-stop's own arrival set. A user who wants to charge after a deferred stop presses Start once the
-stop has landed.
+### Requirement: The Last Command Always Wins
+The command stored in the per-charger channel SHALL always be the most recent one, whatever kind it
+is and whichever command issued it: a stop SHALL displace a stored dynamic-current write, and a
+dynamic-current write - an explicit `cmd.charge.start` among them - SHALL displace a stored stop.
+The displaced command SHALL NOT reach Easee, its own command having already reported success, and
+the deadline SHALL NOT move. The dedup that suppresses a repeated current SHALL NOT apply while a
+stop is stored, so a write carrying the last-sent value displaces that stop like any other.
 
-This supersedes the previous "latest wins across kinds" rule, under which a start behind a stored
-stop replaced it and the charger was never paused.
+Displacing a stored command SHALL be logged as `[<id>] <new> preempts <old>`, naming both, so the
+log shows which command was dropped and what replaced it rather than only what was stored.
+
+The charger acts on whatever it last heard, so the hub's latest intent is the only one worth
+sending; holding an older command in the slot makes the adapter answer a command it did not carry
+out. This supersedes the rule that a stored stop could not be displaced: a balancing refresh landing
+inside `offered_current_wait_time` after a pause now cancels that pause, an emergency pause among
+them, because nothing on this path distinguishes one stop from another.
 
 #### Scenario: a different current arrives after a stop
 - **WHEN** `cmd.charge.stop` is stored in the slot and a `cmd.smart_charge.set` for a different
   current arrives before the deadline
-- **THEN** the stop stays in the slot, the write is dropped, and the stop is sent at the deadline
+- **THEN** the write replaces the stop and is sent at the deadline; the charger is never paused
 
 #### Scenario: a same current arrives after a stop
 - **WHEN** `cmd.charge.stop` is stored in the slot and a write for the last-sent current arrives
-- **THEN** the stop stays in the slot and is sent at the deadline
+- **THEN** the write replaces the stop and is sent at the deadline, the dedup notwithstanding
 
 #### Scenario: a stop replaces a stored current
 - **WHEN** a dynamic-current write is stored in the slot and `cmd.charge.stop` arrives before the
@@ -74,8 +123,43 @@ stop replaced it and the charger was never paused.
 
 #### Scenario: an explicit start arrives after a stop
 - **WHEN** `cmd.charge.stop` is stored in the slot and `cmd.charge.start` arrives before the deadline
-- **THEN** the start reports success, no resume reaches Easee, and the charger is paused at the
-  deadline
+- **THEN** the start replaces the stop and the charger resumes at the deadline
+
+#### Scenario: a stream of alternating kinds
+- **WHEN** start, stop, start and stop arrive in turn inside one wait window
+- **THEN** exactly one command reaches Easee at the deadline and it is the final stop
+
+#### Scenario: the displacement is logged
+- **WHEN** a `set_current 26` displaces a stored stop
+- **THEN** `set_current 26 preempts stop` is logged for that charger
+
+### Requirement: A Restart Is An Ordered Pair
+A session restart SHALL occupy the channel as an ordered pair - a stop followed by a resume - stored
+atomically, so that no command can interleave between the two halves. The resume SHALL be sent one
+`offered_current_wait_time` after the stop, because Easee ignores a dynamic-current write that
+reaches the charger within that window of a stop. A restart SHALL NOT be stored unless both halves
+are known, so a restart can never end with the charger paused.
+
+A later command SHALL discard the pair in whole, both the stop and the resume, and take the slot
+itself. Preempting only one half would either pause the charger with no resume to follow, or resume
+it at a current the hub has since superseded.
+
+#### Scenario: an uncontested restart
+- **WHEN** a restart is stored and nothing else arrives
+- **THEN** the stop is sent at the deadline and the resume one wait time after it, leaving the
+  charger charging
+
+#### Scenario: a command preempts a stored restart
+- **WHEN** a restart is stored and a dynamic-current write arrives before either half is sent
+- **THEN** both halves are discarded and only that write is sent at the deadline
+
+#### Scenario: a command arrives between the halves
+- **WHEN** the stop has been sent and a dynamic-current write arrives before the resume's deadline
+- **THEN** the write replaces the resume and is sent at that deadline
+
+#### Scenario: the thing is deleted with a restart stored
+- **WHEN** a restart is stored and the thing is deleted before either half is sent
+- **THEN** both halves are discarded and no call reaches Easee
 
 ### Requirement: Deferred Commands Do Not Outlive The Thing
 The timer that sends a stored command SHALL be cancelled, and the slot cleared, when the charger's
