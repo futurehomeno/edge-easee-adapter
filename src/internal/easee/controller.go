@@ -125,6 +125,21 @@ func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
 	return false, nil
 }
 
+// pendingDiffers reports whether the slot holds a current this write would supersede.
+// RequestedOfferedCurrent is stamped only on a send, so the dedup compares against the last
+// value on the wire: without this, a write matching that value is dropped while a newer,
+// different one stays in the slot and reaches the charger at the deadline instead.
+//
+// A pending stop is deliberately not counted. Letting a same-value write displace it would
+// cancel a stop - including an emergency pause - whenever a balancing refresh lands inside the
+// window, which the base never did.
+func (c *controller) pendingDiffers(current int) bool {
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	return c.pending != nil && !c.pending.stop && c.pending.current != current
+}
+
 func (c *controller) send(cmd chargerCommand) error {
 	if cmd.stop {
 		return c.client.StopCharging(c.chargerID)
@@ -488,7 +503,7 @@ func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
 		current = limit
 	}
 
-	if !force {
+	if !force && !c.pendingDiffers(current) {
 		lastValue, lastSet := c.cache.RequestedOfferedCurrent()
 
 		if clock.Since(lastSet) < c.cfgService.OfferedCurrentWaitTime() && current == lastValue {

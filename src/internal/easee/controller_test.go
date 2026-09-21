@@ -499,6 +499,85 @@ func TestController_SetChargepointOfferedCurrent_KeepsDedup(t *testing.T) {
 	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
 }
 
+// RequestedOfferedCurrent is stamped only on a send, so the dedup compares against the last
+// value on the wire and never sees the pending slot. 10 -> 16 (stored) -> 10 therefore dropped
+// the third write and let the deadline send 16: balancing that oscillates back to the previous
+// current lost the latest value.
+func TestController_OfferedCurrentChannel_DedupDoesNotStrandAPendingValue(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	done := make(chan struct{}, 1)
+
+	// Only a send stamps this, which is the blind spot: it still reads 10 after the pending
+	// slot has moved on to 16.
+	lastSent, lastSentAt := 0, time.Time{}
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(func() int { return lastSent }, func() time.Time { return lastSentAt })
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).
+		Run(func(a mock.Arguments) { lastSent, lastSentAt = a.Int(0), clk.Now() }).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Once()
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Run(signal(done)).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Twice()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(16))
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+	clk.Add(10 * time.Second)
+	awaitDeferred(t, done)
+
+	// The deadline must send the user's latest intent, not the superseded 16.
+	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", "test-charger", float64(16))
+}
+
+// The pending-slot check must not extend to a stop: displacing one on a same-value write would
+// cancel an emergency pause whenever a balancing refresh lands inside the window.
+func TestController_OfferedCurrentChannel_DedupKeepsAPendingStop(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	done := make(chan struct{}, 1)
+
+	lastSent, lastSentAt := 0, time.Time{}
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(func() int { return lastSent }, func() time.Time { return lastSentAt })
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).
+		Run(func(a mock.Arguments) { lastSent, lastSentAt = a.Int(0), clk.Now() }).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(nil).Run(signal(done)).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.StopChargepointCharging())
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+	clk.Add(10 * time.Second)
+	awaitDeferred(t, done)
+
+	clientMock.AssertNumberOfCalls(t, "StopCharging", 1)
+}
+
 func TestController_SetChargepointPhaseMode(t *testing.T) {
 	t.Parallel()
 
