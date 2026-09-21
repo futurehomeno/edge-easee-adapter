@@ -266,13 +266,18 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		// change has happened since. Without the record, a mode the charger never echoes
 		// (NL1 -> NL2) leaves the report republishing the old leg and the UI reverting
 		// the user's choice.
-		if outputPhase, outputPhaseSet := c.cache.OutputPhaseType(); outputPhase == "" ||
-			c.outputPhaseStale(outputPhase, outputPhaseSet) || !c.charging() {
-			requestedAt := outputPhaseSet
-			if internalAt.After(requestedAt) {
-				requestedAt = internalAt
-			}
+		outputPhase, outputPhaseSet := c.cache.OutputPhaseType()
+		if outputPhase == "" || c.outputPhaseStale(outputPhase, outputPhaseSet) || !c.charging() {
+			c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), c.recordAt(outputPhaseSet, internalAt))
 
+			return nil
+		}
+
+		// The live leg answers the report on its own, but only while it outranks what is
+		// already recorded. A three-phase request from the previous balance tick is stamped
+		// after it, so re-record the leg over that request rather than leaving it to win.
+		if requested, requestedAt := c.cache.RequestedPhaseMode(); requested != "" &&
+			requestedAt.After(outputPhaseSet) && c.requestStillHolds(requested, requestedAt) {
 			c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), requestedAt.Add(time.Millisecond))
 		}
 
@@ -294,6 +299,18 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 	c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), requestedAt.Add(time.Millisecond))
 
 	return c.restartForPhaseMode(target)
+}
+
+// recordAt stamps a record in the observation clock rather than the hub's: the request is only
+// ever compared against SignalR timestamps, so a skewed hub clock would otherwise let a live
+// observation outrank a fresh request, or keep a stale request winning after the charger moved on.
+func (c *controller) recordAt(outputPhaseSet, internalAt time.Time) time.Time {
+	at := outputPhaseSet
+	if internalAt.After(at) {
+		at = internalAt
+	}
+
+	return at.Add(time.Millisecond)
 }
 
 // legToRecord substitutes the leg the charger is known to use for a single-phase request naming

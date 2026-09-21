@@ -722,6 +722,8 @@ func TestController_SetChargepointPhaseMode_NoOpDoesNotMaskOutputPhase(t *testin
 	// charging charger is on a leg at all, which is what makes the observation live.
 	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL1, time.Now())
 	cacheMock.On("TotalPower").Return(7000.0, time.Time{})
+	// Nothing recorded, so there is no stale request for the live leg to have to outrank.
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 
 	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
 
@@ -904,6 +906,31 @@ func TestController_SetChargepointPhaseMode_StaleThreePhaseRequestDoesNotMaskThe
 	c.SetPhaseMode(1, observed)
 	c.SetOutputPhaseType(types.PhaseModeNL3, observed)
 	c.SetRequestedPhaseMode(types.PhaseModeNL1L2L3, observed.Add(time.Millisecond))
+
+	ctrl := newLiveCacheController(t, c, mockapi.NewClient(t), types.PhaseModeNL3)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+
+	got, err := ctrl.ChargepointPhaseModeReport()
+	assert.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL3, got)
+}
+
+// A balance tick asking for three phases records its request stamped after the live leg, and
+// the charger has not echoed Auto yet - so the single-phase request that follows lands on the
+// no-op path. Skipping the record there left that three-phase request outranking the leg the
+// charger is actually delivering on, which is the mask this PR exists to remove.
+func TestController_SetChargepointPhaseMode_StaleRequestDoesNotOutrankTheLiveLeg(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-2 * time.Hour)
+
+	c := cache.NewCache("test-charger")
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(1, observed)
+	c.SetTotalPower(3000.0, observed)
+	c.SetOutputPhaseType(types.PhaseModeNL3, observed.Add(time.Minute))
+	c.SetRequestedPhaseMode(types.PhaseModeNL1L2L3, observed.Add(2*time.Minute))
 
 	ctrl := newLiveCacheController(t, c, mockapi.NewClient(t), types.PhaseModeNL3)
 
