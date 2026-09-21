@@ -40,6 +40,12 @@ type manager struct {
 	done    chan struct{}
 	cfg     *config.Service
 
+	// Bumped by every Register that adds a charger. Close() blocks on the network - it
+	// waits out the connection goroutine - so Unregister cannot decide to close and close
+	// under one lock; it snapshots this instead and re-starts the client when a Register
+	// bumped it in between.
+	startEpoch uint64
+
 	subscriptions chan string
 
 	// Bumped on every connect, so a subscribe that spans a reconnect can tell its result
@@ -103,6 +109,7 @@ func (m *manager) Register(chargerID string, handler Handler) {
 	if _, ok := m.chargers[chargerID]; ok {
 		m.mu.Unlock()
 		log.Warnf("Charger '%s' is already registered", chargerID)
+		handler.Close()
 
 		return
 	}
@@ -112,6 +119,8 @@ func (m *manager) Register(chargerID string, handler Handler) {
 		isSubscribed: false,
 		backoff:      m.cfg.SignalRBackoffStateful(),
 	}
+
+	m.startEpoch++
 
 	m.client.Start()
 
@@ -142,7 +151,8 @@ func (m *manager) enqueueSubscription(chargerID string) {
 func (m *manager) Unregister(chargerID string) error {
 	m.mu.Lock()
 
-	if _, ok := m.chargers[chargerID]; !ok {
+	charger, ok := m.chargers[chargerID]
+	if !ok {
 		m.mu.Unlock()
 
 		return nil
@@ -151,6 +161,12 @@ func (m *manager) Unregister(chargerID string) error {
 	delete(m.chargers, chargerID)
 
 	m.mu.Unlock()
+
+	// After the map write no further observation reaches this handler, so its report sender has
+	// a bounded amount of work left; closing it here is what keeps the goroutine from outliving
+	// the thing it reports for. Off m.mu: the last queued report can still be waiting on a
+	// service lock a command holds.
+	charger.handler.Close()
 
 	// Both calls block on the connection - UnsubscribeCharger up to SignalRInvokeTimeout - so
 	// they run after the map write is published rather than under m.mu, which would stall
@@ -177,11 +193,23 @@ func (m *manager) Unregister(chargerID string) error {
 
 	m.mu.Lock()
 	last := len(m.chargers) == 0
+	startEpoch := m.startEpoch
 	m.mu.Unlock()
 
 	if last {
 		if err := m.client.Close(); err != nil {
 			errs = errors.Join(errs, err)
+		}
+
+		m.mu.RLock()
+		raced := m.startEpoch != startEpoch && len(m.chargers) > 0
+		m.mu.RUnlock()
+
+		// That Register ran its Start() before this Close(), so the client's own
+		// startRequested rescue had nothing to defer and the close simply undid it. Unless
+		// its charger has since gone too: then its own Unregister closed the client last.
+		if raced {
+			m.client.Start()
 		}
 	}
 

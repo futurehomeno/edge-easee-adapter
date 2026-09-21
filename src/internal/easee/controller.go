@@ -509,7 +509,8 @@ func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
-	slow := strings.ToLower(settings.Mode) == model.ChargingModeSlow
+	mode := strings.ToLower(settings.Mode)
+	slow := mode == model.ChargingModeSlow
 
 	startCurrent, _ := c.cache.RequestedOfferedCurrent()
 
@@ -518,9 +519,13 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		// A cached offered current of 0 means "unknown" - either no load balancer ever set one, or
 		// the session-finished observation cleared it - so the charger starts at the user's max.
 		startCurrent, _ = c.cache.MaxCurrent()
-	case !slow:
-		// Slow mode is deliberately exempt from the floor: with no slow current configured the
-		// throttled cached value is the closest thing to what the user asked for.
+	case mode == model.ChargingModeNormal:
+		// Only an explicit normal-mode start gets the floor. The mode is optional, so a start
+		// without one may be a load balancer resuming a session it paused, and the cached value
+		// the budget it balanced us to; raising that offers more than it allowed for a whole
+		// throttle window. Kept, it costs a user's bare start at most one balancer tick, or a
+		// set_current. Slow mode is exempt too: with no slow current configured the throttled
+		// cached value is the closest thing to what the user asked for.
 		startCurrent = max(startCurrent, c.cfgService.InitialChargingCurrent())
 	}
 
@@ -565,9 +570,18 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	}
 
 	energy, _ := c.cache.EnergySession()
+	offeredCurrent, _ := c.cache.OfferedCurrent()
 
+	if maxCurrent, _ := c.cache.MaxCurrent(); maxCurrent > 0 {
+		offeredCurrent = min(offeredCurrent, maxCurrent)
+	}
+
+	// Cliffhanger stamps offered_current on every session report, so gating it on an open
+	// session row publishes 0 for a charger that is offering current - energy-guard then
+	// anchors its ramp on that zero.
 	ret := chargepoint.SessionReport{
-		SessionEnergy: energy,
+		SessionEnergy:  energy,
+		OfferedCurrent: offeredCurrent,
 	}
 
 	sessions, err := c.sessionStorage.LatestSessionsByChargerID(c.chargerID)
@@ -578,17 +592,6 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	if latest := sessions.Latest(); latest != nil {
 		ret.StartedAt = latest.Start
 		ret.FinishedAt = latest.Stop
-
-		if latest.Stop.IsZero() {
-			offeredCurrent, _ := c.cache.OfferedCurrent()
-			maxCurrent, _ := c.cache.MaxCurrent()
-
-			if maxCurrent > 0 {
-				offeredCurrent = min(offeredCurrent, maxCurrent)
-			}
-
-			ret.OfferedCurrent = offeredCurrent
-		}
 	}
 
 	if prev := sessions.Previous(); prev != nil {

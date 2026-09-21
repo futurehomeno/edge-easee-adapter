@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,6 +32,20 @@ func NewCredentialsStore(workDir string) *CredentialsStore {
 
 func NewCredentialsStoreWithStorage(s storage.Storage[*Credentials]) *CredentialsStore {
 	return &CredentialsStore{storage: s}
+}
+
+// PinSecretModes closes the token-bearing files to others. cliffhanger enforces the mode on
+// Save but not on Load, and postinst cannot do it safely: a path chmod by root in an
+// easee-writable directory follows whatever link is planted between its check and the call.
+// Here it runs as easee, which a planted link can gain nothing from.
+func PinSecretModes(workDir string) {
+	for _, name := range []string{credentialsFileName, credentialsFileName + backupExtension, configFileName + backupExtension} {
+		path := filepath.Join(workDir, "data", name)
+
+		if err := os.Chmod(path, 0o640); err != nil && !os.IsNotExist(err) { //nolint:gosec // group-readable is the mode secrets.json ships with
+			log.Warnf("[config] Pin mode of %s: %v", path, err)
+		}
+	}
 }
 
 func (s *CredentialsStore) Load() error {
@@ -157,15 +172,34 @@ func MigrateCredentials(cfg *Config, store *CredentialsStore) error {
 	return nil
 }
 
-// DropConfigBackup removes the config backup cliffhanger's Save() leaves behind. The rename in
+// DropConfigBackup clears the config backup cliffhanger's Save() leaves behind. The rename in
 // makeBackup carries the pre-migration config over, tokens and all, and chmods it to the config
-// store's world-readable 0644 - so the credentials this migration just moved into the 0640
-// secrets file stay legible to any local user in data/config.json.bak. Best-effort: the backup
-// only serves corruption recovery, and a stale one is worth less than the leak.
+// store's world-readable 0644 - so the credentials the v5->v6 step moved into the 0640 secrets
+// file stay legible to any local user in data/config.json.bak. Load() falls back to the backup
+// when config.json does not decode, but only in memory: a backup that is the only good copy is
+// moved into place instead. Both are single renames, so no moment has neither file.
+// Best-effort: a stale backup is worth less than the leak.
 func DropConfigBackup(workDir string) {
-	path := filepath.Join(workDir, "data", configFileName+backupExtension)
+	configPath := filepath.Join(workDir, "data", configFileName)
+	backupPath := configPath + backupExtension
 
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		log.Warnf("[config] Remove %s. err: %v", path, err)
+	if configLoads(configPath) {
+		if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+			log.Warnf("[config] Remove %s. err: %v", backupPath, err)
+		}
+
+		return
 	}
+
+	if err := os.Rename(backupPath, configPath); err != nil && !os.IsNotExist(err) {
+		log.Warnf("[config] Restore %s. err: %v", backupPath, err)
+	}
+}
+
+// configLoads mirrors cliffhanger's loadFile: a file that is missing or does not decode is one
+// Load() fell back from.
+func configLoads(path string) bool {
+	body, err := os.ReadFile(path) //nolint:gosec
+
+	return err == nil && json.Unmarshal(body, &Config{}) == nil
 }

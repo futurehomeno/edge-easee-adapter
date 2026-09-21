@@ -33,10 +33,10 @@ create_dirs() {
 	# ownership of the leaves on every configure. data/ is created by
 	# create_data_dir after migrate_state has run.
 	# data/ is world-traversable like logs; the secret files under it keep
-	# their own mode - set_data_modes widens no regular file, and pins
-	# secrets.json and the token-bearing backups to 0640 (storage.NewSecrets
-	# enforces 0640 on Save, but not on Load, so a pre-existing file needs an
-	# explicit re-chmod too).
+	# their own mode - set_data_modes widens no regular file, and the adapter
+	# pins secrets.json and the token-bearing backups to 0640 at boot
+	# (storage.NewSecrets enforces 0640 on Save, but not on Load, so a
+	# pre-existing file needs an explicit re-chmod too).
 	install -d -o easee -g futurehome -m 0755 "$NEW_DATA"
 	install -d -o easee -g futurehome -m 0755 "$NEW_LOGS"
 
@@ -120,17 +120,13 @@ set_ownership() {
 
 # Split out of set_ownership and called after migrate_state: the tree migrate.sh
 # publishes is renamed into place after set_ownership has already run, so a
-# single pre-migration pass never sees the migrated files and the 0640 pin below
-# would miss exactly the v2 upgrade it exists for. migrate.sh's own umask
-# protects that copy, but this is what enforces the mode rather than inheriting it.
+# single pre-migration pass would never see the migrated files.
 set_data_modes() {
 	# Directories only: data/ must be traversable like logs, but the secrets
 	# under it (secrets.json and its .bak, config.json.bak) keep whatever mode
 	# they were written with. A recursive u=rwX,go=rX would widen every one of
-	# them to 0644 - cliffhanger's storage.Load() only reads, so a pre-existing
-	# secrets.json would stay world-readable until the next credential write,
-	# and would be world-readable in the window before the pin below. Symlinks
-	# (defaults) are left alone by both passes.
+	# them to 0644 until the adapter's pin at boot. Symlinks (defaults) are left
+	# alone by both passes.
 	find "$NEW_DATA" -type d -exec chmod u=rwx,go=rx {} + || true
 	find "$NEW_DATA" -type f -exec chmod go-w {} + || true
 
@@ -138,19 +134,18 @@ set_data_modes() {
 	# "other" even though data/ is now world-readable. config.json.bak joins
 	# it: an upgrade from v2 has not run the credential migration yet, so the
 	# config - and the backup cliffhanger renames it to - still carry the
-	# tokens inline. Repairs installs already widened by the recursive chmod
-	# the find pair above replaced, which cannot lower a mode it does not know.
-	# Named directly, not via a wildcard, so a symlink planted at one of these
-	# paths would be followed by chmod as root; detect and remove any such
-	# symlink first.
+	# tokens inline. The 0640 pin is the adapter's, at boot: every way sh has
+	# to name a path follows a symlink, so a chmod here as root would apply to
+	# whatever easee planted at the name after the check below, while the
+	# adapter chmods as easee and a planted link gains it nothing.
+	#
+	# A link left at one of these names would have the adapter write the next
+	# token set through it, so plant-cleanup stays. rm -f does not follow.
 	for f in "$NEW_DATA/data/secrets.json" "$NEW_DATA/data/secrets.json.bak" \
 		"$NEW_DATA/data/config.json.bak"; do
 		if [ -L "$f" ]; then
 			echo "Warning: $f is a symlink, removing" >&2
 			rm -f "$f" || true
-		fi
-		if [ -e "$f" ]; then
-			chmod 0640 "$f" || true
 		fi
 	done
 }

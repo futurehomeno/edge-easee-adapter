@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -621,14 +622,28 @@ func (c *blockingSubscribeClient) ObservationC() <-chan model.Observation { retu
 type recordingHandler struct {
 	once    sync.Once
 	handled chan struct{}
+	closes  atomic.Int32
 }
 
 func (h *recordingHandler) IsOnline() bool { return true }
+
+func (h *recordingHandler) Close() { h.closes.Add(1) }
 
 func (h *recordingHandler) HandleObservation(model.Observation) error {
 	h.once.Do(func() { close(h.handled) })
 
 	return nil
+}
+
+// A handler's sender goroutine starts in its constructor, so a registration the manager turns
+// away as a duplicate is the only thing left that can stop it.
+func TestRegister_ClosesAHandlerRejectedAsDuplicate(t *testing.T) {
+	m := newTestManagerWithClient(t, &failingSubscribeClient{})
+
+	duplicate := &recordingHandler{handled: make(chan struct{})}
+	m.Register(chargerID, duplicate)
+
+	assert.Equal(t, int32(1), duplicate.closes.Load())
 }
 
 // racingSubscribeClient parks in SubscribeCharger until released, then succeeds or fails per
@@ -949,4 +964,153 @@ func TestHandleSubscription_RepairRetiresAnInFlightSubscribe(t *testing.T) {
 		"a subscribe retired by a repair must not claim a subscription the stale unsubscribe removed")
 	assert.False(t, subscribing, "a retired subscribe must still clear the flag on its way out")
 	assert.NotEmpty(t, m.subscriptions, "the retired subscribe must leave an attempt pending, not strand the charger")
+}
+
+// Unregister read "am I the last charger?" under m.mu but released it before client.Close(). A
+// Register landing in that gap calls client.Start() and is then closed out from under: Start
+// completes, so the client's startRequested rescue never arms, and nothing restarts it until
+// the next sync - leaving the new charger's subscribes failing behind a ten-minute backoff.
+func TestUnregister_KeepsTheClientUpForARegisterLandingBeforeClose(t *testing.T) {
+	client := &gapClient{closing: make(chan struct{}), release: make(chan struct{})}
+
+	m := newTestManagerWithClient(t, client)
+
+	unregistered := make(chan struct{})
+
+	go func() {
+		defer close(unregistered)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	// The close decision is already made and m.mu released: this is the gap.
+	<-client.closing
+
+	m.Register("YY67890", &recordingHandler{handled: make(chan struct{})})
+
+	close(client.release)
+	<-unregistered
+
+	assert.True(t, client.running(), "the client must be running for the charger registered in the close gap")
+
+	m.mu.RLock()
+	registered := len(m.chargers)
+	m.mu.RUnlock()
+
+	assert.Equal(t, 1, registered, "the replacement charger must still be registered")
+}
+
+// gapClient parks inside Close so a test can land a Register in Unregister's decide-then-close
+// gap, and tracks running the way the real client does.
+// The raced Register can itself be gone by the time Close returns: Unregister(A) parks in
+// Close, Register(B) bumps the epoch, Unregister(B) removes the last charger and parks in its
+// own Close. A restart on the epoch alone would then leave the client up for nobody.
+func TestUnregister_DoesNotRestartWhenTheRacedChargerIsGoneToo(t *testing.T) {
+	client := &orderedGapClient{entered: make(chan struct{}), releases: []chan struct{}{make(chan struct{}), make(chan struct{})}}
+
+	m := newTestManagerWithClient(t, client)
+
+	first := make(chan struct{})
+
+	go func() {
+		defer close(first)
+
+		_ = m.Unregister(chargerID)
+	}()
+
+	<-client.entered
+
+	m.Register("YY67890", &recordingHandler{handled: make(chan struct{})})
+
+	second := make(chan struct{})
+
+	go func() {
+		defer close(second)
+
+		_ = m.Unregister("YY67890")
+	}()
+
+	<-client.entered
+
+	close(client.releases[1])
+	<-second
+	close(client.releases[0])
+	<-first
+
+	assert.False(t, client.running(), "no charger is left, so the raced Register must not restart the client")
+}
+
+// orderedGapClient is a gapClient whose every Close parks on its own release, in call order.
+type orderedGapClient struct {
+	failingSubscribeClient
+
+	entered  chan struct{}
+	releases []chan struct{}
+	calls    atomic.Int32
+
+	mu sync.Mutex
+	up bool
+}
+
+func (c *orderedGapClient) Start() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.up = true
+}
+
+func (c *orderedGapClient) Close() error {
+	n := c.calls.Add(1) - 1
+	c.entered <- struct{}{}
+	<-c.releases[n]
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.up = false
+
+	return nil
+}
+
+func (c *orderedGapClient) running() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.up
+}
+
+type gapClient struct {
+	failingSubscribeClient
+
+	closing chan struct{}
+	release chan struct{}
+
+	mu sync.Mutex
+	up bool
+}
+
+func (c *gapClient) Start() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.up = true
+}
+
+func (c *gapClient) Close() error {
+	close(c.closing)
+	<-c.release
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.up = false
+
+	return nil
+}
+
+func (c *gapClient) running() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.up
 }

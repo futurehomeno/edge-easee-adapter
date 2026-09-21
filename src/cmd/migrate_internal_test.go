@@ -153,3 +153,53 @@ func newMigrationConfigServiceFrom(t *testing.T, body string) (*config.Service, 
 
 	return svc, dir
 }
+
+// The crash window: the v5->v6 step's Save renames the token-bearing config.json to a
+// world-readable data/config.json.bak, and the process dies before the backup is dropped. The
+// next boot finds config_version 6, applies nothing, and must still clear the leftover.
+func TestMigrateConfig_dropsBackupLeftByAnInterruptedMigration(t *testing.T) {
+	t.Parallel()
+
+	svc, dir := newMigrationConfigServiceFrom(t, `{"config_version":6}`)
+
+	backup := filepath.Join(dir, "data", "config.json.bak")
+	// 0644 is the mode cliffhanger's makeBackup chmods the backup to; reproducing the leak needs it.
+	require.NoError(t, os.WriteFile(backup, []byte(`{"config_version":5,"accessToken":"leaked"}`), 0o644)) //nolint:gosec
+
+	require.NoError(t, migrateConfig(svc, config.NewCredentialsStore(dir)))
+
+	_, err := os.Stat(backup)
+	assert.True(t, os.IsNotExist(err), "a backup surviving an interrupted migration still leaks the tokens")
+}
+
+// Steady state: config.json corrupted by an interrupted runtime Save, a good backup beside it, and
+// no migration step left to run. Load() recovers the backup in memory only, so the drop has to
+// leave that copy on disk or the next boot has nothing to load.
+func TestMigrateConfig_restoresTheBackupOverACorruptConfig(t *testing.T) {
+	t.Parallel()
+
+	svc, dir := newMigrationConfigService(t, 5)
+	require.NoError(t, migrateConfig(svc, config.NewCredentialsStore(dir)))
+
+	configPath := filepath.Join(dir, "data", "config.json")
+	backup := filepath.Join(dir, "data", "config.json.bak")
+
+	require.NoError(t, os.Rename(configPath, backup))
+	good, err := os.ReadFile(backup) //nolint:gosec
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(configPath, []byte(`{tru`), 0o600))
+
+	recovered := config.NewService(cliffStorage.New(config.New(dir), dir, "config.json"))
+	require.NoError(t, recovered.Load(), "the corrupt config must be recovered from the backup")
+	require.NoError(t, migrateConfig(recovered, config.NewCredentialsStore(dir)))
+
+	assert.NoFileExists(t, backup)
+
+	restored, err := os.ReadFile(configPath) //nolint:gosec
+	require.NoError(t, err)
+	assert.Equal(t, string(good), string(restored), "the backup is moved into place, not rewritten from memory")
+
+	reloaded := config.New(dir)
+	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load(), "the next boot must still load the config")
+	assert.Equal(t, recovered.Model().ConfigVersion, reloaded.ConfigVersion)
+}
