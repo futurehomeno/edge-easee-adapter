@@ -58,7 +58,7 @@ func (a *apiClient) SetCableAlwaysLocked(chargerID string, locked bool) error {
 }
 
 func (a *apiClient) SetPhaseMode(chargerID string, phaseMode int) error {
-	log.Infof("[%s] Set phase mode to %d", chargerID, phaseMode)
+	log.Infof("[%s] Set phase mode to %s (%d)", chargerID, model.PhaseModeName(phaseMode), phaseMode)
 	token, err := a.auth.AccessToken()
 	if err != nil {
 		return a.tokenError(err)

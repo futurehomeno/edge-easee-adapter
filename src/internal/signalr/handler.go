@@ -202,7 +202,7 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 		return err
 	}
 
-	log.Debugf("[%s] Connected phases=%d", h.chargerID, val)
+	log.Debugf("[%s] Phase mode=%s (%d)", h.chargerID, model.PhaseModeName(val), val)
 
 	phaseMode, _ := h.cache.PhaseMode()
 
