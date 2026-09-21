@@ -654,6 +654,14 @@ func (h *observationsHandler) republishChargepointProps(props map[string]any, on
 	// PropertyInteger) while handling a command on another goroutine. Building the replacement
 	// first and assigning it makes the props the router sees either the old set or the new one,
 	// never a map being written as it is read.
+	//
+	// Known limitation: if a second republish call lands before this job runs, it reassigns
+	// Specification().Props first, and this job's Update/onPublished then run against that
+	// second call's props rather than its own. Snapshotting the value at enqueue time and
+	// restoring it here would close that window, but it re-introduces a second unsynchronised
+	// write racing the synchronous read the rest of the package relies on (see
+	// TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes) - not worth it for a
+	// same-charger, back-to-back topology change this narrow.
 	service.Specification().Props = chargepointPropsUpdate(service, props)
 
 	// The props assignment above stays on the drain - it is what every later report reads - but
@@ -680,6 +688,8 @@ func (h *observationsHandler) republishChargepointProps(props map[string]any, on
 		return onPublished()
 	})
 
+	// A dropped report is retried: onPublished doesn't run, so persistOutputPhase's caller never
+	// marks the phase as persisted, and enqueue already logged the drop.
 	return nil
 }
 
