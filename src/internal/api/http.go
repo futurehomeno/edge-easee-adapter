@@ -7,16 +7,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/httpclient"
-	"github.com/michalkurzeja/go-clock"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
 
@@ -54,9 +50,7 @@ const (
 type HTTPClient interface {
 	UpdateMaxCurrent(accessToken, chargerID string, current float64) error
 	// UpdateDynamicCurrent sets the dynamic current, which Easee uses as the offered current.
-	// force bypasses the local rate limit: a start has to reach the charger even when an
-	// offered-current write landed moments ago, or the session never resumes.
-	UpdateDynamicCurrent(accessToken, chargerID string, current float64, force bool) error
+	UpdateDynamicCurrent(accessToken, chargerID string, current float64) error
 	Login(userName, password string) (*model.Credentials, error)
 	// RefreshToken exchanges an access/refresh token pair for a new one.
 	RefreshToken(accessToken, refreshToken string) (*model.Credentials, error)
@@ -75,18 +69,12 @@ type HTTPClient interface {
 type httpClient struct {
 	httpClient *http.Client
 	baseURL    string
-	cfgSrv     *config.Service
-
-	lock              sync.RWMutex
-	lastMaxCurrentSet map[string]time.Time
 }
 
-func NewHTTPClient(cfgSrv *config.Service, http *http.Client, baseURL string) HTTPClient {
+func NewHTTPClient(http *http.Client, baseURL string) HTTPClient {
 	return &httpClient{
-		httpClient:        http,
-		baseURL:           baseURL,
-		lastMaxCurrentSet: make(map[string]time.Time),
-		cfgSrv:            cfgSrv,
+		httpClient: http,
+		baseURL:    baseURL,
 	}
 }
 
@@ -192,11 +180,7 @@ func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current flo
 	return nil
 }
 
-func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current float64, force bool) error {
-	if !force && c.shouldBackoffWithMaxCurrentChange(chargerID) {
-		return errors.New("client: failed to update dynamic current: too many requests")
-	}
-
+func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current float64) error {
 	u := c.buildURL(chargerSettingsURITemplate, chargerID)
 
 	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, dynamicCurrentBody{DynamicChargerCurrent: current},
@@ -218,18 +202,10 @@ func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current
 		return c.handleFailedResponse(resp, "update dynamic current request failed: unexpected status code")
 	}
 
-	c.registerMaxCurrentChange(chargerID)
-
 	return nil
 }
 
 func (c *httpClient) StopCharging(accessToken, chargerID string) error {
-	// Easee zeroes the dynamic current on stop, so offered-current changes are rate-limited
-	// against it (OfferedCurrentWaitTime).
-	if c.shouldBackoffWithMaxCurrentChange(chargerID) {
-		return errors.New("client: failed to stop charging: too many requests to the charger")
-	}
-
 	u := c.buildURL(chargerStopURITemplate, chargerID)
 
 	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, nil,
@@ -407,29 +383,6 @@ func (c *httpClient) readResponseBody(r *http.Response, body any) error {
 
 func (c *httpClient) bearerTokenHeader(authToken string) string {
 	return "Bearer " + authToken
-}
-
-func (c *httpClient) shouldBackoffWithMaxCurrentChange(chargerID string) bool {
-	c.lock.RLock()
-	defer c.lock.RUnlock()
-
-	lastMaxCurrentSet, ok := c.lastMaxCurrentSet[chargerID]
-	if !ok {
-		return false
-	}
-
-	if clock.Now().Sub(lastMaxCurrentSet) >= c.cfgSrv.OfferedCurrentWaitTime() {
-		return false
-	}
-
-	return true
-}
-
-func (c *httpClient) registerMaxCurrentChange(chargerID string) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	c.lastMaxCurrentSet[chargerID] = clock.Now()
 }
 
 func (c *httpClient) getResponse(state any, url, accessToken string) error {

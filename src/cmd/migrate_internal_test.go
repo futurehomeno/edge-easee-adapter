@@ -80,7 +80,7 @@ const legacyConfig280 = `{
   "auth_backoff": {"initialBackoff": "1m", "repeatedBackoff": "5m", "finalBackoff": "10m"}
 }`
 
-// The real upgrade path: a v2.8.0 config runs 3->6 in one boot and the result must be what the
+// The real upgrade path: a v2.8.0 config runs 3->7 in one boot and the result must be what the
 // service reads back from disk, not only what the in-memory model shows.
 func TestMigrateConfig_upgradesFrom280(t *testing.T) {
 	t.Parallel()
@@ -100,8 +100,8 @@ func TestMigrateConfig_upgradesFrom280(t *testing.T) {
 		AccessTokenExpiresAt: accessExp, RefreshTokenExpiresAt: refreshExp,
 	}
 
-	assert.Equal(t, 6, svc.Model().ConfigVersion)
-	assert.Equal(t, 20*time.Second, svc.OfferedCurrentWaitTime())
+	assert.Equal(t, 7, svc.Model().ConfigVersion)
+	assert.Equal(t, 30*time.Second, svc.OfferedCurrentWaitTime())
 	assert.Equal(t, 10*time.Minute, svc.SignalRFinalBackoff())
 	assert.Equal(t, 2*time.Hour, svc.AuthenticatorMaxUnauthorized(), "untouched 2.8.0 settings survive")
 	assert.True(t, svc.Model().Empty(), "the config copy of the tokens is dropped")
@@ -110,7 +110,7 @@ func TestMigrateConfig_upgradesFrom280(t *testing.T) {
 	// What the next boot loads.
 	reloaded := config.New(dir)
 	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load())
-	assert.Equal(t, 6, reloaded.ConfigVersion)
+	assert.Equal(t, 7, reloaded.ConfigVersion)
 	assert.True(t, reloaded.Empty())
 
 	reloadedSecrets := config.NewCredentialsStore(dir)
