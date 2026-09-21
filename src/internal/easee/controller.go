@@ -372,14 +372,19 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		// change has happened since. Without the record, a mode the charger never echoes
 		// (NL1 -> NL2) leaves the report republishing the old leg and the UI reverting
 		// the user's choice.
-		if outputPhase, outputPhaseSet := c.cache.OutputPhaseType(); outputPhase == "" ||
-			c.outputPhaseStale(outputPhase, outputPhaseSet) || !c.charging() {
-			requestedAt := outputPhaseSet
-			if internalAt.After(requestedAt) {
-				requestedAt = internalAt
-			}
+		outputPhase, outputPhaseSet := c.cache.OutputPhaseType()
+		if outputPhase == "" || c.outputPhaseStale(outputPhase, outputPhaseSet) || !c.charging() {
+			c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), c.recordAt(outputPhaseSet, internalAt))
 
-			c.cache.SetRequestedPhaseMode(mode, requestedAt.Add(time.Millisecond))
+			return nil
+		}
+
+		// The live leg answers the report on its own, but only while it outranks what is
+		// already recorded. A three-phase request from the previous balance tick is stamped
+		// after it, so re-record the leg over that request rather than leaving it to win.
+		if requested, requestedAt := c.cache.RequestedPhaseMode(); requested != "" &&
+			requestedAt.After(outputPhaseSet) && c.requestStillHolds(requested, requestedAt) {
+			c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), requestedAt.Add(time.Millisecond))
 		}
 
 		return nil
@@ -389,17 +394,60 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		return err
 	}
 
-	// Stamped in the observation clock rather than the hub's: the request is only ever compared
-	// against SignalR timestamps, so a skewed hub clock would otherwise let a live observation
-	// outrank a fresh request, or keep a stale request winning after the charger moved on.
-	_, requestedAt := c.cache.OutputPhaseType()
-	if internalAt.After(requestedAt) {
-		requestedAt = internalAt
-	}
+	_, outputPhaseSet := c.cache.OutputPhaseType()
 
-	c.cache.SetRequestedPhaseMode(mode, requestedAt.Add(time.Millisecond))
+	c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), c.recordAt(outputPhaseSet, internalAt))
 
 	return c.restartForPhaseMode(target)
+}
+
+// recordAt stamps a record in the observation clock rather than the hub's: the request is only
+// ever compared against SignalR timestamps, so a skewed hub clock would otherwise let a live
+// observation outrank a fresh request, or keep a stale request winning after the charger moved on.
+func (c *controller) recordAt(outputPhaseSet, internalAt time.Time) time.Time {
+	at := outputPhaseSet
+	if internalAt.After(at) {
+		at = internalAt
+	}
+
+	// A re-recorded leg is stamped off an older request, so it can already outrank both
+	// observations; the cache drops a record stamped behind it and the report keeps the leg.
+	if existing, existingAt := c.cache.RequestedPhaseMode(); existing != "" && existingAt.After(at) {
+		at = existingAt
+	}
+
+	return at.Add(time.Millisecond)
+}
+
+// legToRecord substitutes the leg the charger is known to use for a single-phase request naming
+// a different one. An Easee cannot choose its leg, so the report must name it rather than echo
+// the request: the hub learns the charger is fixed only from that mismatch, and echoing leaves
+// it re-requesting a leg the charger will never use. Recorded rather than left unrecorded,
+// because the record is what outranks the other answers - a leftover three-phase request from
+// the previous balance tick, or the multi-phase leg of a running auto session, both of which
+// would otherwise reach the forced report instead. A leg persisted under another topology is no
+// evidence about this one.
+func (c *controller) legToRecord(mode types.PhaseMode, gridType types.GridType, phases int) types.PhaseMode {
+	if mode.EffectivePhasesCnt() != 1 {
+		return mode
+	}
+
+	known := c.persistedPhase()
+
+	// The leg the charger is delivering on right now outranks the stored one, which lags it
+	// whenever a props republish failed: substituting the stale store there would name a leg
+	// the charger is demonstrably not on, and the hub would learn that as its fixed phase.
+	if outputPhase, outputPhaseSet := c.cache.OutputPhaseType(); outputPhase.EffectivePhasesCnt() == 1 &&
+		!c.outputPhaseStale(outputPhase, outputPhaseSet) && c.charging() {
+		known = outputPhase
+	}
+
+	if known.EffectivePhasesCnt() == 1 && known != mode &&
+		slices.Contains(model.SettablePhaseModes(gridType, phases), known) {
+		return known
+	}
+
+	return mode
 }
 
 // restartForPhaseMode bounces an in-progress session, because the charger applies a new
