@@ -155,7 +155,8 @@ func (h *observationsHandler) runSender() {
 	}
 }
 
-// Close stops the sender once the reports already queued have been published. Safe to call
+// Close stops every goroutine that can publish on the thing - the report sender once the reports
+// already queued have gone out, and the lifetime-energy timer - and waits for both. Safe to call
 // more than once, and safe against an observation still being dispatched concurrently.
 func (h *observationsHandler) Close() {
 	h.closeMu.Lock()
@@ -169,6 +170,10 @@ func (h *observationsHandler) Close() {
 	h.closeMu.Unlock()
 
 	h.senderWG.Wait()
+
+	// The lifetime-energy goroutine publishes straight on the thing rather than through the
+	// report queue, so closing that queue does not reach it.
+	h.energyHandler.close()
 }
 
 func (h *observationsHandler) IsOnline() bool {
@@ -565,11 +570,13 @@ func (h *observationsHandler) persistOutputPhase(outPhaseType types.PhaseMode) e
 	before := model.AdvertisedPhaseModes(gridType, phases, stored)
 	after := model.AdvertisedPhaseModes(gridType, phases, outPhaseType)
 
-	// Persisted only after a successful republish, so a failed one is retried on the next observation.
+	// Persisted only after a successful republish, so a failed one is retried on the next
+	// observation. The republish is queued, so the write goes with it rather than happening here.
 	if !slices.Equal(before, after) {
-		if err := h.republishChargepointProps(map[string]any{chargepoint.PropertySupportedPhaseModes: after}); err != nil {
-			return err
-		}
+		return h.republishChargepointProps(
+			map[string]any{chargepoint.PropertySupportedPhaseModes: after},
+			func() error { return h.phaseStore.SetOutputPhase(outPhaseType) },
+		)
 	}
 
 	return h.phaseStore.SetOutputPhase(outPhaseType)
@@ -629,14 +636,14 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		chargepoint.PropertyGridType:            supportedGridType,
 		chargepoint.PropertyPhases:              supportedPhases,
 		chargepoint.PropertySupportedPhaseModes: model.AdvertisedPhaseModes(supportedGridType, supportedPhases, outputPhase),
-	})
+	}, nil)
 }
 
 // republishChargepointProps updates props only. The phase-mode interfaces are derived from
 // sup_phase_modes once, in chargepoint.NewService, so a charger created without a grid type -
 // stored state that is empty or legacy - gains the property here but not the interfaces until it
 // is rebuilt on the next adapter restart. Recreating the service would need the controller here.
-func (h *observationsHandler) republishChargepointProps(props map[string]any) error {
+func (h *observationsHandler) republishChargepointProps(props map[string]any, onPublished func() error) error {
 	service, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
@@ -649,13 +656,31 @@ func (h *observationsHandler) republishChargepointProps(props map[string]any) er
 	// never a map being written as it is read.
 	service.Specification().Props = chargepointPropsUpdate(service, props)
 
-	if err := h.thing.Update(adapter.ThingUpdateRemoveService(service), adapter.ThingUpdateAddService(service)); err != nil {
-		return err
-	}
+	// The props assignment above stays on the drain - it is what every later report reads - but
+	// the republish waits on MQTT, and the drain is the only drainer of the observation channel.
+	// Parking it there fills the observation buffer, and the session start/stop pair is
+	// edge-triggered, so a dropped one loses the session's record for good.
+	//
+	// onPublished runs only after the report lands, on the sender goroutine. persistOutputPhase
+	// relies on that: a phase written before a failed republish would never be retried, leaving
+	// the charger advertising a phase mode it cannot use until the next restart.
+	h.enqueue("inclusion", func() error {
+		if err := h.thing.Update(adapter.ThingUpdateRemoveService(service), adapter.ThingUpdateAddService(service)); err != nil {
+			return err
+		}
 
-	_, err = h.thing.SendInclusionReport(false)
+		if _, err := h.thing.SendInclusionReport(false); err != nil {
+			return err
+		}
 
-	return err
+		if onPublished == nil {
+			return nil
+		}
+
+		return onPublished()
+	})
+
+	return nil
 }
 
 func (h *observationsHandler) handleLockCablePermanently(observation model.Observation) error {
@@ -774,6 +799,12 @@ type energyHandler struct {
 	lock                  sync.Mutex
 	confSrv               *config.Service
 	energyObservationChan chan model.Observation
+
+	// done is closed by the handler's Close. The goroutine selects on it, so a teardown stops it
+	// before its timer fires rather than leaving it to publish on a thing that no longer exists.
+	done   chan struct{}
+	closed bool
+	wg     sync.WaitGroup
 }
 
 func newEnergyHandler(cache cache.Cache, thing adapter.Thing, confSrv *config.Service) *energyHandler {
@@ -781,7 +812,23 @@ func newEnergyHandler(cache cache.Cache, thing adapter.Thing, confSrv *config.Se
 		cache:   cache,
 		thing:   thing,
 		confSrv: confSrv,
+		done:    make(chan struct{}),
 	}
+}
+
+// close stops the energy goroutine and waits for it. Safe to call more than once.
+func (h *energyHandler) close() {
+	h.lock.Lock()
+
+	if !h.closed {
+		h.closed = true
+
+		close(h.done)
+	}
+
+	h.lock.Unlock()
+
+	h.wg.Wait()
 }
 
 func (h *energyHandler) handle(observation model.Observation) error {
@@ -794,8 +841,18 @@ func (h *energyHandler) handle(observation model.Observation) error {
 	}
 
 	h.lock.Lock()
+
+	if h.closed {
+		h.lock.Unlock()
+
+		return nil
+	}
+
 	if h.energyObservationChan == nil {
 		h.energyObservationChan = make(chan model.Observation, 10)
+
+		h.wg.Add(1)
+
 		go h.manageEnergyObservation(h.energyObservationChan)
 	}
 	ch := h.energyObservationChan
@@ -812,6 +869,7 @@ func (h *energyHandler) handle(observation model.Observation) error {
 }
 
 func (h *energyHandler) manageEnergyObservation(ch chan model.Observation) {
+	defer h.wg.Done()
 	defer func() {
 		h.lock.Lock()
 		defer h.lock.Unlock()
@@ -831,6 +889,10 @@ func (h *energyHandler) manageEnergyObservation(ch chan model.Observation) {
 
 	for {
 		select {
+		case <-h.done:
+			// Unregister closed the handler: the thing this would publish on is being torn down.
+			return
+
 		case val := <-ch:
 			v, err := val.Float64Value()
 			if err != nil {
@@ -901,6 +963,10 @@ func (h *observationsHandler) handleErrorCode(observation model.Observation) err
 // sendAlarmReports stores the state of each event and reports the ones that changed.
 // Dedup is left to the service's reporting cache, which only records an event once it is
 // actually published - so a failed publish is retried on the next observation.
+//
+// The cache write stays on the drain, so the stored state keeps the order the observations
+// arrived in; only the publish is queued, because it takes the service lock a chargepoint
+// command can hold for the whole of its echo wait.
 func (h *observationsHandler) sendAlarmReports(events map[string]bool, timestamp time.Time) error {
 	service, err := getAlarmService(h.thing)
 	if err != nil {
@@ -912,9 +978,11 @@ func (h *observationsHandler) sendAlarmReports(events map[string]bool, timestamp
 			continue
 		}
 
-		if _, err := service.SendAlarmReport(event, false); err != nil {
+		h.enqueue("alarm", func() error {
+			_, err := service.SendAlarmReport(event, false)
+
 			return err
-		}
+		})
 	}
 
 	return nil
