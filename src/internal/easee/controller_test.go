@@ -2137,12 +2137,72 @@ func TestController_Teardown_CancelsADeferredSend(t *testing.T) {
 
 	ctrl.Teardown()
 
-	// Past the deadline the stop would have fired at.
+	// Past the deadline the stop would have fired at. Teardown stopped the timer before this
+	// advances the mock clock, so sendPending is never scheduled - nothing to await.
 	clk.Add(30 * time.Second)
-	time.Sleep(100 * time.Millisecond)
 
 	clientMock.AssertNotCalled(t, "StopCharging", "test-charger")
 	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 1)
+}
+
+// The timer can win the race for the slot before Teardown ever runs: it already copied the
+// command and dropped the lock by the time Teardown takes it, so clearing pending cannot stop
+// this send. Teardown has to wait it out instead, so a caller relying on "Teardown returned" as
+// "nothing more reaches the charger" is not lied to.
+func TestController_Teardown_WaitsOutASendThatAlreadyWonTheRace(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	sending := make(chan struct{})
+	release := make(chan struct{})
+
+	lastSent, lastSentAt := 0, time.Time{}
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(func() int { return lastSent }, func() time.Time { return lastSentAt })
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).
+		Run(func(a mock.Arguments) { lastSent, lastSentAt = a.Int(0), clk.Now() }).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").
+		Run(func(mock.Arguments) {
+			close(sending)
+			<-release
+		}).
+		Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.StopChargepointCharging())
+
+	// Fires sendPending on its own goroutine; it claims the slot and enters send() - blocked on
+	// release - before Teardown below ever takes the lock.
+	clk.Add(20 * time.Second)
+	awaitDeferred(t, sending)
+
+	teardownDone := make(chan struct{})
+
+	go func() {
+		ctrl.Teardown()
+		close(teardownDone)
+	}()
+
+	select {
+	case <-teardownDone:
+		t.Fatal("Teardown returned while the send it should have waited for was still blocked")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	awaitDeferred(t, teardownDone)
+
+	clientMock.AssertNumberOfCalls(t, "StopCharging", 1)
 }
 
 // The phase-mode bounce when the pause itself lands inside the window. The old "latest wins"

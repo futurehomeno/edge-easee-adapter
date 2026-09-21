@@ -89,6 +89,12 @@ type controller struct {
 	// stopTimer cancels the armed deferred send. Held as a closure rather than the timer so the
 	// indirect benbjohnson/clock type this package never otherwise names stays out of the graph.
 	stopTimer func() bool
+	// inFlight counts sendPending calls that have claimed the slot and released pace but have
+	// not yet returned. stopTimer only cancels a send that has not fired; one that already won
+	// the race for pace against Teardown is already past the point clearing pending can stop it,
+	// so Teardown waits this out instead to keep its "nothing more will reach the charger"
+	// guarantee true for a send already in progress.
+	inFlight sync.WaitGroup
 }
 
 type chargerCommand struct {
@@ -143,10 +149,11 @@ func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
 
 // Teardown cancels a deferred send. cmd.thing.delete disconnects the thing, and a timer armed
 // before it would otherwise issue StopCharging or UpdateDynamicCurrent for a charger the hub no
-// longer owns. Clearing the slot makes a send that already fired a no-op.
+// longer owns. Clearing the slot stops a send that has not yet fired; a send that already won
+// the race for pace against this call is past the point clearing pending can stop, so Teardown
+// waits for it to finish instead - outside the lock, since that send needs pace to hand back.
 func (c *controller) Teardown() {
 	c.pace.Lock()
-	defer c.pace.Unlock()
 
 	if c.stopTimer != nil {
 		c.stopTimer()
@@ -154,6 +161,10 @@ func (c *controller) Teardown() {
 	}
 
 	c.pending = nil
+
+	c.pace.Unlock()
+
+	c.inFlight.Wait()
 }
 
 // pendingDiffers reports whether the slot holds a current this write would supersede.
@@ -201,7 +212,10 @@ func (c *controller) sendPending() {
 	}
 
 	c.sentAt = clock.Now()
+	c.inFlight.Add(1)
 	c.pace.Unlock()
+
+	defer c.inFlight.Done()
 
 	if err := c.send(*cmd); err != nil {
 		log.Errorf("[%s] Deferred %s failed: %v", c.chargerID, cmd, err)
