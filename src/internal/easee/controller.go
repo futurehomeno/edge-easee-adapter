@@ -86,6 +86,12 @@ type controller struct {
 	pace    sync.Mutex
 	sentAt  time.Time
 	pending *chargerCommand
+	// followUp is sent one wait time after pending. Only a session restart sets it: its pause and
+	// resume are always within one window of each other, so through a single slot one of the two
+	// is always lost - dropping the resume leaves the charger paused for good, dropping the pause
+	// means the mode never applies. A later command discards both halves rather than pausing with
+	// no resume to follow, or resuming at a current the hub has since superseded.
+	followUp *chargerCommand
 	// stopTimer cancels the armed deferred send. Held as a closure rather than the timer so the
 	// indirect benbjohnson/clock type this package never otherwise names stays out of the graph.
 	stopTimer func() bool
@@ -113,25 +119,47 @@ func (c chargerCommand) String() string {
 // dispatch sends cmd now or stores it, reporting which. Stamped on the attempt rather than on
 // success: a call that timed out may still have reached Easee.
 func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
+	return c.dispatchPair(cmd, nil)
+}
+
+// dispatchPair stores cmd, and follow after it, as one unit: nothing can interleave between the
+// two halves. The charger acts on whatever it last heard, so the slot always keeps the newest
+// command whatever its kind - a stop displaces a stored write and a write displaces a stored stop.
+// This supersedes #162, under which a stop could not be displaced: a balancing refresh inside the
+// window now cancels a pause, an emergency pause among them, because nothing on this path tells one
+// stop from another.
+func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (bool, error) {
 	c.pace.Lock()
 
-	// A stored stop is never displaced by a current write. Both directions of this matter: a
-	// stop is a safety command - an emergency pause among them - and a balancing refresh landing
-	// inside the window must not cancel it, while a stop arriving after a stored write still
-	// takes the slot.
-	if c.pending != nil && c.pending.stop && !cmd.stop {
-		c.pace.Unlock()
+	if c.pending != nil {
+		// Both halves of a stored pair go, so name the follow-up too: without it a discarded
+		// resume leaves no trace and "why did the resume never fire" is unanswerable from logs.
+		preempted := c.pending.String()
+		if c.followUp != nil {
+			preempted += " + " + c.followUp.String()
+		}
 
-		log.Infof("[%s] Dropped %s, a stop holds the slot", c.chargerID, cmd)
-
-		return false, nil
+		log.Infof("[%s] %s preempts %s", c.chargerID, cmd, preempted)
 	}
 
 	if c.pending == nil && clock.Since(c.sentAt) >= c.cfgService.OfferedCurrentWaitTime() {
 		c.sentAt = clock.Now()
+
+		// A pair's first half goes out now, but its second still has to wait a full window, so
+		// arm the timer before releasing the lock rather than leaving the follow-up unscheduled.
+		if follow != nil {
+			c.pending = follow
+			c.stopTimer = clock.AfterFunc(c.cfgService.OfferedCurrentWaitTime(), c.sendPending).Stop
+		}
+
 		c.pace.Unlock()
 
-		return true, c.send(cmd)
+		err := c.send(cmd)
+		if err != nil && follow != nil {
+			c.clearFollowUp(follow)
+		}
+
+		return true, err
 	}
 
 	delay := c.cfgService.OfferedCurrentWaitTime() - clock.Since(c.sentAt)
@@ -140,9 +168,10 @@ func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
 	}
 
 	c.pending = &cmd
+	c.followUp = follow
 	c.pace.Unlock()
 
-	log.Infof("[%s] Deferred %s, sending in %s", c.chargerID, cmd, delay.Round(time.Second))
+	log.Infof("[%s] %s, delayed %s", c.chargerID, cmd, delay.Round(time.Second))
 
 	return false, nil
 }
@@ -161,10 +190,32 @@ func (c *controller) Teardown() {
 	}
 
 	c.pending = nil
+	c.followUp = nil
 
 	c.pace.Unlock()
 
 	c.inFlight.Wait()
+}
+
+// clearFollowUp drops a pair's second half when the first never reached Easee. Armed before the
+// send so the resume cannot be left unscheduled, it would otherwise fire on its own - half an
+// atomic pair - and hold the slot for a window against the next write. A command that preempted
+// the pair in the meantime keeps the slot.
+func (c *controller) clearFollowUp(follow *chargerCommand) {
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	if c.pending != follow {
+		return
+	}
+
+	if c.stopTimer != nil {
+		c.stopTimer()
+		c.stopTimer = nil
+	}
+
+	c.pending = nil
+	c.followUp = nil
 }
 
 // pendingDiffers reports whether the slot holds a current this write would supersede.
@@ -172,14 +223,29 @@ func (c *controller) Teardown() {
 // value on the wire: without this, a write matching that value is dropped while a newer,
 // different one stays in the slot and reaches the charger at the deadline instead.
 //
-// A pending stop is deliberately not counted. Letting a same-value write displace it would
-// cancel a stop - including an emergency pause - whenever a balancing refresh lands inside the
-// window, which the base never did.
+// A stored stop always counts as differing: a stop leaves current at zero, so comparing on the
+// value alone would read it as a pending 0A write and let the dedup swallow the write that is
+// meant to displace it - making displacement depend on which current the write carries.
 func (c *controller) pendingDiffers(current int) bool {
 	c.pace.Lock()
 	defer c.pace.Unlock()
 
-	return c.pending != nil && !c.pending.stop && c.pending.current != current
+	return c.pending != nil && (c.pending.stop || c.pending.current != current)
+}
+
+func (c *controller) clampToMax(current int) int {
+	limit, _ := c.cache.MaxCurrent()
+	if limit == 0 {
+		limit = maxCurrentValue
+	}
+
+	if current > limit {
+		log.Warnf("[%s] Clamp offered current %dA to max %dA", c.chargerID, current, limit)
+
+		return limit
+	}
+
+	return current
 }
 
 func (c *controller) send(cmd chargerCommand) error {
@@ -209,6 +275,14 @@ func (c *controller) sendPending() {
 		c.pace.Unlock()
 
 		return
+	}
+
+	// Promote the pair's second half before releasing the lock, so a command arriving now
+	// displaces the follow-up rather than slipping in ahead of it.
+	if c.followUp != nil {
+		c.pending = c.followUp
+		c.followUp = nil
+		c.stopTimer = clock.AfterFunc(c.cfgService.OfferedCurrentWaitTime(), c.sendPending).Stop
 	}
 
 	c.sentAt = clock.Now()
@@ -495,10 +569,11 @@ func (c *controller) legToRecord(mode types.PhaseMode, gridType types.GridType, 
 }
 
 // restartForPhaseMode bounces an in-progress session, because the charger applies a new
-// phase mode only at a session boundary. Failing to pause is not fatal - the mode is stored
-// and takes effect on the next session anyway. The resume always follows the pause inside
-// the channel's window, so it is stored and goes out at the deadline; a pause that was
-// itself stored is replaced by it, which leaves the session running - the same outcome.
+// phase mode only at a session boundary: to protect its relays a session completes on the phase
+// configuration it started with. Failing to pause is not fatal - the mode is stored and takes
+// effect on the next session anyway. The pause and the resume go into the channel as one pair, so
+// the resume cannot be lost against its own pause and the bounce never ends with the charger
+// paused.
 func (c *controller) restartForPhaseMode(target int) error {
 	state, err := c.ChargepointStateReport()
 	if err != nil {
@@ -533,17 +608,13 @@ func (c *controller) restartForPhaseMode(target int) error {
 		return fmt.Errorf("phase mode set to %d, but no current is known to resume at", target)
 	}
 
-	if err := c.StopChargepointCharging(); err != nil {
-		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
-
-		return nil
-	}
-
 	// Resumed at the session's own current rather than through StartChargepointCharging: a
 	// normal-mode start floors the current to initial_charging_current, which would silently
 	// raise a slow session - the mode is not recorded anywhere, so it cannot be restored.
-	if _, err := c.setOfferedCurrent(resume, true); err != nil {
-		return fmt.Errorf("phase mode set to %d, but the charger was left stopped: %w", target, err)
+	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{current: c.clampToMax(resume)}); err != nil {
+		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
+
+		return nil
 	}
 
 	return nil
@@ -585,15 +656,7 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 // CurrentWaitDuration; a deferred write counts as confirmed, its echo is checked by the
 // deferred send. Callers that need to know the change actually landed check it.
 func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
-	limit, _ := c.cache.MaxCurrent()
-	if limit == 0 {
-		limit = maxCurrentValue
-	}
-
-	if current > limit {
-		log.Warnf("[%s] Clamp offered current %dA to max %dA", c.chargerID, current, limit)
-		current = limit
-	}
+	current = c.clampToMax(current)
 
 	if !force && !c.pendingDiffers(current) {
 		lastValue, lastSet := c.cache.RequestedOfferedCurrent()

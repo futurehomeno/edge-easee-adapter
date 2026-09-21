@@ -7,15 +7,13 @@ Because the charger applies a new phase mode only at a session boundary, an in-p
 be bounced after the mode is set: a pause followed by a resume, both through the per-charger command
 channel. The restart SHALL be skipped when the charger state is not charging. A failure to read the
 state, or a failure to pause, SHALL be logged as a warning and treated as success — the mode is
-stored and takes effect on the next session anyway. When the pause is sent at once — the ordinary
-case, since a mode change rarely follows a current write inside the window — the resume SHALL be
-stored and SHALL go out at the channel's deadline, and the command SHALL report success once the
-pause is accepted. When the pause is itself stored rather than sent, it SHALL hold the slot: the
-resume SHALL be dropped, the session SHALL end at the deadline, and the mode SHALL take effect at
-the next session — the outcome the spec already accepts for a failed pause, reached by a different
-route. A stop is a safety command and is never cancelled by a later current write, so the resume
-cannot displace it. A resume Easee refuses or the charger never echoes back is logged only, and a resume the channel
-cannot accept SHALL be returned as `phase mode set to <target>, but the charger was left stopped`. The
+stored and takes effect on the next session anyway. The pause and the resume SHALL be dispatched as
+one ordered pair, so a mode change never leaves the charger paused: whether the pause goes out at
+once or is stored, the resume follows it one `offered_current_wait_time` later. The command SHALL
+report success once the pair is accepted. Because the pair is stored as a unit, the resume can no
+longer fail on its own after the pause has been accepted - the failure the `charger was left
+stopped` error reported no longer arises. A resume Easee refuses or the charger never echoes back is
+logged only. The
 resume SHALL restore the session's own current — the cached requested offered current, falling back
 to the cached offered current the charger itself reports, and to the cached max current when both
 are zero or less — read before the pause, since the session-finished observation clears it
@@ -33,11 +31,15 @@ so it cannot be reconstructed.
 - **WHEN** the pause is sent for a charging charger
 - **THEN** the resume is stored and sent at the channel's deadline, and the command reports success
 
-#### Scenario: the pause is itself deferred
-- **WHEN** a mode change lands within `offered_current_wait_time` of a current write, so the pause is
-  stored rather than sent
-- **THEN** the pause holds the slot, the resume is dropped, and the session ends at the deadline with
-  the mode taking effect at the next session
+#### Scenario: pause inside the window
+- **WHEN** a dynamic-current write went out within `offered_current_wait_time` before the pause
+- **THEN** the pause is stored ahead of the resume, is sent at the deadline, and the resume follows
+  one wait time later, leaving the charger charging on the new mode
+
+#### Scenario: the restart is preempted
+- **WHEN** a dynamic-current write arrives while the restart is stored
+- **THEN** both halves are discarded, only that write is sent, and the mode takes effect at the next
+  session
 
 #### Scenario: a slow session is bounced
 - **WHEN** a session running below `initial_charging_current` is bounced to apply a mode
@@ -54,10 +56,6 @@ so it cannot be reconstructed.
 #### Scenario: resume is never confirmed
 - **WHEN** the deferred resume is sent but no observation echoes the current back in time
 - **THEN** a warning is logged; the command had already reported success
-
-#### Scenario: a resume the channel cannot accept
-- **WHEN** the resume cannot be dispatched at all
-- **THEN** the command fails with `phase mode set to <target>, but the charger was left stopped`
 
 #### Scenario: no resume current is known
 - **WHEN** the requested offered current, the offered current and the max current are all zero
