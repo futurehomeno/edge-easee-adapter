@@ -534,7 +534,9 @@ func TestApplication_Logout(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                string
+		name string
+		// credentials is what the store still holds after Logout ran - what a restart would find.
+		credentials         config.Credentials
 		setLifecycle        func(lc *lifecycle.Lifecycle)
 		authLogoutError     error
 		wantErr             bool
@@ -560,6 +562,9 @@ func TestApplication_Logout(t *testing.T) {
 		},
 		{
 			name: "adapter error on destroying all things",
+			// Credentials survive the failed clear, which is what makes this the failure path:
+			// with an empty store the logout stands regardless of the error.
+			credentials: config.Credentials{AccessToken: "still-here"},
 			setLifecycle: func(lc *lifecycle.Lifecycle) {
 				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
 				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
@@ -576,6 +581,49 @@ func TestApplication_Logout(t *testing.T) {
 			},
 
 			wantErr: true,
+		},
+		{
+			// #165: a clear that fails leaves the tokens readable, and Initialize treats a
+			// non-empty store as a live session - so marking the app not-configured here has the
+			// next restart silently log the user back in. Health must stay error.
+			name:        "clearing fails and the credentials are still on disk",
+			credentials: config.Credentials{AccessToken: "still-here", RefreshToken: "still-here"},
+			setLifecycle: func(lc *lifecycle.Lifecycle) {
+				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
+				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
+				lc.SetConfigState(lifecycle.ConfigStateConfigured)
+			},
+			authLogoutError: errors.New("error"),
+			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
+				assert.Equal(t, lifecycle.AppHealthError, lc.AppHealth())
+				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
+				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
+				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
+			},
+			mockSignalRClient: func(c *mocksignalr.Client) {
+				c.On("Close").Return(nil)
+			},
+
+			wantErr: true,
+		},
+		{
+			// The clear reported an error but left nothing behind: a restart finds an empty
+			// store and comes up logged out, so the logout stands.
+			name: "clearing reports an error but leaves no credentials",
+			setLifecycle: func(lc *lifecycle.Lifecycle) {
+				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
+				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
+				lc.SetConfigState(lifecycle.ConfigStateConfigured)
+			},
+			authLogoutError: errors.New("error"),
+			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
+				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
+				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
+				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
+			},
+			mockSignalRClient: func(c *mocksignalr.Client) {
+				c.On("Close").Return(nil)
+			},
 		},
 	}
 
@@ -599,7 +647,7 @@ func TestApplication_Logout(t *testing.T) {
 			}
 
 			cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
-			application := app.New(nil, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, config.Credentials{}), nil)
+			application := app.New(nil, cfgService, lc, nil, clientMock, authMock, signalRClientMock, newCredentialsStore(t, tt.credentials), nil)
 			err := application.Logout()
 
 			assert.Equal(t, tt.wantErr, err != nil, "failed error expectation")

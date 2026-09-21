@@ -811,6 +811,16 @@ func (c *controller) updateChargerConfigState(chargerID string, state *State) er
 
 	gridType, phases := cfg.DetectedPowerGridType.ToFimpGridType()
 
+	// Zero phases is the absence of a topology, not a new one: an undetected grid yields ("", 0)
+	// and the two wiring-fault types yield (TN, 0) / (IT, 0). Persisting any of them deletes
+	// phases and sup_phase_modes from the props the next thing creation builds, so cliffhanger
+	// rejects every cmd.phase_mode.set and energy guard drops the charger from phase balancing -
+	// and because this state is what creation reads, a restart during a fault outlives the fault.
+	// The signalR handler refuses the same reading; the alarm is the report for this case.
+	if phases == 0 {
+		return nil
+	}
+
 	state.GridType = gridType
 	state.Phases = phases
 	state.PhaseMode = cfg.PhaseMode

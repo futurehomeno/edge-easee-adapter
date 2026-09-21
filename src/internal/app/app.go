@@ -391,7 +391,14 @@ func (a *application) Logout() error {
 		log.Warnf("[app] Disconnect signalR client. err: %v", err)
 	}
 
-	if err := a.auth.Logout(); err != nil {
+	// The store decides, not the error: storage.Reset can fail before it zeroes the model - the
+	// defaults probe and both file removals return early - which leaves the tokens readable in
+	// memory and on disk. Initialize treats a non-empty store as a live session and re-seeds the
+	// chargers from it, so reporting such a logout as done has the next restart silently log the
+	// user back in. A clear that errored but left nothing behind is a logout all the same.
+	err := a.auth.Logout()
+
+	if err != nil && !a.credentials.Credentials().Empty() {
 		a.lifecycle.SetAppHealth(lifecycle.AppHealthError, nil)
 		// Disconnected as well as not-authenticated: the reporting tasks are gated on
 		// WhenAppIsConnected, so leaving it connected keeps them polling Easee for a session
@@ -400,6 +407,10 @@ func (a *application) Logout() error {
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 
 		return err
+	}
+
+	if err != nil {
+		log.Warnf("[app] Logout reported an error but the credentials are gone: %v", err)
 	}
 
 	a.lifecycle.MarkNotConfigured()

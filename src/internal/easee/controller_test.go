@@ -1443,6 +1443,43 @@ func TestController_UpdateState(t *testing.T) {
 			},
 			wantState: &easee.State{SupportedMaxCurrent: 20, Phases: 3, GridType: "TN"},
 		},
+		{
+			// #164: grid types 50/51/52 map to zero phases. Writing one deletes phases and
+			// sup_phase_modes, so a restart during a wiring fault used to outlive the fault.
+			name:         "a wiring fault keeps the stored topology",
+			initialState: &easee.State{SupportedMaxCurrent: 20, Phases: 3, GridType: "TN", PhaseMode: 3},
+			mockClient: func(c *mockapi.Client) {
+				c.On("ChargerConfig", "test-charger").Return(&model.ChargerConfig{
+					DetectedPowerGridType: model.GridTypeErrorTN400VNeutralOnWrongPin,
+					PhaseMode:             1,
+				}, nil)
+				c.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 20}, nil)
+			},
+			wantState: &easee.State{SupportedMaxCurrent: 20, Phases: 3, GridType: "TN", PhaseMode: 3},
+		},
+		{
+			name:         "an undetected grid keeps the stored topology",
+			initialState: &easee.State{SupportedMaxCurrent: 20, Phases: 1, GridType: "IT", PhaseMode: 1},
+			mockClient: func(c *mockapi.Client) {
+				c.On("ChargerConfig", "test-charger").Return(&model.ChargerConfig{
+					DetectedPowerGridType: model.GridTypeErrorNoValidPowerGridFound,
+				}, nil)
+				c.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 20}, nil)
+			},
+			wantState: &easee.State{SupportedMaxCurrent: 20, Phases: 1, GridType: "IT", PhaseMode: 1},
+		},
+		{
+			name:         "a healthy reading still replaces the stored topology",
+			initialState: &easee.State{SupportedMaxCurrent: 20, Phases: 1, GridType: "IT", PhaseMode: 1},
+			mockClient: func(c *mockapi.Client) {
+				c.On("ChargerConfig", "test-charger").Return(&model.ChargerConfig{
+					DetectedPowerGridType: model.GridTypeTN3Phase,
+					PhaseMode:             3,
+				}, nil)
+				c.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 20}, nil)
+			},
+			wantState: &easee.State{SupportedMaxCurrent: 20, Phases: 3, GridType: "TN", PhaseMode: 3},
+		},
 	}
 
 	for _, tt := range tests {
