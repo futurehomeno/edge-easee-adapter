@@ -105,6 +105,13 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	thingCache.SetInstallationParameters(state.GridType, state.Phases, time.Time{})
 	thingCache.SetPhaseMode(state.PhaseMode, time.Time{})
 
+	// Without this the cache holds no max current until observation 47 arrives, and a start
+	// before it has nothing to size the session from. The zero time lets the first observation
+	// supersede it.
+	if state.SupportedMaxCurrent > 0 {
+		thingCache.SetMaxCurrent(state.SupportedMaxCurrent, time.Time{})
+	}
+
 	groups := []string{"ch_0"}
 	services := []adapter.Service{
 		chargepoint.NewService(publisher, &chargepoint.Config{
@@ -133,7 +140,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	return adapter.NewThing(publisher, thingState, &adapter.ThingConfig{
-		Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage, thingState),
+		Connector:       NewConnector(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage, thingState, controller),
 		InclusionReport: t.inclusionReport(info, thingState, groups),
 	}, services...), nil
 }
