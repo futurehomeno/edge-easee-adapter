@@ -39,17 +39,13 @@ const (
 // chargers list, so the caller can leave the retry budget that refusal just spent intact.
 var errMissingSelected = errors.New("selected devices missing")
 
+// ApplicationWithToken is the app-lifecycle surface the framework routes to.
 type ApplicationWithToken interface {
-	Application
-	RefreshToken()
-}
-
-// Application is the app-lifecycle surface the framework routes to.
-type Application interface {
 	cliffApp.App
 	cliffApp.LogginableApp
 	cliffApp.CheckableApp
 	cliffApp.InitializableApp
+	RefreshToken()
 }
 
 func New(
@@ -79,7 +75,6 @@ func New(
 		auth:          auth,
 		signalRClient: signalRClient,
 		credentials:   credentials,
-		errorHook:     errorHook,
 
 		sessionStorage: sessionStorage,
 	}
@@ -99,7 +94,6 @@ type application struct {
 	auth          api.Authenticator
 	signalRClient signalr.Client
 	credentials   *config.CredentialsStore
-	errorHook     *formatters.ErrorHook
 
 	sessionStorage db.ChargingSessionStorage
 
@@ -140,7 +134,7 @@ func (a *application) resetMissingBudget() {
 }
 
 func (a *application) ErrorsReport() ([]string, error) {
-	return a.errorHook.ErrorsReport()
+	return errorHook.ErrorsReport()
 }
 
 func (a *application) GetManifest() (*manifest.Manifest, error) {

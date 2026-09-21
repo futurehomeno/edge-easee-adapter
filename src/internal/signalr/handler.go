@@ -518,12 +518,14 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return nil
 	}
 
-	log.Infof("[%s] PhaseMode=%s", h.chargerID, outPhaseType)
-
 	ok := h.cache.SetOutputPhaseType(outPhaseType, observation.Timestamp)
 	if !ok {
 		return nil
 	}
+
+	// Logged past the accept check: an outdated replay - the whole observation set arrives
+	// again on every reconnect - is not a phase change and costs nothing to skip.
+	log.Infof("[%s] PhaseMode=%s", h.chargerID, outPhaseType)
 
 	// Props first: the hub matches the reported mode against the sup_phase_modes it currently
 	// holds, so a report naming a leg the old list does not advertise is discarded.

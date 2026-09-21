@@ -10,12 +10,10 @@ import (
 	"github.com/futurehomeno/cliffhanger/root"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/utils"
-	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
-	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 )
 
 func Execute(packageName, version string) error {
@@ -65,22 +63,12 @@ func Build(cfg *config.Config, packageName, version string) (root.App, error) {
 		WithLifecycle(getLifecycle()).
 		WithTelemetry(getTelemetry(cfg)).
 		WithTopicSubscription(
-			cmdTopic(fimptype.ResourceTypeAdapter),
-			cmdTopic(fimptype.ResourceTypeDevice),
+			cliffRouter.TopicPatternAdapter(fimptype.EaseeRn, fimptype.MsgTypeCmd),
+			cliffRouter.TopicPatternDevice(fimptype.EaseeRn, fimptype.MsgTypeCmd),
 		).
-		WithRouterOptions(cliffRouter.WithStatsCallback(routing.LogStats)).
+		WithRouterOptions(cliffRouter.WithStatsCallback(cliffRouter.DefaultLogStats("cmd.auth."))).
 		WithRouting(newRouting(cfg)...).
 		WithTask(newTasks(cfg)...).
 		WithServices(getSessionStorage(cfg), getSignalRManager(cfg), getEventListener(cfg)).
 		Build()
-}
-
-func cmdTopic(resourceType fimptype.ResourceTypeT) string {
-	return (&cliffRouter.TopicPattern{
-		PayloadType:     fimpgo.DefaultPayload,
-		MessageType:     fimptype.MsgTypeCmd,
-		ResourceType:    resourceType,
-		ResourceName:    fimptype.EaseeRn,
-		ResourceAddress: "1",
-	}).String()
 }
