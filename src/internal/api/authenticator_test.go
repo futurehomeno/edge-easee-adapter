@@ -182,8 +182,7 @@ func TestLoginFailureByStatusCode(t *testing.T) {
 			}))
 			t.Cleanup(s.Close)
 
-			cfgStorage := mockedstorage.Storage[*config.Config]{}
-			httpClient := api.NewHTTPClient(config.NewService(&cfgStorage), s.Client(), s.URL)
+			httpClient := api.NewHTTPClient(s.Client(), s.URL)
 
 			credentials := newCredentialsStore(t, config.Credentials{})
 			authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
@@ -215,8 +214,7 @@ func TestLoginRejectionLeavesAnExistingSessionInPlace(t *testing.T) {
 	}))
 	t.Cleanup(s.Close)
 
-	cfgStorage := mockedstorage.Storage[*config.Config]{}
-	httpClient := api.NewHTTPClient(config.NewService(&cfgStorage), s.Client(), s.URL)
+	httpClient := api.NewHTTPClient(s.Client(), s.URL)
 
 	existing := config.Credentials{AccessToken: "old-access", RefreshToken: "old-refresh"}
 	credentials := newCredentialsStore(t, existing)

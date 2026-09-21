@@ -148,12 +148,13 @@ func (c *Config) MigrateAuthBackoff() error {
 	return nil
 }
 
-// MigrateOfferedCurrentWaitTime lifts installs still carrying the superseded packaged
-// default ("15s") onto the rate-limit-safe wait time. Any other value is left alone; a
-// "15s" chosen deliberately is indistinguishable from the old default and is rewritten too.
+// MigrateOfferedCurrentWaitTime lifts installs still carrying a superseded packaged default
+// ("15s" from 2.8, "20s" from 3.1.2) onto the current wait time. Any other value is left
+// alone; a value chosen deliberately to match an old default is indistinguishable from it
+// and is rewritten too.
 func (c *Config) MigrateOfferedCurrentWaitTime() error {
-	if c.OfferedCurrentWaitTime == "15s" {
-		c.OfferedCurrentWaitTime = "20s"
+	if c.OfferedCurrentWaitTime == "15s" || c.OfferedCurrentWaitTime == "20s" {
+		c.OfferedCurrentWaitTime = "30s"
 	}
 
 	return nil
@@ -332,7 +333,7 @@ func (cs *Service) SetSignalRInvokeTimeout(timeout time.Duration) error {
 }
 
 func (cs *Service) OfferedCurrentWaitTime() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.OfferedCurrentWaitTime }, 20*time.Second)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.OfferedCurrentWaitTime }, 30*time.Second)
 }
 
 func (cs *Service) AuthenticatorBackoffStateful() backoff.Stateful {

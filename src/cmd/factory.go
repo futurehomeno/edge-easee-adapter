@@ -133,6 +133,7 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		cliffCfg.Migration{From: 5, To: 6, Do: func() error {
 			return config.MigrateCredentials(cfg, credentials)
 		}},
+		cliffCfg.Migration{From: 6, To: 7, Do: cfg.MigrateOfferedCurrentWaitTime},
 	)
 	if err != nil {
 		return fmt.Errorf("migrate config: %w", err)
@@ -287,11 +288,7 @@ func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 
 func getEaseeHTTPClient() api.HTTPClient {
 	if services.easeeHTTPClient == nil {
-		services.easeeHTTPClient = api.NewHTTPClient(
-			getConfigService(),
-			getHTTPClient(),
-			getConfigService().EaseeBaseURL(),
-		)
+		services.easeeHTTPClient = api.NewHTTPClient(getHTTPClient(), getConfigService().EaseeBaseURL())
 	}
 
 	return services.easeeHTTPClient

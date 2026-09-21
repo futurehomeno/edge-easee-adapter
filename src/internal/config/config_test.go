@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/selection"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 )
 
@@ -86,7 +88,7 @@ func TestService_OfferedCurrentWaitTime_MatchesPackagedDefault(t *testing.T) {
 			st := &mockedstorage.Storage[*config.Config]{}
 			st.On("Model").Return(cfg)
 
-			assert.Equal(t, 20*time.Second, config.NewService(st).OfferedCurrentWaitTime())
+			assert.Equal(t, 30*time.Second, config.NewService(st).OfferedCurrentWaitTime())
 		})
 	}
 }
@@ -140,7 +142,8 @@ func TestConfig_MigrateOfferedCurrentWaitTime(t *testing.T) {
 		current  string
 		expected string
 	}{
-		{name: "superseded packaged default is lifted", current: "15s", expected: "20s"},
+		{name: "the 2.8 packaged default is lifted", current: "15s", expected: "30s"},
+		{name: "the 3.1.2 packaged default is lifted", current: "20s", expected: "30s"},
 		{name: "tuned value is preserved", current: "45s", expected: "45s"},
 		{name: "unset value is left to the getter fallback", current: "", expected: ""},
 	}
@@ -197,4 +200,104 @@ func TestConfig_SelectedDevices_NilVsEmpty(t *testing.T) {
 			assert.Contains(t, string(body), tt.wantJSON)
 		})
 	}
+}
+
+// Every setting the service exposes reads back what was written, and reads its documented
+// default from an empty configuration.
+func TestService_SettingsRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	empty := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	set := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+
+	durations := []struct {
+		name string
+		def  time.Duration
+		get  func(*config.Service) time.Duration
+		set  func(*config.Service, time.Duration) error
+	}{
+		{"polling interval", 10 * time.Minute, (*config.Service).PollingInterval, (*config.Service).SetPollingInterval},
+		{"current wait", 3 * time.Second, (*config.Service).CurrentWaitDuration, (*config.Service).SetCurrentWaitDuration},
+		{"http timeout", 30 * time.Second, (*config.Service).HTTPTimeout, (*config.Service).SetHTTPTimeout},
+		{"signalr conn creation", 30 * time.Second, (*config.Service).SignalRConnCreationTimeout, (*config.Service).SetSignalRConnCreationTimeout},
+		{"signalr keepalive", 30 * time.Second, (*config.Service).SignalRKeepAliveInterval, (*config.Service).SetSignalRKeepAliveInterval},
+		{"signalr timeout", time.Minute, (*config.Service).SignalRTimeoutInterval, (*config.Service).SetSignalRTimeoutInterval},
+		{"signalr initial backoff", 5 * time.Second, (*config.Service).SignalRInitialBackoff, (*config.Service).SetSignalRInitialBackoff},
+		{"signalr repeated backoff", 30 * time.Second, (*config.Service).SignalRRepeatedBackoff, (*config.Service).SetSignalRRepeatedBackoff},
+		{"signalr final backoff", 10 * time.Minute, (*config.Service).SignalRFinalBackoff, (*config.Service).SetSignalRFinalBackoff},
+		{"signalr invoke timeout", 10 * time.Second, (*config.Service).SignalRInvokeTimeout, (*config.Service).SetSignalRInvokeTimeout},
+	}
+
+	for _, tt := range durations {
+		assert.Equal(t, tt.def, tt.get(empty), tt.name)
+		require.NoError(t, tt.set(set, 7*time.Second), tt.name)
+		assert.Equal(t, 7*time.Second, tt.get(set), tt.name)
+	}
+
+	assert.Equal(t, 10*time.Second, empty.EnergyLifetimeInterval())
+	assert.Equal(t, 30*time.Minute, empty.TokenRefreshInterval())
+	assert.Equal(t, 2*time.Hour, empty.AuthenticatorMaxUnauthorized())
+	assert.Equal(t, uint32(0), empty.SignalRInitialFailureCount())
+	assert.Equal(t, uint32(0), empty.SignalRRepeatedFailureCount())
+	assert.Nil(t, empty.SelectedDevices())
+	assert.Empty(t, empty.EaseeBaseURL())
+	assert.Empty(t, empty.SignalRBaseURL())
+	assert.InDelta(t, 0, empty.SlowChargingCurrentInAmperes(), 0)
+
+	require.NoError(t, set.SetEaseeBaseURL("https://api"))
+	require.NoError(t, set.SetSignalRBaseURL("https://streams"))
+	require.NoError(t, set.SetSlowChargingCurrentInAmperes(6))
+	require.NoError(t, set.SetSignalRInitialFailureCount(2))
+	require.NoError(t, set.SetSignalRRepeatedFailureCount(3))
+	require.NoError(t, set.SetSelectedDevices(selection.Selection{"EH1"}))
+	require.NoError(t, set.SetAuthenticatorBackoff(time.Minute, 2*time.Minute, 3*time.Minute, 4, 5, time.Hour))
+
+	assert.Equal(t, "https://api", set.EaseeBaseURL())
+	assert.Equal(t, "https://streams", set.SignalRBaseURL())
+	assert.InDelta(t, 6, set.SlowChargingCurrentInAmperes(), 0)
+	assert.Equal(t, uint32(2), set.SignalRInitialFailureCount())
+	assert.Equal(t, uint32(3), set.SignalRRepeatedFailureCount())
+	assert.Equal(t, selection.Selection{"EH1"}, set.SelectedDevices())
+	assert.Equal(t, time.Hour, set.AuthenticatorMaxUnauthorized())
+	assert.Equal(t, "1m0s", set.PublicConfig().AuthBackoff.InitialBackoff)
+	assert.NotNil(t, set.AuthenticatorBackoffStateful())
+	assert.NotNil(t, set.SignalRBackoffStateful())
+}
+
+func TestConfig_MigrateAuthBackoff(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		legacy string
+		want   string
+	}{
+		{name: "legacy object present", legacy: `{"initialBackoff":"2m","maxUnauthorizedDuration":"3h"}`, want: "2m"},
+		{name: "corrupt legacy object is dropped", legacy: `{"initialBackoff":`},
+		{name: "no legacy object"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &config.Config{}
+			if tt.legacy != "" {
+				cfg.LegacyAuthenticatorBackoff = json.RawMessage(tt.legacy)
+			}
+
+			require.NoError(t, cfg.MigrateAuthBackoff())
+			assert.Nil(t, cfg.LegacyAuthenticatorBackoff)
+			assert.Equal(t, tt.want, cfg.AuthBackoff.InitialBackoff)
+		})
+	}
+}
+
+func TestCredentials_AccessTokenExpired(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, config.Credentials{AccessTokenExpiresAt: time.Now().Add(-time.Minute)}.AccessTokenExpired())
+	assert.False(t, config.Credentials{AccessTokenExpiresAt: time.Now().Add(time.Minute)}.AccessTokenExpired())
+	assert.True(t, config.Credentials{}.Empty())
+	assert.Equal(t, "/tmp/work", config.New("/tmp/work").WorkDir)
 }

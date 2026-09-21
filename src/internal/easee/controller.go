@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
@@ -13,6 +14,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/types"
+	"github.com/michalkurzeja/go-clock"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -74,6 +76,110 @@ type controller struct {
 	chargerID      string
 	sessionStorage db.ChargingSessionStorage
 	persistedPhase func() types.PhaseMode
+
+	// Easee ignores a dynamic-current write that reaches the charger within ~20s of the
+	// previous one, or of a stop, although the cloud accepts it. Every such write goes through
+	// this channel: sent at once on a quiet channel, otherwise stored in the single slot and
+	// sent at sentAt + OfferedCurrentWaitTime. A newer command replaces the payload and never
+	// moves that deadline.
+	pace    sync.Mutex
+	sentAt  time.Time
+	pending *chargerCommand
+}
+
+type chargerCommand struct {
+	stop    bool
+	current int
+}
+
+func (c chargerCommand) String() string {
+	if c.stop {
+		return "stop"
+	}
+
+	return fmt.Sprintf("set_current %d", c.current)
+}
+
+// dispatch sends cmd now or stores it, reporting which. Stamped on the attempt rather than on
+// success: a call that timed out may still have reached Easee.
+func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
+	c.pace.Lock()
+
+	if c.pending == nil && clock.Since(c.sentAt) >= c.cfgService.OfferedCurrentWaitTime() {
+		c.sentAt = clock.Now()
+		c.pace.Unlock()
+
+		return true, c.send(cmd)
+	}
+
+	delay := c.cfgService.OfferedCurrentWaitTime() - clock.Since(c.sentAt)
+	if c.pending == nil {
+		clock.AfterFunc(delay, c.sendPending)
+	}
+
+	c.pending = &cmd
+	c.pace.Unlock()
+
+	log.Infof("[%s] Deferred %s, sending in %s", c.chargerID, cmd, delay.Round(time.Second))
+
+	return false, nil
+}
+
+// pendingDiffers reports whether the slot holds a current this write would supersede.
+// RequestedOfferedCurrent is stamped only on a send, so the dedup compares against the last
+// value on the wire: without this, a write matching that value is dropped while a newer,
+// different one stays in the slot and reaches the charger at the deadline instead.
+//
+// A pending stop is deliberately not counted. Letting a same-value write displace it would
+// cancel a stop - including an emergency pause - whenever a balancing refresh lands inside the
+// window, which the base never did.
+func (c *controller) pendingDiffers(current int) bool {
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	return c.pending != nil && !c.pending.stop && c.pending.current != current
+}
+
+func (c *controller) send(cmd chargerCommand) error {
+	if cmd.stop {
+		return c.client.StopCharging(c.chargerID)
+	}
+
+	if err := c.client.UpdateDynamicCurrent(c.chargerID, float64(cmd.current)); err != nil {
+		return err
+	}
+
+	c.cache.SetRequestedOfferedCurrent(cmd.current, clock.Now())
+
+	return nil
+}
+
+// sendPending runs on the timer goroutine. The command that stored the payload has already
+// answered, so the outcome is log-only: the echo shows up in the SignalR-driven reports.
+func (c *controller) sendPending() {
+	c.pace.Lock()
+
+	cmd := c.pending
+	c.pending = nil
+
+	if cmd == nil {
+		c.pace.Unlock()
+
+		return
+	}
+
+	c.sentAt = clock.Now()
+	c.pace.Unlock()
+
+	if err := c.send(*cmd); err != nil {
+		log.Errorf("[%s] Deferred %s failed: %v", c.chargerID, cmd, err)
+
+		return
+	}
+
+	if !cmd.stop && !c.cache.WaitForOfferedCurrent(cmd.current, c.cfgService.CurrentWaitDuration()) {
+		log.Warnf("[%s] Deferred %s was not echoed back by the charger", c.chargerID, cmd)
+	}
 }
 
 func (c *controller) SetParameter(p *parameters.Parameter) error {
@@ -346,8 +452,9 @@ func (c *controller) legToRecord(mode types.PhaseMode, gridType types.GridType, 
 
 // restartForPhaseMode bounces an in-progress session, because the charger applies a new
 // phase mode only at a session boundary. Failing to pause is not fatal - the mode is stored
-// and takes effect on the next session anyway - but a failed resume leaves the charger
-// stopped, so that one is reported back rather than only logged.
+// and takes effect on the next session anyway. The resume always follows the pause inside
+// the channel's window, so it is stored and goes out at the deadline; a pause that was
+// itself stored is replaced by it, which leaves the session running - the same outcome.
 func (c *controller) restartForPhaseMode(target int) error {
 	state, err := c.ChargepointStateReport()
 	if err != nil {
@@ -391,15 +498,8 @@ func (c *controller) restartForPhaseMode(target int) error {
 	// Resumed at the session's own current rather than through StartChargepointCharging: a
 	// normal-mode start floors the current to initial_charging_current, which would silently
 	// raise a slow session - the mode is not recorded anywhere, so it cannot be restored.
-	confirmed, err := c.setOfferedCurrent(resume, true)
-	if err != nil {
+	if _, err := c.setOfferedCurrent(resume, true); err != nil {
 		return fmt.Errorf("phase mode set to %d, but the charger was left stopped: %w", target, err)
-	}
-
-	// The API accepting the resume is not the charger acting on it. Without the echo the
-	// session may well still be paused, and reporting success would hide that.
-	if !confirmed {
-		return fmt.Errorf("phase mode set to %d, but the charger did not resume at %dA", target, resume)
 	}
 
 	return nil
@@ -438,7 +538,8 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 // resume charging even if the cached value matches what was sent before the stop.
 //
 // The bool reports whether the charger echoed the new current back over SignalR within
-// CurrentWaitDuration; callers that need to know the change actually landed check it.
+// CurrentWaitDuration; a deferred write counts as confirmed, its echo is checked by the
+// deferred send. Callers that need to know the change actually landed check it.
 func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
 	limit, _ := c.cache.MaxCurrent()
 	if limit == 0 {
@@ -450,24 +551,22 @@ func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
 		current = limit
 	}
 
-	if !force {
+	if !force && !c.pendingDiffers(current) {
 		lastValue, lastSet := c.cache.RequestedOfferedCurrent()
 
-		if time.Since(lastSet) < c.cfgService.OfferedCurrentWaitTime() && current == lastValue {
+		if clock.Since(lastSet) < c.cfgService.OfferedCurrentWaitTime() && current == lastValue {
 			return true, nil
 		}
 	}
 
-	// force is threaded through rather than stopping at the cache dedup above: the client keeps
-	// its own OfferedCurrentWaitTime throttle, so a start within that window of any
-	// offered-current write was refused locally and the charger stayed paused while
-	// cmd.charge.start answered failed.
-	err := c.client.UpdateDynamicCurrent(c.chargerID, float64(current), force)
+	sent, err := c.dispatch(chargerCommand{current: current})
 	if err != nil {
 		return false, err
 	}
 
-	c.cache.SetRequestedOfferedCurrent(current, time.Now())
+	if !sent {
+		return true, nil
+	}
 
 	return c.cache.WaitForOfferedCurrent(current, c.cfgService.CurrentWaitDuration()), nil
 }
@@ -513,8 +612,8 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		return err
 	}
 
-	// Same as the phase-mode resume: Easee accepting the call is not the charger acting on
-	// it, and reporting success on a start that left the charger paused hides that.
+	// Easee accepting the call is not the charger acting on it, and reporting success on a
+	// start that left the charger paused hides that.
 	if !confirmed {
 		return fmt.Errorf("start accepted, but the charger did not resume at %dA", startCurrent)
 	}
@@ -523,7 +622,9 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 }
 
 func (c *controller) StopChargepointCharging() error {
-	return c.client.StopCharging(c.chargerID)
+	_, err := c.dispatch(chargerCommand{stop: true})
+
+	return err
 }
 
 func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionReport, error) {
