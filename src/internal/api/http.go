@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/futurehomeno/cliffhanger/auth"
@@ -156,130 +157,29 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 }
 
 func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current float64) error {
-	u := c.buildURL(chargerSettingsURITemplate, chargerID)
-
-	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, maxCurrentBody{MaxChargerCurrent: current},
-		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken), contentTypeHeader: jsonContentType})
-	if err != nil {
-		return errors.Wrap(err, "failed to create max current request")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("transport error: %w", err)
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusAccepted {
-		c.logFailedResponse(resp)
-
-		return c.handleFailedResponse(resp, "update max current request failed: unexpected status code")
-	}
-
-	return nil
+	return c.postCommand(accessToken, c.buildURL(chargerSettingsURITemplate, chargerID),
+		maxCurrentBody{MaxChargerCurrent: current}, "update max current request")
 }
 
 func (c *httpClient) UpdateDynamicCurrent(accessToken, chargerID string, current float64) error {
-	u := c.buildURL(chargerSettingsURITemplate, chargerID)
-
-	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, dynamicCurrentBody{DynamicChargerCurrent: current},
-		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken), contentTypeHeader: jsonContentType})
-	if err != nil {
-		return errors.Wrap(err, "failed to create dynamic current request")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("transport error: %w", err)
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusAccepted {
-		c.logFailedResponse(resp)
-
-		return c.handleFailedResponse(resp, "update dynamic current request failed: unexpected status code")
-	}
-
-	return nil
+	return c.postCommand(accessToken, c.buildURL(chargerSettingsURITemplate, chargerID),
+		dynamicCurrentBody{DynamicChargerCurrent: current}, "update dynamic current request")
 }
 
 func (c *httpClient) StopCharging(accessToken, chargerID string) error {
-	u := c.buildURL(chargerStopURITemplate, chargerID)
-
-	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, nil,
-		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken)})
-	if err != nil {
-		return errors.Wrap(err, "failed to create stop charging request")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("transport error: %w", err)
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusAccepted {
-		c.logFailedResponse(resp)
-
-		return c.handleFailedResponse(resp, "stop charging request failed: unexpected status code")
-	}
-
-	return nil
+	return c.postCommand(accessToken, c.buildURL(chargerStopURITemplate, chargerID), nil, "stop charging request")
 }
 
 func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked bool) error {
-	u := c.buildURL(cableLockURITemplate, chargerID)
-
-	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, cableLockStateBody{State: locked},
-		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken), contentTypeHeader: jsonContentType})
-	if err != nil {
-		return errors.Wrap(err, "failed to create cable lock request")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("transport error: %w", err)
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusAccepted {
-		c.logFailedResponse(resp)
-
-		return c.handleFailedResponse(resp, "cable lock request failed: unexpected status code")
-	}
-
-	return nil
+	return c.postCommand(accessToken, c.buildURL(cableLockURITemplate, chargerID),
+		cableLockStateBody{State: locked}, "cable lock request")
 }
 
 func (c *httpClient) SetPhaseMode(accessToken, chargerID string, phaseMode int) error {
-	u := c.buildURL(phaseModeURITemplate, chargerID)
-
-	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, u, phaseModeBody{PhaseMode: phaseMode},
-		map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken), contentTypeHeader: jsonContentType})
-	if err != nil {
-		return errors.Wrap(err, "failed to create phase mode request")
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("transport error: %w", err)
-	}
-
-	defer func() { _ = resp.Body.Close() }()
-
 	// Unlike the other command endpoints this one is documented to answer 200, but Easee
 	// has been observed answering 202 as well.
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		c.logFailedResponse(resp)
-
-		return c.handleFailedResponse(resp, "phase mode request failed: unexpected status code")
-	}
-
-	return nil
+	return c.postCommand(accessToken, c.buildURL(phaseModeURITemplate, chargerID),
+		phaseModeBody{PhaseMode: phaseMode}, "phase mode request", http.StatusOK, http.StatusAccepted)
 }
 
 func (c *httpClient) ChargerConfig(accessToken, chargerID string) (*model.ChargerConfig, error) {
@@ -383,6 +283,40 @@ func (c *httpClient) readResponseBody(r *http.Response, body any) error {
 
 func (c *httpClient) bearerTokenHeader(authToken string) string {
 	return "Bearer " + authToken
+}
+
+// postCommand sends a command to the Easee cloud and checks the status against okStatuses,
+// defaulting to 202 - the answer every command endpoint but SetPhaseMode is documented to give.
+// A nil body sends no content type, as the endpoints taking no body reject one.
+func (c *httpClient) postCommand(accessToken, url string, body any, message string, okStatuses ...int) error {
+	headers := map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken)}
+	if body != nil {
+		headers[contentTypeHeader] = jsonContentType
+	}
+
+	req, err := httpclient.NewJSONRequest(context.Background(), http.MethodPost, url, body, headers)
+	if err != nil {
+		return errors.Wrap(err, "failed to create "+message)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("transport error: %w", err)
+	}
+
+	defer func() { _ = resp.Body.Close() }()
+
+	if len(okStatuses) == 0 {
+		okStatuses = []int{http.StatusAccepted}
+	}
+
+	if !slices.Contains(okStatuses, resp.StatusCode) {
+		c.logFailedResponse(resp)
+
+		return c.handleFailedResponse(resp, message+" failed: unexpected status code")
+	}
+
+	return nil
 }
 
 func (c *httpClient) getResponse(state any, url, accessToken string) error {

@@ -331,9 +331,7 @@ func (c *controller) outputPhaseStale(outputPhase types.PhaseMode, outputPhaseSe
 		return false
 	}
 
-	state, _ := c.ChargepointStateReport()
-
-	return state != chargepoint.StateCharging
+	return !c.charging()
 }
 
 func (c *controller) charging() bool {
