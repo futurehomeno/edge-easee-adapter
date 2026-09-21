@@ -15,8 +15,25 @@ import (
 const (
 	easeePhaseModeSingle = 1
 	// EaseePhaseModeAuto lets the charger pick, so it is not pinned to any single leg.
-	EaseePhaseModeAuto = 2
+	EaseePhaseModeAuto  = 2
+	easeePhaseModeLock3 = 3
 )
+
+var phaseModeNames = map[int]string{
+	easeePhaseModeSingle: "single phase",
+	EaseePhaseModeAuto:   "auto",
+	easeePhaseModeLock3:  "three phase",
+}
+
+// PhaseModeName names an Easee internal phase mode for a log line. A value Easee adds later is
+// named "unknown" rather than guessed at, so the line cannot claim a mode that does not exist.
+func PhaseModeName(phaseMode int) string {
+	if name, ok := phaseModeNames[phaseMode]; ok {
+		return name
+	}
+
+	return "unknown"
+}
 
 // SettablePhaseModes returns every phase mode the charger can be switched to, regardless
 // of the mode it currently sits in. The auto row of the matrix is the union of the others.

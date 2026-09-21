@@ -228,3 +228,28 @@ func TestAdvertisedPhaseModes(t *testing.T) {
 		})
 	}
 }
+
+func TestPhaseModeName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		phaseMode int
+		want      string
+	}{
+		{"single-phase lock", 1, "single phase"},
+		{"auto", 2, "auto"},
+		{"three-phase lock", 3, "three phase"},
+		{"below the range", 0, "unknown"},
+		{"above the range", 4, "unknown"},
+		{"negative", -1, "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, model.PhaseModeName(tt.phaseMode))
+		})
+	}
+}
