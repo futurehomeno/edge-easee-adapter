@@ -66,7 +66,7 @@ func newTestController(
 // newLiveCacheController drives the real cache: these cases set a phase mode and then read the
 // report cliffhanger forces right after it, so what the setter records has to reach the report -
 // a static mock cannot express that hand-off.
-func newLiveCacheController(t *testing.T, c cache.Cache, clientMock *mockapi.Client, persisted types.PhaseMode) easee.Controller {
+func newLiveCacheController(t *testing.T, c cache.Cache, clientMock *mockapi.Client) easee.Controller {
 	t.Helper()
 
 	managerMock := mockedsignalr.NewManager(t)
@@ -75,7 +75,7 @@ func newLiveCacheController(t *testing.T, c cache.Cache, clientMock *mockapi.Cli
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
 
 	return easee.NewController(managerMock, clientMock, "test-charger", c, config.NewService(storage),
-		mockeddb.NewChargingSessionStorage(t), func() types.PhaseMode { return persisted })
+		mockeddb.NewChargingSessionStorage(t), func() types.PhaseMode { return types.PhaseModeNL3 })
 }
 
 // The channel tests drive the global clock, so they cannot run in parallel. A fired deadline
@@ -672,11 +672,13 @@ func TestController_SetChargepointPhaseMode(t *testing.T) {
 			if tt.expectRecord {
 				// No live observation of the leg in use, so the request is free to stand in.
 				cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+				cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 				cacheMock.On("SetRequestedPhaseMode", tt.mode, mock.AnythingOfType("time.Time")).Return(true)
 			}
 
 			if !tt.wantErr && !tt.expectNoCall {
 				cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+				cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 				cacheMock.On("SetRequestedPhaseMode", tt.mode, mock.AnythingOfType("time.Time")).Return(true)
 				clientMock.On("SetPhaseMode", "test-charger", tt.expectedEasee).Return(nil).Once()
 				cacheMock.On("TotalPower").Return(float64(0), time.Time{})
@@ -719,6 +721,7 @@ func TestController_SetChargepointPhaseMode_FailsWhenNoResumeCurrentIsKnown(t *t
 	cacheMock.On("Phases").Return(3, time.Time{})
 	cacheMock.On("PhaseMode").Return(2, time.Time{})
 	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
 	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
 	cacheMock.On("MaxCurrent").Return(0, time.Time{})
@@ -1024,6 +1027,7 @@ func TestController_SetChargepointPhaseMode_SingleToThreeStillRecordsTheRequest(
 	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, ended)
 	cacheMock.On("TotalPower").Return(0.0, time.Time{})
 	cacheMock.On("ChargerState").Return(chargepoint.StateReadyToCharge, time.Time{})
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1L2L3, mock.AnythingOfType("time.Time")).Return(true).Once()
 
 	clientMock := mockapi.NewClient(t)
@@ -1047,6 +1051,7 @@ func TestController_SetChargepointPhaseMode_LegFromAnotherGridIsIgnored(t *testi
 	cacheMock.On("Phases").Return(3, time.Time{})
 	cacheMock.On("PhaseMode").Return(1, time.Time{})
 	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeL1L2, mock.AnythingOfType("time.Time")).Return(true).Once()
 
 	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil, types.PhaseModeNL3)
@@ -1071,7 +1076,7 @@ func TestController_SetChargepointPhaseMode_AutoThreePhaseCacheReportsTheKnownLe
 	clientMock := mockapi.NewClient(t)
 	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
 
-	ctrl := newLiveCacheController(t, c, clientMock, types.PhaseModeNL3)
+	ctrl := newLiveCacheController(t, c, clientMock)
 
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
 
@@ -1094,7 +1099,7 @@ func TestController_SetChargepointPhaseMode_StaleThreePhaseRequestDoesNotMaskThe
 	c.SetOutputPhaseType(types.PhaseModeNL3, observed)
 	c.SetRequestedPhaseMode(types.PhaseModeNL1L2L3, observed.Add(time.Millisecond))
 
-	ctrl := newLiveCacheController(t, c, mockapi.NewClient(t), types.PhaseModeNL3)
+	ctrl := newLiveCacheController(t, c, mockapi.NewClient(t))
 
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
 
@@ -1119,7 +1124,7 @@ func TestController_SetChargepointPhaseMode_StaleRequestDoesNotOutrankTheLiveLeg
 	c.SetOutputPhaseType(types.PhaseModeNL3, observed.Add(time.Minute))
 	c.SetRequestedPhaseMode(types.PhaseModeNL1L2L3, observed.Add(2*time.Minute))
 
-	ctrl := newLiveCacheController(t, c, mockapi.NewClient(t), types.PhaseModeNL3)
+	ctrl := newLiveCacheController(t, c, mockapi.NewClient(t))
 
 	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
 
@@ -1147,6 +1152,7 @@ func TestController_SetChargepointPhaseMode_LiveLegOutranksTheStoredOne(t *testi
 	cacheMock.On("PhaseMode").Return(model.EaseePhaseModeAuto, observed)
 	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL1, observed.Add(time.Minute))
 	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true).Once()
 	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
 	cacheMock.On("MaxCurrent").Return(16, time.Time{})
@@ -1186,6 +1192,7 @@ func TestController_SetChargepointPhaseMode_IdleChargerRecordsRequestOverStaleLe
 	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL1, ended)
 	cacheMock.On("TotalPower").Return(0.0, time.Time{})
 	cacheMock.On("ChargerState").Return(chargepoint.StateReadyToCharge, time.Time{})
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL2, mock.AnythingOfType("time.Time")).Return(true).Once()
 
 	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
@@ -1206,6 +1213,7 @@ func chargingCharger(t *testing.T, requested, offered, maxCurrent int) (*mockeds
 	cacheMock.On("Phases").Return(3, time.Time{})
 	cacheMock.On("PhaseMode").Return(2, time.Time{})
 	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
 	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
 	cacheMock.On("MaxCurrent").Return(maxCurrent, time.Time{})
@@ -1349,6 +1357,7 @@ func TestController_SetChargepointPhaseMode_TolerateFailedPause(t *testing.T) {
 	cacheMock.On("Phases").Return(3, time.Time{})
 	cacheMock.On("PhaseMode").Return(2, time.Time{})
 	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
 	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).Return(true)
 	cacheMock.On("TotalPower").Return(3000.0, time.Time{})
 	// Read before the pause is attempted, so it is consulted even when the pause fails.
@@ -1610,6 +1619,7 @@ func TestController_SetChargepointPhaseMode_OutranksObservationsUnderClockSkew(t
 	cacheMock.On("Phases").Return(3, time.Time{})
 	cacheMock.On("PhaseMode").Return(2, internalAt)
 	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL3, outputPhaseSet)
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{}).Once()
 	cacheMock.On("SetRequestedPhaseMode", types.PhaseModeNL1, mock.AnythingOfType("time.Time")).
 		Run(func(args mock.Arguments) { requestedAt, _ = args.Get(1).(time.Time) }).Return(true)
 	cacheMock.On("TotalPower").Return(float64(0), time.Time{})
@@ -1981,4 +1991,36 @@ func TestController_Parameters(t *testing.T) {
 
 	err = ctrl.SetParameter(parameters.NewStringParameter(model.CableAlwaysLockedParameter, "yes"))
 	assert.Error(t, err, "a non-boolean value is rejected before anything is sent")
+}
+
+// The re-record on the no-op path stamps the known leg off the stale request it displaces, so it
+// can sit ahead of both observations. A later three-phase request stamped off those observations
+// alone would be dropped by the cache's monotonic guard, leaving the report on the single leg.
+func TestController_SetChargepointPhaseMode_ThreePhaseOutranksTheReRecordedLeg(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-2 * time.Hour)
+
+	c := cache.NewCache("test-charger")
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(1, observed)
+	c.SetTotalPower(3000.0, observed)
+	c.SetOfferedCurrent(16, observed)
+	c.SetOutputPhaseType(types.PhaseModeNL3, observed.Add(time.Minute))
+	c.SetRequestedPhaseMode(types.PhaseModeNL1L2L3, observed.Add(2*time.Minute))
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", model.EaseePhaseModeAuto).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(nil).Maybe()
+	clientMock.On("StartCharging", "test-charger").Return(nil).Maybe()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil).Maybe()
+
+	ctrl := newLiveCacheController(t, c, clientMock)
+
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	assert.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1L2L3))
+
+	got, err := ctrl.ChargepointPhaseModeReport()
+	assert.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL1L2L3, got)
 }

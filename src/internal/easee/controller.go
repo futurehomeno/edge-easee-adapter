@@ -394,15 +394,9 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		return err
 	}
 
-	// Stamped in the observation clock rather than the hub's: the request is only ever compared
-	// against SignalR timestamps, so a skewed hub clock would otherwise let a live observation
-	// outrank a fresh request, or keep a stale request winning after the charger moved on.
-	_, requestedAt := c.cache.OutputPhaseType()
-	if internalAt.After(requestedAt) {
-		requestedAt = internalAt
-	}
+	_, outputPhaseSet := c.cache.OutputPhaseType()
 
-	c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), requestedAt.Add(time.Millisecond))
+	c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), c.recordAt(outputPhaseSet, internalAt))
 
 	return c.restartForPhaseMode(target)
 }
@@ -414,6 +408,12 @@ func (c *controller) recordAt(outputPhaseSet, internalAt time.Time) time.Time {
 	at := outputPhaseSet
 	if internalAt.After(at) {
 		at = internalAt
+	}
+
+	// A re-recorded leg is stamped off an older request, so it can already outrank both
+	// observations; the cache drops a record stamped behind it and the report keeps the leg.
+	if existing, existingAt := c.cache.RequestedPhaseMode(); existing != "" && existingAt.After(at) {
+		at = existingAt
 	}
 
 	return at.Add(time.Millisecond)
