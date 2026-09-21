@@ -31,6 +31,13 @@ against its own pause. The slot policy is reverted and a restart becomes an orde
 - [x] 5.10 Deadline does not move when a command displaces another (10 rapid writes, one send)
 - [x] 5.11 Bump VERSION to 3.1.4
 
+## 6. Review findings (PR #174)
+
+- [x] 6.1 Name both halves of a displaced pair in the preemption log
+- [x] 6.2 Discard the follow-up when the pair's first half is refused, freeing the slot
+- [x] 6.3 Failing test: a refused pause leaves no resume and does not hold the slot
+- [x] 6.4 Atomic counter in the last-command-wins table test (second send is on the timer goroutine)
+
 ## 2. Cancel the deferred timer on teardown (#161)
 
 - [x] 2.1 Failing test: a stored command is not sent after the connector disconnects

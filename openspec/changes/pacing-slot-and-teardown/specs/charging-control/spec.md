@@ -99,7 +99,8 @@ the deadline SHALL NOT move. The dedup that suppresses a repeated current SHALL 
 stop is stored, so a write carrying the last-sent value displaces that stop like any other.
 
 Displacing a stored command SHALL be logged as `[<id>] <new> preempts <old>`, naming both, so the
-log shows which command was dropped and what replaced it rather than only what was stored.
+log shows which command was dropped and what replaced it rather than only what was stored. When the
+displaced command is a pair, both halves SHALL be named, or a discarded resume would leave no trace.
 
 The charger acts on whatever it last heard, so the hub's latest intent is the only one worth
 sending; holding an older command in the slot makes the adapter answer a command it did not carry
@@ -156,6 +157,11 @@ it at a current the hub has since superseded.
 #### Scenario: a command arrives between the halves
 - **WHEN** the stop has been sent and a dynamic-current write arrives before the resume's deadline
 - **THEN** the write replaces the resume and is sent at that deadline
+
+#### Scenario: the pair's first half is refused
+- **WHEN** the stop of a restart is sent at once and Easee refuses it
+- **THEN** the resume is discarded rather than sent on its own, and the slot is left free for the
+  next command
 
 #### Scenario: the thing is deleted with a restart stored
 - **WHEN** a restart is stored and the thing is deleted before either half is sent

@@ -132,7 +132,14 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 	c.pace.Lock()
 
 	if c.pending != nil {
-		log.Infof("[%s] %s preempts %s", c.chargerID, cmd, c.pending)
+		// Both halves of a stored pair go, so name the follow-up too: without it a discarded
+		// resume leaves no trace and "why did the resume never fire" is unanswerable from logs.
+		preempted := c.pending.String()
+		if c.followUp != nil {
+			preempted += " + " + c.followUp.String()
+		}
+
+		log.Infof("[%s] %s preempts %s", c.chargerID, cmd, preempted)
 	}
 
 	if c.pending == nil && clock.Since(c.sentAt) >= c.cfgService.OfferedCurrentWaitTime() {
@@ -147,7 +154,12 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 
 		c.pace.Unlock()
 
-		return true, c.send(cmd)
+		err := c.send(cmd)
+		if err != nil && follow != nil {
+			c.clearFollowUp(follow)
+		}
+
+		return true, err
 	}
 
 	delay := c.cfgService.OfferedCurrentWaitTime() - clock.Since(c.sentAt)
@@ -183,6 +195,27 @@ func (c *controller) Teardown() {
 	c.pace.Unlock()
 
 	c.inFlight.Wait()
+}
+
+// clearFollowUp drops a pair's second half when the first never reached Easee. Armed before the
+// send so the resume cannot be left unscheduled, it would otherwise fire on its own - half an
+// atomic pair - and hold the slot for a window against the next write. A command that preempted
+// the pair in the meantime keeps the slot.
+func (c *controller) clearFollowUp(follow *chargerCommand) {
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	if c.pending != follow {
+		return
+	}
+
+	if c.stopTimer != nil {
+		c.stopTimer()
+		c.stopTimer = nil
+	}
+
+	c.pending = nil
+	c.followUp = nil
 }
 
 // pendingDiffers reports whether the slot holds a current this write would supersede.

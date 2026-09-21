@@ -3,6 +3,7 @@ package easee_test
 import (
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2413,9 +2414,11 @@ func TestController_OfferedCurrentChannel_LastCommandWins(t *testing.T) {
 			clientMock := mockapi.NewClient(t)
 			// The opening stop, then the one send the window is allowed. signal fires on the
 			// second call, which is the one under test.
-			sends := 0
+			// Atomic: the second send runs on the timer goroutine, not the test's.
+			var sends atomic.Int32
+
 			fire := func(mock.Arguments) {
-				if sends++; sends == 2 {
+				if sends.Add(1) == 2 {
 					done <- struct{}{}
 				}
 			}
@@ -2545,4 +2548,38 @@ func TestController_OfferedCurrentChannel_DisplacingDoesNotMoveTheDeadline(t *te
 
 	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 2)
 	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(16))
+}
+
+// A pair's resume is armed before the pause is sent, so it has to be cleared when that send
+// fails - otherwise half an atomic pair goes out on its own and holds the slot for a window
+// against the next write. TolerateFailedPause covers the error being tolerated; this covers
+// what the channel is left holding afterwards.
+func TestController_SetChargepointPhaseMode_FailedPauseLeavesNoResume(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	managerMock, cacheMock := chargingCharger(t, 16, 0, 32)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Return(errors.New("too many requests")).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	// The channel is quiet, so the pause goes out at once and fails there.
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+
+	// Past the deadline the orphaned resume would have fired on.
+	clk.Add(40 * time.Second)
+
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 0)
+
+	// The slot is free, so the next write goes out immediately rather than waiting a window
+	// behind the orphan.
+	cacheMock.On("SetRequestedOfferedCurrent", 10, mock.AnythingOfType("time.Time")).Return(true).Once()
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 1)
 }
