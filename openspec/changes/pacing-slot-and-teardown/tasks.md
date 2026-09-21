@@ -10,6 +10,34 @@
 - [x] 1.3 Drop a current write that arrives while a stop holds the slot
 - [x] 1.4 Tests green
 
+## 5. Reverse 1: the last command always wins (user decision, 2026-09-21)
+
+Section 1 left a phase-mode change able to stop charging for good: the restart's resume was dropped
+against its own pause. The slot policy is reverted and a restart becomes an ordered pair.
+
+- [x] 5.1 Failing test: a phase-mode restart sends the pause and then the resume, leaving the
+      charger charging
+- [x] 5.2 Failing test: `start stop start stop` and `set_current stop set_current stop` inside one
+      window each send exactly the last command
+- [x] 5.3 Failing test: a write ending the stream displaces a stored stop (both same and different
+      value, covering the dedup path)
+- [x] 5.4 Failing test: a later command discards both halves of a stored restart; teardown likewise
+- [x] 5.5 Invert `pendingDiffers` so a stored stop always counts as differing
+- [x] 5.6 Drop the stop-holds-the-slot guard from `dispatch`; log `<new> preempts <old>` on a
+      displacement
+- [x] 5.7 Add the follow-up slot and dispatch the restart as an ordered pair
+- [x] 5.8 Clear the follow-up in `Teardown`
+- [x] 5.9 Tests green
+- [x] 5.10 Deadline does not move when a command displaces another (10 rapid writes, one send)
+- [x] 5.11 Bump VERSION to 3.1.4
+
+## 6. Review findings (PR #174)
+
+- [x] 6.1 Name both halves of a displaced pair in the preemption log
+- [x] 6.2 Discard the follow-up when the pair's first half is refused, freeing the slot
+- [x] 6.3 Failing test: a refused pause leaves no resume and does not hold the slot
+- [x] 6.4 Atomic counter in the last-command-wins table test (second send is on the timer goroutine)
+
 ## 2. Cancel the deferred timer on teardown (#161)
 
 - [x] 2.1 Failing test: a stored command is not sent after the connector disconnects
