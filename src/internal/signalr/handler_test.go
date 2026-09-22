@@ -1057,7 +1057,7 @@ func TestObservationsHandler_OutputPhaseUsesPendingTopology(t *testing.T) {
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("GridType").Return(types.GridType(""), time.Time{})
 	cacheMock.On("Phases").Return(0, time.Time{})
-	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 3, now).Return(true).Maybe()
+	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 3, now).Return(true).Once()
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL2, now).Return(true)
 
 	srv := mockedchargepoint.NewService(t)
@@ -1092,4 +1092,7 @@ func TestObservationsHandler_OutputPhaseUsesPendingTopology(t *testing.T) {
 
 	close(block)
 	flushReports(t, handler)
+
+	assert.Equal(t, types.PhaseModeNL2, store.mode)
+	assert.Equal(t, 2, thing.inclusionCount())
 }
