@@ -81,6 +81,7 @@ type phaseThing struct {
 	mu        sync.Mutex
 	inclusion int
 	fail      int
+	block     chan struct{}
 }
 
 func (t *phaseThing) Services(fimptype.ServiceNameT) []adapter.Service {
@@ -89,6 +90,10 @@ func (t *phaseThing) Services(fimptype.ServiceNameT) []adapter.Service {
 func (t *phaseThing) Update(...adapter.ThingUpdate) error { return nil }
 
 func (t *phaseThing) SendInclusionReport(bool) (bool, error) {
+	if t.block != nil {
+		<-t.block
+	}
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -149,12 +154,12 @@ func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true).Once()
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(false)
-	cacheMock.On("GridType").Return(types.GridTypeTN, now)
-	cacheMock.On("Phases").Return(3, now)
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType: types.GridTypeTN,
+		chargepoint.PropertyPhases:   3,
 		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{
 			types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL3, types.PhaseModeNL1L2L3,
 		},
@@ -198,12 +203,13 @@ func TestObservationsHandler_OutputPhaseRepublishRetriedAfterFailure(t *testing.
 
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true)
-	cacheMock.On("GridType").Return(types.GridTypeTN, now)
-	cacheMock.On("Phases").Return(3, now)
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
-	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{}})
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType: types.GridTypeTN,
+		chargepoint.PropertyPhases:   3,
+	}})
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
 
 	thing := &phaseThing{srv: srv, fail: 1}
@@ -1041,4 +1047,52 @@ func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
 	flushReports(t, handler)
 
 	assert.Equal(t, 2, thing.inclusionCount(), "the dropped topology republish was never retried")
+}
+
+func TestObservationsHandler_OutputPhaseUsesPendingTopology(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridType(""), time.Time{})
+	cacheMock.On("Phases").Return(0, time.Time{})
+	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 3, now).Return(true).Once()
+	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL2, now).Return(true)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{}})
+	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+
+	block := make(chan struct{})
+	thing := &phaseThing{srv: srv, block: block}
+	store := &fakePhaseStore{}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID:        model.DetectedPowerGridType,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
+	}))
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID:        model.OutputPhase,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.P1T2T4TN)),
+	}))
+
+	assert.Equal(t, model.AdvertisedPhaseModes(types.GridTypeTN, 3, types.PhaseModeNL2),
+		srv.Specification().Props[chargepoint.PropertySupportedPhaseModes])
+
+	close(block)
+	flushReports(t, handler)
+
+	assert.Equal(t, types.PhaseModeNL2, store.mode)
+	assert.Equal(t, 2, thing.inclusionCount())
 }
