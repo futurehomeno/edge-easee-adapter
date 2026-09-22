@@ -10,7 +10,7 @@ endef
 
 SHELL := /bin/bash
 
-VERSION := 3.0.1
+VERSION := 3.1.4
 APP_NAME := easee
 
 ARCH ?= armhf
@@ -147,7 +147,7 @@ generate-mocks:
 	mkdir -p ./src/internal/test/mocks
 	find ./src/internal/test/mocks -type f -not -name "*_helper.go" -delete 2>/dev/null || true
 	$(call generate_mocks,"internal/api","api","Authenticator|Client|HTTPClient")
-	$(call generate_mocks,"internal/app","app","Application")
+	$(call generate_mocks,"internal/app","app","ApplicationWithToken")
 	$(call generate_mocks,"internal/cache","cache","Cache")
 	$(call generate_mocks,"internal/db","db","ChargingSessionStorage")
 	$(call generate_mocks,"internal/signalr","signalr","Client|Manager")

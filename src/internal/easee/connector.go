@@ -2,6 +2,7 @@ package easee
 
 import (
 	"github.com/futurehomeno/cliffhanger/adapter"
+	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -15,10 +16,12 @@ type connector struct {
 	manager    signalr.Manager
 	httpClient api.Client
 	confSrv    *config.Service
+	controller Controller
 
 	chargerID      string
 	cache          cache.Cache
 	sessionStorage db.ChargingSessionStorage
+	thingState     adapter.ThingState
 }
 
 func NewConnector(
@@ -28,19 +31,23 @@ func NewConnector(
 	cache cache.Cache,
 	confSrv *config.Service,
 	sessionStorage db.ChargingSessionStorage,
+	thingState adapter.ThingState,
+	controller Controller,
 ) adapter.Connector {
 	return &connector{
 		manager:        manager,
+		controller:     controller,
 		httpClient:     httpClient,
 		chargerID:      chargerID,
 		cache:          cache,
 		confSrv:        confSrv,
 		sessionStorage: sessionStorage,
+		thingState:     thingState,
 	}
 }
 
 func (c *connector) Connect(thing adapter.Thing) {
-	handler, err := signalr.NewObservationsHandler(thing, c.cache, c.confSrv, c.sessionStorage, c.chargerID)
+	handler, err := signalr.NewObservationsHandler(thing, c.cache, c.confSrv, c.sessionStorage, c.chargerID, &phaseStore{state: c.thingState})
 	if err != nil {
 		log.WithError(err).Error("failed to create signalRManager callbacks")
 
@@ -51,6 +58,12 @@ func (c *connector) Connect(thing adapter.Thing) {
 }
 
 func (c *connector) Disconnect(_ adapter.Thing) {
+	// Before the unregister, not after: a deferred stop or current write armed before
+	// cmd.thing.delete would otherwise reach a charger the hub no longer owns, and Unregister
+	// blocks - it closes the observation handler and calls UnsubscribeCharger, up to
+	// SignalRInvokeTimeout - which is long enough for the timer to fire while it is parked.
+	c.controller.Teardown()
+
 	if err := c.manager.Unregister(c.chargerID); err != nil {
 		log.WithError(err).Error("failed to unregister charger within signalR manager")
 	}
@@ -91,4 +104,29 @@ func (c *connector) Ping() *adapter.PingDetails {
 	return &adapter.PingDetails{
 		Status: adapter.PingResultSuccess,
 	}
+}
+
+// phaseStore reads and writes the observed phase in the persisted thing state.
+type phaseStore struct {
+	state adapter.ThingState
+}
+
+func (p *phaseStore) OutputPhase() types.PhaseMode {
+	state := State{}
+	if err := p.state.State(&state); err != nil {
+		log.WithError(err).Error("connector: failed to read state")
+	}
+
+	return state.OutputPhase
+}
+
+func (p *phaseStore) SetOutputPhase(mode types.PhaseMode) error {
+	state := State{}
+	if err := p.state.State(&state); err != nil {
+		return err
+	}
+
+	state.OutputPhase = mode
+
+	return p.state.SetState(&state)
 }
