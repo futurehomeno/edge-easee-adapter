@@ -566,8 +566,16 @@ func (h *observationsHandler) persistOutputPhase(outPhaseType types.PhaseMode) e
 		return nil
 	}
 
-	gridType, _ := h.cache.GridType()
-	phases, _ := h.cache.Phases()
+	service, err := getChargepointService(h.thing)
+	if err != nil {
+		return err
+	}
+
+	// Read from the props, not the cache: a topology republish still in the queue has already
+	// replaced the props but writes the cache only once its report lands.
+	props := service.Specification().Props
+	gridType, _ := props[chargepoint.PropertyGridType].(types.GridType)
+	phases, _ := props[chargepoint.PropertyPhases].(int)
 
 	before := model.AdvertisedPhaseModes(gridType, phases, stored)
 	after := model.AdvertisedPhaseModes(gridType, phases, outPhaseType)
