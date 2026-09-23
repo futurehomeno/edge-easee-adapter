@@ -3,7 +3,7 @@ module github.com/futurehomeno/edge-easee-adapter
 go 1.26.0
 
 require (
-	github.com/futurehomeno/cliffhanger v1.3.5
+	github.com/futurehomeno/cliffhanger v1.3.7
 	github.com/futurehomeno/fimpgo v1.17.1
 	github.com/google/go-cmp v0.7.0
 	github.com/michalkurzeja/go-clock v1.0.2
