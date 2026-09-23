@@ -2,11 +2,13 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/backoff"
+	"github.com/futurehomeno/cliffhanger/httpclient"
 	"github.com/futurehomeno/cliffhanger/notification"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
@@ -20,6 +22,11 @@ const (
 	notificationEaseeStatusOffline = "easee_status_offline"
 
 	logoutAddress = "pt:j1/mt:cmd/rt:ad/rn:easee/ad:1"
+
+	// reloginLead is how close to its end a session is replaced by a login with the stored
+	// password rather than refreshed: Easee ends a session 60 days after the password login,
+	// and refreshing never moves that.
+	reloginLead = time.Hour
 )
 
 // publisher narrows fimpgo.MqttTransport to what the auth-loss path calls, so a successful
@@ -37,6 +44,7 @@ type CredentialsStore interface {
 	Credentials() config.Credentials
 	SetCredentials(config.Credentials) error
 	RefreshCredentials(config.Credentials, string) error
+	ForgetPassword(refreshToken string) error
 	ClearCredentials() error
 }
 
@@ -106,7 +114,10 @@ func (a *authenticator) Login(userName, password string) error {
 	// The store keeps the new credentials in memory when the write fails, so the session is
 	// usable until the next restart. Failing the login would mark the app not configured and
 	// skip the charger setup over a disk error the next successful save repairs.
-	if err = a.creds.SetCredentials(credentialsFromResponse(creds)); err != nil {
+	session := credentialsFromResponse(creds)
+	session.Username, session.Password = strings.TrimSpace(userName), strings.TrimSpace(password)
+
+	if err = a.creds.SetCredentials(session); err != nil {
 		log.Warnf("[auth] Store credentials err: %v", err)
 	}
 
@@ -223,25 +234,32 @@ type credentialsAdapter struct {
 	rotated config.Credentials
 }
 
-// accessTokenFor returns the access token issued alongside refreshToken. Easee rejects a pair
-// drawn from two sessions, so the token cannot simply be read off the store.
-func (c *credentialsAdapter) accessTokenFor(refreshToken string) string {
+// sessionFor returns the tokens issued alongside refreshToken. Easee rejects a pair drawn from
+// two sessions, so the access token cannot simply be read off the store.
+func (c *credentialsAdapter) sessionFor(refreshToken string) config.Credentials {
 	if c.rotated.RefreshToken == refreshToken {
-		return c.rotated.AccessToken
+		return c.rotated
 	}
 
-	return c.refreshing.AccessToken
+	return c.refreshing
 }
 
 func (c *credentialsAdapter) Credentials() auth.Credentials {
 	creds := c.store.Credentials()
 	c.refreshing = creds
 
+	// With a password stored the exchange can always start a new session, so the framework must
+	// not conclude auth loss from the refresh token's expiry on its own.
+	refreshExpiresAt := creds.RefreshTokenExpiresAt
+	if creds.Password != "" {
+		refreshExpiresAt = time.Time{}
+	}
+
 	return auth.Credentials{
 		AccessToken:      creds.AccessToken,
 		RefreshToken:     creds.RefreshToken,
 		ExpiresAt:        creds.AccessTokenExpiresAt,
-		RefreshExpiresAt: creds.RefreshTokenExpiresAt,
+		RefreshExpiresAt: refreshExpiresAt,
 	}
 }
 
@@ -289,16 +307,53 @@ type tokenExchanger struct {
 }
 
 func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2TokenResponse, error) {
-	credentials, err := e.http.RefreshToken(e.snapshot.accessTokenFor(refreshToken), refreshToken)
+	stored := e.snapshot.refreshing
+	session := e.snapshot.sessionFor(refreshToken)
+
+	if stored.Password != "" && !session.RefreshTokenExpiresAt.IsZero() && time.Until(session.RefreshTokenExpiresAt) < reloginLead {
+		return e.relogin(stored, "session ends")
+	}
+
+	credentials, err := e.http.RefreshToken(session.AccessToken, refreshToken)
+	if errors.Is(err, httpclient.ErrUnauthorized) && stored.Password != "" {
+		return e.relogin(stored, "refresh rejected")
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
+	return oauth2Response(credentials), nil
+}
+
+// relogin starts a new session with the stored password. Its result goes through the same
+// guarded write as a refresh, so a logout or login landing meanwhile wins. A password Easee
+// refuses is forgotten at once: Easee locks the account after repeated failed logins.
+func (e *tokenExchanger) relogin(stored config.Credentials, reason string) (*auth.OAuth2TokenResponse, error) {
+	log.Infof("[auth] Log in again with the stored password: %s", reason)
+
+	credentials, err := e.http.Login(stored.Username, stored.Password)
+	if errors.Is(err, ErrInvalidCredentials) {
+		if forgetErr := e.snapshot.store.ForgetPassword(stored.RefreshToken); forgetErr != nil {
+			log.Errorf("[auth] Forget the rejected password err: %v", forgetErr)
+		}
+
+		return nil, fmt.Errorf("stored password rejected: %w: %w", err, httpclient.ErrUnauthorized)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return oauth2Response(credentials), nil
+}
+
+func oauth2Response(credentials *model.Credentials) *auth.OAuth2TokenResponse {
 	return &auth.OAuth2TokenResponse{
 		AccessToken:  credentials.AccessToken,
 		ExpiresIn:    credentials.ExpiresIn,
 		RefreshToken: credentials.RefreshToken,
-	}, nil
+	}
 }
 
 func credentialsFromResponse(credentials *model.Credentials) config.Credentials {

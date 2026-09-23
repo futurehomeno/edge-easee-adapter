@@ -288,3 +288,45 @@ func TestDiscardLoadedEmptiesAPartiallyDecodedModel(t *testing.T) {
 
 	assert.True(t, store.Credentials().Empty(), "the half-decoded session must not survive the failed load")
 }
+
+func TestCredentialsStore_RefreshKeepsTheLoginPassword(t *testing.T) {
+	t.Parallel()
+
+	store := newCredentialsStore(t, config.Credentials{
+		AccessToken: "old", RefreshToken: "old-refresh", Username: "user", Password: "pwd",
+	})
+
+	require.NoError(t, store.RefreshCredentials(config.Credentials{AccessToken: "new", RefreshToken: "new-refresh"}, "old-refresh"))
+
+	assert.Equal(t, config.Credentials{
+		AccessToken: "new", RefreshToken: "new-refresh", Username: "user", Password: "pwd",
+	}, store.Credentials())
+}
+
+func TestCredentialsStore_ForgetPassword(t *testing.T) {
+	t.Parallel()
+
+	session := config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "user", Password: "pwd"}
+
+	t.Run("forgets the password of the session it names", func(t *testing.T) {
+		t.Parallel()
+
+		store := newCredentialsStore(t, session)
+
+		require.NoError(t, store.ForgetPassword("a-refresh"))
+
+		want := session
+		want.Password = ""
+		assert.Equal(t, want, store.Credentials())
+	})
+
+	t.Run("leaves a session that replaced it alone", func(t *testing.T) {
+		t.Parallel()
+
+		store := newCredentialsStore(t, session)
+
+		require.NoError(t, store.ForgetPassword("other-refresh"))
+
+		assert.Equal(t, session, store.Credentials())
+	})
+}

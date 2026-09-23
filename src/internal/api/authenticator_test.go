@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/httpclient"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
@@ -71,6 +72,8 @@ func TestLogin(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, accessToken, credentials.Credentials().AccessToken)
 			assert.Equal(t, refreshToken, credentials.Credentials().RefreshToken)
+			assert.Equal(t, "user", credentials.Credentials().Username)
+			assert.Equal(t, "pwd", credentials.Credentials().Password)
 			// Expiry times are derived from the tokens themselves, not from the response.
 			assert.False(t, credentials.Credentials().RefreshTokenExpiresAt.IsZero())
 		})
@@ -135,6 +138,7 @@ func TestLoginFailureByStatusCode(t *testing.T) {
 		responseCode  int
 		responseBody  string
 		errorContains string
+		rejected      bool
 	}{
 		{
 			name:          "429 rate limited",
@@ -147,6 +151,7 @@ func TestLoginFailureByStatusCode(t *testing.T) {
 			responseCode:  http.StatusBadRequest,
 			responseBody:  `{"title":"Bad credentials","status":400}`,
 			errorContains: "status code: 400",
+			rejected:      true,
 		},
 		{
 			name:          "500 server error",
@@ -159,6 +164,7 @@ func TestLoginFailureByStatusCode(t *testing.T) {
 			responseCode:  http.StatusUnauthorized,
 			responseBody:  `{"title":"unauthorized","status":401}`,
 			errorContains: "status code: 401",
+			rejected:      true,
 		},
 		{
 			// A 200 carrying no token is a failed login too: without this the adapter would
@@ -191,6 +197,7 @@ func TestLoginFailureByStatusCode(t *testing.T) {
 
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.errorContains)
+			assert.Equal(t, tt.rejected, errors.Is(err, api.ErrInvalidCredentials))
 			assert.True(t, credentials.Credentials().Empty(), "a failed login must not store credentials")
 		})
 	}
@@ -651,4 +658,145 @@ type refusingStore struct {
 
 func (s *refusingStore) RefreshCredentials(config.Credentials, string) error {
 	return errors.New("storage is read-only")
+}
+
+// sessionWithPassword is a session logged in with "user"/"pwd", whose tokens expire as given.
+func sessionWithPassword(accessExpiresAt, refreshExpiresAt time.Time) config.Credentials {
+	return config.Credentials{
+		AccessToken:           "old access token",
+		RefreshToken:          jwtWithExpiry(refreshExpiresAt),
+		AccessTokenExpiresAt:  accessExpiresAt,
+		RefreshTokenExpiresAt: refreshExpiresAt,
+		Username:              "user",
+		Password:              "pwd",
+	}
+}
+
+func newSession() *model.Credentials {
+	return &model.Credentials{
+		AccessToken:  jwtWithExpiry(time.Now().Add(24 * time.Hour)),
+		RefreshToken: jwtWithExpiry(time.Now().Add(60 * 24 * time.Hour)),
+	}
+}
+
+func TestReloginWhenTheSessionEnded(t *testing.T) {
+	t.Parallel()
+
+	credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(-time.Minute), time.Now().Add(-time.Minute)))
+	notifier := fakes.NewNotifier(t)
+	session := newSession()
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").Return(session, nil).Once()
+
+	authenticator := newAuthenticator(t, httpClient, credentials, notifier, time.Hour)
+
+	token, err := authenticator.AccessToken()
+	require.NoError(t, err)
+
+	assert.Equal(t, session.AccessToken, token)
+	assert.Equal(t, session.RefreshToken, credentials.Credentials().RefreshToken)
+	assert.Equal(t, "user", credentials.Credentials().Username)
+	assert.Equal(t, "pwd", credentials.Credentials().Password)
+	assert.True(t, notifier.NoEventsReceived())
+}
+
+func TestReloginInsteadOfRefreshNearTheSessionEnd(t *testing.T) {
+	t.Parallel()
+
+	credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(2*time.Minute), time.Now().Add(30*time.Minute)))
+	session := newSession()
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").Return(session, nil).Once()
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+	token, err := authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, session.AccessToken, token)
+}
+
+func TestReloginWhenRefreshIsRejected(t *testing.T) {
+	t.Parallel()
+
+	credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(-time.Minute), time.Now().Add(7*24*time.Hour)))
+	session := newSession()
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("RefreshToken", "old access token", credentials.Credentials().RefreshToken).
+		Return(nil, fmt.Errorf("InvalidRefreshToken: %w", httpclient.ErrUnauthorized)).Once()
+	httpClient.On("Login", "user", "pwd").Return(session, nil).Once()
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+	token, err := authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, session.AccessToken, token)
+}
+
+// Easee locks the account for about an hour after repeated failed logins, which would then
+// refuse the user's own valid login too, so a rejected password is tried exactly once.
+func TestRejectedPasswordIsForgottenAfterOneAttempt(t *testing.T) {
+	t.Parallel()
+
+	credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(-time.Minute), time.Now().Add(-time.Minute)))
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").
+		Return(nil, fmt.Errorf("login request failed, status code: 400: %w", api.ErrInvalidCredentials)).Once()
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+	_, err := authenticator.AccessToken()
+	require.Error(t, err)
+	assert.Empty(t, credentials.Credentials().Password)
+
+	_, err = authenticator.AccessToken()
+	require.ErrorIs(t, err, auth.ErrReloginRequired)
+	assert.True(t, credentials.Credentials().Empty())
+}
+
+func TestFailedReloginKeepsThePassword(t *testing.T) {
+	t.Parallel()
+
+	credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(-time.Minute), time.Now().Add(-time.Minute)))
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").
+		Return(nil, errors.New("login request failed, status code: 500")).Once()
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+	_, err := authenticator.AccessToken()
+	require.Error(t, err)
+	assert.Equal(t, "pwd", credentials.Credentials().Password)
+}
+
+func TestReloginDoesNotReplaceASessionThatLandedMeanwhile(t *testing.T) {
+	t.Parallel()
+
+	loggedIn := config.Credentials{
+		AccessToken:           "session B access token",
+		RefreshToken:          jwtWithExpiry(time.Now().Add(48 * time.Hour)),
+		AccessTokenExpiresAt:  time.Now().Add(time.Hour),
+		RefreshTokenExpiresAt: time.Now().Add(48 * time.Hour),
+		Username:              "other",
+		Password:              "other-pwd",
+	}
+
+	credentials := &loginDuringRefreshStore{
+		CredentialsStore: newCredentialsStore(t, sessionWithPassword(time.Now().Add(-time.Minute), time.Now().Add(-time.Minute))),
+		loginWith:        &loggedIn,
+	}
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").Return(newSession(), nil).Once()
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+	_, err := authenticator.AccessToken()
+	require.NoError(t, err)
+
+	assert.Equal(t, loggedIn, credentials.Credentials())
 }

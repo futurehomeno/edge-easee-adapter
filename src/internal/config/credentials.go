@@ -109,6 +109,7 @@ func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected 
 	// not have, and the retry concludes there is nothing left to persist. SetCredentials keeps
 	// the opposite behaviour deliberately: a login's session stays usable until the restart.
 	previous := *s.storage.Model()
+	credentials.Username, credentials.Password = previous.Username, previous.Password
 	*s.storage.Model() = credentials
 
 	if err := s.storage.Save(); err != nil {
@@ -118,6 +119,21 @@ func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected 
 	}
 
 	return nil
+}
+
+// ForgetPassword drops the stored password of the session holding refreshToken, kept in memory
+// even when the write fails so a password Easee rejected is never replayed.
+func (s *CredentialsStore) ForgetPassword(refreshToken string) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if s.storage.Model().RefreshToken != refreshToken {
+		return nil
+	}
+
+	s.storage.Model().Password = ""
+
+	return s.storage.Save()
 }
 
 func (s *CredentialsStore) ClearCredentials() error {
