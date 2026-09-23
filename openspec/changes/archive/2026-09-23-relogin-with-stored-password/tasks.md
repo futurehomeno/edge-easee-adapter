@@ -27,4 +27,4 @@
 - [x] 4.1 `go build ./...`, `go vet ./...`, `golangci-lint run`
 - [x] 4.2 `make test`
 - [x] 4.3 `openspec validate relogin-with-stored-password --strict`
-- [ ] 4.4 Archive in the PR
+- [x] 4.4 Archive in the PR
