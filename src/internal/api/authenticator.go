@@ -23,9 +23,8 @@ const (
 
 	logoutAddress = "pt:j1/mt:cmd/rt:ad/rn:easee/ad:1"
 
-	// reloginLead is how close to its end a session is replaced by a login with the stored
-	// password rather than refreshed: Easee ends a session 60 days after the password login,
-	// and refreshing never moves that.
+	// Easee ends a session 60 days after the password login and refreshing never moves that, so
+	// this close to the end the stored password starts a new session instead.
 	reloginLead = time.Hour
 )
 
@@ -44,7 +43,7 @@ type CredentialsStore interface {
 	Credentials() config.Credentials
 	SetCredentials(config.Credentials) error
 	RefreshCredentials(config.Credentials, string) error
-	ForgetPassword(refreshToken string) error
+	ForgetPassword(username, password string) error
 	ClearCredentials() error
 }
 
@@ -115,7 +114,7 @@ func (a *authenticator) Login(userName, password string) error {
 	// usable until the next restart. Failing the login would mark the app not configured and
 	// skip the charger setup over a disk error the next successful save repairs.
 	session := credentialsFromResponse(creds)
-	session.Username, session.Password = strings.TrimSpace(userName), strings.TrimSpace(password)
+	session.Username, session.Password = userName, password
 
 	if err = a.creds.SetCredentials(session); err != nil {
 		log.Warnf("[auth] Store credentials err: %v", err)
@@ -334,7 +333,7 @@ func (e *tokenExchanger) relogin(stored config.Credentials, reason string) (*aut
 
 	credentials, err := e.http.Login(stored.Username, stored.Password)
 	if errors.Is(err, ErrInvalidCredentials) {
-		if forgetErr := e.snapshot.store.ForgetPassword(stored.RefreshToken); forgetErr != nil {
+		if forgetErr := e.snapshot.store.ForgetPassword(stored.Username, stored.Password); forgetErr != nil {
 			log.Errorf("[auth] Forget the rejected password err: %v", forgetErr)
 		}
 

@@ -167,6 +167,13 @@ func TestLoginFailureByStatusCode(t *testing.T) {
 			rejected:      true,
 		},
 		{
+			name:          "403 forbidden",
+			responseCode:  http.StatusForbidden,
+			responseBody:  `{"title":"forbidden","status":403}`,
+			errorContains: "status code: 403",
+			rejected:      true,
+		},
+		{
 			// A 200 carrying no token is a failed login too: without this the adapter would
 			// store an empty access token and report itself authenticated.
 			name:          "200 without an access token",
@@ -660,7 +667,6 @@ func (s *refusingStore) RefreshCredentials(config.Credentials, string) error {
 	return errors.New("storage is read-only")
 }
 
-// sessionWithPassword is a session logged in with "user"/"pwd", whose tokens expire as given.
 func sessionWithPassword(accessExpiresAt, refreshExpiresAt time.Time) config.Credentials {
 	return config.Credentials{
 		AccessToken:           "old access token",
@@ -799,4 +805,46 @@ func TestReloginDoesNotReplaceASessionThatLandedMeanwhile(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, loggedIn, credentials.Credentials())
+}
+
+func TestRejectedPasswordIsForgottenAfterAnUnsavedRotationPersists(t *testing.T) {
+	t.Parallel()
+
+	stored := sessionWithPassword(time.Now().Add(-time.Minute), time.Now().Add(7*24*time.Hour))
+	rotatedRefreshToken := jwtWithExpiry(time.Now().Add(8 * 24 * time.Hour))
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("RefreshToken", stored.AccessToken, stored.RefreshToken).
+		Return(&model.Credentials{AccessToken: "rotated access token", RefreshToken: rotatedRefreshToken}, nil).Once()
+	httpClient.On("RefreshToken", "rotated access token", rotatedRefreshToken).
+		Return(nil, fmt.Errorf("InvalidRefreshToken: %w", httpclient.ErrUnauthorized)).Once()
+	httpClient.On("Login", "user", "pwd").
+		Return(nil, fmt.Errorf("login request failed, status code: 400: %w", api.ErrInvalidCredentials)).Once()
+
+	credentials := &refuseOnceStore{CredentialsStore: newCredentialsStore(t, stored)}
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+	_, err := authenticator.AccessToken()
+	require.NoError(t, err)
+
+	_, err = authenticator.AccessToken()
+	require.Error(t, err)
+	assert.Equal(t, rotatedRefreshToken, credentials.Credentials().RefreshToken)
+	assert.Empty(t, credentials.Credentials().Password)
+}
+
+type refuseOnceStore struct {
+	*config.CredentialsStore
+
+	refused bool
+}
+
+func (s *refuseOnceStore) RefreshCredentials(credentials config.Credentials, expected string) error {
+	if !s.refused {
+		s.refused = true
+
+		return errors.New("storage is read-only")
+	}
+
+	return s.CredentialsStore.RefreshCredentials(credentials, expected)
 }

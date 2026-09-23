@@ -308,24 +308,24 @@ func TestCredentialsStore_ForgetPassword(t *testing.T) {
 
 	session := config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "user", Password: "pwd"}
 
-	t.Run("forgets the password of the session it names", func(t *testing.T) {
+	t.Run("forgets the rejected password", func(t *testing.T) {
 		t.Parallel()
 
 		store := newCredentialsStore(t, session)
 
-		require.NoError(t, store.ForgetPassword("a-refresh"))
+		require.NoError(t, store.ForgetPassword("user", "pwd"))
 
 		want := session
 		want.Password = ""
 		assert.Equal(t, want, store.Credentials())
 	})
 
-	t.Run("leaves a session that replaced it alone", func(t *testing.T) {
+	t.Run("leaves a login that replaced it alone", func(t *testing.T) {
 		t.Parallel()
 
 		store := newCredentialsStore(t, session)
 
-		require.NoError(t, store.ForgetPassword("other-refresh"))
+		require.NoError(t, store.ForgetPassword("user", "old-pwd"))
 
 		assert.Equal(t, session, store.Credentials())
 	})

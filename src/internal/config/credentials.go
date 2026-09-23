@@ -121,13 +121,14 @@ func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected 
 	return nil
 }
 
-// ForgetPassword drops the stored password of the session holding refreshToken, kept in memory
-// even when the write fails so a password Easee rejected is never replayed.
-func (s *CredentialsStore) ForgetPassword(refreshToken string) error {
+// ForgetPassword matches the password rather than the session: a rotation persisted during the
+// exchange replaces the refresh token but not the rejected password. Cleared in memory even when
+// the write fails, so the rejected password is not replayed by this process.
+func (s *CredentialsStore) ForgetPassword(username, password string) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	if s.storage.Model().RefreshToken != refreshToken {
+	if current := s.storage.Model(); current.Username != username || current.Password != password {
 		return nil
 	}
 
