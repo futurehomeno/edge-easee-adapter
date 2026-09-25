@@ -518,7 +518,8 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
-	outPhaseType := model.OutputPhaseType(val).ToFimpState()
+	gridType, _ := h.cache.GridType()
+	outPhaseType := model.OutputPhaseType(val).ToFimpState(gridType)
 
 	// Charger sets outPhaseType parameter to "" if charger not charging, even if it has ongoing charging session.
 	if outPhaseType == "" {

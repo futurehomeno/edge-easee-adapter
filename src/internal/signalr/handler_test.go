@@ -190,6 +190,40 @@ func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T
 	assert.Equal(t, 1, thing.inclusionCount(), "an unchanged phase must not republish the inclusion report")
 }
 
+// An Easee on an IT grid has been seen reporting the TN variant of its output phase; the grid it
+// detected decides which legs those terminals are.
+func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetOutputPhaseType", types.PhaseModeL1L2, now).Return(true).Once()
+	cacheMock.On("GridType").Return(types.GridTypeIT, now)
+	cacheMock.On("Phases").Return(1, now)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendPhaseModeReport", false).Return(true, nil).Once()
+
+	store := &fakePhaseStore{}
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID:        model.OutputPhase,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.P1T2T3TN)),
+	}))
+
+	flushReports(t, handler)
+
+	assert.Equal(t, types.PhaseModeL1L2, store.mode)
+}
+
 // A republish that fails must not be recorded as done: the next observation has to retry it.
 func TestObservationsHandler_OutputPhaseRepublishRetriedAfterFailure(t *testing.T) {
 	t.Parallel()
