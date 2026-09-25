@@ -109,6 +109,7 @@ func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected 
 	// not have, and the retry concludes there is nothing left to persist. SetCredentials keeps
 	// the opposite behaviour deliberately: a login's session stays usable until the restart.
 	previous := *s.storage.Model()
+	credentials.Username, credentials.Password = previous.Username, previous.Password
 	*s.storage.Model() = credentials
 
 	if err := s.storage.Save(); err != nil {
@@ -118,6 +119,22 @@ func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected 
 	}
 
 	return nil
+}
+
+// ForgetPassword matches the password rather than the session: a rotation persisted during the
+// exchange replaces the refresh token but not the rejected password. Cleared in memory even when
+// the write fails, so the rejected password is not replayed by this process.
+func (s *CredentialsStore) ForgetPassword(username, password string) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if current := s.storage.Model(); current.Username != username || current.Password != password {
+		return nil
+	}
+
+	s.storage.Model().Password = ""
+
+	return s.storage.Save()
 }
 
 func (s *CredentialsStore) ClearCredentials() error {

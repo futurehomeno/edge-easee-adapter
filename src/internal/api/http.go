@@ -25,6 +25,8 @@ var (
 	// ErrEmptyCredentials is returned when a login is attempted without a username or password,
 	// so the request is never spent against Easee's per-account failed-login lockout.
 	ErrEmptyCredentials = errors.New("username and password must not be empty")
+	// ErrInvalidCredentials marks a login Easee refused for the username or password.
+	ErrInvalidCredentials = errors.New("invalid credentials")
 )
 
 const (
@@ -101,7 +103,12 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 	if resp.StatusCode != http.StatusOK {
 		c.logFailedResponse(resp)
 
-		return nil, c.handleFailedResponse(resp, "login request failed: unexpected status code")
+		err = c.handleFailedResponse(resp, "login request failed: unexpected status code")
+		if resp.StatusCode == http.StatusBadRequest || errors.Is(err, httpclient.ErrUnauthorized) {
+			err = fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
+		}
+
+		return nil, err
 	}
 
 	credentials := &model.Credentials{}
