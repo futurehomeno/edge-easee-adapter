@@ -1,10 +1,7 @@
 package routing
 
 import (
-	"strings"
-
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
-	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
@@ -12,52 +9,18 @@ import (
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/selection"
-	"github.com/futurehomeno/fimpgo"
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	"github.com/futurehomeno/fimpgo/fimptype"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
-func LogStats(stats router.Stats) {
-	if stats.OutputMessage != nil && stats.OutputMessage.Payload != nil {
-		log.Debugf("FMP <- %s %s",
-			stats.OutputMessage.Payload.Service,
-			stats.OutputMessage.Payload.Interface)
-	}
-}
-
-// routeLogIncoming logs every incoming message. It must stay first in the routing table,
-// as the router runs routings in order and the stats callback fires only after handling.
-func routeLogIncoming() *router.Routing {
-	return router.NewRouting(
-		router.NewMessageHandler(
-			router.MessageProcessorFn(func(message *fimpgo.Message) (*fimpgo.FimpMessage, error) {
-				if message.Payload != nil {
-					value := message.Payload.Value
-					if strings.HasPrefix(message.Payload.Interface, "cmd.auth.") {
-						value = "***" // credentials
-					}
-
-					log.Infof("FMP %s -> %s %s %v",
-						message.Payload.Source,
-						message.Payload.Service,
-						message.Payload.Interface,
-						value)
-				}
-
-				return nil, nil
-			}),
-		),
-	)
-}
-
-// New returns a new routing table.
 func New(
 	cfgSrv *config.Service,
 	appLifecycle *lifecycle.Lifecycle,
 	application app.App,
 	adapter cliffAdapter.Adapter,
+	tel telemetry.Telemetry,
 ) []*router.Routing {
 	// Shared by the app and adapter routes so cmd.thing.delete cannot interleave with
 	// cmd.config.extended_set rewriting the selection it reads.
@@ -69,8 +32,7 @@ func New(
 	)
 
 	return router.Combine(
-		[]*router.Routing{routeLogIncoming()},
-		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.PublicConfig() }, nil),
+		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.PublicConfig() }, tel),
 		[]*router.Routing{
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.PollingInterval),
 			cliffConfig.RouteCmdConfigSetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.SetPollingInterval),
@@ -106,6 +68,5 @@ func New(
 		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, locker, application, nil),
 		cliffAdapter.RouteAdapter(adapter, cliffAdapter.WithSelection(devices, locker)),
 		thing.RouteCarCharger(adapter),
-		parameters.RouteService(adapter),
 	)
 }

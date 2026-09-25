@@ -4,13 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/types"
+	"github.com/michalkurzeja/go-clock"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -23,49 +27,28 @@ import (
 
 const maxCurrentValue = 32
 
-var extendedReportMapping = map[numericmeter.Value]specFunc{
-	numericmeter.ValueCurrentPhase1: func(report numericmeter.ValuesReport, c cache.Cache) {
-		current, _ := c.Phase1Current()
-		report[numericmeter.ValueCurrentPhase1] = current
-	},
-	numericmeter.ValueCurrentPhase2: func(report numericmeter.ValuesReport, c cache.Cache) {
-		current, _ := c.Phase2Current()
-		report[numericmeter.ValueCurrentPhase2] = current
-	},
-	numericmeter.ValueCurrentPhase3: func(report numericmeter.ValuesReport, c cache.Cache) {
-		current, _ := c.Phase3Current()
-		report[numericmeter.ValueCurrentPhase3] = current
-	},
-	numericmeter.ValuePowerImport: func(report numericmeter.ValuesReport, c cache.Cache) {
-		power, _ := c.TotalPower()
-		report[numericmeter.ValuePowerImport] = power
-	},
-	numericmeter.ValueEnergyImport: func(report numericmeter.ValuesReport, c cache.Cache) {
-		energy, timestamp := c.LifetimeEnergy()
-		if timestamp.IsZero() {
-			return
-		}
-
-		report[numericmeter.ValueEnergyImport] = energy
-	},
+var extendedReportMapping = map[numericmeter.Value]func(cache.Cache) (float64, time.Time){
+	numericmeter.ValueCurrentPhase1: cache.Cache.Phase1Current,
+	numericmeter.ValueCurrentPhase2: cache.Cache.Phase2Current,
+	numericmeter.ValueCurrentPhase3: cache.Cache.Phase3Current,
+	numericmeter.ValuePowerImport:   cache.Cache.TotalPower,
+	numericmeter.ValueEnergyImport:  cache.Cache.LifetimeEnergy,
 }
 
-type specFunc func(report numericmeter.ValuesReport, c cache.Cache)
-
-// Controller represents a charger controller.
 type Controller interface {
 	chargepoint.Controller
-	chargepoint.PhaseModeAwareController
+	chargepoint.AdjustablePhaseModeController
 	chargepoint.AdjustableMaxCurrentController
 	chargepoint.AdjustableOfferedCurrentController
 	chargepoint.CableLockAwareController
 	parameters.Controller
 	numericmeter.Reporter
 	numericmeter.ExtendedReporter
+	alarm.Reporter
 	UpdateState(chargerID string, state *State) error
+	Teardown()
 }
 
-// NewController returns a new instance of Controller.
 func NewController(
 	manager signalr.Manager,
 	client api.Client,
@@ -73,6 +56,7 @@ func NewController(
 	cache cache.Cache,
 	cfgService *config.Service,
 	sessionStorage db.ChargingSessionStorage,
+	persistedPhase func() types.PhaseMode,
 ) Controller {
 	return &controller{
 		client:         client,
@@ -81,6 +65,7 @@ func NewController(
 		cfgService:     cfgService,
 		chargerID:      chargerID,
 		sessionStorage: sessionStorage,
+		persistedPhase: persistedPhase,
 	}
 }
 
@@ -91,6 +76,237 @@ type controller struct {
 	cfgService     *config.Service
 	chargerID      string
 	sessionStorage db.ChargingSessionStorage
+	persistedPhase func() types.PhaseMode
+
+	// Easee ignores a dynamic-current write that reaches the charger within ~20s of the
+	// previous one, or of a stop, although the cloud accepts it. Every such write goes through
+	// this channel: sent at once on a quiet channel, otherwise stored in the single slot and
+	// sent at sentAt + OfferedCurrentWaitTime. A newer command replaces the payload and never
+	// moves that deadline.
+	pace    sync.Mutex
+	sentAt  time.Time
+	pending *chargerCommand
+	// followUp is sent one wait time after pending. Only a session restart sets it: its pause and
+	// resume are always within one window of each other, so through a single slot one of the two
+	// is always lost - dropping the resume leaves the charger paused for good, dropping the pause
+	// means the mode never applies. A later command discards both halves rather than pausing with
+	// no resume to follow, or resuming at a current the hub has since superseded.
+	followUp *chargerCommand
+	// stopTimer cancels the armed deferred send. Held as a closure rather than the timer so the
+	// indirect benbjohnson/clock type this package never otherwise names stays out of the graph.
+	stopTimer func() bool
+	// inFlight counts sendPending calls that have claimed the slot and released pace but have
+	// not yet returned. stopTimer only cancels a send that has not fired; one that already won
+	// the race for pace against Teardown is already past the point clearing pending can stop it,
+	// so Teardown waits this out instead to keep its "nothing more will reach the charger"
+	// guarantee true for a send already in progress.
+	inFlight sync.WaitGroup
+}
+
+type chargerCommand struct {
+	stop    bool
+	current int
+}
+
+func (c chargerCommand) String() string {
+	if c.stop {
+		return "stop"
+	}
+
+	return fmt.Sprintf("set_current %d", c.current)
+}
+
+// dispatch sends cmd now or stores it, reporting which. Stamped on the attempt rather than on
+// success: a call that timed out may still have reached Easee.
+func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
+	return c.dispatchPair(cmd, nil)
+}
+
+// dispatchPair stores cmd, and follow after it, as one unit: nothing can interleave between the
+// two halves. The charger acts on whatever it last heard, so the slot always keeps the newest
+// command whatever its kind - a stop displaces a stored write and a write displaces a stored stop.
+// This supersedes #162, under which a stop could not be displaced: a balancing refresh inside the
+// window now cancels a pause, an emergency pause among them, because nothing on this path tells one
+// stop from another.
+func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (bool, error) {
+	c.pace.Lock()
+
+	if c.pending != nil {
+		// Both halves of a stored pair go, so name the follow-up too: without it a discarded
+		// resume leaves no trace and "why did the resume never fire" is unanswerable from logs.
+		preempted := c.pending.String()
+		if c.followUp != nil {
+			preempted += " + " + c.followUp.String()
+		}
+
+		log.Infof("[%s] %s preempts %s", c.chargerID, cmd, preempted)
+	}
+
+	if c.pending == nil && clock.Since(c.sentAt) >= c.cfgService.OfferedCurrentWaitTime() {
+		c.sentAt = clock.Now()
+
+		// A pair's first half goes out now, but its second still has to wait a full window, so
+		// arm the timer before releasing the lock rather than leaving the follow-up unscheduled.
+		if follow != nil {
+			c.pending = follow
+			c.stopTimer = clock.AfterFunc(c.cfgService.OfferedCurrentWaitTime(), c.sendPending).Stop
+		}
+
+		c.pace.Unlock()
+
+		err := c.send(cmd)
+		if err != nil && follow != nil {
+			c.clearFollowUp(follow)
+		}
+
+		return true, err
+	}
+
+	delay := c.cfgService.OfferedCurrentWaitTime() - clock.Since(c.sentAt)
+	if c.pending == nil {
+		c.stopTimer = clock.AfterFunc(delay, c.sendPending).Stop
+	}
+
+	c.pending = &cmd
+	c.followUp = follow
+	c.pace.Unlock()
+
+	log.Infof("[%s] %s, delayed %s", c.chargerID, cmd, delay.Round(time.Second))
+
+	return false, nil
+}
+
+// Teardown cancels a deferred send. cmd.thing.delete disconnects the thing, and a timer armed
+// before it would otherwise issue StopCharging or UpdateDynamicCurrent for a charger the hub no
+// longer owns. Clearing the slot stops a send that has not yet fired; a send that already won
+// the race for pace against this call is past the point clearing pending can stop, so Teardown
+// waits for it to finish instead - outside the lock, since that send needs pace to hand back.
+func (c *controller) Teardown() {
+	c.pace.Lock()
+
+	if c.stopTimer != nil {
+		c.stopTimer()
+		c.stopTimer = nil
+	}
+
+	c.pending = nil
+	c.followUp = nil
+
+	c.pace.Unlock()
+
+	c.inFlight.Wait()
+}
+
+// clearFollowUp drops a pair's second half when the first never reached Easee. Armed before the
+// send so the resume cannot be left unscheduled, it would otherwise fire on its own - half an
+// atomic pair - and hold the slot for a window against the next write. A command that preempted
+// the pair in the meantime keeps the slot.
+func (c *controller) clearFollowUp(follow *chargerCommand) {
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	if c.pending != follow {
+		return
+	}
+
+	if c.stopTimer != nil {
+		c.stopTimer()
+		c.stopTimer = nil
+	}
+
+	c.pending = nil
+	c.followUp = nil
+}
+
+// pendingDiffers reports whether the slot holds a current this write would supersede.
+// RequestedOfferedCurrent is stamped only on a send, so the dedup compares against the last
+// value on the wire: without this, a write matching that value is dropped while a newer,
+// different one stays in the slot and reaches the charger at the deadline instead.
+//
+// A stored stop always counts as differing: a stop leaves current at zero, so comparing on the
+// value alone would read it as a pending 0A write and let the dedup swallow the write that is
+// meant to displace it - making displacement depend on which current the write carries.
+func (c *controller) pendingDiffers(current int) bool {
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	return c.pending != nil && (c.pending.stop || c.pending.current != current)
+}
+
+func (c *controller) clampToMax(current int) int {
+	limit, _ := c.cache.MaxCurrent()
+	if limit == 0 {
+		limit = maxCurrentValue
+	}
+
+	if current > limit {
+		log.Warnf("[%s] Clamp offered current %dA to max %dA", c.chargerID, current, limit)
+
+		return limit
+	}
+
+	return current
+}
+
+func (c *controller) send(cmd chargerCommand) error {
+	if cmd.stop {
+		return c.client.StopCharging(c.chargerID)
+	}
+
+	if err := c.client.UpdateDynamicCurrent(c.chargerID, float64(cmd.current)); err != nil {
+		return err
+	}
+
+	c.cache.SetRequestedOfferedCurrent(cmd.current, clock.Now())
+
+	return nil
+}
+
+// sendPending runs on the timer goroutine. The command that stored the payload has already
+// answered, so the outcome is log-only: the echo shows up in the SignalR-driven reports.
+func (c *controller) sendPending() {
+	c.pace.Lock()
+
+	cmd := c.pending
+	c.pending = nil
+	c.stopTimer = nil
+
+	if cmd == nil {
+		c.pace.Unlock()
+
+		return
+	}
+
+	// Promote the pair's second half before releasing the lock, so a command arriving now
+	// displaces the follow-up rather than slipping in ahead of it.
+	promoted := c.followUp
+	if promoted != nil {
+		c.pending = promoted
+		c.followUp = nil
+		c.stopTimer = clock.AfterFunc(c.cfgService.OfferedCurrentWaitTime(), c.sendPending).Stop
+	}
+
+	c.sentAt = clock.Now()
+	c.inFlight.Add(1)
+	c.pace.Unlock()
+
+	defer c.inFlight.Done()
+
+	if err := c.send(*cmd); err != nil {
+		log.Errorf("[%s] Deferred %s failed: %v", c.chargerID, cmd, err)
+
+		// The pair's first half never reached Easee, so its promoted second half must not go
+		// out alone - the same cleanup the immediate-send path does.
+		if promoted != nil {
+			c.clearFollowUp(promoted)
+		}
+
+		return
+	}
+
+	if !cmd.stop && !c.cache.WaitForOfferedCurrent(cmd.current, c.cfgService.CurrentWaitDuration()) {
+		log.Warnf("[%s] Deferred %s was not echoed back by the charger", c.chargerID, cmd)
+	}
 }
 
 func (c *controller) SetParameter(p *parameters.Parameter) error {
@@ -103,7 +319,18 @@ func (c *controller) SetParameter(p *parameters.Parameter) error {
 		return err
 	}
 
-	return c.client.SetCableAlwaysLocked(c.chargerID, val)
+	if err := c.client.SetCableAlwaysLocked(c.chargerID, val); err != nil {
+		return err
+	}
+
+	// Seeded optimistically: cliffhanger answers cmd.param.set with a forced report, which the
+	// reporting cache cannot suppress, so without this it echoes the old value and corrects
+	// itself only once the observation lands. The seed bypasses the ordering guard rather than
+	// picking a timestamp: time.Now() is the hub's clock and would suppress an observation
+	// carrying Easee's, while the zero time would itself be rejected against a populated cache.
+	c.cache.SeedCableAlwaysLocked(val)
+
+	return nil
 }
 
 func (c *controller) GetParameter(id string) (*parameters.Parameter, error) {
@@ -128,27 +355,20 @@ func (c *controller) ChargepointCableLockReport() (*chargepoint.CableReport, err
 	}
 
 	locked, _ := c.cache.CableLocked()
-	cable := 0
+	report := chargepoint.CableReport{CableLock: locked}
 
 	if !locked {
-		return &chargepoint.CableReport{
-			CableLock:    false,
-			CableCurrent: &cable,
-		}, nil
+		zero := 0
+		report.CableCurrent = &zero
+
+		return &report, nil
 	}
 
-	cable, cableTime := c.cache.CableCurrent()
-
-	if !cableTime.IsZero() && cable >= 0 {
-		return &chargepoint.CableReport{
-			CableLock:    locked,
-			CableCurrent: &cable,
-		}, nil
+	if cable, cableTime := c.cache.CableCurrent(); !cableTime.IsZero() && cable >= 0 {
+		report.CableCurrent = &cable
 	}
 
-	return &chargepoint.CableReport{
-		CableLock: locked,
-	}, nil
+	return &report, nil
 }
 
 func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
@@ -156,8 +376,16 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		return "", err
 	}
 
-	outputPhase, _ := c.cache.OutputPhaseType()
-	if outputPhase != "" {
+	outputPhase, outputPhaseSet := c.cache.OutputPhaseType()
+
+	// A mode we requested ourselves outranks the output phase until the charger reports a
+	// newer one: outputPhase goes unassigned between sessions and handleOutPhase drops that
+	// observation, so the cached value survives as a stale echo of the previous session.
+	if requested, requestedAt := c.cache.RequestedPhaseMode(); requested != "" && requestedAt.After(outputPhaseSet) && c.requestStillHolds(requested, requestedAt) {
+		return requested, nil
+	}
+
+	if outputPhase != "" && !c.outputPhaseStale(outputPhase, outputPhaseSet) {
 		return outputPhase, nil
 	}
 
@@ -169,6 +397,19 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	}
 
 	if modes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(modes) > 0 {
+		// The auto row ends with the multi-phase mode, which is what the setter maps a
+		// three-phase request onto. Reporting modes[0] here would answer a request the user
+		// just made with a single leg whenever the cache is empty - after an adapter restart.
+		if state.PhaseMode == model.EaseePhaseModeAuto {
+			return modes[len(modes)-1], nil
+		}
+
+		// The cache is empty after a restart; the persisted phase keeps the report on the
+		// same phase the inclusion report advertises.
+		if persisted := c.persistedPhase(); slices.Contains(modes, persisted) {
+			return persisted, nil
+		}
+
 		return modes[0], nil
 	}
 
@@ -181,6 +422,209 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		Error(errMsg)
 
 	return "", errors.New(errMsg)
+}
+
+// requestStillHolds reports whether the charger is still set to the mode we asked for. A
+// newer internal phase mode that maps to something else means it was changed elsewhere, so
+// the request stops outranking the charger's own state - nothing else ever clears it.
+func (c *controller) requestStillHolds(requested types.PhaseMode, requestedAt time.Time) bool {
+	internal, internalAt := c.cache.PhaseMode()
+	if !internalAt.After(requestedAt) {
+		return true
+	}
+
+	gridType, _ := c.cache.GridType()
+	phases, _ := c.cache.Phases()
+
+	target, err := model.ToEaseePhaseMode(gridType, phases, requested)
+
+	return err == nil && target == internal
+}
+
+// outputPhaseStale reports whether the cached leg predates an internal phase mode that no longer
+// covers it. Nothing ever clears outputPhase, so without this an internal mode changed elsewhere -
+// in the Easee app - republishes the leg of the previous session. A charging charger keeps its
+// leg: Easee applies a new mode only at a session boundary, so the leg in use is still the old one.
+func (c *controller) outputPhaseStale(outputPhase types.PhaseMode, outputPhaseSet time.Time) bool {
+	internal, internalAt := c.cache.PhaseMode()
+	if !internalAt.After(outputPhaseSet) {
+		return false
+	}
+
+	gridType, _ := c.cache.GridType()
+	phases, _ := c.cache.Phases()
+
+	if slices.Contains(model.SupportedPhaseModes(gridType, internal, phases), outputPhase) {
+		return false
+	}
+
+	return !c.charging()
+}
+
+func (c *controller) charging() bool {
+	state, _ := c.ChargepointStateReport()
+
+	return state == chargepoint.StateCharging
+}
+
+func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
+	if err := c.checkConnection(); err != nil {
+		return err
+	}
+
+	gridType, _ := c.cache.GridType()
+	phases, _ := c.cache.Phases()
+
+	target, err := model.ToEaseePhaseMode(gridType, phases, mode)
+	if err != nil {
+		return err
+	}
+
+	// A grid offering a single mode has nothing to switch between, yet sup_phase_modes still
+	// has to advertise it - the property gates evt.phase_mode.report too. Flipping the internal
+	// mode here would bounce a charging session for a change nothing can observe.
+	if len(model.SettablePhaseModes(gridType, phases)) < 2 {
+		return nil
+	}
+
+	current, internalAt := c.cache.PhaseMode()
+	if target == current {
+		// Nothing to send: Easee stores "one phase", not a chosen leg. Skip the record only
+		// while a live observation says which leg is actually in use - the charger picks
+		// it, so a request outranking that observation would report a leg it is not on.
+		// An idle charger is on no leg at all: its cached value is left over from a
+		// finished session, and outputPhaseStale keeps it only because no internal mode
+		// change has happened since. Without the record, a mode the charger never echoes
+		// (NL1 -> NL2) leaves the report republishing the old leg and the UI reverting
+		// the user's choice.
+		outputPhase, outputPhaseSet := c.cache.OutputPhaseType()
+		if outputPhase == "" || c.outputPhaseStale(outputPhase, outputPhaseSet) || !c.charging() {
+			c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), c.recordAt(outputPhaseSet, internalAt))
+
+			return nil
+		}
+
+		// The live leg answers the report on its own, but only while it outranks what is
+		// already recorded. A three-phase request from the previous balance tick is stamped
+		// after it, so re-record the leg over that request rather than leaving it to win.
+		if requested, requestedAt := c.cache.RequestedPhaseMode(); requested != "" &&
+			requestedAt.After(outputPhaseSet) && c.requestStillHolds(requested, requestedAt) {
+			c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), requestedAt.Add(time.Millisecond))
+		}
+
+		return nil
+	}
+
+	if err := c.client.SetPhaseMode(c.chargerID, target); err != nil {
+		return err
+	}
+
+	_, outputPhaseSet := c.cache.OutputPhaseType()
+
+	c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), c.recordAt(outputPhaseSet, internalAt))
+
+	return c.restartForPhaseMode(target)
+}
+
+// recordAt stamps a record in the observation clock rather than the hub's: the request is only
+// ever compared against SignalR timestamps, so a skewed hub clock would otherwise let a live
+// observation outrank a fresh request, or keep a stale request winning after the charger moved on.
+func (c *controller) recordAt(outputPhaseSet, internalAt time.Time) time.Time {
+	at := outputPhaseSet
+	if internalAt.After(at) {
+		at = internalAt
+	}
+
+	// A re-recorded leg is stamped off an older request, so it can already outrank both
+	// observations; the cache drops a record stamped behind it and the report keeps the leg.
+	if existing, existingAt := c.cache.RequestedPhaseMode(); existing != "" && existingAt.After(at) {
+		at = existingAt
+	}
+
+	return at.Add(time.Millisecond)
+}
+
+// legToRecord substitutes the leg the charger is known to use for a single-phase request naming
+// a different one. An Easee cannot choose its leg, so the report must name it rather than echo
+// the request: the hub learns the charger is fixed only from that mismatch, and echoing leaves
+// it re-requesting a leg the charger will never use. Recorded rather than left unrecorded,
+// because the record is what outranks the other answers - a leftover three-phase request from
+// the previous balance tick, or the multi-phase leg of a running auto session, both of which
+// would otherwise reach the forced report instead. A leg persisted under another topology is no
+// evidence about this one.
+func (c *controller) legToRecord(mode types.PhaseMode, gridType types.GridType, phases int) types.PhaseMode {
+	if mode.EffectivePhasesCnt() != 1 {
+		return mode
+	}
+
+	known := c.persistedPhase()
+
+	// The leg the charger is delivering on right now outranks the stored one, which lags it
+	// whenever a props republish failed: substituting the stale store there would name a leg
+	// the charger is demonstrably not on, and the hub would learn that as its fixed phase.
+	if outputPhase, outputPhaseSet := c.cache.OutputPhaseType(); outputPhase.EffectivePhasesCnt() == 1 &&
+		!c.outputPhaseStale(outputPhase, outputPhaseSet) && c.charging() {
+		known = outputPhase
+	}
+
+	if known.EffectivePhasesCnt() == 1 && known != mode &&
+		slices.Contains(model.SettablePhaseModes(gridType, phases), known) {
+		return known
+	}
+
+	return mode
+}
+
+// restartForPhaseMode bounces an in-progress session, because the charger applies a new
+// phase mode only at a session boundary: to protect its relays a session completes on the phase
+// configuration it started with. Failing to pause is not fatal - the mode is stored and takes
+// effect on the next session anyway. The pause and the resume go into the channel as one pair, so
+// the resume cannot be lost against its own pause and the bounce never ends with the charger
+// paused.
+func (c *controller) restartForPhaseMode(target int) error {
+	state, err := c.ChargepointStateReport()
+	if err != nil {
+		log.Warnf("[%s] Phase mode set, but the charger state is unknown: %v", c.chargerID, err)
+
+		return nil
+	}
+
+	if state != chargepoint.StateCharging {
+		return nil
+	}
+
+	// Read before the stop: the session-finished observation clears the cached value
+	// asynchronously, so afterwards it may no longer describe the session being bounced.
+	resume, _ := c.cache.RequestedOfferedCurrent()
+
+	// Only this adapter writes RequestedOfferedCurrent, so it is empty after a restart even
+	// though the session is still running. OfferedCurrent is the charger's own observation of
+	// what it is delivering, so it describes that session; falling straight through to
+	// MaxCurrent would resume a 6A session at 32A - the silent raise this whole path avoids.
+	if resume <= 0 {
+		resume, _ = c.cache.OfferedCurrent()
+	}
+
+	if resume <= 0 {
+		resume, _ = c.cache.MaxCurrent()
+	}
+
+	// setOfferedCurrent only clamps the upper bound, so a zero would "resume" the session at
+	// 0A and report success while the charger stays paused.
+	if resume <= 0 {
+		return fmt.Errorf("phase mode set to %d, but no current is known to resume at", target)
+	}
+
+	// Resumed at the session's own current rather than through StartChargepointCharging: a
+	// normal-mode start floors the current to initial_charging_current, which would silently
+	// raise a slow session - the mode is not recorded anywhere, so it cannot be restored.
+	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{current: c.clampToMax(resume)}); err != nil {
+		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
+
+		return nil
+	}
+
+	return nil
 }
 
 func (c *controller) SetChargepointMaxCurrent(current int) error {
@@ -205,56 +649,71 @@ func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 }
 
 func (c *controller) SetChargepointOfferedCurrent(current int) error {
-	return c.setOfferedCurrent(current, false)
+	_, err := c.setOfferedCurrent(current, false)
+
+	return err
 }
 
 // setOfferedCurrent is the shared implementation behind SetChargepointOfferedCurrent and the
 // Start path. When force is true the recent-value dedup is bypassed - this matters for
 // (re)starting a stopped session, where the charger needs the UpdateDynamicCurrent call to
 // resume charging even if the cached value matches what was sent before the stop.
-func (c *controller) setOfferedCurrent(current int, force bool) error {
-	limit, _ := c.cache.MaxCurrent()
-	if limit == 0 {
-		limit = maxCurrentValue
-	}
+//
+// The bool reports whether the charger echoed the new current back over SignalR within
+// CurrentWaitDuration; a deferred write counts as confirmed, its echo is checked by the
+// deferred send. Callers that need to know the change actually landed check it.
+func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
+	current = c.clampToMax(current)
 
-	if current > limit {
-		log.Warnf("[%s] Clamp offered current %dA to max %dA", c.chargerID, current, limit)
-		current = limit
-	}
-
-	if !force {
+	if !force && !c.pendingDiffers(current) {
 		lastValue, lastSet := c.cache.RequestedOfferedCurrent()
 
-		if time.Since(lastSet) < c.cfgService.OfferedCurrentWaitTime() && current == lastValue {
-			return nil
+		if clock.Since(lastSet) < c.cfgService.OfferedCurrentWaitTime() && current == lastValue {
+			return true, nil
 		}
 	}
 
-	err := c.client.UpdateDynamicCurrent(c.chargerID, float64(current))
+	sent, err := c.dispatch(chargerCommand{current: current})
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	c.cache.SetRequestedOfferedCurrent(current, time.Now())
+	if !sent {
+		return true, nil
+	}
 
-	c.cache.WaitForOfferedCurrent(current, c.cfgService.CurrentWaitDuration())
-
-	return nil
+	return c.cache.WaitForOfferedCurrent(current, c.cfgService.CurrentWaitDuration()), nil
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
-	maxCurrent, _ := c.cache.MaxCurrent()
-	startCurrent := maxCurrent
+	mode := strings.ToLower(settings.Mode)
+	slow := mode == model.ChargingModeSlow
 
-	if offered, _ := c.cache.RequestedOfferedCurrent(); offered > 0 {
-		startCurrent = offered
+	startCurrent, _ := c.cache.RequestedOfferedCurrent()
+
+	switch {
+	case startCurrent <= 0:
+		// A cached offered current of 0 means "unknown" - either no load balancer ever set one, or
+		// the session-finished observation cleared it - so the charger starts at the user's max.
+		// Both read 0 until the first observation after a restart seeds them, which is not a
+		// charger that cannot charge: fall back to the same ceiling setOfferedCurrent clamps to,
+		// rather than refusing to start while the REST API is reachable.
+		startCurrent, _ = c.cache.MaxCurrent()
+		if startCurrent <= 0 {
+			startCurrent = maxCurrentValue
+		}
+	case mode == model.ChargingModeNormal:
+		// Only an explicit normal-mode start gets the floor. The mode is optional, so a start
+		// without one may be a load balancer resuming a session it paused, and the cached value
+		// the budget it balanced us to; raising that offers more than it allowed for a whole
+		// throttle window. Kept, it costs a user's bare start at most one balancer tick, or a
+		// set_current. Slow mode is exempt too: with no slow current configured the throttled
+		// cached value is the closest thing to what the user asked for.
+		startCurrent = max(startCurrent, c.cfgService.InitialChargingCurrent())
 	}
 
-	if strings.ToLower(settings.Mode) == model.ChargingModeSlow {
-		slowCurrent := c.cfgService.SlowChargingCurrentInAmperes()
-
-		if slowCurrent > 0 {
+	if slow {
+		if slowCurrent := c.cfgService.SlowChargingCurrentInAmperes(); slowCurrent > 0 {
 			startCurrent = int(math.Round(slowCurrent))
 		}
 	}
@@ -268,11 +727,24 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	// within OfferedCurrentWaitTime of a Stop the cached value still matches startCurrent
 	// (cache is only cleared async via the SignalR session-finished observation), and
 	// dedup-suppressing the call would leave the charger stopped.
-	return c.setOfferedCurrent(startCurrent, true)
+	confirmed, err := c.setOfferedCurrent(startCurrent, true)
+	if err != nil {
+		return err
+	}
+
+	// Easee accepting the call is not the charger acting on it, and reporting success on a
+	// start that left the charger paused hides that.
+	if !confirmed {
+		return fmt.Errorf("start accepted, but the charger did not resume at %dA", startCurrent)
+	}
+
+	return nil
 }
 
 func (c *controller) StopChargepointCharging() error {
-	return c.client.StopCharging(c.chargerID)
+	_, err := c.dispatch(chargerCommand{stop: true})
+
+	return err
 }
 
 func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionReport, error) {
@@ -281,9 +753,18 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	}
 
 	energy, _ := c.cache.EnergySession()
+	offeredCurrent, _ := c.cache.OfferedCurrent()
 
+	if maxCurrent, _ := c.cache.MaxCurrent(); maxCurrent > 0 {
+		offeredCurrent = min(offeredCurrent, maxCurrent)
+	}
+
+	// Cliffhanger stamps offered_current on every session report, so gating it on an open
+	// session row publishes 0 for a charger that is offering current - energy-guard then
+	// anchors its ramp on that zero.
 	ret := chargepoint.SessionReport{
-		SessionEnergy: energy,
+		SessionEnergy:  energy,
+		OfferedCurrent: offeredCurrent,
 	}
 
 	sessions, err := c.sessionStorage.LatestSessionsByChargerID(c.chargerID)
@@ -294,18 +775,6 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	if latest := sessions.Latest(); latest != nil {
 		ret.StartedAt = latest.Start
 		ret.FinishedAt = latest.Stop
-
-		// if session is not finished
-		if latest.Stop.IsZero() {
-			offeredCurrent, _ := c.cache.OfferedCurrent()
-			maxCurrent, _ := c.cache.MaxCurrent()
-
-			if maxCurrent > 0 {
-				offeredCurrent = min(offeredCurrent, maxCurrent)
-			}
-
-			ret.OfferedCurrent = offeredCurrent
-		}
 	}
 
 	if prev := sessions.Previous(); prev != nil {
@@ -315,12 +784,25 @@ func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionRepo
 	return &ret, nil
 }
 
+func (c *controller) AlarmReport(event string) (*alarm.Report, error) {
+	if err := c.checkConnection(); err != nil {
+		return nil, err
+	}
+
+	status := alarm.StatusDeactivate
+
+	if c.cache.AlarmActive(event) {
+		status = alarm.StatusActivate
+	}
+
+	return &alarm.Report{Event: event, Status: status}, nil
+}
+
 func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
 	if err := c.checkConnection(); err != nil {
 		return "", err
 	}
 
-	// If a charger reports power usage, assume a charging state.
 	if power, _ := c.cache.TotalPower(); power > 0 {
 		return chargepoint.StateCharging, nil
 	}
@@ -344,7 +826,7 @@ func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {
 		energy, timestamp := c.cache.LifetimeEnergy()
 
 		if timestamp.IsZero() {
-			return 0, fmt.Errorf("energy value not updated")
+			return 0, errors.New("energy value not updated")
 		}
 
 		return energy, nil
@@ -361,9 +843,20 @@ func (c *controller) MeterExtendedReport(values numericmeter.Values) (numericmet
 	ret := make(numericmeter.ValuesReport, len(values))
 
 	for _, value := range values {
-		if f, ok := extendedReportMapping[value]; ok {
-			f(ret, c.cache)
+		read, ok := extendedReportMapping[value]
+		if !ok {
+			continue
 		}
+
+		v, timestamp := read(c.cache)
+
+		// Lifetime energy is the one value with no meaningful zero: never having observed it
+		// must leave it out of the report rather than report 0 kWh.
+		if value == numericmeter.ValueEnergyImport && timestamp.IsZero() {
+			continue
+		}
+
+		ret[value] = v
 	}
 
 	return ret, nil
@@ -387,6 +880,16 @@ func (c *controller) updateChargerConfigState(chargerID string, state *State) er
 	}
 
 	gridType, phases := cfg.DetectedPowerGridType.ToFimpGridType()
+
+	// Zero phases is the absence of a topology, not a new one: an undetected grid yields ("", 0)
+	// and the two wiring-fault types yield (TN, 0) / (IT, 0). Persisting any of them deletes
+	// phases and sup_phase_modes from the props the next thing creation builds, so cliffhanger
+	// rejects every cmd.phase_mode.set and energy guard drops the charger from phase balancing -
+	// and because this state is what creation reads, a restart during a fault outlives the fault.
+	// The signalR handler refuses the same reading; the alarm is the report for this case.
+	if phases == 0 {
+		return nil
+	}
 
 	state.GridType = gridType
 	state.Phases = phases
