@@ -390,7 +390,6 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	}
 
 	// outputPhase is unassigned when not charging
-	// if not previous value was recorded, default first value from sup_phase_modes is used
 	state := State{}
 	if err := c.UpdateState(c.chargerID, &state); err != nil {
 		return "", err

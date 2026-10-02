@@ -1742,6 +1742,7 @@ func TestController_ChargepointPhaseModeReport_InternalModeUnset(t *testing.T) {
 		{"TN 1-phase", model.GridTypeTN1Phase, "", types.PhaseModeNL1},
 		{"TN 3-phase, persisted leg", model.GridTypeTN3Phase, types.PhaseModeNL3, types.PhaseModeNL3},
 		{"TN 3-phase, nothing persisted", model.GridTypeTN3Phase, "", types.PhaseModeNL1},
+		{"grid not detected", model.GridTypeNotYetDetected, "", ""},
 	}
 
 	for _, tt := range tests {
@@ -1763,7 +1764,7 @@ func TestController_ChargepointPhaseModeReport_InternalModeUnset(t *testing.T) {
 			ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil, tt.persisted)
 
 			mode, err := ctrl.ChargepointPhaseModeReport()
-			assert.NoError(t, err)
+			assert.Equal(t, tt.want == "", err != nil, err)
 			assert.Equal(t, tt.want, mode)
 		})
 	}
