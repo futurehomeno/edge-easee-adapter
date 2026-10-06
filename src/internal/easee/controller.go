@@ -732,10 +732,11 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		return err
 	}
 
-	// Easee accepting the call is not the charger acting on it, and reporting success on a
-	// start that left the charger paused hides that.
+	// A paused charger can take well over CurrentWaitDuration to act on the resume, and waiting
+	// longer here would hold the service lock a stop or a lower current needs. Easee accepted
+	// the write; the state report shows whether the charger resumed.
 	if !confirmed {
-		return fmt.Errorf("start accepted, but the charger did not resume at %dA", startCurrent)
+		log.Infof("[%s] Start at %dA not echoed back within %s", c.chargerID, startCurrent, c.cfgService.CurrentWaitDuration())
 	}
 
 	return nil

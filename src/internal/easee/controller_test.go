@@ -1750,27 +1750,27 @@ func TestController_SetParameter_SeedsCableLock(t *testing.T) {
 	}))
 }
 
-// Easee accepting the start is not the charger acting on it. Without the observation echoing
-// the current back the session may well still be paused, so cmd.charge.start must not report
-// success - the same contract the phase-mode resume already holds itself to.
-func TestController_StartChargepointCharging_ReportsUnconfirmedStart(t *testing.T) {
+// A paused charger can echo a resume well after current_wait_duration - the 3.1.4 beta saw 13s on
+// a start the charger acted on - and waiting longer would hold the service lock that a stop or a
+// lower current needs. A start Easee accepted therefore succeeds; the state report shows whether
+// the charger resumed.
+func TestController_StartChargepointCharging_UnconfirmedStartSucceeds(t *testing.T) {
 	t.Parallel()
 
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("MaxCurrent").Return(16, time.Time{})
 	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
 	cacheMock.On("SetRequestedOfferedCurrent", 16, mock.AnythingOfType("time.Time")).Return(true)
-	// The charger never echoed the current back.
-	cacheMock.On("WaitForOfferedCurrent", 16, mock.AnythingOfType("time.Duration")).Return(false)
+	// The charger did not echo the current back within current_wait_duration.
+	cacheMock.On("WaitForOfferedCurrent", 16, 3*time.Second).Return(false).Once()
 
 	clientMock := mockapi.NewClient(t)
 	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
 
-	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+	cfg := &config.Config{PublicConfig: config.PublicConfig{CurrentWaitDuration: "3s", OfferedCurrentWaitTime: "20s"}}
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
 
-	err := ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "did not resume")
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal}))
 }
 
 // A start the channel stores has to report success at once: the echo it would wait for
