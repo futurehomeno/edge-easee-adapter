@@ -23,14 +23,15 @@ ever set one or because the session-finished observation cleared it — the cach
 instead; otherwise, for a non-slow mode, raised to at least `initial_charging_current` (default 16A).
 Slow mode SHALL be exempt from that floor and SHALL instead use `slowChargingCurrentInAmperes` when
 that is greater than zero, rounded to the nearest ampere. A resulting current of zero SHALL fail with
-`invalid start current`. A start Easee accepts but the charger never echoes back within the current
-wait duration SHALL fail with `start accepted, but the charger did not resume at <current>A` - an
-unconfirmed start may well have left the charger paused. A start the command channel defers SHALL
+`invalid start current`. A start Easee accepts SHALL succeed even when the charger does not echo it
+back within the current wait duration; the miss SHALL be logged at info. A paused charger can take
+well over that wait to act on the resume, and waiting longer would hold the chargepoint service lock
+that a stop or a lower current needs. The state report shows whether the charger resumed. A start the command channel defers SHALL
 report success at once; the deferred send checks the echo.
 
 #### Scenario: the charger never echoes the start back
-- **WHEN** Easee accepts the start but no observation confirms the current within the wait duration
-- **THEN** the command fails rather than reporting a start that may not have happened
+- **WHEN** Easee accepts the start and no observation confirms the current within the wait duration
+- **THEN** the command succeeds and the missing echo is logged at info
 
 #### Scenario: the start is deferred
 - **WHEN** the start arrives within `offered_current_wait_time` of another command
