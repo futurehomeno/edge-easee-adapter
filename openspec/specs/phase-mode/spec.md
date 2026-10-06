@@ -180,7 +180,9 @@ A persisted phase among the supported modes SHALL be preferred over the first.
 
 When the refetched internal mode is 0 (Easee leaves it unset on some models) the supported modes
 SHALL be the advertised `sup_phase_modes` for the grid type, phase count and persisted phase, so the
-report stays within what the inclusion report advertises instead of failing.
+report stays within what the inclusion report advertises instead of failing. An unset mode SHALL be
+read as auto and report the last advertised mode: a single leg would let energy guard load the other
+two phases while the charger may draw on all three.
 
 A cached output phase SHALL count as stale once an internal phase-mode observation newer than it no
 longer lists that leg among the supported modes — unless the charger is charging, because Easee
@@ -228,8 +230,7 @@ applies a new mode only at a session boundary and the leg in use is still the ol
 #### Scenario: internal mode unset on a 3-phase charger
 - **WHEN** neither a requested mode nor an output phase is cached and the refetched state carries
   grid TN, 3 phases and internal mode 0
-- **THEN** the persisted phase is reported when it is advertised, otherwise the first advertised
-  mode, without an error
+- **THEN** `NL1L2L3` is reported without an error, whatever leg is persisted
 
 #### Scenario: nothing mappable
 - **WHEN** the refetched state yields no supported modes

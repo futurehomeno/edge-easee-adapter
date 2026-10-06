@@ -1740,8 +1740,10 @@ func TestController_ChargepointPhaseModeReport_InternalModeUnset(t *testing.T) {
 		want      types.PhaseMode
 	}{
 		{"TN 1-phase", model.GridTypeTN1Phase, "", types.PhaseModeNL1},
-		{"TN 3-phase, persisted leg", model.GridTypeTN3Phase, types.PhaseModeNL3, types.PhaseModeNL3},
-		{"TN 3-phase, nothing persisted", model.GridTypeTN3Phase, "", types.PhaseModeNL1},
+		// An unset mode reads as auto: a single leg would let energy guard load the other two.
+		{"TN 3-phase, persisted leg", model.GridTypeTN3Phase, types.PhaseModeNL3, types.PhaseModeNL1L2L3},
+		{"TN 3-phase, nothing persisted", model.GridTypeTN3Phase, "", types.PhaseModeNL1L2L3},
+		{"IT 3-phase, persisted leg", model.GridTypeIT3Phase, types.PhaseModeL2L3, types.PhaseModeL1L2L3},
 		{"grid not detected", model.GridTypeNotYetDetected, "", ""},
 	}
 

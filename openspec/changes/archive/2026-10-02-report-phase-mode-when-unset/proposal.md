@@ -13,8 +13,9 @@ nothing for this charger, so the failing report is a regression of the advertise
 
 ## What Changes
 - When the refetched charger state carries internal mode 0, the report falls back to the
-  advertised modes instead of the matrix row: the persisted phase when it is advertised, otherwise
-  the first advertised mode. A TN 1-phase charger reports `NL1`, matching its `sup_phase_modes`.
+  advertised modes instead of the matrix row, read as auto: the last advertised mode. A TN 1-phase
+  charger reports `NL1`, matching its `sup_phase_modes`; a 3-phase one reports its multi-phase mode,
+  so energy guard never plans a single leg for a charger that may draw on all three.
 
 ## Impact
 - Affected specs: `phase-mode`
