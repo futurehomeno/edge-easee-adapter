@@ -390,17 +390,25 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	}
 
 	// outputPhase is unassigned when not charging
-	// if not previous value was recorded, default first value from sup_phase_modes is used
 	state := State{}
 	if err := c.UpdateState(c.chargerID, &state); err != nil {
 		return "", err
 	}
 
-	if modes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases); len(modes) > 0 {
+	modes := model.SupportedPhaseModes(state.GridType, state.PhaseMode, state.Phases)
+
+	// Some models leave the internal mode unset; answer from what the inclusion report advertises,
+	// read as auto - a single leg would let energy guard load the other two.
+	unset := state.PhaseMode == 0
+	if unset {
+		modes = model.AdvertisedPhaseModes(state.GridType, state.Phases, c.persistedPhase())
+	}
+
+	if len(modes) > 0 {
 		// The auto row ends with the multi-phase mode, which is what the setter maps a
 		// three-phase request onto. Reporting modes[0] here would answer a request the user
 		// just made with a single leg whenever the cache is empty - after an adapter restart.
-		if state.PhaseMode == model.EaseePhaseModeAuto {
+		if unset || state.PhaseMode == model.EaseePhaseModeAuto {
 			return modes[len(modes)-1], nil
 		}
 

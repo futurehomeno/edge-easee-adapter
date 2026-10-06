@@ -1728,6 +1728,50 @@ func TestController_ChargepointPhaseModeReport_AutoFallbackPrefersMultiPhase(t *
 	}
 }
 
+// Some models leave the internal phase mode unset in the charger config while sup_phase_modes is
+// still advertised from the grid alone, so the report must answer from that list, not fail.
+func TestController_ChargepointPhaseModeReport_InternalModeUnset(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		gridType  model.GridType
+		persisted types.PhaseMode
+		want      types.PhaseMode
+	}{
+		{"TN 1-phase", model.GridTypeTN1Phase, "", types.PhaseModeNL1},
+		// An unset mode reads as auto: a single leg would let energy guard load the other two.
+		{"TN 3-phase, persisted leg", model.GridTypeTN3Phase, types.PhaseModeNL3, types.PhaseModeNL1L2L3},
+		{"TN 3-phase, nothing persisted", model.GridTypeTN3Phase, "", types.PhaseModeNL1L2L3},
+		{"IT 3-phase, persisted leg", model.GridTypeIT3Phase, types.PhaseModeL2L3, types.PhaseModeL1L2L3},
+		{"grid not detected", model.GridTypeNotYetDetected, "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			managerMock := mockedsignalr.NewManager(t)
+			managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+			cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("ChargerConfig", "test-charger").
+				Return(&model.ChargerConfig{DetectedPowerGridType: tt.gridType}, nil)
+			clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
+
+			ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil, tt.persisted)
+
+			mode, err := ctrl.ChargepointPhaseModeReport()
+			assert.Equal(t, tt.want == "", err != nil, err)
+			assert.Equal(t, tt.want, mode)
+		})
+	}
+}
+
 // Observations carry Easee's clock while the seed is written by the hub, so seeding at
 // time.Now() lets a hub running ahead of the server suppress the authoritative value in the
 // cache's timestamp guard. The zero time keeps the optimistic echo without ever outranking
