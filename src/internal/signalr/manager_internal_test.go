@@ -498,6 +498,17 @@ func TestObservationDropWarnsOncePerStreak(t *testing.T) {
 	assert.Equal(t, 2, dropWarnings(hook), "a fresh stall after recovery must warn again")
 }
 
+// Easee replays every observation it has on each (re)connect, unsupported IDs included; those
+// must not take the slots the session start/stop replay needs.
+func TestReceiverSkipsUnsupportedObservations(t *testing.T) {
+	observations := make(chan model.Observation, 1)
+	r := newReceiver(observations)
+
+	r.ProductUpdate(model.Observation{ID: 149, ChargerID: chargerID})
+
+	assert.Empty(t, observations)
+}
+
 func dropWarnings(hook *logtest.Hook) int {
 	warnings := 0
 

@@ -2289,6 +2289,87 @@ func TestController_Teardown_WaitsOutASendThatAlreadyWonTheRace(t *testing.T) {
 	clientMock.AssertNumberOfCalls(t, "StopCharging", 1)
 }
 
+// The 3.1.4 beta warned that deferred writes were not echoed, and every echo landed 1-3s past
+// current_wait_duration. Nothing waits on a deferred send's answer, so it gives the charger the
+// channel's whole window to echo.
+func TestController_DeferredSend_WaitsTheWindowForTheEcho(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	waited := make(chan any, 1)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 10, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).
+		Run(func(a mock.Arguments) { waited <- a.Get(1) }).Return(true).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	require.NoError(t, ctrl.StopChargepointCharging())
+	clk.Add(time.Second)
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+	clk.Add(19 * time.Second)
+
+	select {
+	case d := <-waited:
+		assert.Equal(t, 20*time.Second, d)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the deferred send did not run")
+	}
+}
+
+// The echo wait only feeds a log line, so Teardown must not sit through it once the write is out.
+func TestController_Teardown_DoesNotWaitForTheEcho(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	waiting := make(chan struct{})
+	release := make(chan struct{})
+
+	defer close(release)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 10, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).
+		Run(func(mock.Arguments) {
+			close(waiting)
+			<-release
+		}).Return(true).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	require.NoError(t, ctrl.StopChargepointCharging())
+	clk.Add(time.Second)
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+	clk.Add(19 * time.Second)
+	awaitDeferred(t, waiting)
+
+	teardownDone := make(chan struct{})
+
+	go func() {
+		ctrl.Teardown()
+		close(teardownDone)
+	}()
+
+	select {
+	case <-teardownDone:
+	case <-time.After(time.Second):
+		t.Fatal("Teardown waited for the echo of a write already sent")
+	}
+}
+
 // The phase-mode bounce when the pause itself lands inside the window. The old "latest wins"
 // rule had the resume replace the stored pause, so the session was never bounced and the mode
 // took effect at the next session boundary. With the stop holding the slot the pause is what

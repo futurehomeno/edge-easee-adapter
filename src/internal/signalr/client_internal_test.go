@@ -2,6 +2,7 @@ package signalr
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -371,4 +372,19 @@ func waitForClientState(t *testing.T, states <-chan model.ClientState) model.Cli
 
 		return model.ClientStateDisconnected
 	}
+}
+
+// On hub 59e47463 the reconnect replay overflowed the buffer while the run loop was busy writing
+// sessions, and the Start session replay was lost. The replay of every supported observation for a
+// 20-charger account has to fit without any draining.
+func TestClient_ObservationBufferHoldsAReconnectReplay(t *testing.T) {
+	c := newTestClient(t, time.Minute, nil)
+
+	for i := range 20 {
+		for _, id := range model.SupportedObservationIDs() {
+			c.receiver.ProductUpdate(model.Observation{ID: id, ChargerID: fmt.Sprintf("EH%d", i)})
+		}
+	}
+
+	assert.Len(t, c.observations, 20*len(model.SupportedObservationIDs()))
 }

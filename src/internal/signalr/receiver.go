@@ -27,6 +27,10 @@ func newReceiver(observations chan<- model.Observation) *receiver {
 }
 
 func (r *receiver) ProductUpdate(o model.Observation) {
+	if !o.ID.Supported() {
+		return
+	}
+
 	select {
 	case r.observations <- o:
 		r.dropping.Store(false)
@@ -36,9 +40,9 @@ func (r *receiver) ProductUpdate(o model.Observation) {
 		// manager stops, forever. Dropping is the lesser failure, not a free one: most
 		// observations are cache refreshes the charger re-sends on the next reconnect, but the
 		// session start/stop pair is edge-triggered and its record is simply lost. The buffer
-		// only fills while the run loop is stalled, which today means a subscribe invoke
-		// blocking it for up to SignalRInvokeTimeout - so a line per dropped observation would
-		// put synchronous logging on the overload path. First of the streak only.
+		// only fills when a reconnect replay outruns a run loop busy with synced session writes,
+		// so a line per dropped observation would put synchronous logging on the overload path.
+		// First of the streak only.
 		if !r.dropping.Swap(true) {
 			log.Warnf("signalR: observation buffer full, dropping obs='%s' chargerID=%s", o.ID.Str(), o.ChargerID)
 		}
