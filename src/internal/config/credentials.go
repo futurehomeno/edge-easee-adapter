@@ -52,7 +52,14 @@ func (s *CredentialsStore) Load() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	return s.storage.Load()
+	err := s.storage.Load()
+
+	// A username that did not decrypt would send the re-login in with an empty one.
+	if m := s.storage.Model(); m.Username == "" {
+		m.Password = ""
+	}
+
+	return err
 }
 
 // DiscardLoaded empties the in-memory credentials without touching the file. json.Unmarshal

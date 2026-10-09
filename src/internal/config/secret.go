@@ -41,10 +41,6 @@ var secretAEAD = func() cipher.AEAD {
 type Secret string
 
 func (s Secret) MarshalJSON() ([]byte, error) {
-	if s == "" {
-		return json.Marshal("")
-	}
-
 	nonce := make([]byte, secretAEAD.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
