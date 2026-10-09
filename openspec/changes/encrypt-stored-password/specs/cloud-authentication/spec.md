@@ -3,7 +3,7 @@
 ### Requirement: Stored Password Encrypted
 The credential store SHALL write the username and password to the secrets file encrypted with
 AES-256-GCM under a key built into the adapter, and SHALL read back a plain-text value written by an
-earlier version.
+earlier version. A value that does not decrypt SHALL read as empty without failing the load.
 
 #### Scenario: Secrets file holds no plain password
 - **WHEN** credentials with a username and password are saved
@@ -12,3 +12,7 @@ earlier version.
 #### Scenario: Plain-text password from an earlier version
 - **WHEN** the secrets file holds a username and password in plain text
 - **THEN** loading it returns both unchanged
+
+#### Scenario: Password that does not decrypt
+- **WHEN** the stored password cannot be decrypted
+- **THEN** loading keeps the tokens and reads the password as empty

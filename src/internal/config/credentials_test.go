@@ -361,3 +361,17 @@ func TestCredentialsStore_ReadsPlainTextPassword(t *testing.T) {
 	require.NoError(t, store.Load())
 	assert.Equal(t, config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "user", Password: "pwd"}, store.Credentials())
 }
+
+// A password that cannot be decrypted costs the re-login, not the session its tokens still hold.
+func TestCredentialsStore_UndecryptablePasswordKeepsTheTokens(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data", "secrets.json"),
+		[]byte(`{"accessToken":"a","refreshToken":"a-refresh","username":"user","password":"enc:Hunter2!"}`), 0o600))
+
+	store := config.NewCredentialsStore(dir)
+	require.NoError(t, store.Load())
+	assert.Equal(t, config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "user"}, store.Credentials())
+}

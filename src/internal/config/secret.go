@@ -9,13 +9,32 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const sealedPrefix = "enc:"
 
-// secretKey is in the public source: it keeps the password out of a casual read or a copied
+// The key is in the public source: it keeps the password out of a casual read or a copied
 // file, not away from someone holding both the file and the binary.
-var secretKey, _ = hex.DecodeString("b298bc32211dbfbd8391cee6eb6a770a1aca925e2ea6facfb6a3c71d4465bd6a")
+var secretAEAD = func() cipher.AEAD {
+	key, err := hex.DecodeString("b298bc32211dbfbd8391cee6eb6a770a1aca925e2ea6facfb6a3c71d4465bd6a")
+	if err != nil {
+		panic(err)
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		panic(err)
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		panic(err)
+	}
+
+	return gcm
+}()
 
 // Secret is a string stored encrypted in JSON. A value without the prefix is plain text written
 // before encryption and is read as is.
@@ -26,19 +45,16 @@ func (s Secret) MarshalJSON() ([]byte, error) {
 		return json.Marshal("")
 	}
 
-	gcm, err := secretCipher()
-	if err != nil {
-		return nil, err
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
+	nonce := make([]byte, secretAEAD.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
 
-	return json.Marshal(sealedPrefix + base64.StdEncoding.EncodeToString(gcm.Seal(nonce, nonce, []byte(s), nil)))
+	return json.Marshal(sealedPrefix + base64.StdEncoding.EncodeToString(secretAEAD.Seal(nonce, nonce, []byte(s), nil)))
 }
 
+// UnmarshalJSON reads a value it cannot decrypt as empty rather than failing: the whole secrets
+// file would fail with it, and the tokens next to it still hold a session.
 func (s *Secret) UnmarshalJSON(data []byte) error {
 	var value string
 	if err := json.Unmarshal(data, &value); err != nil {
@@ -52,19 +68,9 @@ func (s *Secret) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	gcm, err := secretCipher()
+	plain, err := open(sealed)
 	if err != nil {
-		return err
-	}
-
-	raw, err := base64.StdEncoding.DecodeString(sealed)
-	if err != nil || len(raw) < gcm.NonceSize() {
-		return errors.New("malformed encrypted secret")
-	}
-
-	plain, err := gcm.Open(nil, raw[:gcm.NonceSize()], raw[gcm.NonceSize():], nil)
-	if err != nil {
-		return errors.New("decrypt secret failed")
+		log.Warnf("[config] Drop a stored secret that does not decrypt. err: %v", err)
 	}
 
 	*s = Secret(plain)
@@ -72,11 +78,15 @@ func (s *Secret) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func secretCipher() (cipher.AEAD, error) {
-	block, err := aes.NewCipher(secretKey)
+func open(sealed string) ([]byte, error) {
+	raw, err := base64.StdEncoding.DecodeString(sealed)
 	if err != nil {
 		return nil, err
 	}
 
-	return cipher.NewGCM(block)
+	if len(raw) < secretAEAD.NonceSize() {
+		return nil, errors.New("shorter than the nonce")
+	}
+
+	return secretAEAD.Open(nil, raw[:secretAEAD.NonceSize()], raw[secretAEAD.NonceSize():], nil)
 }
