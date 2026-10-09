@@ -330,3 +330,34 @@ func TestCredentialsStore_ForgetPassword(t *testing.T) {
 		assert.Equal(t, session, store.Credentials())
 	})
 }
+
+func TestCredentialsStore_EncryptsUsernameAndPassword(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	session := config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "user@example.com", Password: "s3cret-pwd"}
+
+	require.NoError(t, config.NewCredentialsStore(dir).SetCredentials(session))
+
+	body, err := os.ReadFile(filepath.Join(dir, "data", "secrets.json")) //nolint:gosec
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "user@example.com")
+	assert.NotContains(t, string(body), "s3cret-pwd")
+
+	store := config.NewCredentialsStore(dir)
+	require.NoError(t, store.Load())
+	assert.Equal(t, session, store.Credentials())
+}
+
+func TestCredentialsStore_ReadsPlainTextPassword(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data", "secrets.json"),
+		[]byte(`{"accessToken":"a","refreshToken":"a-refresh","username":"user","password":"pwd"}`), 0o600))
+
+	store := config.NewCredentialsStore(dir)
+	require.NoError(t, store.Load())
+	assert.Equal(t, config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "user", Password: "pwd"}, store.Credentials())
+}

@@ -124,7 +124,7 @@ func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected 
 // ForgetPassword matches the password rather than the session: a rotation persisted during the
 // exchange replaces the refresh token but not the rejected password. Cleared in memory even when
 // the write fails, so the rejected password is not replayed by this process.
-func (s *CredentialsStore) ForgetPassword(username, password string) error {
+func (s *CredentialsStore) ForgetPassword(username, password Secret) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
