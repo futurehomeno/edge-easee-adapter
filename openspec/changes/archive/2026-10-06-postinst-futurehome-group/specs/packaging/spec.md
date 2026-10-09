@@ -9,6 +9,10 @@ exists from the thingsplex layout, so that the files the adapter and the migrati
 - **WHEN** postinst configures a hub where the `easee` user already exists
 - **THEN** it sets the user's primary group to `futurehome`
 
+#### Scenario: group change fails
+- **WHEN** postinst cannot change the existing user's primary group
+- **THEN** it warns on stderr and the install continues
+
 #### Scenario: fresh install
 - **WHEN** postinst configures a hub without the `easee` user
 - **THEN** it creates the user with primary group `futurehome`
