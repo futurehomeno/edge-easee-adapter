@@ -541,10 +541,6 @@ func (m *manager) handleClientState(state model.ClientState) {
 }
 
 func (m *manager) handleObservation(observation model.Observation) error {
-	if !observation.ID.Supported() {
-		return nil
-	}
-
 	m.mu.RLock()
 	chargerHandler, ok := m.chargers[observation.ChargerID]
 	m.mu.RUnlock()

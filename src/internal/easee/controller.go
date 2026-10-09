@@ -96,10 +96,10 @@ type controller struct {
 	// indirect benbjohnson/clock type this package never otherwise names stays out of the graph.
 	stopTimer func() bool
 	// inFlight counts sendPending calls that have claimed the slot and released pace but have
-	// not yet returned. stopTimer only cancels a send that has not fired; one that already won
-	// the race for pace against Teardown is already past the point clearing pending can stop it,
-	// so Teardown waits this out instead to keep its "nothing more will reach the charger"
-	// guarantee true for a send already in progress.
+	// not yet finished sending. stopTimer only cancels a send that has not fired; one that
+	// already won the race for pace against Teardown is already past the point clearing pending
+	// can stop it, so Teardown waits this out instead to keep its "nothing more will reach the
+	// charger" guarantee true for a send already in progress.
 	inFlight sync.WaitGroup
 }
 
@@ -290,9 +290,10 @@ func (c *controller) sendPending() {
 	c.inFlight.Add(1)
 	c.pace.Unlock()
 
-	defer c.inFlight.Done()
+	err := c.send(*cmd)
+	c.inFlight.Done()
 
-	if err := c.send(*cmd); err != nil {
+	if err != nil {
 		log.Errorf("[%s] Deferred %s failed: %v", c.chargerID, cmd, err)
 
 		// The pair's first half never reached Easee, so its promoted second half must not go
@@ -304,7 +305,8 @@ func (c *controller) sendPending() {
 		return
 	}
 
-	if !cmd.stop && !c.cache.WaitForOfferedCurrent(cmd.current, c.cfgService.CurrentWaitDuration()) {
+	// The echo often lands past CurrentWaitDuration; the next send cannot leave within the window anyway.
+	if !cmd.stop && !c.cache.WaitForOfferedCurrent(cmd.current, c.cfgService.OfferedCurrentWaitTime()) {
 		log.Warnf("[%s] Deferred %s was not echoed back by the charger", c.chargerID, cmd)
 	}
 }
