@@ -62,7 +62,7 @@ type client struct {
 }
 
 func NewClient(cfg *config.Service, tokenProvider func() (string, error), tel telemetry.Telemetry) Client {
-	observations := make(chan model.Observation, 100)
+	observations := make(chan model.Observation, 500)
 
 	return &client{
 		cfg:           cfg,

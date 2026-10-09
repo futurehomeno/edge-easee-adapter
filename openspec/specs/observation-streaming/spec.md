@@ -4,9 +4,7 @@
 Maintain a single SignalR connection to the Easee cloud, keep every managed charger subscribed to it,
 and dispatch the resulting observations into the per-charger cache and FIMP reports. This is the only
 source of live charger telemetry; the HTTP API is used for commands and static configuration.
-
 ## Requirements
-
 ### Requirement: Single Shared Connection
 One SignalR client SHALL serve every charger on the hub. The manager SHALL start the client when the
 first charger registers and SHALL close it when the last charger unregisters. Starting an
@@ -239,3 +237,19 @@ handler error can surface from off the dispatch loop.
 #### Scenario: mismatched data type on lifetime energy
 - **WHEN** a lifetime-energy observation declares a data type that is not double
 - **THEN** the background goroutine logs a warning and skips it, and no handler error surfaces
+
+### Requirement: Observation Buffer Holds A Reconnect Replay
+The SignalR receiver SHALL drop an observation whose ID is not in `SupportedObservationIDs` before it
+enters the dispatch buffer. The buffer SHALL hold 500 observations. Easee replays each charger's
+full snapshot on every (re)connect, mostly unsupported IDs, while the run loop may be busy with
+synced session writes. The edge-triggered session start/stop replay must not be dropped for lack of
+a slot.
+
+#### Scenario: unsupported observation
+- **WHEN** an observation with an unsupported ID arrives
+- **THEN** it takes no buffer slot and is dropped without a log line
+
+#### Scenario: replay while the run loop is stalled
+- **WHEN** a 20-charger account reconnects and every charger replays all its supported observations before the run loop drains any
+- **THEN** none of them is dropped
+
