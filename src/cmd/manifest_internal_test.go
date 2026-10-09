@@ -20,23 +20,27 @@ func TestPackagedManifest_DeclaresRoutedLogAndNodeInterfaces(t *testing.T) {
 	var m struct {
 		Services []struct {
 			Interfaces []struct {
+				Dir     string `json:"intf_t"`
 				MsgType string `json:"msg_t"`
 			} `json:"interfaces"`
 		} `json:"services"`
 	}
 	require.NoError(t, json.Unmarshal(b, &m))
 
-	var declared []string
+	declared := map[string]string{}
 	for _, s := range m.Services {
 		for _, i := range s.Interfaces {
-			declared = append(declared, i.MsgType)
+			declared[i.MsgType] = i.Dir
 		}
 	}
 
-	for _, msgType := range []string{
-		debug.CmdLogSetLevel, debug.EvtLogLevelReport,
-		cliffAdapter.CmdNetworkGetNode, cliffAdapter.EvtNetworkNodeReport,
+	for msgType, dir := range map[string]string{
+		debug.CmdLogGetLevel:              "in",
+		debug.CmdLogSetLevel:              "in",
+		debug.EvtLogLevelReport:           "out",
+		cliffAdapter.CmdNetworkGetNode:    "in",
+		cliffAdapter.EvtNetworkNodeReport: "out",
 	} {
-		assert.Contains(t, declared, msgType)
+		assert.Equal(t, dir, declared[msgType], msgType)
 	}
 }

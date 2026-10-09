@@ -142,6 +142,12 @@
         },
         {
           "intf_t": "in",
+          "msg_t": "cmd.log.get_level",
+          "val_t": "null",
+          "ver": "1"
+        },
+        {
+          "intf_t": "in",
           "msg_t": "cmd.log.set_level",
           "val_t": "string",
           "ver": "1"
