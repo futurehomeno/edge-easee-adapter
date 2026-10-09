@@ -1,3 +1,4 @@
 - [x] Tests: the secrets file holds no plain username/password and reads back; a plain-text file still loads
 - [x] Encrypt the username and password fields on save, decrypt on load
+- [x] Seal a plain-text secrets file at startup and drop its backup
 - [x] Bump version to 3.2.2

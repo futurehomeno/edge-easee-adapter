@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/futurehomeno/cliffhanger/auth"
@@ -226,4 +227,44 @@ func configLoads(path string) bool {
 	body, err := os.ReadFile(path) //nolint:gosec
 
 	return err == nil && json.Unmarshal(body, &Config{}) == nil
+}
+
+// SealPlainSecrets rewrites a secrets file still holding the plain-text username or password of
+// 3.2.0/3.2.1, and removes the backup that rewrite moves the plain text into.
+func SealPlainSecrets(workDir string, store *CredentialsStore) {
+	path := filepath.Join(workDir, "data", credentialsFileName)
+	if !holdsPlainSecret(path) {
+		return
+	}
+
+	store.lock.Lock()
+	err := store.storage.Save()
+	store.lock.Unlock()
+
+	if err != nil {
+		log.Warnf("[config] Seal plain-text secrets. err: %v", err)
+
+		return
+	}
+
+	if err := os.Remove(path + backupExtension); err != nil && !os.IsNotExist(err) {
+		log.Warnf("[config] Remove %s. err: %v", path+backupExtension, err)
+	}
+}
+
+func holdsPlainSecret(path string) bool {
+	var stored struct{ Username, Password string }
+
+	body, err := os.ReadFile(path) //nolint:gosec
+	if err != nil || json.Unmarshal(body, &stored) != nil {
+		return false
+	}
+
+	for _, value := range []string{stored.Username, stored.Password} {
+		if value != "" && !strings.HasPrefix(value, sealedPrefix) {
+			return true
+		}
+	}
+
+	return false
 }

@@ -16,3 +16,7 @@ earlier version. A value that does not decrypt SHALL read as empty without faili
 #### Scenario: Password that does not decrypt
 - **WHEN** the stored password cannot be decrypted
 - **THEN** loading keeps the tokens and reads the password as empty
+
+#### Scenario: Plain-text secrets sealed at startup
+- **WHEN** the adapter starts with a secrets file holding a plain-text username or password
+- **THEN** it rewrites the file encrypted and removes the backup that holds the plain text
