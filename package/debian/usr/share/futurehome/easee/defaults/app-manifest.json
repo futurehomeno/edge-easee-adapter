@@ -129,6 +129,12 @@
           "ver": "1"
         },
         {
+          "intf_t": "in",
+          "msg_t": "cmd.network.get_node",
+          "val_t": "string",
+          "ver": "1"
+        },
+        {
           "intf_t": "out",
           "msg_t": "evt.network.node_report",
           "val_t": "object",
@@ -137,6 +143,12 @@
         {
           "intf_t": "in",
           "msg_t": "cmd.log.set_level",
+          "val_t": "string",
+          "ver": "1"
+        },
+        {
+          "intf_t": "out",
+          "msg_t": "evt.log.level_report",
           "val_t": "string",
           "ver": "1"
         }
