@@ -146,6 +146,8 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 		}
 
 		log.Infof("[%s] %s preempts %s", c.chargerID, cmd, preempted)
+
+		cmd.start = cmd.start || (!cmd.stop && c.pending.start)
 	}
 
 	if c.pending == nil && clock.Since(c.sentAt) >= c.cfgService.OfferedCurrentWaitTime() {

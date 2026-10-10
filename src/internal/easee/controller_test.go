@@ -2892,6 +2892,40 @@ func TestController_StartAndStop_ALaterCommandPushesTheResyncBack(t *testing.T) 
 	managerMock.AssertNumberOfCalls(t, "Resync", 1)
 }
 
+// A write that displaces a stored start resumes the charger just the same.
+func TestController_StartAndStop_AWriteDisplacingAStartKeepsItsResync(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 24, 0, 46, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	resynced := make(chan struct{}, 2)
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Resync", "test-charger").Run(signal(resynced))
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(12)).Return(nil).Once()
+
+	cacheMock := resyncCache(t)
+	cacheMock.On("SetRequestedOfferedCurrent", 12, mock.AnythingOfType("time.Time")).Return(true).Once()
+
+	sent := make(chan struct{}, 1)
+	cacheMock.On("WaitForOfferedCurrent", 12, mock.Anything).Return(true).Run(signal(sent)).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), resyncConfig())
+
+	require.NoError(t, ctrl.StopChargepointCharging())
+	clk.Add(time.Second)
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
+
+	clk.Add(4 * time.Second)
+	awaitDeferred(t, sent)
+	clk.Add(14 * time.Second)
+	managerMock.AssertNotCalled(t, "Resync", mock.Anything)
+	clk.Add(time.Second)
+	awaitDeferred(t, resynced)
+}
+
 func TestController_StopChargepointCharging_FailedStopSchedulesNoResync(t *testing.T) {
 	clk := clock.Mock(time.Date(2026, time.September, 24, 0, 46, 0, 0, time.UTC))
 	t.Cleanup(clock.Restore)
