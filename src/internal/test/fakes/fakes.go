@@ -58,6 +58,9 @@ func (f *fakeConfigStorage[T]) IncrementRestartsCount() (int, error) {
 var _ api.Notifier = (*FakeNotifier)(nil)
 
 type FakeNotifier struct {
+	// Guarded: the auth-loss handler publishes on its own goroutine, so assertions race the
+	// notification unless both sides lock.
+	mu     sync.Mutex
 	events []*notification.Event
 }
 
@@ -70,16 +73,25 @@ func NewNotifier(t *testing.T) *FakeNotifier {
 }
 
 func (f *FakeNotifier) Event(event *notification.Event) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	f.events = append(f.events, event)
 
 	return nil
 }
 
 func (f *FakeNotifier) ReceivedEventsCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	return len(f.events)
 }
 
 func (f *FakeNotifier) IsEventReceived(eventName string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	for _, e := range f.events {
 		if e.EventName == eventName {
 			return true

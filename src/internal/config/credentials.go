@@ -1,7 +1,10 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/futurehomeno/cliffhanger/auth"
@@ -9,7 +12,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const credentialsFileName = "secrets.json"
+const (
+	credentialsFileName = "secrets.json"
+	configFileName      = "config.json"
+	backupExtension     = ".bak"
+)
 
 // CredentialsStore persists the Easee tokens outside the world-readable config.json.
 // storage.Model() hands out the live model unlocked, so every access is guarded here:
@@ -27,11 +34,36 @@ func NewCredentialsStoreWithStorage(s storage.Storage[*Credentials]) *Credential
 	return &CredentialsStore{storage: s}
 }
 
+// PinSecretModes closes the token-bearing files to others. cliffhanger enforces the mode on
+// Save but not on Load, and postinst cannot do it safely: a path chmod by root in an
+// easee-writable directory follows whatever link is planted between its check and the call.
+// Here it runs as easee, which a planted link can gain nothing from.
+func PinSecretModes(workDir string) {
+	for _, name := range []string{credentialsFileName, credentialsFileName + backupExtension, configFileName + backupExtension} {
+		path := filepath.Join(workDir, "data", name)
+
+		if err := os.Chmod(path, 0o640); err != nil && !os.IsNotExist(err) { //nolint:gosec // group-readable is the mode secrets.json ships with
+			log.Warnf("[config] Pin mode of %s: %v", path, err)
+		}
+	}
+}
+
 func (s *CredentialsStore) Load() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	return s.storage.Load()
+}
+
+// DiscardLoaded empties the in-memory credentials without touching the file. json.Unmarshal
+// writes each field as it decodes, so a secrets file that fails partway leaves whatever it had
+// already parsed in the model - enough for the app to report itself authenticated with half a
+// session. Used on the boot path, where the file is kept for inspection rather than reset.
+func (s *CredentialsStore) DiscardLoaded() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	*s.storage.Model() = Credentials{}
 }
 
 func (s *CredentialsStore) Credentials() Credentials {
@@ -71,7 +103,36 @@ func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected 
 		return nil
 	}
 
+	// Written to the model only once the save succeeded. The framework retries a refused
+	// rotation through persistUnsaved, which reads this store back to decide what is still
+	// outstanding - so a model updated ahead of a failed write reports a token the disk does
+	// not have, and the retry concludes there is nothing left to persist. SetCredentials keeps
+	// the opposite behaviour deliberately: a login's session stays usable until the restart.
+	previous := *s.storage.Model()
+	credentials.Username, credentials.Password = previous.Username, previous.Password
 	*s.storage.Model() = credentials
+
+	if err := s.storage.Save(); err != nil {
+		*s.storage.Model() = previous
+
+		return err
+	}
+
+	return nil
+}
+
+// ForgetPassword matches the password rather than the session: a rotation persisted during the
+// exchange replaces the refresh token but not the rejected password. Cleared in memory even when
+// the write fails, so the rejected password is not replayed by this process.
+func (s *CredentialsStore) ForgetPassword(username, password string) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if current := s.storage.Model(); current.Username != username || current.Password != password {
+		return nil
+	}
+
+	s.storage.Model().Password = ""
 
 	return s.storage.Save()
 }
@@ -126,4 +187,36 @@ func MigrateCredentials(cfg *Config, store *CredentialsStore) error {
 	log.Info("[config] Move credentials to the secrets storage")
 
 	return nil
+}
+
+// DropConfigBackup clears the config backup cliffhanger's Save() leaves behind. The rename in
+// makeBackup carries the pre-migration config over, tokens and all, and chmods it to the config
+// store's world-readable 0644 - so the credentials the v5->v6 step moved into the 0640 secrets
+// file stay legible to any local user in data/config.json.bak. Load() falls back to the backup
+// when config.json does not decode, but only in memory: a backup that is the only good copy is
+// moved into place instead. Both are single renames, so no moment has neither file.
+// Best-effort: a stale backup is worth less than the leak.
+func DropConfigBackup(workDir string) {
+	configPath := filepath.Join(workDir, "data", configFileName)
+	backupPath := configPath + backupExtension
+
+	if configLoads(configPath) {
+		if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+			log.Warnf("[config] Remove %s. err: %v", backupPath, err)
+		}
+
+		return
+	}
+
+	if err := os.Rename(backupPath, configPath); err != nil && !os.IsNotExist(err) {
+		log.Warnf("[config] Restore %s. err: %v", backupPath, err)
+	}
+}
+
+// configLoads mirrors cliffhanger's loadFile: a file that is missing or does not decode is one
+// Load() fell back from.
+func configLoads(path string) bool {
+	body, err := os.ReadFile(path) //nolint:gosec
+
+	return err == nil && json.Unmarshal(body, &Config{}) == nil
 }

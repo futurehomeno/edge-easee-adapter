@@ -1,0 +1,7 @@
+schema: spec-driven
+
+context: |
+  Go edge adapter exposing Easee EV chargers as FIMP devices on the Futurehome hub.
+  Module lives under src/. Built on cliffhanger (adapter framework) and fimpgo (FIMP transport).
+  Commands and static config go over the Easee HTTPS API; live telemetry arrives over SignalR.
+  See openspec/project.md for the package layout and conventions.
