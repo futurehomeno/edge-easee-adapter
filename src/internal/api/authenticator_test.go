@@ -72,8 +72,8 @@ func TestLogin(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, accessToken, credentials.Credentials().AccessToken)
 			assert.Equal(t, refreshToken, credentials.Credentials().RefreshToken)
-			assert.Equal(t, "user", credentials.Credentials().Username)
-			assert.Equal(t, "pwd", credentials.Credentials().Password)
+			assert.Equal(t, config.Secret("user"), credentials.Credentials().Username)
+			assert.Equal(t, config.Secret("pwd"), credentials.Credentials().Password)
 			// Expiry times are derived from the tokens themselves, not from the response.
 			assert.False(t, credentials.Credentials().RefreshTokenExpiresAt.IsZero())
 		})
@@ -702,8 +702,8 @@ func TestReloginWhenTheSessionEnded(t *testing.T) {
 
 	assert.Equal(t, session.AccessToken, token)
 	assert.Equal(t, session.RefreshToken, credentials.Credentials().RefreshToken)
-	assert.Equal(t, "user", credentials.Credentials().Username)
-	assert.Equal(t, "pwd", credentials.Credentials().Password)
+	assert.Equal(t, config.Secret("user"), credentials.Credentials().Username)
+	assert.Equal(t, config.Secret("pwd"), credentials.Credentials().Password)
 	assert.True(t, notifier.NoEventsReceived())
 }
 
@@ -776,7 +776,7 @@ func TestFailedReloginKeepsThePassword(t *testing.T) {
 
 	_, err := authenticator.AccessToken()
 	require.Error(t, err)
-	assert.Equal(t, "pwd", credentials.Credentials().Password)
+	assert.Equal(t, config.Secret("pwd"), credentials.Credentials().Password)
 }
 
 func TestReloginDoesNotReplaceASessionThatLandedMeanwhile(t *testing.T) {

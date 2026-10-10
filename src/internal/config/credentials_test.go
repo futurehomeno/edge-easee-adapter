@@ -330,3 +330,108 @@ func TestCredentialsStore_ForgetPassword(t *testing.T) {
 		assert.Equal(t, session, store.Credentials())
 	})
 }
+
+func TestCredentialsStore_EncryptsUsernameAndPassword(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	session := config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "user@example.com", Password: "s3cret-pwd"}
+
+	require.NoError(t, config.NewCredentialsStore(dir).SetCredentials(session))
+
+	body, err := os.ReadFile(filepath.Join(dir, "data", "secrets.json")) //nolint:gosec
+	require.NoError(t, err)
+	assert.NotContains(t, string(body), "user@example.com")
+	assert.NotContains(t, string(body), "s3cret-pwd")
+
+	store := config.NewCredentialsStore(dir)
+	require.NoError(t, store.Load())
+	assert.Equal(t, session, store.Credentials())
+}
+
+func TestCredentialsStore_ReadsPlainTextPassword(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data", "secrets.json"),
+		[]byte(`{"accessToken":"a","refreshToken":"a-refresh","username":"user","password":"pwd"}`), 0o600))
+
+	store := config.NewCredentialsStore(dir)
+	require.NoError(t, store.Load())
+	assert.Equal(t, config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "user", Password: "pwd"}, store.Credentials())
+}
+
+// A password that cannot be decrypted costs the re-login, not the session its tokens still hold.
+func TestCredentialsStore_UndecryptablePasswordKeepsTheTokens(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data", "secrets.json"),
+		[]byte(`{"accessToken":"a","refreshToken":"a-refresh","username":"user","password":"enc:Hunter2!"}`), 0o600))
+
+	store := config.NewCredentialsStore(dir)
+	require.NoError(t, store.Load())
+	assert.Equal(t, config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "user"}, store.Credentials())
+}
+
+// A password left without its username would send the re-login in with an empty one.
+func TestCredentialsStore_UndecryptableUsernameDropsThePassword(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "data"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "data", "secrets.json"),
+		[]byte(`{"accessToken":"a","refreshToken":"a-refresh","username":"enc:bad","password":"pwd"}`), 0o600))
+
+	store := config.NewCredentialsStore(dir)
+	require.NoError(t, store.Load())
+	assert.Equal(t, config.Credentials{AccessToken: "a", RefreshToken: "a-refresh"}, store.Credentials())
+}
+
+// The backup a save leaves behind is the previous file, so the first save after an upgrade
+// moves the plain-text password of 3.2.0/3.2.1 into it.
+func TestSealPlainSecrets(t *testing.T) {
+	t.Parallel()
+
+	plain := []byte(`{"accessToken":"a","refreshToken":"a-refresh","username":"user@example.com","password":"s3cret-pwd"}`)
+
+	t.Run("a plain-text file is sealed and its backup removed", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		data := filepath.Join(dir, "data")
+		require.NoError(t, os.MkdirAll(data, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(data, "secrets.json"), plain, 0o600))
+		require.NoError(t, os.WriteFile(filepath.Join(data, "secrets.json.bak"), plain, 0o600))
+
+		store := config.NewCredentialsStore(dir)
+		require.NoError(t, store.Load())
+
+		config.SealPlainSecrets(dir, store)
+
+		body, err := os.ReadFile(filepath.Join(data, "secrets.json")) //nolint:gosec
+		require.NoError(t, err)
+		assert.NotContains(t, string(body), "s3cret-pwd")
+		assert.NotContains(t, string(body), "user@example.com")
+		assert.NoFileExists(t, filepath.Join(data, "secrets.json.bak"))
+
+		reloaded := config.NewCredentialsStore(dir)
+		require.NoError(t, reloaded.Load())
+		assert.Equal(t, store.Credentials(), reloaded.Credentials())
+	})
+
+	t.Run("a sealed file keeps its backup", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		store := config.NewCredentialsStore(dir)
+		require.NoError(t, store.SetCredentials(config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "u", Password: "p"}))
+		require.NoError(t, store.SetCredentials(config.Credentials{AccessToken: "b", RefreshToken: "b-refresh", Username: "u", Password: "p"}))
+
+		config.SealPlainSecrets(dir, store)
+
+		assert.FileExists(t, filepath.Join(dir, "data", "secrets.json.bak"))
+	})
+}

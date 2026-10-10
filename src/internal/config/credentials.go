@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/futurehomeno/cliffhanger/auth"
@@ -52,7 +53,14 @@ func (s *CredentialsStore) Load() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	return s.storage.Load()
+	err := s.storage.Load()
+
+	// A username that did not decrypt would send the re-login in with an empty one.
+	if m := s.storage.Model(); m.Username == "" {
+		m.Password = ""
+	}
+
+	return err
 }
 
 // DiscardLoaded empties the in-memory credentials without touching the file. json.Unmarshal
@@ -124,7 +132,7 @@ func (s *CredentialsStore) RefreshCredentials(credentials Credentials, expected 
 // ForgetPassword matches the password rather than the session: a rotation persisted during the
 // exchange replaces the refresh token but not the rejected password. Cleared in memory even when
 // the write fails, so the rejected password is not replayed by this process.
-func (s *CredentialsStore) ForgetPassword(username, password string) error {
+func (s *CredentialsStore) ForgetPassword(username, password Secret) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -219,4 +227,44 @@ func configLoads(path string) bool {
 	body, err := os.ReadFile(path) //nolint:gosec
 
 	return err == nil && json.Unmarshal(body, &Config{}) == nil
+}
+
+// SealPlainSecrets rewrites a secrets file still holding the plain-text username or password of
+// 3.2.0/3.2.1, and removes the backup that rewrite moves the plain text into.
+func SealPlainSecrets(workDir string, store *CredentialsStore) {
+	path := filepath.Join(workDir, "data", credentialsFileName)
+	if !holdsPlainSecret(path) {
+		return
+	}
+
+	store.lock.Lock()
+	err := store.storage.Save()
+	store.lock.Unlock()
+
+	if err != nil {
+		log.Warnf("[config] Seal plain-text secrets. err: %v", err)
+
+		return
+	}
+
+	if err := os.Remove(path + backupExtension); err != nil && !os.IsNotExist(err) {
+		log.Warnf("[config] Remove %s. err: %v", path+backupExtension, err)
+	}
+}
+
+func holdsPlainSecret(path string) bool {
+	var stored struct{ Username, Password string }
+
+	body, err := os.ReadFile(path) //nolint:gosec
+	if err != nil || json.Unmarshal(body, &stored) != nil {
+		return false
+	}
+
+	for _, value := range []string{stored.Username, stored.Password} {
+		if value != "" && !strings.HasPrefix(value, sealedPrefix) {
+			return true
+		}
+	}
+
+	return false
 }
