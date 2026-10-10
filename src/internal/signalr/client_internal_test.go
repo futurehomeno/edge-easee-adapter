@@ -407,9 +407,10 @@ func TestClient_WaitsForLoginWithoutWarning(t *testing.T) {
 	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
 
 	c, ok := NewClient(cfg, func() (string, error) {
+		in := loggedIn.Load()
 		calls <- struct{}{}
 
-		if !loggedIn.Load() {
+		if !in {
 			return "", fmt.Errorf("refresh: %w", auth.ErrNotLoggedIn)
 		}
 
@@ -454,4 +455,33 @@ func TestClient_WaitsForLoginWithoutWarning(t *testing.T) {
 	}
 
 	assert.Equal(t, 1, infos, "waiting for login must be logged at info once per streak")
+}
+
+// Register calls Start() once per charger, so a wake left over from before an attempt must not
+// cut short the wait that attempt's "not logged in" begins.
+func TestClient_StaleWakeDoesNotSkipLoginWait(t *testing.T) {
+	calls := make(chan struct{}, 10)
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+
+	c, ok := NewClient(cfg, func() (string, error) {
+		calls <- struct{}{}
+
+		return "", auth.ErrNotLoggedIn
+	}, nil).(*client)
+	require.True(t, ok)
+
+	c.backoff = backoff.NewStateful(time.Hour, time.Hour, time.Hour, 1, 1)
+	c.wake <- struct{}{}
+
+	c.Start()
+	t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+	<-calls
+
+	select {
+	case <-calls:
+		assert.Fail(t, "a stale wake skipped the wait for login")
+	case <-time.After(100 * time.Millisecond):
+	}
 }

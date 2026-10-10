@@ -26,6 +26,7 @@ const (
 type Client interface {
 	// Start is idempotent and never blocks. A start racing an in-flight Close is remembered
 	// and applied when that close completes, so callers need not order the two themselves.
+	// On a running client it wakes a start attempt waiting for login.
 	Start()
 	Close() error
 
@@ -60,8 +61,7 @@ type client struct {
 
 	// wake lets Start() - which the login path calls - cut short the wait of a client that
 	// found no session, so it connects right after login instead of after its backoff.
-	wake            chan struct{}
-	waitingForLogin bool
+	wake chan struct{}
 
 	// newConn is a test seam; nil means the real getClient.
 	newConn func(ctx context.Context) (signalr.Client, error)
@@ -141,7 +141,6 @@ func (c *client) Start() {
 func (c *client) launch() {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
-	c.waitingForLogin = false
 
 	c.wg.Add(1)
 
@@ -223,12 +222,21 @@ func (c *client) invoke(method string, args ...any) error {
 func (c *client) handleConnection(ctx context.Context) {
 	defer telemetry.RecoverAndEmit(c.tel, "handleConnection", true)
 
+	var waitingForLogin bool
+
 	for {
+		// A wake from before this attempt is stale: the attempt already sees the current session.
+		select {
+		case <-c.wake:
+		default:
+		}
+
 		conn, err := c.dial(ctx)
+		notLoggedIn := errors.Is(err, auth.ErrNotLoggedIn)
 
 		switch {
-		case errors.Is(err, auth.ErrNotLoggedIn):
-			if c.waitingForLogin {
+		case notLoggedIn:
+			if waitingForLogin {
 				log.Debugf("signalR: still not logged in: %v", err)
 			} else {
 				log.Info("signalR: not logged in, waiting for login")
@@ -254,10 +262,10 @@ func (c *client) handleConnection(ctx context.Context) {
 
 		c.setConnection(nil)
 
-		c.waitingForLogin = errors.Is(err, auth.ErrNotLoggedIn)
+		waitingForLogin = notLoggedIn
 
 		var wake <-chan struct{}
-		if c.waitingForLogin {
+		if notLoggedIn {
 			wake = c.wake
 		}
 
