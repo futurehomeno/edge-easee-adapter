@@ -3,12 +3,17 @@ package signalr
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/philippseith/signalr"
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -387,4 +392,66 @@ func TestClient_ObservationBufferHoldsAReconnectReplay(t *testing.T) {
 	}
 
 	assert.Len(t, c.observations, 20*len(model.SupportedObservationIDs()))
+}
+
+// Hubs keep their chargers' things after a logout, so the client is started with no session
+// and used to warn on every retry forever; a later login then waited out the backoff.
+func TestClient_WaitsForLoginWithoutWarning(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	var loggedIn atomic.Bool
+
+	calls := make(chan struct{}, 10)
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+
+	c, ok := NewClient(cfg, func() (string, error) {
+		calls <- struct{}{}
+
+		if !loggedIn.Load() {
+			return "", fmt.Errorf("refresh: %w", auth.ErrNotLoggedIn)
+		}
+
+		return "test-token", nil
+	}, nil).(*client)
+	require.True(t, ok)
+
+	c.backoff = backoff.NewStateful(time.Hour, time.Hour, time.Hour, 1, 1)
+
+	c.Start()
+	t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+	awaitCall := func(msg string) {
+		t.Helper()
+
+		select {
+		case <-calls:
+		case <-time.After(time.Second):
+			require.FailNow(t, msg)
+		}
+	}
+
+	awaitCall("the client never asked for a token")
+
+	c.Start()
+	awaitCall("Start must wake a client waiting for login")
+
+	loggedIn.Store(true)
+	c.Start()
+	awaitCall("Start after login must dial at once, not after the backoff")
+
+	var infos int
+
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "not logged in") {
+			assert.Greater(t, entry.Level, log.WarnLevel, "not logged in must not warn: %q", entry.Message)
+		}
+
+		if entry.Level == log.InfoLevel && strings.Contains(entry.Message, "login") {
+			infos++
+		}
+	}
+
+	assert.Equal(t, 1, infos, "waiting for login must be logged at info once per streak")
 }

@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/telemetry"
 	"github.com/philippseith/signalr"
@@ -57,6 +58,11 @@ type client struct {
 
 	connState model.ClientState
 
+	// wake lets Start() - which the login path calls - cut short the wait of a client that
+	// found no session, so it connects right after login instead of after its backoff.
+	wake            chan struct{}
+	waitingForLogin bool
+
 	// newConn is a test seam; nil means the real getClient.
 	newConn func(ctx context.Context) (signalr.Client, error)
 }
@@ -72,6 +78,7 @@ func NewClient(cfg *config.Service, tokenProvider func() (string, error), tel te
 		backoff:       cfg.SignalRBackoffStateful(),
 		states:        make(chan model.ClientState, 10),
 		observations:  observations,
+		wake:          make(chan struct{}, 1),
 	}
 }
 
@@ -118,6 +125,11 @@ func (c *client) Start() {
 	}
 
 	if c.running {
+		select {
+		case c.wake <- struct{}{}:
+		default:
+		}
+
 		return
 	}
 
@@ -129,6 +141,7 @@ func (c *client) Start() {
 func (c *client) launch() {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
+	c.waitingForLogin = false
 
 	c.wg.Add(1)
 
@@ -211,9 +224,18 @@ func (c *client) handleConnection(ctx context.Context) {
 	defer telemetry.RecoverAndEmit(c.tel, "handleConnection", true)
 
 	for {
-		if conn, err := c.dial(ctx); err != nil {
+		conn, err := c.dial(ctx)
+
+		switch {
+		case errors.Is(err, auth.ErrNotLoggedIn):
+			if c.waitingForLogin {
+				log.Debugf("signalR: still not logged in: %v", err)
+			} else {
+				log.Info("signalR: not logged in, waiting for login")
+			}
+		case err != nil:
 			log.Warnf("Unable to start signalr client err: %v", err)
-		} else {
+		default:
 			c.setConnection(conn)
 
 			// The library does not replay the current state to a late observer, so a fast
@@ -232,9 +254,17 @@ func (c *client) handleConnection(ctx context.Context) {
 
 		c.setConnection(nil)
 
+		c.waitingForLogin = errors.Is(err, auth.ErrNotLoggedIn)
+
+		var wake <-chan struct{}
+		if c.waitingForLogin {
+			wake = c.wake
+		}
+
 		select {
 		case <-ctx.Done():
 			return
+		case <-wake:
 		case <-time.After(c.backoff.Next()):
 		}
 	}
@@ -357,7 +387,10 @@ func (c *client) getConnection(ctx context.Context) (signalr.Connection, error) 
 	if err != nil {
 		// The signalR library retries connection creation in a tight forever loop (-1 timeout)
 		// once authorization breaks, logging every failure. Sleeping here throttles that spam.
-		sleepCtx(ctx, time.Minute)
+		// Not logged in is left to handleConnection, which wakes on login.
+		if !errors.Is(err, auth.ErrNotLoggedIn) {
+			sleepCtx(ctx, time.Minute)
+		}
 
 		return nil, fmt.Errorf("unable to get access token (signalR): %w", err)
 	}
