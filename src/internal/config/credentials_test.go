@@ -422,6 +422,38 @@ func TestSealPlainSecrets(t *testing.T) {
 		assert.Equal(t, store.Credentials(), reloaded.Credentials())
 	})
 
+	t.Run("a plain-text backup Load fell back to is sealed and removed", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		data := filepath.Join(dir, "data")
+		require.NoError(t, os.MkdirAll(data, 0o750))
+		require.NoError(t, os.WriteFile(filepath.Join(data, "secrets.json.bak"), plain, 0o600))
+
+		store := config.NewCredentialsStore(dir)
+		require.NoError(t, store.Load())
+
+		config.SealPlainSecrets(dir, store)
+
+		body, err := os.ReadFile(filepath.Join(data, "secrets.json")) //nolint:gosec
+		require.NoError(t, err)
+		assert.NotContains(t, string(body), "s3cret-pwd")
+		assert.NoFileExists(t, filepath.Join(data, "secrets.json.bak"))
+	})
+
+	t.Run("a plain-text backup beside a sealed file is removed", func(t *testing.T) {
+		t.Parallel()
+
+		dir := t.TempDir()
+		store := config.NewCredentialsStore(dir)
+		require.NoError(t, store.SetCredentials(config.Credentials{AccessToken: "a", RefreshToken: "a-refresh", Username: "u", Password: "p"}))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "data", "secrets.json.bak"), plain, 0o600))
+
+		config.SealPlainSecrets(dir, store)
+
+		assert.NoFileExists(t, filepath.Join(dir, "data", "secrets.json.bak"))
+	})
+
 	t.Run("a sealed file keeps its backup", func(t *testing.T) {
 		t.Parallel()
 

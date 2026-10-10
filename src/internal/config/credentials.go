@@ -230,10 +230,13 @@ func configLoads(path string) bool {
 }
 
 // SealPlainSecrets rewrites a secrets file still holding the plain-text username or password of
-// 3.2.0/3.2.1, and removes the backup that rewrite moves the plain text into.
+// 3.2.0/3.2.1, and removes the backup that rewrite moves the plain text into. The backup is
+// checked too: a crash mid-save leaves the plain text there, and Load() falls back to it.
 func SealPlainSecrets(workDir string, store *CredentialsStore) {
 	path := filepath.Join(workDir, "data", credentialsFileName)
-	if !holdsPlainSecret(path) {
+	backupPath := path + backupExtension
+
+	if !holdsPlainSecret(path) && !holdsPlainSecret(backupPath) {
 		return
 	}
 
@@ -247,8 +250,8 @@ func SealPlainSecrets(workDir string, store *CredentialsStore) {
 		return
 	}
 
-	if err := os.Remove(path + backupExtension); err != nil && !os.IsNotExist(err) {
-		log.Warnf("[config] Remove %s. err: %v", path+backupExtension, err)
+	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+		log.Warnf("[config] Remove %s. err: %v", backupPath, err)
 	}
 }
 
