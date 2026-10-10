@@ -376,7 +376,10 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 
 	state := model.ChargerState(val)
 
-	if prevState, _ := h.cache.ChargerState(); prevState != state.ToFimpState() {
+	prevState, prevAt := h.cache.ChargerState()
+	changed := prevState != state.ToFimpState()
+
+	if changed {
 		log.Infof("[%s] State=%s", h.chargerID, state.Str())
 	} else {
 		log.Debugf("[%s] State=%s", h.chargerID, state.Str())
@@ -387,7 +390,7 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		return nil
 	}
 
-	if state.IsSessionFinished() {
+	if state.IsSessionFinished() && (changed || observation.Timestamp.After(prevAt)) {
 		h.cache.SetRequestedOfferedCurrent(0, time.Now())
 	}
 
