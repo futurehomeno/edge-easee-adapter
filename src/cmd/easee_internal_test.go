@@ -240,7 +240,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							{
 								ChargerID: test.ChargerID,
 								DataType:  model.ObservationDataTypeDouble,
-								Timestamp: time.Now(),
+								Timestamp: time.Now().Add(time.Second),
 								ID:        model.TotalPower,
 								Value:     "1.23",
 							},

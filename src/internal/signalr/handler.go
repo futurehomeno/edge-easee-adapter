@@ -27,6 +27,7 @@ import (
 // Handler handles signalr observations for one charger.
 type Handler interface {
 	IsOnline() bool
+	Charging() bool
 	HandleObservation(observation model.Observation) error
 	// Close drains the pending reports and stops the sender. Must be called once the handler
 	// is unregistered, or its goroutine outlives the thing it reports for.
@@ -153,6 +154,10 @@ func (h *observationsHandler) runSender() {
 			log.Warnf("[%s] Send report err: %v", h.chargerID, err)
 		}
 	}
+}
+
+func (h *observationsHandler) Charging() bool {
+	return cache.ReportedState(h.cache) == chargepoint.StateCharging
 }
 
 // Close stops every goroutine that can publish on the thing - the report sender once the reports

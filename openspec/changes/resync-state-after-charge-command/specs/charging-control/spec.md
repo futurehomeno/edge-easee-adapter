@@ -24,10 +24,10 @@ After `cmd.charge.start` or `cmd.charge.stop` is sent to Easee and accepted, the
 - **THEN** the re-sync is scheduled 15 s after the stored stop is actually sent
 
 ### Requirement: Charging Watchdog
-The adapter SHALL check every minute each charger whose cached state is `charging`. When no `TotalPower`, `InCurrentT3`, `InCurrentT4` or `InCurrentT5` observation has arrived for that charger for 5 minutes, it SHALL request a state re-sync, and while the silence lasts it SHALL request at most one re-sync every 5 minutes. `DynamicChargerCurrent` observations SHALL NOT count as activity, because Easee echoes the adapter's own writes with them while the rest of the stream is silent.
+The adapter SHALL check every minute each charger whose cached state is `charging`. When no `ChargerOPState` or `TotalPower` observation, the two the state report is built from, has arrived for that charger for 5 minutes, it SHALL request a state re-sync, and while the silence lasts it SHALL request at most one re-sync every 5 minutes. `DynamicChargerCurrent` observations SHALL NOT count as activity, because Easee echoes the adapter's own writes with them while the rest of the stream is silent.
 
 #### Scenario: charging and silent
-- **WHEN** a charger is cached as `charging` and no power or phase-current observation arrived for 5 minutes
+- **WHEN** a charger is cached as `charging` and no state or power observation arrived for 5 minutes
 - **THEN** a state re-sync is requested for it
 
 #### Scenario: only command echoes arrive

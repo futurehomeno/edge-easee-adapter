@@ -27,6 +27,9 @@ import (
 
 const maxCurrentValue = 32
 
+// resyncDelay gives the charger time to act on a start or stop, well inside energy-guard's 60s wait.
+const resyncDelay = 15 * time.Second
+
 var extendedReportMapping = map[numericmeter.Value]func(cache.Cache) (float64, time.Time){
 	numericmeter.ValueCurrentPhase1: cache.Cache.Phase1Current,
 	numericmeter.ValueCurrentPhase2: cache.Cache.Phase2Current,
@@ -101,10 +104,13 @@ type controller struct {
 	// can stop it, so Teardown waits this out instead to keep its "nothing more will reach the
 	// charger" guarantee true for a send already in progress.
 	inFlight sync.WaitGroup
+	// stopResync cancels the re-sync armed by the last start or stop, guarded by pace.
+	stopResync func() bool
 }
 
 type chargerCommand struct {
 	stop    bool
+	start   bool
 	current int
 }
 
@@ -192,6 +198,10 @@ func (c *controller) Teardown() {
 	c.pending = nil
 	c.followUp = nil
 
+	if c.stopResync != nil {
+		c.stopResync()
+	}
+
 	c.pace.Unlock()
 
 	c.inFlight.Wait()
@@ -249,17 +259,32 @@ func (c *controller) clampToMax(current int) int {
 }
 
 func (c *controller) send(cmd chargerCommand) error {
+	var err error
+
 	if cmd.stop {
-		return c.client.StopCharging(c.chargerID)
+		err = c.client.StopCharging(c.chargerID)
+	} else if err = c.client.UpdateDynamicCurrent(c.chargerID, float64(cmd.current)); err == nil {
+		c.cache.SetRequestedOfferedCurrent(cmd.current, clock.Now())
 	}
 
-	if err := c.client.UpdateDynamicCurrent(c.chargerID, float64(cmd.current)); err != nil {
-		return err
+	if err == nil && (cmd.stop || cmd.start) {
+		c.scheduleResync()
 	}
 
-	c.cache.SetRequestedOfferedCurrent(cmd.current, clock.Now())
+	return err
+}
 
-	return nil
+// scheduleResync re-reads the charger after a start or stop: Easee's stream can stop carrying
+// the state change the command causes (#178).
+func (c *controller) scheduleResync() {
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	if c.stopResync != nil {
+		c.stopResync()
+	}
+
+	c.stopResync = clock.AfterFunc(resyncDelay, func() { c.manager.Resync(c.chargerID) }).Stop
 }
 
 // sendPending runs on the timer goroutine. The command that stored the payload has already
@@ -628,7 +653,7 @@ func (c *controller) restartForPhaseMode(target int) error {
 	// Resumed at the session's own current rather than through StartChargepointCharging: a
 	// normal-mode start floors the current to initial_charging_current, which would silently
 	// raise a slow session - the mode is not recorded anywhere, so it cannot be restored.
-	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{current: c.clampToMax(resume)}); err != nil {
+	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{start: true, current: c.clampToMax(resume)}); err != nil {
 		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
 
 		return nil
@@ -683,7 +708,7 @@ func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
 		}
 	}
 
-	sent, err := c.dispatch(chargerCommand{current: current})
+	sent, err := c.dispatch(chargerCommand{start: force, current: current})
 	if err != nil {
 		return false, err
 	}
@@ -814,13 +839,7 @@ func (c *controller) ChargepointStateReport() (chargepoint.State, error) {
 		return "", err
 	}
 
-	if power, _ := c.cache.TotalPower(); power > 0 {
-		return chargepoint.StateCharging, nil
-	}
-
-	state, _ := c.cache.ChargerState()
-
-	return state, nil
+	return cache.ReportedState(c.cache), nil
 }
 
 func (c *controller) MeterReport(unit numericmeter.Unit) (float64, error) {

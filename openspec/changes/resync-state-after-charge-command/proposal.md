@@ -15,12 +15,12 @@ The Zaptec adapter handles the same class of fault with a 5-minute charging watc
 ## What Changes
 
 - After an accepted start or stop, the adapter re-syncs that charger's state from Easee after a short delay, well inside energy-guard's 60 s wait.
-- While a charger is cached as charging and no power or phase-current observation has arrived for 5 minutes, the adapter re-syncs it. The window matches Zaptec's `chargingStaleWindow`.
+- While a charger is cached as charging and no state or power observation has arrived for 5 minutes, the adapter re-syncs it. The window matches Zaptec's `chargingStaleWindow`.
 - A re-sync asks the live SignalR connection for the charger's current state (`SubscribeWithCurrentState`), even when the charger is already subscribed. The snapshot flows through the existing observation handlers and reports.
 - A cached `TotalPower > 0` forces `charging` only while the power observation is not older than the charger-state observation.
 
 ## Impact
 
-- `internal/signalr`: an on-demand re-sync request that bypasses the already-subscribed skip.
-- `internal/easee`: re-sync scheduling after start and stop, a charging watchdog, and the state-report power override.
+- `internal/signalr`: an on-demand re-sync request that bypasses the already-subscribed skip, and the charging watchdog.
+- `internal/easee`: re-sync scheduling after start and stop, and the state-report power override.
 - No config, FIMP or API change.

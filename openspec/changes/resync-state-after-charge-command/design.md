@@ -13,7 +13,7 @@ Alternative: `GET /api/chargers/{id}/state` over REST. It needs a new client cal
 ### Triggers
 
 - **After an accepted start or stop**, 15 s after the command was sent: long enough for the charger to act, and well inside energy-guard's 60 s wait. Only one re-sync per charger is pending at a time; a later command pushes it back.
-- **Charging watchdog**: checked every minute. It fires when the cached state is `charging` and no `TotalPower` or `InCurrentT3..T5` observation has arrived for 5 minutes, and again at most every 5 minutes while that lasts. The `DynamicChargerCurrent` echo of our own commands does not count, because it kept arriving during the reported outage.
+- **Charging watchdog**: checked every minute. It fires when the cached state is `charging` and no `ChargerOPState` or `TotalPower` observation has arrived for 5 minutes, and again at most every 5 minutes while that lasts. The `DynamicChargerCurrent` echo of our own commands does not count, because it kept arriving during the reported outage, and neither do phase currents: `i1`/`i2` arrived once mid-outage while the state stayed stale.
 
 ### Power override follows observation order
 
@@ -21,4 +21,4 @@ A cached `TotalPower > 0` forces `charging` only when its observation timestamp 
 
 ## Risks
 
-- A charger whose Easee stream never carries `TotalPower` or phase currents while charging is re-synced every 5 minutes. A snapshot is one small burst per charger, so this is accepted.
+- A charger whose Easee stream never carries `TotalPower` while charging is re-synced every 5 minutes. A snapshot is one small burst per charger, so this is accepted.
