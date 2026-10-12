@@ -43,7 +43,7 @@ type CredentialsStore interface {
 	Credentials() config.Credentials
 	SetCredentials(config.Credentials) error
 	RefreshCredentials(config.Credentials, string) error
-	ForgetPassword(username, password string) error
+	ForgetPassword(username, password config.Secret) error
 	ClearCredentials() error
 }
 
@@ -114,7 +114,7 @@ func (a *authenticator) Login(userName, password string) error {
 	// usable until the next restart. Failing the login would mark the app not configured and
 	// skip the charger setup over a disk error the next successful save repairs.
 	session := credentialsFromResponse(creds)
-	session.Username, session.Password = userName, password
+	session.Username, session.Password = config.Secret(userName), config.Secret(password)
 
 	if err = a.creds.SetCredentials(session); err != nil {
 		log.Warnf("[auth] Store credentials err: %v", err)
@@ -331,7 +331,7 @@ func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2
 func (e *tokenExchanger) relogin(stored config.Credentials, reason string) (*auth.OAuth2TokenResponse, error) {
 	log.Infof("[auth] Log in again with the stored password: %s", reason)
 
-	credentials, err := e.http.Login(stored.Username, stored.Password)
+	credentials, err := e.http.Login(string(stored.Username), string(stored.Password))
 	if errors.Is(err, ErrInvalidCredentials) {
 		if forgetErr := e.snapshot.store.ForgetPassword(stored.Username, stored.Password); forgetErr != nil {
 			log.Errorf("[auth] Forget the rejected password err: %v", forgetErr)
