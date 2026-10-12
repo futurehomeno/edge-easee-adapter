@@ -147,6 +147,7 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 
 		log.Infof("[%s] %s preempts %s", c.chargerID, cmd, preempted)
 
+		// A write displacing a stored start still starts the charger, so it inherits the start's re-sync.
 		cmd.start = cmd.start || (!cmd.stop && c.pending.start)
 	}
 
