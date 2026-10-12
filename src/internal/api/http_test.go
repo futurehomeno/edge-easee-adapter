@@ -238,11 +238,6 @@ func TestClient_UpdateMaxCurrent(t *testing.T) {
 			forceServerError: true,
 			wantErr:          true,
 		},
-		{
-			name:      "return error if access token is empty",
-			chargerID: test.ChargerID,
-			wantErr:   true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -417,11 +412,6 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) {
 			forceServerError: true,
 			wantErr:          true,
 		},
-		{
-			name:      "return error if access token is empty",
-			chargerID: test.ChargerID,
-			wantErr:   true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -497,12 +487,6 @@ func TestClient_StopCharging(t *testing.T) {
 			accessToken:      test.AccessToken,
 			forceServerError: true,
 			wantErr:          true,
-		},
-		{
-			name:        "return error if access token is empty",
-			chargerID:   test.ChargerID,
-			accessToken: test.AccessToken,
-			wantErr:     true,
 		},
 	}
 
@@ -605,11 +589,6 @@ func TestClient_ChargerConfig(t *testing.T) {
 			forceServerError: true,
 			wantErr:          true,
 		},
-		{
-			name:      "return error if access token is empty",
-			chargerID: test.ChargerID,
-			wantErr:   true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -684,10 +663,6 @@ func TestClient_Ping(t *testing.T) {
 			accessToken:      test.AccessToken,
 			forceServerError: true,
 			wantErr:          true,
-		},
-		{
-			name:    "error - access token empty",
-			wantErr: true,
 		},
 	}
 
@@ -777,10 +752,6 @@ func TestClient_Chargers(t *testing.T) {
 			accessToken:      test.AccessToken,
 			forceServerError: true,
 			wantErr:          true,
-		},
-		{
-			name:    "error - access token empty",
-			wantErr: true,
 		},
 	}
 

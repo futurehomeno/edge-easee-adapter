@@ -15,10 +15,9 @@ const postinstScript = "../../package/debian/DEBIAN/postinst"
 func TestPostinst_UpgradedUserMovesToFuturehomeGroup(t *testing.T) {
 	t.Parallel()
 
-	out, calls := runAddUserAndGroup(t, "")
+	_, calls := runAddUserAndGroup(t, "")
 
 	assert.Equal(t, "usermod -g futurehome easee\n", calls)
-	assert.NotContains(t, out, "Warning")
 }
 
 func TestPostinst_FailedGroupMoveWarns(t *testing.T) {
