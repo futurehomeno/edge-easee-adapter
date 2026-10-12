@@ -336,7 +336,6 @@ func (m *manager) handleSubscription(chargerID string) error {
 	}
 
 	resync := charger.resync
-	charger.resync = false
 
 	// A retry armed before a disconnect can fire after the reconnect sweep already
 	// re-subscribed this charger; don't subscribe twice on the same connection. Subscribes
@@ -347,6 +346,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 		return nil
 	}
 
+	charger.resync = false
 	charger.subscribing = true
 	epoch := m.epoch
 	subscribeEpoch := charger.subscribeEpoch
@@ -366,10 +366,10 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// guard above drops that retry when it arrives while this subscribe is still in flight, so
 	// the charger would be left idle with nothing pending. Enqueued after the unlock below:
 	// enqueueSubscription takes m.mu itself.
-	retired := false
+	requeue := false
 
 	defer func() {
-		if retired {
+		if requeue {
 			m.enqueueSubscription(chargerID)
 		}
 
@@ -444,7 +444,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// would leave the retry the repair enqueued short-circuiting on a subscription that no
 	// longer exists - silent until the next reconnect.
 	if charger.subscribeEpoch != subscribeEpoch {
-		retired = true
+		requeue = true
 
 		return nil
 	}
@@ -452,6 +452,8 @@ func (m *manager) handleSubscription(chargerID string) error {
 	charger.backoff.Reset()
 	charger.isSubscribed = true
 	charger.subscribeFailed = false
+	// A re-sync asked for while this subscribe ran may postdate the state it replayed.
+	requeue = charger.resync
 
 	log.Debugf("signalR: subscribed charger '%s'", chargerID)
 	return nil

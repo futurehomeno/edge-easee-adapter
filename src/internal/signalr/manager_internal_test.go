@@ -1179,6 +1179,37 @@ func TestResync_ResubscribesASubscribedCharger(t *testing.T) {
 	assert.True(t, m.chargers[chargerID].isSubscribed)
 }
 
+// midSubscribeResyncClient has a re-sync asked for, and handled, while its first subscribe is in flight.
+type midSubscribeResyncClient struct {
+	countingSubscribeClient
+
+	m *manager
+}
+
+func (c *midSubscribeResyncClient) SubscribeCharger(id string) error {
+	if c.subscribes.Add(1) == 1 {
+		c.m.Resync(id)
+		_ = c.m.handleSubscription(<-c.m.subscriptions)
+	}
+
+	return nil
+}
+
+// The in-flight subscribe may have replayed the state from before the command that asked for the re-sync.
+func TestResync_AskedForDuringASubscribeRunsAfterIt(t *testing.T) {
+	client := &midSubscribeResyncClient{}
+	m := newTestManagerWithClient(t, client)
+	client.m = m
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+	m.chargers[chargerID].isSubscribed = true
+
+	m.Resync(chargerID)
+	runSubscriptions(t, m)
+
+	assert.Equal(t, int32(2), client.subscribes.Load())
+}
+
 // A reconnect sweep or a pending subscribe brings its own snapshot.
 func TestResync_SkipsAChargerThatIsNotSubscribed(t *testing.T) {
 	m, client := newResyncManager(t)
