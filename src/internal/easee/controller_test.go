@@ -2282,7 +2282,11 @@ func TestController_Teardown_WaitsOutASendThatAlreadyWonTheRace(t *testing.T) {
 		}).
 		Return(nil).Once()
 
-	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+	resynced := make(chan struct{}, 1)
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Resync", "test-charger").Run(signal(resynced)).Maybe()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
 
 	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
 
@@ -2309,6 +2313,15 @@ func TestController_Teardown_WaitsOutASendThatAlreadyWonTheRace(t *testing.T) {
 
 	close(release)
 	awaitDeferred(t, teardownDone)
+
+	// The stop armed its re-sync only once Easee answered, after Teardown was already waiting.
+	clk.Add(time.Minute)
+
+	select {
+	case <-resynced:
+		t.Fatal("a re-sync armed by the in-flight stop fired after Teardown")
+	case <-time.After(50 * time.Millisecond):
+	}
 
 	clientMock.AssertNumberOfCalls(t, "StopCharging", 1)
 }

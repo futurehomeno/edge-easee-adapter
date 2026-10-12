@@ -200,13 +200,17 @@ func (c *controller) Teardown() {
 	c.pending = nil
 	c.followUp = nil
 
-	if c.stopResync != nil {
-		c.stopResync()
-	}
-
 	c.pace.Unlock()
 
 	c.inFlight.Wait()
+
+	// After the wait: an in-flight start or stop arms its re-sync only once Easee answers.
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	if c.stopResync != nil {
+		c.stopResync()
+	}
 }
 
 // clearFollowUp drops a pair's second half when the first never reached Easee. Armed before the
