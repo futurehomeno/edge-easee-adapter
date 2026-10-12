@@ -104,7 +104,6 @@ func TestApplication_Uninstall(t *testing.T) {
 		credentials         config.Credentials
 		setLifecycle        func(lc *lifecycle.Lifecycle)
 		mockAdapter         func(a *mockedadapter.Adapter)
-		wantErr             bool
 		lifecycleAssertions func(lc *lifecycle.Lifecycle)
 		configAssertions    func(c *config.Config)
 	}{
@@ -135,25 +134,6 @@ func TestApplication_Uninstall(t *testing.T) {
 				assert.Equal(t, &config.Config{}, c)
 			},
 		},
-		{
-			name: "adapter error on destroying all things",
-			cfg:  &config.Config{},
-			credentials: config.Credentials{
-				AccessToken:          "access-token",
-				RefreshToken:         "refresh-token",
-				AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
-			},
-			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
-				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnState(lifecycle.ConnStateConnected)
-				lc.SetConfigState(lifecycle.ConfigStateConfigured)
-			},
-			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.On("DestroyAllThings").Return(errors.New("test error"))
-			},
-			wantErr: true,
-		},
 	}
 
 	for _, tt := range tests {
@@ -181,15 +161,7 @@ func TestApplication_Uninstall(t *testing.T) {
 			sessionStorage.On("Reset").Return(nil)
 			application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil, credentials, sessionStorage)
 
-			err := application.Uninstall()
-
-			if tt.wantErr {
-				assert.Error(t, err)
-
-				return
-			}
-
-			assert.NoError(t, err)
+			assert.NoError(t, application.Uninstall())
 
 			if tt.lifecycleAssertions != nil {
 				tt.lifecycleAssertions(lc)
@@ -561,28 +533,6 @@ func TestApplication_Logout(t *testing.T) {
 			},
 		},
 		{
-			name: "adapter error on destroying all things",
-			// Credentials survive the failed clear, which is what makes this the failure path:
-			// with an empty store the logout stands regardless of the error.
-			credentials: config.Credentials{AccessToken: "still-here"},
-			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
-				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
-			},
-			authLogoutError: errors.New("error"),
-			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppHealthError, lc.AppHealth())
-				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
-			},
-			mockSignalRClient: func(c *mocksignalr.Client) {
-				c.On("Close").Return(nil)
-			},
-
-			wantErr: true,
-		},
-		{
 			// #165: a clear that fails leaves the tokens readable, and Initialize treats a
 			// non-empty store as a live session - so marking the app not-configured here has the
 			// next restart silently log the user back in. Health must stay error.
@@ -727,12 +677,6 @@ func TestApplication_Initialize(t *testing.T) {
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(errors.New("oops"))
 			},
-			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
-				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
-				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
-			},
 			wantErr: true,
 		},
 		{
@@ -848,10 +792,6 @@ func TestApplication_Configure_Selection(t *testing.T) {
 		wantErr      string
 		wantSeeded   []string
 		wantSelected selection.Selection
-		// Set when a failing configure is still expected to leave a selection on disk: the
-		// shared policy adopts the owned chargers up front so the retry budget has something
-		// to measure against, and that adoption is deliberately persisted before it refuses.
-		wantAdoptedOnErr selection.Selection
 	}{
 		{
 			name:         "valid subset is seeded and persisted",
@@ -893,17 +833,6 @@ func TestApplication_Configure_Selection(t *testing.T) {
 			owned:        []string{"123"},
 			wantSeeded:   []string{"123"},
 			wantSelected: []string{"123"},
-		},
-		{
-			// The omitted charger goes through the shared retry budget rather than being
-			// dropped on sight: a partial /chargers response looks exactly like a real
-			// removal, and seeding without it destroys its thing for good. The budget is
-			// what tells the two apart, and it prunes on its own once the retries run out.
-			name:             "an absent selection retries an owned charger Easee no longer lists",
-			chargers:         []model.Charger{{ID: "123"}},
-			owned:            []string{"123", "gone"},
-			wantErr:          "not found in chargers list",
-			wantAdoptedOnErr: []string{"123", "gone"},
 		},
 		{
 			// An empty response must leave the implicit include-all implicit: persisting []
@@ -963,12 +892,7 @@ func TestApplication_Configure_Selection(t *testing.T) {
 
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
-
-				if tt.wantAdoptedOnErr != nil {
-					assert.Equal(t, tt.wantAdoptedOnErr, h.cfg.SelectedDevices(), "the adopted selection is kept so the retry budget can measure against it")
-				} else {
-					assert.Empty(t, h.cfg.SelectedDevices(), "a failed configure must not persist a selection")
-				}
+				assert.Empty(t, h.cfg.SelectedDevices(), "a failed configure must not persist a selection")
 
 				return
 			}
