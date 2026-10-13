@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 	"strconv"
 	"time"
 
-	"slices"
-
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
+	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -17,7 +19,6 @@ const (
 	CableAlwaysLockedParameter = "cable_always_locked"
 )
 
-// Credentials stands for Easee API credentials.
 type Credentials struct {
 	AccessToken  string   `json:"accessToken"`
 	ExpiresIn    int      `json:"expiresIn"`
@@ -26,7 +27,6 @@ type Credentials struct {
 	RefreshToken string   `json:"refreshToken"`
 }
 
-// Charger represents charger data.
 type Charger struct {
 	ID            string    `json:"id"`
 	Name          string    `json:"name"`
@@ -38,36 +38,30 @@ type Charger struct {
 	ProductCode   int       `json:"productCode"`
 }
 
-// ChargerDetails represents charger's details.
 type ChargerDetails struct {
 	Product string `json:"product"`
 }
 
-// BackPlate represents charger's back plate.
 type BackPlate struct {
 	ID                string `json:"id"`
 	MasterBackPlateID string `json:"masterBackPlateId"`
 }
 
-// ChargerConfig represents charger config.
 type ChargerConfig struct {
 	DetectedPowerGridType GridType `json:"detectedPowerGridType"`
 	PhaseMode             int      `json:"phaseMode"`
 }
 
-// ChargerSiteInfo represents charger rate current.
+// ChargerSiteInfo carries the site's rated current.
 type ChargerSiteInfo struct {
 	RatedCurrent float64 `json:"ratedCurrent"`
 }
 
 const (
-	// ChargingModeNormal represents a "normal" charging mode.
 	ChargingModeNormal = "normal"
-	// ChargingModeSlow represents a "slow" charging mode.
-	ChargingModeSlow = "slow"
+	ChargingModeSlow   = "slow"
 )
 
-// SupportedChargingModes returns all charging modes supported by Easee.
 func SupportedChargingModes() []string {
 	return []string{
 		ChargingModeNormal,
@@ -75,7 +69,6 @@ func SupportedChargingModes() []string {
 	}
 }
 
-// Observation represents a SignalR observation data.
 type Observation struct {
 	ID        ObservationID       `json:"id"`
 	ChargerID string              `json:"mid"`
@@ -85,23 +78,15 @@ type Observation struct {
 }
 
 func (o *Observation) Str() string {
-	ret := fmt.Sprintf("[%s] %s", o.ChargerID, o.ID.Str())
-
 	if o.DataType == ObservationDataTypeDouble {
-		valFloat, err := strconv.ParseFloat(o.Value, 64)
-
-		if err == nil {
-			ret += fmt.Sprintf("=%.2f", valFloat)
-			return ret
+		if v, err := strconv.ParseFloat(o.Value, 64); err == nil {
+			return fmt.Sprintf("[%s] %s=%.2f", o.ChargerID, o.ID.Str(), v)
 		}
 	}
 
-	ret += fmt.Sprintf("=%s", o.Value)
-
-	return ret
+	return fmt.Sprintf("[%s] %s=%s", o.ChargerID, o.ID.Str(), o.Value)
 }
 
-// IntValue returns an integer representation of the Observation value.
 func (o *Observation) IntValue() (int, error) {
 	if o.DataType != ObservationDataTypeInteger {
 		return 0, errors.New("observation data type is not int")
@@ -110,7 +95,17 @@ func (o *Observation) IntValue() (int, error) {
 	return strconv.Atoi(o.Value)
 }
 
-// Float64Value returns a float64 representation of the Observation value.
+// NumericIntValue parses a whole number without asserting the declared data type, for
+// observations Easee has been seen sending as either integer or double.
+func (o *Observation) NumericIntValue() (int, error) {
+	v, err := strconv.ParseFloat(o.Value, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return int(math.Round(v)), nil
+}
+
 func (o *Observation) Float64Value() (float64, error) {
 	if o.DataType != ObservationDataTypeDouble {
 		return 0, errors.New("observation data type is not float64")
@@ -119,7 +114,6 @@ func (o *Observation) Float64Value() (float64, error) {
 	return strconv.ParseFloat(o.Value, 64)
 }
 
-// BoolValue returns a bool representation of the Observation value.
 func (o *Observation) BoolValue() (bool, error) {
 	if o.DataType != ObservationDataTypeBoolean {
 		return false, errors.New("observation data type is not bool")
@@ -128,7 +122,7 @@ func (o *Observation) BoolValue() (bool, error) {
 	return strconv.ParseBool(o.Value)
 }
 
-// JSONValue returns a string representation of the Observation value.
+// JSONValue unmarshals the Observation value into v.
 func (o *Observation) JSONValue(v any) error {
 	if o.DataType != ObservationDataTypeString {
 		return errors.New("observation data type is not string")
@@ -137,80 +131,78 @@ func (o *Observation) JSONValue(v any) error {
 	return json.Unmarshal([]byte(o.Value), v)
 }
 
-// ObservationID represents an Observation ID in Easee API.
 type ObservationID int
 
 const (
 	DetectedPowerGridType ObservationID = 21
 	LockCablePermanently  ObservationID = 30
 	PhaseMode             ObservationID = 38
+	LEDBrightness         ObservationID = 40
 	MaxChargerCurrent     ObservationID = 47
 	DynamicChargerCurrent ObservationID = 48
+	SoftwareVersion       ObservationID = 80
+	NoCurrentReason       ObservationID = 96
 	CableLocked           ObservationID = 103
 	CableRating           ObservationID = 104
 	ChargerOPState        ObservationID = 109
 	OutputPhase           ObservationID = 110
+	ErrorString           ObservationID = 118
+	ErrorCode             ObservationID = 119
 	TotalPower            ObservationID = 120
 	EnergySession         ObservationID = 121
 	LifetimeEnergy        ObservationID = 124
 	ChargingSessionStop   ObservationID = 129
+	CellRSSI              ObservationID = 130
+	WiFiRSSI              ObservationID = 132
+	RadioRSSI             ObservationID = 136
+	ConnectionType        ObservationID = 141
 	InCurrentT3           ObservationID = 183
 	InCurrentT4           ObservationID = 184
 	InCurrentT5           ObservationID = 185
 	ChargingSessionStart  ObservationID = 223
 	CloudConnected        ObservationID = 250
+	CloudDisconnectReason ObservationID = 251
 )
 
-//nolint:cyclop
+var observationIDNames = map[ObservationID]string{
+	DetectedPowerGridType: "detected_power_grid_type",
+	LockCablePermanently:  "lock_cable_permanently",
+	PhaseMode:             "phase_mode",
+	MaxChargerCurrent:     "max_charger_current",
+	DynamicChargerCurrent: "dynamic_charger_current",
+	CableLocked:           "cable_locked",
+	CableRating:           "cable_rating",
+	ChargerOPState:        "charger_op_state",
+	OutputPhase:           "output_phase",
+	TotalPower:            "total_power",
+	EnergySession:         "energy_session",
+	LifetimeEnergy:        "lifetime_energy",
+	ChargingSessionStop:   "charging_session_stop",
+	InCurrentT3:           "in_current_t3",
+	InCurrentT4:           "in_current_t4",
+	InCurrentT5:           "in_current_t5",
+	ChargingSessionStart:  "charging_session_start",
+	CloudConnected:        "cloud_connected",
+	ErrorCode:             "error_code",
+	ErrorString:           "error_string",
+}
+
 func (o ObservationID) Str() string {
-	switch o {
-	case DetectedPowerGridType:
-		return "detected_power_grid_type"
-	case LockCablePermanently:
-		return "lock_cable_permanently"
-	case PhaseMode:
-		return "phase_mode"
-	case MaxChargerCurrent:
-		return "max_charger_current"
-	case DynamicChargerCurrent:
-		return "dynamic_charger_current"
-	case CableLocked:
-		return "cable_locked"
-	case CableRating:
-		return "cable_rating"
-	case ChargerOPState:
-		return "charger_op_state"
-	case OutputPhase:
-		return "output_phase"
-	case TotalPower:
-		return "total_power"
-	case EnergySession:
-		return "energy_session"
-	case LifetimeEnergy:
-		return "lifetime_energy"
-	case ChargingSessionStop:
-		return "charging_session_stop"
-	case InCurrentT3:
-		return "in_current_t3"
-	case InCurrentT4:
-		return "in_current_t4"
-	case InCurrentT5:
-		return "in_current_t5"
-	case ChargingSessionStart:
-		return "charging_session_start"
-	case CloudConnected:
-		return "cloud_connected"
-	default:
-		return fmt.Sprintf("unknown=%d", o)
+	if name, ok := observationIDNames[o]; ok {
+		return name
 	}
+
+	return fmt.Sprintf("unknown=%d", o)
 }
 
-// Supported returns true if the ObservationID is supported by our system.
+// supportedObservationIDs is snapshotted once: Supported() is called for every observation
+// that arrives, including the full replay burst after each reconnect.
+var supportedObservationIDs = SupportedObservationIDs()
+
 func (o ObservationID) Supported() bool {
-	return slices.Contains(SupportedObservationIDs(), o)
+	return slices.Contains(supportedObservationIDs, o)
 }
 
-// SupportedObservationIDs returns all observation IDs supported by our system.
 func SupportedObservationIDs() []ObservationID {
 	return []ObservationID{
 		DetectedPowerGridType,
@@ -223,19 +215,18 @@ func SupportedObservationIDs() []ObservationID {
 		LifetimeEnergy,
 		EnergySession,
 		CableRating,
+		ErrorCode,
 		InCurrentT3,
 		InCurrentT4,
 		InCurrentT5,
 		CloudConnected,
 		CableLocked,
-		CableRating,
 		LockCablePermanently,
 		ChargingSessionStart,
 		ChargingSessionStop,
 	}
 }
 
-// ObservationDataType represents an Observation data type.
 type ObservationDataType int
 
 const (
@@ -248,28 +239,6 @@ const (
 	ObservationDataTypeStatistics
 )
 
-func (o ObservationDataType) Str() string {
-	switch o {
-	case ObservationDataTypeBinary:
-		return "binary"
-	case ObservationDataTypeBoolean:
-		return "boolean"
-	case ObservationDataTypeDouble:
-		return "double"
-	case ObservationDataTypeInteger:
-		return "integer"
-	case ObservationDataTypePosition:
-		return "position"
-	case ObservationDataTypeString:
-		return "string"
-	case ObservationDataTypeStatistics:
-		return "statistics"
-	default:
-		return fmt.Sprintf("unknown=%d", o)
-	}
-}
-
-// ChargerState represents an observation charger state.
 type ChargerState int
 
 const (
@@ -284,6 +253,27 @@ const (
 	ChargerStateAwaitingAuthentication
 	ChargerStateDeAuthenticating
 )
+
+var chargerStateNames = map[ChargerState]string{
+	ChargerStateUnknown:                "unknown",
+	ChargerStateOffline:                "offline",
+	ChargerStateDisconnected:           "disconnected",
+	ChargerStateAwaitingStart:          "await_start",
+	ChargerStateCharging:               "charging",
+	ChargerStateCompleted:              "completed",
+	ChargerStateError:                  "error",
+	ChargerStateReadyToCharge:          "ready_to_charge",
+	ChargerStateAwaitingAuthentication: "await_auth",
+	ChargerStateDeAuthenticating:       "de_auth",
+}
+
+func (s ChargerState) Str() string {
+	if name, ok := chargerStateNames[s]; ok {
+		return name
+	}
+
+	return fmt.Sprintf("unknown(%d)", s)
+}
 
 type OutputPhaseType int
 
@@ -301,34 +291,25 @@ const (
 	P3T2T3T4T5TN OutputPhaseType = 30
 )
 
-func (o OutputPhaseType) ToFimpState() chargepoint.PhaseMode { //nolint:cyclop
-	switch o { //nolint:exhaustive
-	case P1T2T3TN:
-		return chargepoint.PhaseModeNL1
-	case P1T2T3IT:
-		return chargepoint.PhaseModeL1L2
-	case P1T2T4TN:
-		return chargepoint.PhaseModeNL2
-	case P1T2T4IT:
-		return chargepoint.PhaseModeL3L1
-	case P1T2T5TN:
-		return chargepoint.PhaseModeNL3
-	case P1T3T4IT:
-		return chargepoint.PhaseModeL2L3
-	case P2T2T3T4TN:
-		return chargepoint.PhaseModeNL1L2
-	case P2T2T4T5TN:
-		return chargepoint.PhaseModeNL2L3
-	case P2T2T3T4IT:
-		return chargepoint.PhaseModeL1L2L3
-	case P3T2T3T4T5TN:
-		return chargepoint.PhaseModeNL1L2L3
-	default:
-		return ""
-	}
+// outputPhaseModes omits Unassigned: its zero value is the empty mode the charger reports
+// while idle, which callers treat as "no reading".
+var outputPhaseModes = map[OutputPhaseType]types.PhaseMode{
+	P1T2T3TN:     types.PhaseModeNL1,
+	P1T2T3IT:     types.PhaseModeL1L2,
+	P1T2T4TN:     types.PhaseModeNL2,
+	P1T2T4IT:     types.PhaseModeL3L1,
+	P1T2T5TN:     types.PhaseModeNL3,
+	P1T3T4IT:     types.PhaseModeL2L3,
+	P2T2T3T4TN:   types.PhaseModeNL1L2,
+	P2T2T4T5TN:   types.PhaseModeNL2L3,
+	P2T2T3T4IT:   types.PhaseModeL1L2L3,
+	P3T2T3T4T5TN: types.PhaseModeNL1L2L3,
 }
 
-// SupportedChargingStates returns all charging states supported by Easee.
+func (o OutputPhaseType) ToFimpState() types.PhaseMode {
+	return outputPhaseModes[o]
+}
+
 func SupportedChargingStates() []ChargerState {
 	return []ChargerState{
 		ChargerStateOffline,
@@ -343,32 +324,23 @@ func SupportedChargingStates() []ChargerState {
 	}
 }
 
-// ToFimpState returns a human-readable name of the state.
-func (s ChargerState) ToFimpState() chargepoint.State { //nolint:cyclop
-	switch s {
-	case ChargerStateUnknown:
-		return chargepoint.StateUnknown
-	case ChargerStateOffline:
-		return chargepoint.StateUnknown
-	case ChargerStateDisconnected:
-		return chargepoint.StateDisconnected
-	case ChargerStateAwaitingStart:
-		return chargepoint.StateReadyToCharge
-	case ChargerStateCharging:
-		return chargepoint.StateCharging
-	case ChargerStateCompleted:
-		return chargepoint.StateFinished
-	case ChargerStateError:
-		return chargepoint.StateError
-	case ChargerStateReadyToCharge:
-		return chargepoint.StateSuspendedByEV
-	case ChargerStateAwaitingAuthentication:
-		return chargepoint.StateRequesting
-	case ChargerStateDeAuthenticating:
-		return chargepoint.StateUnknown
-	default:
-		return chargepoint.StateUnknown
+// fimpStates omits every state that maps to StateUnknown; the lookup falls back to it.
+var fimpStates = map[ChargerState]chargepoint.State{
+	ChargerStateDisconnected:           chargepoint.StateDisconnected,
+	ChargerStateAwaitingStart:          chargepoint.StateReadyToCharge,
+	ChargerStateCharging:               chargepoint.StateCharging,
+	ChargerStateCompleted:              chargepoint.StateFinished,
+	ChargerStateError:                  chargepoint.StateError,
+	ChargerStateReadyToCharge:          chargepoint.StateSuspendedByEV,
+	ChargerStateAwaitingAuthentication: chargepoint.StateRequesting,
+}
+
+func (s ChargerState) ToFimpState() chargepoint.State {
+	if state, ok := fimpStates[s]; ok {
+		return state
 	}
+
+	return chargepoint.StateUnknown
 }
 
 func (s ChargerState) IsSessionFinished() bool {
@@ -386,7 +358,6 @@ func (s ChargerState) IsSessionFinished() bool {
 	}
 }
 
-// ClientState represents the state of the SignalR client.
 type ClientState int
 
 func (s ClientState) String() string {
@@ -402,7 +373,6 @@ const (
 	ClientStateConnected
 )
 
-// GridType represents a grid type.
 type GridType int
 
 const (
@@ -427,8 +397,42 @@ const (
 	GridTypeErrorITGroundConnectedToPin2Or3 GridType = 52
 )
 
-// ToFimpGridType returns grid type and phases.
-func (g GridType) ToFimpGridType() (chargepoint.GridType, int) {
+func SupportedAlarmEvents() []string {
+	return []string{alarm.EventGroundingFault, alarm.EventGridTypeFault, alarm.EventOtherChargeErr}
+}
+
+// IsGroundFault reports whether the detected grid type indicates a ground fault.
+func (g GridType) IsGroundFault() bool {
+	switch g { //nolint:exhaustive
+	case GridTypeWarningIT3PhaseGNDFault,
+		GridTypeWarningIT1PhaseGNDFault,
+		GridTypeWarningIT3PhaseGNDFaultL3,
+		GridTypeWarningIT1PhaseGNDFaultL3,
+		GridTypeWarningTN3PhaseGNDFault,
+		GridTypeWarningTN2PhaseGNDFault,
+		GridTypeErrorITGroundConnectedToPin2Or3:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsWiringFault reports whether the detected grid type indicates a mis-wired installation.
+func (g GridType) IsWiringFault() bool {
+	switch g { //nolint:exhaustive
+	case GridTypeWarningTN2PhasePin235,
+		GridTypeWarningTN1PhaseNeutralOnPin3,
+		GridTypeWarningTN2PhasePIN234,
+		GridTypeErrorNoValidPowerGridFound,
+		GridTypeErrorTN400VNeutralOnWrongPin:
+		return true
+	default:
+		return false
+	}
+}
+
+// ToFimpGridType maps an Easee grid type onto a FIMP grid type and phase count.
+func (g GridType) ToFimpGridType() (types.GridType, int) {
 	if g >= GridTypeWarningTN2PhasePin235 {
 		log.Warnf("faulty grid type detected: %s", g)
 	}
@@ -442,52 +446,37 @@ func (g GridType) ToFimpGridType() (chargepoint.GridType, int) {
 	return "", 0
 }
 
-// String returns a human-readable name of the grid type.
-func (g GridType) String() string { //nolint:cyclop
-	switch g { //nolint:exhaustive
-	case GridTypeNotYetDetected:
-		return "not yet detected"
-	case GridTypeTN3Phase:
-		return "TN 3-phase"
-	case GridTypeTN2PhasePin23:
-		return "TN 2-phase (pin 2, 3)"
-	case GridTypeTN1Phase:
-		return "TN 1-phase"
-	case GridTypeIT3Phase:
-		return "IT 3-phase"
-	case GridTypeIT1Phase:
-		return "IT 1-phase"
-	case GridTypeWarningTN2PhasePin235:
-		return "TN 2-phase (pin 2, 3, 5)"
-	case GridTypeWarningTN1PhaseNeutralOnPin3:
-		return "TN 1-phase (neutral on pin 3)"
-	case GridTypeWarningIT3PhaseGNDFault:
-		return "IT 3-phase (ground fault)"
-	case GridTypeWarningIT1PhaseGNDFault:
-		return "IT 1-phase (ground fault)"
-	case GridTypeWarningIT3PhaseGNDFaultL3:
-		return "IT 3-phase (ground fault L3)"
-	case GridTypeWarningIT1PhaseGNDFaultL3:
-		return "IT 1-phase (ground fault L3)"
-	case GridTypeWarningTN2PhasePIN234:
-		return "TN 2-phase (pin 2, 3, 4)"
-	case GridTypeWarningTN3PhaseGNDFault:
-		return "TN 3-phase (ground fault)"
-	case GridTypeWarningTN2PhaseGNDFault:
-		return "TN 2-phase (ground fault)"
-	case GridTypeErrorNoValidPowerGridFound:
-		return "error - no valid power grid found"
-	case GridTypeErrorTN400VNeutralOnWrongPin:
-		return "error - TN 400V neutral on wrong pin"
-	case GridTypeErrorITGroundConnectedToPin2Or3:
-		return "error - IT ground connected to pin 2 or 3"
-	default:
-		return "unknown"
+var gridTypeNames = map[GridType]string{
+	GridTypeNotYetDetected:                  "not yet detected",
+	GridTypeTN3Phase:                        "TN 3-phase",
+	GridTypeTN2PhasePin23:                   "TN 2-phase (pin 2, 3)",
+	GridTypeTN1Phase:                        "TN 1-phase",
+	GridTypeIT3Phase:                        "IT 3-phase",
+	GridTypeIT1Phase:                        "IT 1-phase",
+	GridTypeWarningTN2PhasePin235:           "TN 2-phase (pin 2, 3, 5)",
+	GridTypeWarningTN1PhaseNeutralOnPin3:    "TN 1-phase (neutral on pin 3)",
+	GridTypeWarningIT3PhaseGNDFault:         "IT 3-phase (ground fault)",
+	GridTypeWarningIT1PhaseGNDFault:         "IT 1-phase (ground fault)",
+	GridTypeWarningIT3PhaseGNDFaultL3:       "IT 3-phase (ground fault L3)",
+	GridTypeWarningIT1PhaseGNDFaultL3:       "IT 1-phase (ground fault L3)",
+	GridTypeWarningTN2PhasePIN234:           "TN 2-phase (pin 2, 3, 4)",
+	GridTypeWarningTN3PhaseGNDFault:         "TN 3-phase (ground fault)",
+	GridTypeWarningTN2PhaseGNDFault:         "TN 2-phase (ground fault)",
+	GridTypeErrorNoValidPowerGridFound:      "error - no valid power grid found",
+	GridTypeErrorTN400VNeutralOnWrongPin:    "error - TN 400V neutral on wrong pin",
+	GridTypeErrorITGroundConnectedToPin2Or3: "error - IT ground connected to pin 2 or 3",
+}
+
+func (g GridType) String() string {
+	if name, ok := gridTypeNames[g]; ok {
+		return name
 	}
+
+	return "unknown"
 }
 
 type networkType struct {
-	gridType chargepoint.GridType
+	gridType types.GridType
 	phases   int
 }
 
@@ -495,22 +484,22 @@ var easeeNetworkTypeMap = map[GridType]networkType{
 	GridTypeUnknown:                         {"", 0},
 	GridTypeNotYetDetected:                  {"", 0},
 	GridTypeErrorNoValidPowerGridFound:      {"", 0},
-	GridTypeErrorTN400VNeutralOnWrongPin:    {chargepoint.GridTypeTN, 0},
-	GridTypeErrorITGroundConnectedToPin2Or3: {chargepoint.GridTypeIT, 0},
-	GridTypeTN3Phase:                        {chargepoint.GridTypeTN, 3},
-	GridTypeTN2PhasePin23:                   {chargepoint.GridTypeTN, 2},
-	GridTypeTN1Phase:                        {chargepoint.GridTypeTN, 1},
-	GridTypeIT3Phase:                        {chargepoint.GridTypeIT, 3},
-	GridTypeIT1Phase:                        {chargepoint.GridTypeIT, 1},
-	GridTypeWarningTN2PhasePin235:           {chargepoint.GridTypeTN, 2},
-	GridTypeWarningTN1PhaseNeutralOnPin3:    {chargepoint.GridTypeTN, 1},
-	GridTypeWarningIT3PhaseGNDFault:         {chargepoint.GridTypeIT, 3},
-	GridTypeWarningIT1PhaseGNDFault:         {chargepoint.GridTypeIT, 1},
-	GridTypeWarningIT3PhaseGNDFaultL3:       {chargepoint.GridTypeIT, 3},
-	GridTypeWarningIT1PhaseGNDFaultL3:       {chargepoint.GridTypeIT, 1},
-	GridTypeWarningTN2PhasePIN234:           {chargepoint.GridTypeTN, 2},
-	GridTypeWarningTN3PhaseGNDFault:         {chargepoint.GridTypeTN, 3},
-	GridTypeWarningTN2PhaseGNDFault:         {chargepoint.GridTypeTN, 2},
+	GridTypeErrorTN400VNeutralOnWrongPin:    {types.GridTypeTN, 0},
+	GridTypeErrorITGroundConnectedToPin2Or3: {types.GridTypeIT, 0},
+	GridTypeTN3Phase:                        {types.GridTypeTN, 3},
+	GridTypeTN2PhasePin23:                   {types.GridTypeTN, 2},
+	GridTypeTN1Phase:                        {types.GridTypeTN, 1},
+	GridTypeIT3Phase:                        {types.GridTypeIT, 3},
+	GridTypeIT1Phase:                        {types.GridTypeIT, 1},
+	GridTypeWarningTN2PhasePin235:           {types.GridTypeTN, 2},
+	GridTypeWarningTN1PhaseNeutralOnPin3:    {types.GridTypeTN, 1},
+	GridTypeWarningIT3PhaseGNDFault:         {types.GridTypeIT, 3},
+	GridTypeWarningIT1PhaseGNDFault:         {types.GridTypeIT, 1},
+	GridTypeWarningIT3PhaseGNDFaultL3:       {types.GridTypeIT, 3},
+	GridTypeWarningIT1PhaseGNDFaultL3:       {types.GridTypeIT, 1},
+	GridTypeWarningTN2PhasePIN234:           {types.GridTypeTN, 2},
+	GridTypeWarningTN3PhaseGNDFault:         {types.GridTypeTN, 3},
+	GridTypeWarningTN2PhaseGNDFault:         {types.GridTypeTN, 2},
 }
 
 type TimestampedValue[T any] struct {
@@ -524,10 +513,6 @@ type StartChargingSession struct {
 	Start      time.Time `json:"Start"`
 }
 
-func (s *StartChargingSession) IDString() string {
-	return strconv.FormatInt(s.ID, 10)
-}
-
 type StopChargingSession struct {
 	ID              int64     `json:"Id"`
 	Energy          float64   `json:"EnergyKwh"`
@@ -535,8 +520,4 @@ type StopChargingSession struct {
 	MeterValueStop  float64   `json:"MeterValueStop"`
 	Start           time.Time `json:"Start"`
 	Stop            time.Time `json:"Stop"`
-}
-
-func (s *StopChargingSession) IDString() string {
-	return strconv.FormatInt(s.ID, 10)
 }

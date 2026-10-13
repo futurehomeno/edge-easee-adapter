@@ -1,0 +1,185 @@
+name: Go
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install mockery
+        run: |
+          go install github.com/vektra/mockery/v2@v2.53.5
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Verify tools
+        run: |
+          go version
+          mockery --version
+
+      - name: Generate mocks
+        run: |
+          make generate-mocks
+
+      - name: Upload mocks
+        uses: actions/upload-artifact@v4
+        with:
+          name: generated-mocks
+          path: src/internal/test/mocks/
+
+  build:
+    runs-on: ubuntu-24.04
+    needs: setup
+    timeout-minutes: 3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build
+        shell: bash
+        run: |
+          export "GH_TOKEN=${{ secrets.GH_OAUTH_TOKEN }}"
+          git config --global url."https://$GH_TOKEN@github.com/".insteadOf "https://github.com/"
+          make deb-arm
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: easee-armhf
+          path: package/build/*.deb
+
+  linter:
+    runs-on: ubuntu-24.04
+    needs: setup
+    timeout-minutes: 3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Download mocks
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-mocks
+          path: src/internal/test/mocks/
+
+      - name: Configure git for private modules
+        run: |
+          git config --global url."https://${{ secrets.GH_OAUTH_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      - name: Configure Go private modules
+        run: go env -w GOPRIVATE=github.com/futurehomeno/*
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          working-directory: src
+
+      - name: Run staticcheck
+        run: |
+          cd src
+          go install honnef.co/go/tools/cmd/staticcheck@latest
+          staticcheck ./...
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs:
+      - setup
+      - build
+      - linter
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Download mocks
+        uses: actions/download-artifact@v4
+        with:
+          name: generated-mocks
+          path: src/internal/test/mocks/
+
+      - name: Test
+        shell: bash
+        run: |
+          export "GH_TOKEN=${{ secrets.GH_OAUTH_TOKEN }}"
+          git config --global url."https://$GH_TOKEN@github.com/".insteadOf "https://github.com/"
+          make test
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    needs: test
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+
+    - name: Determine previous tag
+      id: prevtag
+      run: |
+        LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ --match "v*")
+        echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
+
+    - name: Generate changelog
+      id: changelog
+      run: |
+        LAST="${{ steps.prevtag.outputs.last_tag }}"
+        echo "### Changes since \"$LAST\"" > changes.md
+        echo "" >> changes.md
+
+        # Parse commit messages for "(#123)" pattern - works for squash/merge/rebase
+        PRS=$(git log "$LAST"..HEAD --pretty=format:"%s" | grep -E "\(#[0-9]+\)" || true)
+
+        if [[ -z "$PRS" ]]; then
+          echo "_No PRs found in this release range._" >> changes.md
+          exit 0
+        fi
+
+        echo "$PRS" >> changes.md
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ github.ref_name }}
+        body_path: changes.md
+        files: artifacts/easee-armhf/*.deb
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
@@ -13,8 +14,12 @@ import (
 	"github.com/futurehomeno/cliffhanger/manifest"
 	"github.com/futurehomeno/cliffhanger/notification"
 	cliffRouter "github.com/futurehomeno/cliffhanger/router"
+	cliffStorage "github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/task"
+	"github.com/futurehomeno/cliffhanger/telemetry"
+	telemetryTypes "github.com/futurehomeno/cliffhanger/telemetry/types"
 	"github.com/futurehomeno/fimpgo"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -27,16 +32,20 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/tasks"
 )
 
-// services is a container for services that are common dependencies.
 var services = &serviceContainer{}
 
 // serviceContainer is a type representing a dependency injection container to be used during bootstrap of the application.
 type serviceContainer struct {
-	configService *config.Service
-	lifecycle     *lifecycle.Lifecycle
-	mqtt          *fimpgo.MqttTransport
+	configService    *config.Service
+	credentialsStore *config.CredentialsStore
+	defaultStore     *cliffCfg.DefaultStore
+	lifecycle        *lifecycle.Lifecycle
+	mqtt             *fimpgo.MqttTransport
+	telemetry        telemetry.Telemetry
+	telemetryTried   bool
+	version          string
 
-	application     app.Application
+	application     app.ApplicationWithToken
 	manifestLoader  manifest.Loader
 	eventManager    event.Manager
 	adapter         adapter.Adapter
@@ -56,36 +65,108 @@ func resetContainer() {
 	services = &serviceContainer{}
 }
 
-// getConfigService initiates a configuration service and loads the config.
 func getConfigService() *config.Service {
 	if services.configService == nil {
 		workDir := bootstrap.GetConfigurationDirectory()
 		cfg := config.New(workDir)
-		services.configService = config.NewService(cliffCfg.NewStorage(cfg, workDir))
+		services.configService = config.NewService(cliffStorage.New(cfg, workDir, "config.json"))
 
 		err := services.configService.Load()
 		if err != nil {
-			log.WithError(err).Fatal("failed to load configuration")
+			log.Fatalf("[config] Load config. err: %v", err)
+		}
+
+		if err := migrateConfig(services.configService, getCredentialsStore()); err != nil {
+			log.Fatalf("[config] Migrate config. err: %v", err)
 		}
 	}
 
 	return services.configService
 }
 
-// getLifecycle creates or returns existing lifecycle service.
+func getCredentialsStore() *config.CredentialsStore {
+	if services.credentialsStore == nil {
+		services.credentialsStore = config.NewCredentialsStore(bootstrap.GetConfigurationDirectory())
+
+		// Logged, not fatal: a corrupt secrets file is otherwise a boot loop, and the degraded
+		// start already exists - Initialize marks the app not configured and a login rewrites
+		// the file. Unlike the migration below, nothing is lost by continuing that a restart
+		// would recover.
+		//
+		// The model is discarded rather than trusted: json.Unmarshal writes each field as it
+		// decodes, so a file that fails partway through leaves what it had already parsed
+		// behind - enough for the app to come up claiming a session it only half has. The
+		// error itself is not logged: cliffhanger's loadFile embeds the whole file body in it,
+		// which for secrets.json is the tokens.
+		if err := services.credentialsStore.Load(); err != nil {
+			services.credentialsStore.DiscardLoaded()
+
+			log.Errorf("[config] Load credentials failed, starting logged out (error omitted: it carries the file body)")
+		}
+
+		config.PinSecretModes(bootstrap.GetConfigurationDirectory())
+	}
+
+	return services.credentialsStore
+}
+
+// migrateConfig returns the migration error instead of only logging it: the v5->v6 step moves
+// tokens into the credentials store, and the app decides it is configured by reading that store
+// alone, so continuing past a failed write brings an authenticated install up as logged out.
+// The version bump does not land on failure, so the next start retries.
+func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore) error {
+	cfg := cfgSvc.Model()
+
+	resetLogDefaults := func() error {
+		cfg.LogLevel = "info"
+		cfg.LogFormat = "budzik"
+
+		return nil
+	}
+
+	err := cfgSvc.Migrate(
+		cliffCfg.Migration{From: 0, To: 2, Do: resetLogDefaults},
+		cliffCfg.Migration{From: 1, To: 2, Do: resetLogDefaults},
+		cliffCfg.Migration{From: 2, To: 3, Do: cfg.MigrateAuthBackoff},
+		cliffCfg.Migration{From: 3, To: 4, Do: cfg.MigrateOfferedCurrentWaitTime},
+		cliffCfg.Migration{From: 4, To: 5, Do: cfg.MigrateSignalRFinalBackoff},
+		cliffCfg.Migration{From: 5, To: 6, Do: func() error {
+			return config.MigrateCredentials(cfg, credentials)
+		}},
+		cliffCfg.Migration{From: 6, To: 7, Do: cfg.MigrateOfferedCurrentWaitTime},
+	)
+	if err != nil {
+		return fmt.Errorf("migrate config: %w", err)
+	}
+
+	// The v5->v6 Save renames the token-bearing config.json to a world-readable
+	// data/config.json.bak, and a crash before the removal would strand it: the next boot is
+	// already at version 6 and applies nothing, so the backup is cleared on every boot.
+	config.DropConfigBackup(cfg.WorkDir)
+
+	return nil
+}
+
+func getDefaultStore() *cliffCfg.DefaultStore {
+	if services.defaultStore == nil {
+		services.defaultStore = getConfigService().DefaultStore()
+	}
+
+	return services.defaultStore
+}
+
 func getLifecycle() *lifecycle.Lifecycle {
 	if services.lifecycle == nil {
-		services.lifecycle = lifecycle.New()
+		services.lifecycle = lifecycle.New(getDefaultStore())
 	}
 
 	return services.lifecycle
 }
 
-// getEventListener creates or returns existing event listener service.
 func getEventListener(cfg *config.Config) event.Listener {
 	if services.eventListener == nil {
 		services.eventListener = event.NewListener(
-			getEventManager(cfg),
+			getEventManager(),
 			parameters.NewInclusionReportSentEventHandler(getAdapter(cfg)),
 		)
 	}
@@ -93,14 +174,11 @@ func getEventListener(cfg *config.Config) event.Listener {
 	return services.eventListener
 }
 
-// getEventListener creates or returns existing event listener service.
 func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 	if services.sessionStorage == nil {
 		dataBase, err := database.NewDatabase(cfg.WorkDir)
 		if err != nil {
-			log.WithError(err).Error("can't create db")
-
-			return nil
+			log.Fatalf("[db] Create database. err: %v", err)
 		}
 
 		services.sessionStorage = db.NewSessionStorage(dataBase)
@@ -109,9 +187,13 @@ func getSessionStorage(cfg *config.Config) db.ChargingSessionStorage {
 	return services.sessionStorage
 }
 
-// getMQTT creates or returns existing MQTT broker service.
 func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 	if services.mqtt == nil {
+		errHandler := func(err error) {
+			log.Errorf("[mqtt] Unrecoverable error. err: %v", err)
+			panic(err)
+		}
+
 		services.mqtt = fimpgo.NewMqttTransport(
 			cfg.MQTTServerURI,
 			cfg.MQTTClientIDPrefix,
@@ -120,16 +202,16 @@ func getMQTT(cfg *config.Config) *fimpgo.MqttTransport {
 			true,
 			1,
 			1,
+			errHandler,
 		)
 	}
 
-	services.mqtt.SetDefaultSource(routing.ResourceName)
+	services.mqtt.SetDefaultSource(fimptype.EaseeRn)
 
 	return services.mqtt
 }
 
-// getApplication creates or returns existing application.
-func getApplication(cfg *config.Config) app.Application {
+func getApplication(cfg *config.Config) app.ApplicationWithToken {
 	if services.application == nil {
 		services.application = app.New(
 			getAdapter(cfg),
@@ -139,30 +221,30 @@ func getApplication(cfg *config.Config) app.Application {
 			getEaseeAPIClient(cfg),
 			getAuthenticator(cfg),
 			getSignalRClient(cfg),
+			getCredentialsStore(),
+			getSessionStorage(cfg),
 		)
 	}
 
 	return services.application
 }
 
-// getManifestLoader creates or returns existing application manifestLoader.
 func getManifestLoader() manifest.Loader {
 	if services.manifestLoader == nil {
-		services.manifestLoader = manifest.NewLoader(getConfigService().GetWorkDir())
+		services.manifestLoader = manifest.NewLoader(getConfigService().Model().WorkDir)
 	}
 
 	return services.manifestLoader
 }
 
-// getAdapter creates or returns existing adapter service.
 func getAdapter(cfg *config.Config) adapter.Adapter {
 	if services.adapter == nil {
 		services.adapter = adapter.NewAdapter(
 			getMQTT(cfg),
-			getEventManager(cfg),
+			getEventManager(),
 			getThingFactory(cfg),
 			getAdapterState(),
-			routing.ServiceName,
+			fimptype.EaseeRn,
 			"1",
 		)
 	}
@@ -170,8 +252,7 @@ func getAdapter(cfg *config.Config) adapter.Adapter {
 	return services.adapter
 }
 
-// getEventManager creates or returns existing event manager service.
-func getEventManager(_ *config.Config) event.Manager {
+func getEventManager() event.Manager {
 	if services.eventManager == nil {
 		services.eventManager = event.NewManager()
 	}
@@ -179,21 +260,19 @@ func getEventManager(_ *config.Config) event.Manager {
 	return services.eventManager
 }
 
-// getAdapterState creates or returns existing adapter state service.
 func getAdapterState() adapter.State {
 	if services.adapterState == nil {
 		var err error
 
-		services.adapterState, err = adapter.NewState(getConfigService().GetWorkDir())
+		services.adapterState, err = adapter.NewState(getConfigService().Model().WorkDir)
 		if err != nil {
-			log.WithError(err).Fatal("failed to initialize adapter state")
+			log.Fatalf("[adapter] Initialize adapter state. err: %v", err)
 		}
 	}
 
 	return services.adapterState
 }
 
-// getThingFactory creates or returns existing thing factory service.
 func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 	if services.thingFactory == nil {
 		services.thingFactory = easee.NewThingFactory(
@@ -207,20 +286,14 @@ func getThingFactory(cfg *config.Config) adapter.ThingFactory {
 	return services.thingFactory
 }
 
-// getEaseeHTTPClient creates or returns existing Easee HTTP client.
 func getEaseeHTTPClient() api.HTTPClient {
 	if services.easeeHTTPClient == nil {
-		services.easeeHTTPClient = api.NewHTTPClient(
-			getConfigService(),
-			getHTTPClient(),
-			getConfigService().GetEaseeBaseURL(),
-		)
+		services.easeeHTTPClient = api.NewHTTPClient(getHTTPClient(), getConfigService().EaseeBaseURL())
 	}
 
 	return services.easeeHTTPClient
 }
 
-// getEaseeAPIClient creates or returns existing Easee HTTP client.
 func getEaseeAPIClient(cfg *config.Config) api.Client {
 	if services.easeeAPIClient == nil {
 		services.easeeAPIClient = api.NewAPIClient(
@@ -232,11 +305,10 @@ func getEaseeAPIClient(cfg *config.Config) api.Client {
 	return services.easeeAPIClient
 }
 
-// getHTTPClient creates or returns existing HTTP client with predefined timeout.
 func getHTTPClient() *http.Client {
 	if services.httpClient == nil {
 		services.httpClient = &http.Client{
-			Timeout: getConfigService().GetHTTPTimeout(),
+			Timeout: getConfigService().HTTPTimeout(),
 		}
 	}
 
@@ -247,10 +319,14 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 	if services.authenticator == nil {
 		services.authenticator = api.NewAuthenticator(
 			getEaseeHTTPClient(),
+			getCredentialsStore(),
 			getConfigService(),
 			notification.NewNotification(getMQTT(cfg)),
 			getMQTT(cfg),
-			routing.ServiceName,
+			fimptype.EaseeService,
+			// Resolved lazily: the application is built on top of this authenticator, so it
+			// cannot be handed over at construction time.
+			func() error { return getApplication(cfg).Logout() },
 		)
 	}
 
@@ -259,7 +335,7 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 
 func getSignalRClient(cfg *config.Config) signalr.Client {
 	if services.signalRClient == nil {
-		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator(cfg).AccessToken)
+		services.signalRClient = signalr.NewClient(getConfigService(), getAuthenticator(cfg).AccessToken, getTelemetry(cfg))
 	}
 
 	return services.signalRClient
@@ -267,23 +343,64 @@ func getSignalRClient(cfg *config.Config) signalr.Client {
 
 func getSignalRManager(cfg *config.Config) signalr.Manager {
 	if services.signalRManager == nil {
-		services.signalRManager = signalr.NewManager(getConfigService(), getSignalRClient(cfg))
+		services.signalRManager = signalr.NewManager(getConfigService(), getSignalRClient(cfg), getTelemetry(cfg))
 	}
 
 	return services.signalRManager
 }
 
-// newRouting creates new set of routing.
+// getTelemetry builds the telemetry reporter. It publishes nothing until the cloud enables it,
+// but wiring it here is what lets the root app and the SignalR loops report a panic.
+func getTelemetry(cfg *config.Config) telemetry.Telemetry {
+	if services.telemetry != nil || services.telemetryTried {
+		return services.telemetry
+	}
+
+	// Every caller runs inside a single Build(), so a failure here cannot become a success later;
+	// remembering the attempt keeps one broken init from logging once per call site.
+	services.telemetryTried = true
+
+	store := getDefaultStore()
+
+	if err := seedTelemetryDisabled(store); err != nil {
+		log.Errorf("[cmd] Seed telemetry config err: %v", err)
+
+		return nil
+	}
+
+	t, err := telemetry.New(getMQTT(cfg), fimptype.EaseeRn, store, services.version)
+	if err != nil {
+		log.Errorf("[cmd] Init telemetry err: %v", err)
+
+		return nil
+	}
+
+	services.telemetry = t
+
+	return services.telemetry
+}
+
+// seedTelemetryDisabled writes a disabled telemetry block when the config has none. cliffhanger's
+// telemetry.New seeds a missing block as enabled for 30 days, which would make reporting opt-out
+// on a fresh install and on upgrades from a config predating telemetry.
+func seedTelemetryDisabled(store *cliffCfg.DefaultStore) error {
+	if _, err := store.Telemetry(); err == nil {
+		return nil
+	}
+
+	return store.SetTelemetry(&telemetryTypes.TelemetryConfig{})
+}
+
 func newRouting(cfg *config.Config) []*cliffRouter.Routing {
 	return routing.New(
 		getConfigService(),
 		getLifecycle(),
 		getApplication(cfg),
 		getAdapter(cfg),
+		getTelemetry(cfg),
 	)
 }
 
-// newTasks creates new set of tasks.
 func newTasks(cfg *config.Config) []*task.Task {
 	return tasks.New(
 		getConfigService(),

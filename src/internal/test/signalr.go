@@ -2,12 +2,14 @@ package test
 
 import (
 	"context"
-	"errors"
+	"net"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	libsignalr "github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -27,8 +29,9 @@ type SignalRServer struct {
 	router  *http.ServeMux
 	hub     *signalRHub
 
-	running            bool
+	running            atomic.Bool
 	mockedObservations []observationBatch
+	delivered          chan struct{}
 }
 
 // NewSignalRServer creates a new test signalR server.
@@ -44,29 +47,52 @@ func NewSignalRServer(t *testing.T, address string) *SignalRServer {
 	srv.MapHTTP(libsignalr.WithHTTPServeMux(router), "/hubs/chargers")
 
 	return &SignalRServer{
-		t:       t,
-		router:  router,
-		hub:     hub,
-		signalr: srv,
-		http:    &http.Server{Addr: address, Handler: router}, //nolint:gosec
+		t:         t,
+		router:    router,
+		hub:       hub,
+		signalr:   srv,
+		http:      &http.Server{Addr: address, Handler: router}, //nolint:gosec
+		delivered: make(chan struct{}),
 	}
 }
 
 func (s *SignalRServer) Start() {
-	if s.running {
+	// Atomically check if not running AND set to running
+	// Returns false if already running (prevents duplicate goroutines)
+	if !s.running.CompareAndSwap(false, true) {
 		return
 	}
 
 	log.Infof("signalR test server: starting on addr %s", s.http.Addr)
 
-	go s.scheduleObservations()
-	go s.runHTTPServer() //nolint:staticcheck
+	started := make(chan error, 1)
+	go func() {
+		defer telemetry.RecoverAndEmit(nil, "SignalRServer.Start", true)
 
-	s.running = true
+		defer s.running.Store(false)
+		ln, err := net.Listen("tcp", s.http.Addr)
+		if err != nil {
+			started <- err
+			return
+		}
+
+		close(started) // Signal successful start
+
+		if err := s.http.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Errorf("http server stopped with error: %v", err)
+		}
+	}()
+
+	// Wait for startup result
+	if err := <-started; err != nil {
+		s.t.Fatalf("failed to start signalR test server: %v", err)
+	}
+
+	go s.scheduleObservations()
 }
 
 func (s *SignalRServer) Close() {
-	if !s.running {
+	if !s.running.Load() {
 		return
 	}
 
@@ -75,7 +101,7 @@ func (s *SignalRServer) Close() {
 	err := s.http.Shutdown(context.Background())
 	require.NoError(s.t, err)
 
-	s.running = false
+	s.running.Store(false)
 }
 
 func (s *SignalRServer) MockObservations(delay time.Duration, o []model.Observation) {
@@ -86,16 +112,39 @@ func (s *SignalRServer) MockObservations(delay time.Duration, o []model.Observat
 }
 
 func (s *SignalRServer) scheduleObservations() {
+	defer telemetry.RecoverAndEmit(nil, "SignalRServer.scheduleObservations", true)
+
+	defer close(s.delivered)
+
+	if len(s.mockedObservations) == 0 {
+		return
+	}
+
+	// Timed from the first subscribe, not from server start: the adapter's startup ate an
+	// unpredictable share of the first delay, so a slow host subscribed after the opening
+	// batch had already been replaced and never saw it.
+	select {
+	case <-s.hub.subscribed:
+	case <-time.After(30 * time.Second):
+		return
+	}
+
 	for _, batch := range s.mockedObservations {
 		time.Sleep(batch.delay)
-
 		s.hub.propagate(batch.observations)
 	}
 }
 
-func (s *SignalRServer) runHTTPServer() {
-	if err := s.http.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-		s.t.Fatal("signalR test server: http server error", err) //nolint:staticcheck
+// WaitForObservations blocks until every mocked batch has been sent, so a test asserting on the
+// last one does not race the schedule. A fixed sleep cannot: the batches are timed from the
+// adapter's subscribe, which lands whenever the host gets round to it.
+func (s *SignalRServer) WaitForObservations(t *testing.T) {
+	t.Helper()
+
+	select {
+	case <-s.delivered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("signalR test server: mocked observations were never delivered")
 	}
 }
 
@@ -107,12 +156,15 @@ type signalRHub struct {
 
 	numSubscriptions int
 	observations     []model.Observation
+
+	subscribed    chan struct{}
+	subscribeOnce sync.Once
 }
 
 func newSignalRHub(t *testing.T) *signalRHub {
 	t.Helper()
 
-	return &signalRHub{t: t}
+	return &signalRHub{t: t, subscribed: make(chan struct{})}
 }
 
 func (h *signalRHub) SubscribeWithCurrentState(chargerID string, sendInitialObservations bool) {
@@ -122,6 +174,7 @@ func (h *signalRHub) SubscribeWithCurrentState(chargerID string, sendInitialObse
 	defer h.mu.Unlock()
 
 	h.numSubscriptions++
+	h.subscribeOnce.Do(func() { close(h.subscribed) })
 
 	for _, o := range h.observations {
 		h.Clients().Caller().Send("productUpdate", o)

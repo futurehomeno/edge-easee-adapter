@@ -5,13 +5,15 @@ Description=Futurehome Easee EV charger adapter.
 
 [Service]
 Type=simple
-ExecStart=/opt/thingsplex/easee/easee
+ExecStart=/usr/bin/easee -c /var/lib/futurehome/easee
 User=easee
-WorkingDirectory=/opt/thingsplex/easee
+WorkingDirectory=/var/lib/futurehome/easee
 Restart=always
 RestartSec=10
-StandardOutput=null
-StandardError=null
+# Surface startup errors via journald - the Go file logger only opens after
+# config is loaded, so anything printed before that must go here to be visible.
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

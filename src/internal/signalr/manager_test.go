@@ -1,0 +1,115 @@
+package signalr_test
+
+import (
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
+	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
+	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
+	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
+	mockedsignalr "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/signalr"
+)
+
+const testChargerID = "EH000001"
+
+// TestManager_ResubscribesOnReconnect covers the logout/login cycle that left chargers
+// permanently without observations: the client is closed and restarted, and the manager
+// must subscribe again on the new connection even though it still holds the charger from
+// the old one.
+func TestManager_ResubscribesOnReconnect(t *testing.T) {
+	t.Parallel()
+
+	states := make(chan model.ClientState, 1)
+	subscribed := make(chan string, 4)
+
+	client := mockedsignalr.NewClient(t)
+	client.On("StateC").Return((<-chan model.ClientState)(states))
+	client.On("ObservationC").Return((<-chan model.Observation)(make(chan model.Observation)))
+	client.On("Connected").Return(false).Maybe()
+	client.On("Start").Maybe()
+	client.On("Close").Return(nil).Maybe()
+	client.On("SubscribeCharger", testChargerID).
+		Run(func(args mock.Arguments) { subscribed <- args.String(0) }).
+		Return(nil)
+
+	manager := signalr.NewManager(config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)), client, nil)
+
+	require.NoError(t, manager.Start())
+	t.Cleanup(func() { require.NoError(t, manager.Stop()) })
+
+	// Registering before the client reports connected must not subscribe yet - the
+	// handshake is still in flight and the attempt would only fail.
+	manager.Register(testChargerID, onlineHandler{})
+	assertNoSubscription(t, subscribed)
+
+	states <- model.ClientStateConnected
+	assert.Equal(t, testChargerID, waitForSubscription(t, subscribed))
+
+	states <- model.ClientStateDisconnected
+	states <- model.ClientStateConnected
+	assert.Equal(t, testChargerID, waitForSubscription(t, subscribed))
+}
+
+// TestManager_SubscribesImmediatelyWhenAlreadyConnected covers registering a charger
+// against a connection that is already up (e.g. a second charger added after startup):
+// there is no future connect event to sweep it in, so Register must subscribe it itself.
+func TestManager_SubscribesImmediatelyWhenAlreadyConnected(t *testing.T) {
+	t.Parallel()
+
+	states := make(chan model.ClientState)
+	subscribed := make(chan string, 1)
+
+	client := mockedsignalr.NewClient(t)
+	client.On("StateC").Return((<-chan model.ClientState)(states))
+	client.On("ObservationC").Return((<-chan model.Observation)(make(chan model.Observation)))
+	client.On("Connected").Return(true)
+	client.On("Start").Maybe()
+	client.On("Close").Return(nil).Maybe()
+	client.On("SubscribeCharger", testChargerID).
+		Run(func(args mock.Arguments) { subscribed <- args.String(0) }).
+		Return(nil)
+
+	manager := signalr.NewManager(config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)), client, nil)
+
+	require.NoError(t, manager.Start())
+	t.Cleanup(func() { require.NoError(t, manager.Stop()) })
+
+	manager.Register(testChargerID, onlineHandler{})
+	assert.Equal(t, testChargerID, waitForSubscription(t, subscribed))
+}
+
+func assertNoSubscription(t *testing.T, subscribed <-chan string) {
+	t.Helper()
+
+	select {
+	case id := <-subscribed:
+		t.Fatalf("unexpected subscription for charger %q before the client is connected", id)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func waitForSubscription(t *testing.T, subscribed <-chan string) string {
+	t.Helper()
+
+	select {
+	case id := <-subscribed:
+		return id
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for a charger subscription")
+
+		return ""
+	}
+}
+
+type onlineHandler struct{}
+
+func (onlineHandler) IsOnline() bool { return true }
+
+func (onlineHandler) Close() {}
+
+func (onlineHandler) HandleObservation(model.Observation) error { return nil }

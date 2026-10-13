@@ -7,6 +7,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/database"
 	"github.com/pkg/errors"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 )
@@ -15,20 +16,15 @@ const (
 	bucketNamePrefix = "charging-sessions:"
 )
 
-// ChargingSessionStorage is service used to store charging sessions.
+// ChargingSessionStorage stores charging sessions per charger.
 type ChargingSessionStorage interface {
-	// Start starts ChargingSessionStorage service.
 	Start() error
-	// Stop stops ChargingSessionStorage service.
 	Stop() error
-	// Reset ChargingSessionStorage service.
 	Reset() error
 
-	// RegisterSessionStart registers start charging session for charger with chargerID.
 	RegisterSessionStart(chargerID string, session model.StartChargingSession) error
-	// RegisterSessionStop registers stop charging session for charger with chargerID.
 	RegisterSessionStop(chargerID string, session model.StopChargingSession) error
-	// LatestSessionsByChargerID returns latest and previous charging sessions by chargerID.
+	// LatestSessionsByChargerID returns the latest and the previous session.
 	LatestSessionsByChargerID(chargerID string) (ChargingSessions, error)
 }
 
@@ -64,20 +60,20 @@ func (s *sessionStorage) RegisterSessionStart(chargerID string, session model.St
 	if latest != nil && latest.Stop.IsZero() {
 		latest.Stop = session.Start
 
-		err = s.db.Set(bucket, latest.IDString(), latest)
+		err = s.db.Set(bucket, idString(latest.ID), latest)
 		if err != nil {
 			return errors.Wrap(err, "register start session: can't update previous charging session")
 		}
 	}
 
-	return s.db.Set(bucket, session.IDString(), ChargingSession{
+	return s.db.Set(bucket, idString(session.ID), ChargingSession{
 		ID:    session.ID,
 		Start: session.Start,
 	})
 }
 
 func (s *sessionStorage) RegisterSessionStop(chargerID string, session model.StopChargingSession) error {
-	return s.db.Set(s.bucketName(chargerID), session.IDString(), ChargingSession{
+	return s.db.Set(s.bucketName(chargerID), idString(session.ID), ChargingSession{
 		ID:     session.ID,
 		Start:  session.Start,
 		Stop:   session.Stop,
@@ -93,14 +89,20 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 		return nil, err
 	}
 
-	keys := make([]int, 0, len(stringKeys))
+	keys := make([]int64, 0, len(stringKeys))
 
 	for _, k := range stringKeys {
-		key, _ := strconv.Atoi(k)
+		key, err := strconv.ParseInt(k, 10, 64)
+		if err != nil {
+			log.Errorf("session storage: skipping unparsable session key %q in bucket %s: %v", k, bucket, err)
+
+			continue
+		}
+
 		keys = append(keys, key)
 	}
 
-	// Sort keys (session IDs) in descending order.
+	// Session IDs, newest first.
 	sort.Slice(keys, func(i, j int) bool {
 		return keys[i] > keys[j]
 	})
@@ -110,9 +112,15 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 	for _, k := range keys {
 		var session *ChargingSession
 
-		ok, err := s.db.Get(bucket, strconv.Itoa(k), &session)
-		if !ok || err != nil {
+		ok, err := s.db.Get(bucket, strconv.FormatInt(k, 10), &session)
+		if err != nil {
 			return nil, err
+		}
+
+		// Keys() and Get() are separate transactions, so a session deleted in between is
+		// simply gone - not an error, and no reason to discard the ones already collected.
+		if !ok {
+			continue
 		}
 
 		sessions = append(sessions, session)
@@ -136,8 +144,8 @@ type ChargingSession struct {
 	Energy float64   `json:"energy"`
 }
 
-func (s *ChargingSession) IDString() string {
-	return strconv.FormatInt(s.ID, 10)
+func idString(id int64) string {
+	return strconv.FormatInt(id, 10)
 }
 
 type ChargingSessions []*ChargingSession

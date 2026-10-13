@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
+	"github.com/futurehomeno/cliffhanger/telemetry"
 	"github.com/philippseith/signalr"
 	log "github.com/sirupsen/logrus"
 
@@ -22,55 +23,53 @@ const (
 
 // Client is the interface for the SignalR client.
 type Client interface {
-	// Start starts the SignalR client.
+	// Start is idempotent and never blocks. A start racing an in-flight Close is remembered
+	// and applied when that close completes, so callers need not order the two themselves.
 	Start()
-	// Close stops the SignalR client.
 	Close() error
 
-	// SubscribeCharger subscribes to receive observations for a particular charger (based on it's ID).
 	SubscribeCharger(id string) error
-	// UnsubscribeCharger unsubscribes from receiving charger observations.
 	UnsubscribeCharger(id string) error
-	// Connected returns true if the SignalR client is connected.
 	Connected() bool
-	// StateC returns a channel that will receive state updates.
 	StateC() <-chan model.ClientState
-	// ObservationC returns a channel that will receive charger observations.
 	ObservationC() <-chan model.Observation
 }
 
 type client struct {
 	mu      sync.Mutex
+	wg      sync.WaitGroup
 	running bool
-	cancel  context.CancelFunc
+	closing bool
+	// startRequested records a Start that arrived while a Close was draining, so the
+	// close can re-arm the client instead of dropping the request on the floor.
+	startRequested bool
+	cancel         context.CancelFunc
 
 	connection    signalr.Client
 	cfg           *config.Service
 	tokenProvider func() (string, error)
 	receiver      *receiver
 	backoff       backoff.Stateful
+	tel           telemetry.Telemetry
 
 	states       chan model.ClientState
 	observations chan model.Observation
 
 	connState model.ClientState
+
+	// newConn is a test seam; nil means the real getClient.
+	newConn func(ctx context.Context) (signalr.Client, error)
 }
 
-// NewClient creates a new SignalR client.
-func NewClient(cfg *config.Service, tokenProvider func() (string, error)) Client {
+func NewClient(cfg *config.Service, tokenProvider func() (string, error), tel telemetry.Telemetry) Client {
 	observations := make(chan model.Observation, 100)
-
-	backoff := backoff.NewStateful(cfg.GetSignalRInitialBackoff(),
-		cfg.GetSignalRRepeatedBackoff(),
-		cfg.GetSignalRFinalBackoff(),
-		cfg.GetSignalRInitialFailureCount(),
-		cfg.GetSignalRRepeatedFailureCount())
 
 	return &client{
 		cfg:           cfg,
 		tokenProvider: tokenProvider,
+		tel:           tel,
 		receiver:      newReceiver(observations),
-		backoff:       backoff,
+		backoff:       cfg.SignalRBackoffStateful(),
 		states:        make(chan model.ClientState, 10),
 		observations:  observations,
 	}
@@ -107,23 +106,51 @@ func (c *client) Start() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// handleConnection takes c.mu on its way out, so Close() cannot hold the lock across
+	// wg.Wait(). Starting in that window either panics ("Add called concurrently with Wait")
+	// or hands Wait a goroutine holding a fresh, uncancelled context. Remember the request
+	// instead: Close re-arms the client on its way out, or a login racing the auth-loss
+	// teardown would leave every charger unsubscribed until the process restarts.
+	if c.closing {
+		c.startRequested = true
+
+		return
+	}
+
 	if c.running {
 		return
 	}
 
+	c.launch()
+}
+
+// launch starts the connection goroutine. The caller must hold c.mu and have established
+// that the client is not already running.
+func (c *client) launch() {
 	ctx, cancel := context.WithCancel(context.Background())
 	c.cancel = cancel
 
-	go c.handleConnection(ctx)
+	c.wg.Add(1)
+
+	go func() {
+		defer c.wg.Done()
+
+		c.handleConnection(ctx)
+	}()
 
 	c.running = true
 }
 
 func (c *client) Close() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
-	if !c.running {
+	if !c.running || c.closing {
+		// A close arriving here is the newest shutdown intent, so it must outrank a Start
+		// this or an in-flight close already deferred - otherwise the drain re-arms the
+		// client after this caller was told it was closed.
+		c.startRequested = false
+		c.mu.Unlock()
+
 		return nil
 	}
 
@@ -134,45 +161,76 @@ func (c *client) Close() error {
 
 	c.backoff.Reset()
 	c.running = false
+	c.closing = true
+	c.mu.Unlock()
+
+	c.wg.Wait()
+
+	c.mu.Lock()
+
+	// closing stays true until the deferred Start is applied, so a Close racing this
+	// tail still takes the early-exit guard above and clears startRequested. Dropping
+	// the lock to call Start() instead would re-arm the client from a stale local read
+	// after that closer was already told it was closed.
+	if c.startRequested {
+		c.startRequested = false
+
+		c.launch()
+	}
+
+	c.closing = false
+	c.mu.Unlock()
 
 	return nil
 }
 
 func (c *client) invoke(method string, args ...any) error {
 	c.mu.Lock()
-	if !c.running || c.connection == nil {
-		c.mu.Unlock()
+	conn := c.connection
+	running := c.running
+	c.mu.Unlock()
 
+	if !running || conn == nil {
 		return errors.New("client is not running")
 	}
 
-	c.mu.Unlock()
-
-	timer := time.NewTimer(c.cfg.GetSignalRInvokeTimeout())
+	timer := time.NewTimer(c.cfg.SignalRInvokeTimeout())
 	defer timer.Stop()
 
-	results := c.connection.Invoke(method, args...)
+	results := conn.Invoke(method, args...)
 
 	select {
 	case result := <-results:
 		return result.Error
 	case <-timer.C:
-		return fmt.Errorf("timeout")
+		return errors.New("timeout")
 	}
 }
 
 func (c *client) handleConnection(ctx context.Context) {
-	for {
-		if client, err := c.getClient(ctx); err != nil {
-			log.WithError(err).Warn("Unable to start signalr client")
-		} else {
-			c.connection = client
-			c.connection.Start()
+	defer telemetry.RecoverAndEmit(c.tel, "handleConnection", true)
 
-			c.notifyState(ctx)
+	for {
+		if conn, err := c.dial(ctx); err != nil {
+			log.Warnf("Unable to start signalr client err: %v", err)
+		} else {
+			c.setConnection(conn)
+
+			// The library does not replay the current state to a late observer, so a fast
+			// handshake would lose ClientConnected if we registered after Start().
+			states := make(chan signalr.ClientState, 1)
+			cancelObserve := conn.ObserveStateChanged(states)
+
+			conn.Start()
+			c.notifyState(ctx, states)
+
+			// Stop first: it cancels the library context that unblocks a pending state
+			// send, which holds the mutex the observer cancellation needs.
+			conn.Stop()
+			cancelObserve()
 		}
 
-		c.connection = nil
+		c.setConnection(nil)
 
 		select {
 		case <-ctx.Done():
@@ -182,29 +240,69 @@ func (c *client) handleConnection(ctx context.Context) {
 	}
 }
 
-func (c *client) notifyState(ctx context.Context) {
-	ch := make(chan signalr.ClientState, 1)
+func (c *client) setConnection(conn signalr.Client) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	cancel := c.connection.ObserveStateChanged(ch)
-	defer cancel()
+	c.connection = conn
+}
+
+func (c *client) dial(ctx context.Context) (signalr.Client, error) {
+	if c.newConn != nil {
+		return c.newConn(ctx)
+	}
+
+	return c.getClient(ctx)
+}
+
+func (c *client) notifyState(ctx context.Context, ch <-chan signalr.ClientState) {
+	// Bounds a connection that runs but never reports connected; without it the adapter
+	// stays subscribed to nothing until the server drops the zombie hours later.
+	timeout := c.cfg.SignalRTimeoutInterval()
+	connectDeadline := time.NewTimer(timeout)
+	defer connectDeadline.Stop()
 
 	for {
 		select {
+		case <-connectDeadline.C:
+			log.Warnf("signalR: no connected state within %s, reconnecting", timeout)
+
+			return
+
 		case <-ctx.Done():
-			c.updateState(model.ClientStateDisconnected)
+			// Close() cancels the context, so this is the only notice of a shutdown the
+			// manager gets; swallowing it leaves its per-charger subscriptions marked live
+			// against a connection that is gone. The send cannot block on a done context,
+			// hence the buffered non-blocking form.
+			if c.updateState(model.ClientStateDisconnected) {
+				select {
+				case c.states <- model.ClientStateDisconnected:
+				default:
+				}
+			}
 
 			return
 
 		case clientState := <-ch:
+			// The library delivers each state from its own goroutine, so a Connecting can land
+			// after Connected; only Connected and Closed carry information for the adapter.
+			if clientState != signalr.ClientConnected && clientState != signalr.ClientClosed {
+				continue
+			}
+
 			state := model.ClientStateDisconnected
 			if clientState == signalr.ClientConnected {
 				state = model.ClientStateConnected
 
+				connectDeadline.Stop()
 				c.backoff.Reset()
 			}
 
 			if c.updateState(state) {
-				c.states <- state
+				select {
+				case c.states <- state:
+				case <-ctx.Done():
+				}
 			}
 
 			if clientState == signalr.ClientClosed {
@@ -229,30 +327,37 @@ func (c *client) updateState(state model.ClientState) bool {
 }
 
 func (c *client) getClient(ctx context.Context) (signalr.Client, error) {
-	connection, err := c.getConnection()
+	connection, err := c.getConnection(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	return signalr.NewClient(
 		ctx,
-		signalr.KeepAliveInterval(c.cfg.GetSignalRKeepAliveInterval()),
-		signalr.TimeoutInterval(c.cfg.GetSignalRTimeoutInterval()),
+		signalr.KeepAliveInterval(c.cfg.SignalRKeepAliveInterval()),
+		signalr.TimeoutInterval(c.cfg.SignalRTimeoutInterval()),
 		signalr.WithConnection(connection),
 		signalr.WithReceiver(c.receiver),
 		signalr.Logger(newLogger(), false),
 	)
 }
 
-func (c *client) getConnection() (signalr.Connection, error) {
+func sleepCtx(ctx context.Context, d time.Duration) {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+}
+
+func (c *client) getConnection(ctx context.Context) (signalr.Connection, error) {
 	token, err := c.tokenProvider()
 	if err != nil {
-		// Currently we have a bug, when authorization gets broken the signalR library may start
-		// calling this method in a forever loop (with -1 timeout) trying to create a connection,
-		// when error returned - it is being logged.
-		// Implementing a proper start up -> shutdown should be done, but require a bit more thought.
-		// This is a hacky solution to avoid spam of logs.
-		time.Sleep(time.Minute)
+		// The signalR library retries connection creation in a tight forever loop (-1 timeout)
+		// once authorization breaks, logging every failure. Sleeping here throttles that spam.
+		sleepCtx(ctx, time.Minute)
 
 		return nil, fmt.Errorf("unable to get access token (signalR): %w", err)
 	}
@@ -264,15 +369,15 @@ func (c *client) getConnection() (signalr.Connection, error) {
 		return h
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.cfg.GetSignalRConnCreationTimeout())
+	connCtx, cancel := context.WithTimeout(ctx, c.cfg.SignalRConnCreationTimeout())
 	defer cancel()
 
-	url := c.cfg.GetSignalRBaseURL() + signalRURI
+	url := c.cfg.SignalRBaseURL() + signalRURI
 
-	conn, err := signalr.NewHTTPConnection(ctx, url, signalr.WithHTTPHeaders(headers))
+	conn, err := signalr.NewHTTPConnection(connCtx, url, signalr.WithHTTPHeaders(headers))
 	if err != nil {
 		// See the comment above for another sleep.
-		time.Sleep(30 * time.Second)
+		sleepCtx(ctx, 30*time.Second)
 
 		return nil, fmt.Errorf("unable to instantiate signalR connection: %w", err)
 	}

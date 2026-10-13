@@ -1,30 +1,53 @@
 package app
 
 import (
+	"errors"
 	"fmt"
+	"slices"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
 	cliffApp "github.com/futurehomeno/cliffhanger/app"
+	"github.com/futurehomeno/cliffhanger/debug/formatters"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
-	"github.com/pkg/errors"
+	"github.com/futurehomeno/cliffhanger/selection"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/easee"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
-// Application is an interface representing a service responsible for preparing an application manifest and configuring app.
-type Application interface {
+const (
+	// maxMissingSelectedRetries bounds how long a selected charger missing from the
+	// chargers list blocks a re-seed before it is dropped.
+	maxMissingSelectedRetries = 3
+	// maxAutoSelected caps how many chargers an unconfigured install auto-selects.
+	maxAutoSelected = 10
+
+	blockConfiguration    = "configuration"
+	configSelectedDevices = "selected_devices"
+)
+
+// errMissingSelected marks a re-seed refused because a selected charger is absent from the
+// chargers list, so the caller can leave the retry budget that refusal just spent intact.
+var errMissingSelected = errors.New("selected devices missing")
+
+// ApplicationWithToken is the app-lifecycle surface the framework routes to.
+type ApplicationWithToken interface {
 	cliffApp.App
 	cliffApp.LogginableApp
 	cliffApp.CheckableApp
 	cliffApp.InitializableApp
+	RefreshToken()
 }
 
-// New creates new instance of an Application.
 func New(
 	ad adapter.Adapter,
 	cfgService *config.Service,
@@ -33,7 +56,16 @@ func New(
 	client api.Client,
 	auth api.Authenticator,
 	signalRClient signalr.Client,
-) Application {
+	credentials *config.CredentialsStore,
+	sessionStorage db.ChargingSessionStorage,
+) ApplicationWithToken {
+	// The hook is attached to the global logger, so it has to be attached once however many
+	// applications are built: a second hook records every warning into the diag report twice.
+	errorHookOnce.Do(func() {
+		errorHook = formatters.NewErrorHook()
+		log.AddHook(errorHook)
+	})
+
 	return &application{
 		ad:            ad,
 		mfLoader:      mfLoader,
@@ -42,8 +74,16 @@ func New(
 		client:        client,
 		auth:          auth,
 		signalRClient: signalRClient,
+		credentials:   credentials,
+
+		sessionStorage: sessionStorage,
 	}
 }
+
+var (
+	errorHookOnce sync.Once
+	errorHook     *formatters.ErrorHook
+)
 
 type application struct {
 	ad            adapter.Adapter
@@ -53,159 +93,585 @@ type application struct {
 	client        api.Client
 	auth          api.Authenticator
 	signalRClient signalr.Client
+	credentials   *config.CredentialsStore
+
+	sessionStorage db.ChargingSessionStorage
+
+	// Guards the two fields below. They are written from configureChargers and Initialize,
+	// which the task manager and the router-locked command handlers can reach concurrently.
+	missingMu      sync.Mutex
+	missingRetries int
+	lastMissing    string
+}
+
+// tickMissingBudget records another refusal for the given missing set, resetting the count when
+// the set itself changed so a newly missing charger gets full retries instead of inheriting an
+// exhausted counter. It reports the attempt number and whether the budget is spent.
+func (a *application) tickMissingBudget(key string) (int, bool) {
+	a.missingMu.Lock()
+	defer a.missingMu.Unlock()
+
+	if key != a.lastMissing {
+		a.lastMissing = key
+		a.missingRetries = 0
+	}
+
+	if a.missingRetries >= maxMissingSelectedRetries {
+		return a.missingRetries, true
+	}
+
+	a.missingRetries++
+
+	return a.missingRetries, false
+}
+
+func (a *application) resetMissingBudget() {
+	a.missingMu.Lock()
+	defer a.missingMu.Unlock()
+
+	a.missingRetries = 0
+	a.lastMissing = ""
+}
+
+func (a *application) ErrorsReport() ([]string, error) {
+	return errorHook.ErrorsReport()
 }
 
 func (a *application) GetManifest() (*manifest.Manifest, error) {
 	mf, err := a.mfLoader.Load()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to load manifest")
+		return nil, fmt.Errorf("failed to load manifest: %w", err)
+	}
+
+	ready := a.lifecycle.ConnectionState() == lifecycle.ConnStateConnected &&
+		a.lifecycle.AuthState() == lifecycle.AuthStateAuthenticated
+
+	err = selection.PrepareManifest(mf, selection.Block{
+		Block:    blockConfiguration,
+		Config:   configSelectedDevices,
+		NotReady: "Warning! You're currently not connected to Easee, please return to the previous page and log in.",
+		Failed:   "Warning! Failed to retrieve any chargers from Easee, please try again later.",
+	}, ready, func() ([]model.Charger, error) { return a.client.Chargers() }, func(charger model.Charger) manifest.SelectOption {
+		return manifest.SelectOption{Val: charger.ID, Label: map[string]string{"en": chargerLabel(charger)}}
+	})
+	if err != nil {
+		log.Errorf("[app] Prepare device selector. err: %v", err)
 	}
 
 	return mf, nil
 }
 
-func (a *application) Configure(_ interface{}) error {
-	return nil
+func chargerLabel(charger model.Charger) string {
+	if charger.Name == "" {
+		return charger.ID
+	}
+
+	return charger.Name + " (" + charger.ID + ")"
 }
 
-func (a *application) Uninstall() error {
-	err := a.ad.DestroyAllThings()
+func (a *application) Configure(model any) error {
+	cfg, ok := model.(*config.Config)
+	if !ok {
+		return fmt.Errorf("configure: invalid config model type %T", model)
+	}
+
+	chargers, err := a.client.Chargers()
 	if err != nil {
-		log.Info("app: failed to destroy all things")
-
-		return errors.New("failed to destroy all things")
+		return fmt.Errorf("configure: fetch available chargers: %w", err)
 	}
 
-	err = a.cfgService.Reset()
-	if err != nil {
-		log.Info("app: failed to reset config")
-
-		return errors.New("failed to reset configuration")
+	if err := validateSelectedDevices(chargers, cfg.SelectedDevices); err != nil {
+		return err
 	}
 
-	a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
-	a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
-	a.lifecycle.SetConnectionState(lifecycle.ConnStateDisconnected)
-	a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
+	// An empty list must not materialise the implicit include-all into an explicit empty
+	// selection: that is indistinguishable from the user deselecting everything and would
+	// suppress auto-selection for good, even once the account lists chargers again. The
+	// request itself is still honoured — a user clearing an explicit subset to restore
+	// include-all must not have the stale subset survive on disk because the fetch happened
+	// to come back empty. Handled here rather than in the shared policy: only a user request
+	// can be "clear the subset", and the policy below would put the owned chargers through
+	// the retry budget instead.
+	if len(chargers) == 0 && cfg.SelectedDevices.IncludeAll() {
+		if !a.cfgService.SelectedDevices().IncludeAll() {
+			if err := a.cfgService.SetSelectedDevices(nil); err != nil {
+				return fmt.Errorf("configure: persist selected_devices: %w", err)
+			}
+		}
 
-	return nil
-}
-
-func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
-	defer a.Check() //nolint:errcheck
-
-	if err := a.auth.Login(credentials.Username, credentials.Password); err != nil {
-		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
-		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
-
-		return errors.Wrap(err, fmt.Sprintf("failed to login as '%s'", credentials.Username))
+		return nil
 	}
 
-	if err := a.registerChargers(); err != nil {
-		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
-		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
-
-		return errors.Wrap(err, "failed to register chargers on login")
+	// Shared with the login and boot paths rather than filtering the selection here: dropping
+	// chargers this response omits would destroy their things outright, where the shared
+	// policy retries a few times first and only then prunes. A partial /chargers response is
+	// the common case this guards - it is indistinguishable from a real removal at one
+	// glance, so the budget is what tells them apart.
+	if err := a.reconcileChargers(chargers, cfg.SelectedDevices); err != nil {
+		return fmt.Errorf("configure: %w", err)
 	}
 
-	a.lifecycle.SetAppState(lifecycle.AppStateRunning, nil)
-	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
-	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
+	// The shared policy only writes a selection its own rules changed, because its other
+	// callers read theirs off disk to begin with. Configure's arrives from the user, so a
+	// request the policy left alone is still unsaved here. After the reconcile, never before:
+	// a failed seed must not leave the requested selection on disk.
+	if !cfg.SelectedDevices.IncludeAll() {
+		if err := a.cfgService.SetSelectedDevices(cfg.SelectedDevices); err != nil {
+			return fmt.Errorf("configure: persist selected_devices: %w", err)
+		}
+	}
 
 	return nil
 }
 
 func (a *application) Check() error {
-	if err := a.client.Ping(); err != nil {
-		a.lifecycle.SetConnectionState(lifecycle.ConnStateDisconnected)
+	return nil
+}
 
-		return nil //nolint:nilerr
+func (a *application) CheckInterval() time.Duration {
+	return 0
+}
+
+func (a *application) RefreshToken() {
+	prevConnState := a.lifecycle.ConnectionState()
+
+	if err := a.client.Ping(); err != nil {
+		switch {
+		case errors.Is(err, api.ErrNotLoggedIn):
+			log.Debugf("[auth] Refresh token skipped: %v", err)
+		case errors.Is(err, api.ErrRefreshBackoff):
+			log.Debugf("[auth] Refresh token skipped (backoff): %v", err)
+		default:
+			log.Warnf("[auth] Refresh token failed API client disconnected err: %v", err)
+		}
+		a.lifecycle.SetConnState(lifecycle.ConnStateDisconnected)
+		return
 	}
 
-	a.lifecycle.SetConnectionState(lifecycle.ConnStateConnected)
+	if prevConnState == lifecycle.ConnStateDisconnected {
+		log.Info("[auth] API client reconnected")
+	}
+
+	if prevConnState != lifecycle.ConnStateConnected {
+		a.lifecycle.SetConnState(lifecycle.ConnStateConnected)
+	}
+}
+
+func (a *application) Uninstall() error {
+	log.Info("[app] Uninstall requested: destroying things and resetting config")
+
+	// Every step runs even if an earlier one fails: credentials live in their own secrets
+	// store, so a failed config reset must not leave the Easee tokens on the hub.
+	var errs error
+
+	if err := a.ad.DestroyAllThings(); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("destroy all things: %w", err))
+	}
+
+	if err := a.cfgService.Reset(); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("reset configuration: %w", err))
+	}
+
+	if err := a.credentials.ClearCredentials(); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("clear credentials: %w", err))
+	}
+
+	// Charging sessions are keyed by charger ID alone, so reinstalling against a different
+	// Easee account with a colliding ID would otherwise serve the old account's sessions.
+	if a.sessionStorage != nil {
+		if err := a.sessionStorage.Reset(); err != nil {
+			errs = errors.Join(errs, fmt.Errorf("reset session storage: %w", err))
+		}
+	}
+
+	// Marked regardless of the errors above: the credentials and the configuration are gone,
+	// so staying marked running would leave the tasks and the UI acting on a session the hub
+	// no longer has.
+	a.lifecycle.MarkNotConfigured()
+
+	return errs
+}
+
+func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
+	defer func() { _ = a.Check() }()
+
+	if err := a.auth.Login(credentials.Username, credentials.Password); err != nil {
+		a.lifecycle.MarkNotConfigured()
+
+		return fmt.Errorf("failed to login as '%s': %w", credentials.Username, err)
+	}
+
+	if err := a.configureChargers(a.cfgService.SelectedDevices()); err != nil {
+		a.lifecycle.MarkNotConfigured()
+
+		return fmt.Errorf("failed to register chargers on login: %w", err)
+	}
+
+	a.lifecycle.MarkRunning()
+
+	a.RefreshToken()
 
 	return nil
 }
 
 func (a *application) Initialize() error {
-	defer a.Check() //nolint:errcheck
-
 	if err := a.ad.InitializeThings(); err != nil {
-		return errors.Wrap(err, "failed to initialize things")
+		return fmt.Errorf("failed to initialize things: %w", err)
 	}
 
 	if err := a.cfgService.Save(); err != nil {
-		return errors.Wrap(err, "failed to save configs at application initialization")
+		return fmt.Errorf("failed to save configs at application initialization: %w", err)
 	}
 
-	if a.cfgService.GetCredentials().Empty() {
-		a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
-		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
-		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
+	if a.credentials.Credentials().Empty() {
+		a.lifecycle.MarkNotConfigured()
 
 		return nil
 	}
 
-	a.lifecycle.SetAppState(lifecycle.AppStateRunning, nil)
+	a.adoptSeededSelection()
+
+	a.lifecycle.SetAppHealth(lifecycle.AppHealthRunning, nil)
 	a.lifecycle.SetConfigState(lifecycle.ConfigStateConfigured)
 	a.lifecycle.SetAuthState(lifecycle.AuthStateAuthenticated)
+
+	// A login that authenticated and then failed to configure leaves credentials on disk and
+	// no things. configureChargers has no other caller and Check() is a no-op, so without this
+	// the hub shows a healthy, authenticated app with zero chargers until a manual re-login.
+	//
+	// A selected charger without a thing is the same wound half-healed: EnsureThings seeds
+	// per charger and joins the failures, so one that failed to create leaves the others
+	// behind and the zero-things test above never fires. cliffhanger excludes it "until the
+	// next sync" - which never comes. A nil selection cannot be checked this way, and needs
+	// no check: nothing local says which chargers it covers.
+	//
+	// The zero-things test itself is scoped to a nil (IncludeAll) selection: an explicit
+	// empty one means the user deliberately kept no chargers, and re-seeding it would call
+	// the cloud - and risk an auth loss - on every boot for an install that wants none.
+	//
+	// After the lifecycle is marked, not before: the re-seed calls the cloud, so an expired
+	// refresh token makes it trigger an auth loss, whose logout lands on its own goroutine.
+	// Marking authenticated afterwards would overwrite that logout and leave the app claiming
+	// a session it no longer has - and nothing re-fires it, because cleared credentials report
+	// "not logged in" rather than another auth loss.
+	selected := a.cfgService.SelectedDevices()
+
+	if (selected.IncludeAll() && len(a.ad.Things()) == 0) || slices.ContainsFunc(selected, func(id string) bool { return a.ad.ThingByID(id) == nil }) {
+		if err := a.configureChargers(selected); err != nil {
+			log.Warnf("[app] Re-seed chargers on initialize err: %v", err)
+
+			// The budget belongs to a login attempt; a failed re-seed must not spend it, or the
+			// next real login starts partway through its retries. A refusal over a missing
+			// selected charger is the exception: it is the budget doing its job, and clearing
+			// it here would let a permanently vanished charger block the re-seed on every boot
+			// without ever reaching the prune.
+			if !errors.Is(err, errMissingSelected) {
+				a.resetMissingBudget()
+			}
+
+			a.RefreshToken()
+
+			// Returned rather than swallowed: cliffhanger's init task marks the app
+			// STARTUP_ERROR and re-runs Initialize on its interval when this fails, which is
+			// the only thing that retries the re-seed. Reporting success left a hub that
+			// started up with no things showing healthy until a manual re-login.
+			return fmt.Errorf("re-seed chargers on initialize: %w", err)
+		}
+	}
+
+	a.RefreshToken()
 
 	return nil
 }
 
 func (a *application) Logout() error {
+	log.Info("[app] Logout requested")
+
 	if err := a.signalRClient.Close(); err != nil {
-		log.WithError(err).Warn("logout: failed to disconnect signalR client")
+		log.Warnf("[app] Disconnect signalR client. err: %v", err)
 	}
 
-	if err := a.auth.Logout(); err != nil {
-		a.lifecycle.SetAppState(lifecycle.AppStateError, nil)
-		a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
+	// The store decides, not the error: storage.Reset can fail before it zeroes the model - the
+	// defaults probe and both file removals return early - which leaves the tokens readable in
+	// memory and on disk. Initialize treats a non-empty store as a live session and re-seeds the
+	// chargers from it, so reporting such a logout as done has the next restart silently log the
+	// user back in. A clear that errored but left nothing behind is a logout all the same.
+	err := a.auth.Logout()
+
+	if err != nil && !a.credentials.Credentials().Empty() {
+		a.lifecycle.SetAppHealth(lifecycle.AppHealthError, nil)
+		// Disconnected as well as not-authenticated: the reporting tasks are gated on
+		// WhenAppIsConnected, so leaving it connected keeps them polling Easee for a session
+		// the app just declared dead - and publishes an impossible CONNECTED state report.
+		a.lifecycle.SetConnAndAuthState(lifecycle.ConnStateDisconnected, lifecycle.AuthStateNotAuthenticated)
 		a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
 
 		return err
 	}
 
-	_ = a.Check()
+	if err != nil {
+		log.Warnf("[app] Logout reported an error but the credentials are gone: %v", err)
+	}
 
-	a.lifecycle.SetAppState(lifecycle.AppStateNotConfigured, nil)
-	a.lifecycle.SetConfigState(lifecycle.ConfigStateNotConfigured)
-	a.lifecycle.SetAuthState(lifecycle.AuthStateNotAuthenticated)
+	a.lifecycle.MarkNotConfigured()
 
 	return nil
 }
 
-func (a *application) registerChargers() error {
+// configureChargers reconciles things with the selected chargers, fetching the list first
+// so the selection policy below can reason about what Easee currently reports.
+func (a *application) configureChargers(selected selection.Selection) error {
 	chargers, err := a.client.Chargers()
 	if err != nil {
-		return errors.Wrap(err, "failed to fetch available chargers from Easee API")
+		return fmt.Errorf("fetch available chargers: %w", err)
 	}
 
-	seeds := make([]*adapter.ThingSeed, 0, len(chargers))
+	return a.reconcileChargers(chargers, selected)
+}
 
-	for _, charger := range chargers {
-		chargerDetails, err := a.client.ChargerDetails(charger.ID)
-		if err != nil {
-			return errors.Wrap(err, "failed to fetch charger details from Easee API")
+// reconcileChargers holds the one selection policy every caller shares. Configure fetches the
+// list itself so it can validate the request against it before mutating anything, and hands
+// the same response here rather than provoking a second fetch that could disagree with the
+// first.
+func (a *application) reconcileChargers(chargers []model.Charger, selected selection.Selection) error {
+	// A hub upgraded while logged out never reached the boot-time adoption, because
+	// Initialize returns before it when the secrets store is empty. Catch up here.
+	// Adopt every owned charger, not just the listed ones: a selection filtered against
+	// this response is a subset of it by construction, so the retry budget below would
+	// never see a partial list and a transiently absent charger would lose its thing.
+	// Nothing owned being listed is a different Easee account rather than a short list,
+	// and adopting there would leave the hub selecting devices it can never see.
+	if selected.IncludeAll() {
+		if len(a.ownedListedChargers(chargers)) > 0 {
+			selected = a.ownedDeviceIDs()
+
+			if err := a.cfgService.SetSelectedDevices(selected); err != nil {
+				return fmt.Errorf("persist adopted selection: %w", err)
+			}
+		}
+	}
+
+	// An empty response leaves nothing for the adoption above to work off, so nothing below
+	// would flag the owned chargers as missing and the sync would destroy every thing on the
+	// hub. Put them through the same retry budget instead: a successful fetch listing nothing
+	// is no more trustworthy than one listing too little.
+	if len(chargers) == 0 && selected.IncludeAll() {
+		if owned := a.ownedDeviceIDs(); len(owned) > 0 {
+			selected = owned
+		}
+	}
+
+	// A partial /chargers response must not drop selected chargers: the sync destroys
+	// every persisted thing absent from the seeds. Retry a few times, then seed without
+	// them so a legitimately removed charger cannot block startup.
+	if missing := missingSelected(chargers, selected); len(missing) > 0 {
+		// Reset the budget when the missing set changes, so a newly missing charger
+		// gets full retries instead of inheriting an exhausted counter. Sorted, or
+		// re-ticking the same devices in another order would look like a new set.
+		slices.Sort(missing)
+
+		if attempt, exhausted := a.tickMissingBudget(strings.Join(missing, ",")); !exhausted {
+			return fmt.Errorf("%w: selected devices %v not found in chargers list; refusing partial re-seed (%d/%d)",
+				errMissingSelected, missing, attempt, maxMissingSelectedRetries)
 		}
 
-		seeds = append(seeds, &adapter.ThingSeed{
-			ID: charger.ID,
-			Info: easee.Info{
-				ChargerID: charger.ID,
-				Product:   chargerDetails.Product,
-			},
+		log.Warnf("[app] Selected devices %v still missing after %d retries, seed without them", missing, maxMissingSelectedRetries)
+
+		// Drop them from the persisted selection too, or the budget is spent again on
+		// every later login. Clone rather than slices.Clone: cleaning out the last entry
+		// must leave an empty selection ("no chargers"), not a nil one ("every charger").
+		log.Infof("[app] Remove vanished chargers %v from the saved selection", missing)
+
+		selected = slices.DeleteFunc(selected.Clone(), func(id string) bool {
+			return slices.Contains(missing, id)
 		})
+
+		if err := a.cfgService.SetSelectedDevices(selected); err != nil {
+			return fmt.Errorf("persist cleaned selection: %w", err)
+		}
 	}
 
-	if err := a.ad.EnsureThings(seeds); err != nil {
-		return errors.Wrap(err, "application: failed to ensure things")
+	a.resetMissingBudget()
+
+	// Persist an auto-selection so the manifest and the seeds work off the same list
+	// instead of each re-deriving it.
+	if capped := effectiveSelection(chargers, selected); len(capped) > 0 && selected.IncludeAll() {
+		selected = capped
+
+		if err := a.cfgService.SetSelectedDevices(selected); err != nil {
+			return fmt.Errorf("persist auto-selected devices: %w", err)
+		}
 	}
 
-	if len(chargers) > 0 {
+	// syncErr is carried rather than returned at once: the sync is best-effort and its
+	// exclusions still have to be persisted below, or the vanished charger is re-announced on
+	// every later sync. The caller still hears about it, so a login does not report success
+	// when nothing could be seeded.
+	synced, syncErr := a.applyChargers(chargers, selected)
+
+	if slices.Equal(synced, selected) {
+		return syncErr
+	}
+
+	if err := a.cfgService.SetSelectedDevices(synced); err != nil {
+		return errors.Join(syncErr, fmt.Errorf("persist selection after sync: %w", err))
+	}
+
+	return syncErr
+}
+
+// applyChargers seeds the selected chargers and returns the selection the sync leaves behind.
+// Details are fetched up front because a seed function cannot fail, and the fetch must be the
+// sole authority on what exists.
+func (a *application) applyChargers(chargers []model.Charger, selected selection.Selection) (selection.Selection, error) {
+	products := make(map[string]string, len(chargers))
+
+	for _, charger := range chargers {
+		if !selected.Contains(charger.ID) {
+			continue
+		}
+
+		details, err := a.client.ChargerDetails(charger.ID)
+		if err != nil {
+			// The selection is returned unchanged, never nil: the sync never ran, so it left
+			// nothing behind, and a nil selection reads as "every charger" - persisting that
+			// would erase an explicit list on a transient detail fetch failure.
+			return selected, fmt.Errorf("fetch charger details: %w", err)
+		}
+
+		products[charger.ID] = details.Product
+	}
+
+	seeds, excluded, err := adapter.SyncThings(
+		a.ad,
+		func() ([]model.Charger, error) { return chargers, nil },
+		selected,
+		func(charger model.Charger) *adapter.ThingSeed {
+			return &adapter.ThingSeed{
+				ID:   charger.ID,
+				Info: easee.Info{ChargerID: charger.ID, Product: products[charger.ID]},
+			}
+		},
+	)
+	// SyncThings is best-effort by contract: it joins the per-charger failures and still
+	// returns the seeds and the exclusions. Returning here discarded both - so the vanished
+	// charger was re-announced on every later sync, and the signalR client was left stopped
+	// after a logout/login, reporting every charger disconnected until the next restart. The
+	// error is carried to the caller instead, after the seeds and exclusions are handled.
+	if err != nil {
+		log.Warnf("[app] Sync things completed with errors: %v", err)
+
+		err = fmt.Errorf("sync things: %w", err)
+	}
+
+	if len(seeds) > 0 {
 		a.signalRClient.Start()
+	}
+
+	if len(excluded) == 0 {
+		return selected, err
+	}
+
+	// The sync announced an exclusion for each of these, so keeping them selected would
+	// re-announce the same vanished charger on every later sync.
+	return slices.DeleteFunc(selected.Clone(), func(id string) bool {
+		return slices.Contains(excluded, id)
+	}), err
+}
+
+// adoptSeededSelection makes config catch up with reality on upgrades from versions without
+// a selection: things were seeded but selected_devices is absent, so a later re-seed would
+// fall back to "all" (or to the auto-cap) instead of this hub's own chargers.
+func (a *application) adoptSeededSelection() {
+	if !a.cfgService.SelectedDevices().IncludeAll() {
+		return
+	}
+
+	owned := a.ownedDeviceIDs()
+	if len(owned) == 0 {
+		return
+	}
+
+	if err := a.cfgService.SetSelectedDevices(owned); err != nil {
+		log.Warnf("[app] Adopt seeded chargers as selection. err: %v", err)
+	}
+}
+
+// ownedListedChargers returns the chargers this hub holds as things and the account still
+// lists, so a stale ID cannot be carried forward into the selection.
+func (a *application) ownedListedChargers(chargers []model.Charger) selection.Selection {
+	owned := a.ownedDeviceIDs()
+	stale := missingSelected(chargers, owned)
+
+	return slices.DeleteFunc(owned, func(id string) bool { return slices.Contains(stale, id) })
+}
+
+// ownedDeviceIDs returns the chargers the adapter currently holds as things.
+func (a *application) ownedDeviceIDs() selection.Selection {
+	things := a.ad.Things()
+
+	ids := make(selection.Selection, 0, len(things))
+	for _, t := range things {
+		ids = append(ids, t.InclusionReport().DeviceId)
+	}
+
+	return ids
+}
+
+// missingSelected returns persisted selections that no longer appear in the chargers list.
+func missingSelected(chargers []model.Charger, selected []string) []string {
+	present := make(map[string]struct{}, len(chargers))
+	for _, charger := range chargers {
+		present[charger.ID] = struct{}{}
+	}
+
+	var missing []string
+
+	for _, id := range selected {
+		if _, ok := present[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+
+	return missing
+}
+
+// effectiveSelection turns an unconfigured (nil) selection into the concrete charger list,
+// capped at maxAutoSelected. Materialising it is what makes cmd.thing.delete stick: "every
+// charger" cannot express an exclusion, so the next sync would recreate the deleted thing.
+// The cap keeps installer accounts, which expose hundreds of chargers, from flooding the hub
+// with things nobody asked for.
+func effectiveSelection(chargers []model.Charger, selected selection.Selection) selection.Selection {
+	if !selected.IncludeAll() {
+		return selected
+	}
+
+	auto := make(selection.Selection, 0, min(len(chargers), maxAutoSelected))
+
+	for _, charger := range chargers {
+		if charger.ID == "" {
+			continue
+		}
+
+		auto = append(auto, charger.ID)
+
+		if len(auto) == maxAutoSelected {
+			break
+		}
+	}
+
+	if len(chargers) > maxAutoSelected {
+		log.Warnf("[app] No devices selected out of %d available, auto-select first %d: %v", len(chargers), len(auto), auto)
+	}
+
+	return auto
+}
+
+// validateSelectedDevices rejects selections referencing IDs absent from the freshly fetched
+// chargers list, so Configure fails fast before mutating state.
+func validateSelectedDevices(chargers []model.Charger, selected []string) error {
+	if unknown := missingSelected(chargers, selected); len(unknown) > 0 {
+		return fmt.Errorf("configure: unknown device IDs: %v", unknown)
 	}
 
 	return nil

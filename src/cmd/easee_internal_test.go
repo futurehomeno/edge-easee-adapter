@@ -5,33 +5,43 @@ import (
 	"os"
 	"path"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
-	"github.com/futurehomeno/cliffhanger/bootstrap"
-	cliffConfig "github.com/futurehomeno/cliffhanger/config"
+	cliffCfg "github.com/futurehomeno/cliffhanger/config"
+	"github.com/futurehomeno/cliffhanger/debug"
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/prime"
 	"github.com/futurehomeno/cliffhanger/router"
+	cliffStorage "github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/test/suite"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/mock"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
-	"github.com/futurehomeno/edge-easee-adapter/internal/test/mocks"
+	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
 )
 
 const (
 	cmdDeviceChargepointTopic = "pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1"
 	evtDeviceChargepointTopic = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1"
 	evtDeviceMeterElecTopic   = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:meter_elec/ad:1"
+	evtDeviceAlarmTopic       = "pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:alarm_system/ad:1"
+	cmdDeviceAlarmTopic       = "pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:alarm_system/ad:1"
 )
+
+// refreshTaskPings counts Ping calls made by the token-refresh task in the
+// "Token refresh task..." case; read/written atomically since the task runs on its own goroutine.
+var refreshTaskPings atomic.Int32
 
 func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 	mqttAddr := test.SetupMQTTContainer(t)
@@ -44,7 +54,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 		Cases: []*suite.Case{
 			{
 				Name: "Adapter is capable of reacting to incoming observations",
-				Setup: serviceSetup(testContainer, "configured", mqttAddr, func(client *mocks.APIClient) {
+				Setup: serviceSetup(testContainer, "configured", mqttAddr, func(client *mockapi.Client) {
 					client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 					client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 					client.On("Ping").Return(nil)
@@ -138,13 +148,73 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
+				Name: "Adapter reports charger faults as alarms",
+				Setup: serviceSetup(testContainer, "configured", mqttAddr, func(client *mockapi.Client) {
+					client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
+					client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
+					client.On("Ping").Return(nil)
+				}, signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+					s.MockObservations(0, []model.Observation{
+						{
+							ChargerID: test.ChargerID,
+							DataType:  model.ObservationDataTypeInteger,
+							Timestamp: time.Now(),
+							ID:        model.ErrorCode,
+							Value:     "5",
+						},
+						{
+							ChargerID: test.ChargerID,
+							DataType:  model.ObservationDataTypeInteger,
+							Timestamp: time.Now(),
+							ID:        model.DetectedPowerGridType,
+							Value:     strconv.Itoa(int(model.GridTypeWarningTN3PhaseGNDFault)),
+						},
+					})
+					s.MockObservations(300*time.Millisecond, []model.Observation{
+						{
+							ChargerID: test.ChargerID,
+							DataType:  model.ObservationDataTypeInteger,
+							Timestamp: time.Now(),
+							ID:        model.ErrorCode,
+							Value:     "0",
+						},
+						// Regression: clearing the ground fault leaves the FIMP grid type at
+						// {TN, 3}, so the alarm must still be deactivated despite the topology
+						// looking unchanged to the chargepoint service.
+						{
+							ChargerID: test.ChargerID,
+							DataType:  model.ObservationDataTypeInteger,
+							Timestamp: time.Now(),
+							ID:        model.DetectedPowerGridType,
+							Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
+						},
+					})
+				})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							suite.ExpectStringMap(evtDeviceAlarmTopic, "evt.alarm.report", "alarm_system",
+								map[string]string{"event": alarm.EventOtherChargeErr, "status": alarm.StatusActivate}),
+							suite.ExpectStringMap(evtDeviceAlarmTopic, "evt.alarm.report", "alarm_system",
+								map[string]string{"event": alarm.EventGroundingFault, "status": alarm.StatusActivate}),
+							suite.ExpectStringMap(evtDeviceAlarmTopic, "evt.alarm.report", "alarm_system",
+								map[string]string{"event": alarm.EventOtherChargeErr, "status": alarm.StatusDeactivate}),
+							suite.ExpectStringMap(evtDeviceAlarmTopic, "evt.alarm.report", "alarm_system",
+								map[string]string{"event": alarm.EventGroundingFault, "status": alarm.StatusDeactivate}),
+						},
+					},
+				},
+			},
+			{
 				// Regression: we've encountered cases where chargers reported power usage and a state other than "charging".
 				Name: "Adapter reports a charger state as charging based on power consumption",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
@@ -204,7 +274,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
@@ -219,6 +289,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							suite.ExpectError(evtDeviceChargepointTopic, "chargepoint"),
 						},
 					},
+					{
+						Command: suite.NullMessage(cmdDeviceAlarmTopic, "cmd.alarm.get_report", "alarm_system"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectError(evtDeviceAlarmTopic, "alarm_system"),
+						},
+					},
 				},
 			},
 			{
@@ -227,7 +303,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
@@ -286,7 +362,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -329,7 +405,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
@@ -352,7 +428,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
 						client.On("Ping").Return(nil)
@@ -428,15 +504,19 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
-				Name: "Inclusion report updated: changed phase mode",
+				// Supported phase modes must not narrow to whatever internal mode the charger
+				// happens to sit in - locking to a single phase would otherwise make the switch
+				// back unreachable. Only one phase is ever offered: the charger cannot choose one.
+				Name: "Inclusion report: phase modes do not narrow with the internal mode",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
-							PhaseMode:             1, // results in NL1, NL2, NL3
+							PhaseMode:             1, // locked to a single phase
 						}, nil)
 						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
 							RatedCurrent: 32,
@@ -479,7 +559,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(3),
 								chargepoint.PropertyGridType:            "TN",
-								chargepoint.PropertySupportedPhaseModes: []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"},
+								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL1L2L3"},
 							}, nil),
 						},
 					},
@@ -487,11 +567,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Inclusion report on start",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
 							PhaseMode:             2,
@@ -528,7 +609,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(3),
 								chargepoint.PropertyGridType:            "TN",
-								chargepoint.PropertySupportedPhaseModes: []interface{}{"NL1", "NL2", "NL3", "NL1L2L3"},
+								chargepoint.PropertySupportedPhaseModes: []any{"NL1", "NL1L2L3"},
 							}, nil),
 						},
 					},
@@ -536,11 +617,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Inclusion report updated - different grid type",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
 							PhaseMode:             1,
@@ -593,7 +675,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 								chargepoint.PropertySupportedMaxCurrent: float64(32),
 								chargepoint.PropertyPhases:              float64(1),
 								chargepoint.PropertyGridType:            "TN",
-								chargepoint.PropertySupportedPhaseModes: []interface{}{"NL1"},
+								chargepoint.PropertySupportedPhaseModes: []any{"NL1"},
 							}, nil),
 						},
 					},
@@ -605,7 +687,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
 							PhaseMode:             2,
@@ -660,12 +742,72 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
-				Name: "Phase mode report - no OutputPhase observation",
+				Name: "Set phase mode",
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
+							DetectedPowerGridType: model.GridTypeTN3Phase,
+							PhaseMode:             1,
+						}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{
+							RatedCurrent: 32,
+						}, nil)
+						client.On("Ping").Return(nil)
+						// Three phases map onto Easee's auto mode, not a hard three-phase lock.
+						client.On("SetPhaseMode", "XX12345", 2).Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						s.MockObservations(0, []model.Observation{
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.ChargerOPState,
+								Value:     strconv.Itoa(int(model.ChargerStateAwaitingStart)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.DetectedPowerGridType,
+								Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
+							},
+							{
+								ChargerID: test.ChargerID,
+								DataType:  model.ObservationDataTypeInteger,
+								Timestamp: time.Now(),
+								ID:        model.PhaseMode,
+								Value:     "1",
+							},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					suite.SleepNode(300 * time.Millisecond),
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command: suite.StringMessage(
+							"pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.phase_mode.set", "chargepoint", "NL1L2L3",
+						),
+						Expectations: []*suite.Expectation{
+							suite.ExpectString(
+								"pt:j1/mt:evt/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "evt.phase_mode.report", "chargepoint", "NL1L2L3",
+							),
+						},
+					},
+				},
+			},
+			{
+				Name: "Phase mode report - no OutputPhase observation",
+				//nolint:dupl
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeTN3Phase,
 							PhaseMode:             1,
@@ -725,7 +867,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -764,11 +906,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Cable lock get report when cable is locked",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -816,11 +959,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Error when user tries set cable lock",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -868,11 +1012,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Get supported parameters",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -938,11 +1083,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Get cable lock parameter report",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -992,11 +1138,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Get error for no supported parameter",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -1044,11 +1191,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Get supported parameters report after inclusion report",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -1114,11 +1262,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Start session report after observation, no previous session",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -1167,11 +1316,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 			},
 			{
 				Name: "Get sessions report",
+				//nolint:dupl
 				Setup: serviceSetup(
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -1213,8 +1363,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{
 							waitForRunning(),
-							func(_ *testing.T) {
-								time.Sleep(10 * time.Millisecond)
+							func(t *testing.T) {
+								t.Helper()
+
+								testContainer.signalRServer.WaitForObservations(t)
 							},
 						},
 						Command: suite.NullMessage("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1", "cmd.current_session.get_report", "chargepoint"),
@@ -1233,7 +1385,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -1259,8 +1411,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{
 							waitForRunning(),
-							func(_ *testing.T) {
-								time.Sleep(10 * time.Millisecond)
+							func(t *testing.T) {
+								t.Helper()
+
+								testContainer.signalRServer.WaitForObservations(t)
 							},
 						},
 						Expectations: []*suite.Expectation{
@@ -1276,7 +1430,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					testContainer,
 					"configured",
 					mqttAddr,
-					func(client *mocks.APIClient) {
+					func(client *mockapi.Client) {
 						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{
 							DetectedPowerGridType: model.GridTypeUnknown,
 							PhaseMode:             1,
@@ -1302,8 +1456,10 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					{
 						InitCallbacks: []suite.Callback{
 							waitForRunning(),
-							func(_ *testing.T) {
-								time.Sleep(10 * time.Millisecond)
+							func(t *testing.T) {
+								t.Helper()
+
+								testContainer.signalRServer.WaitForObservations(t)
 							},
 						},
 						Expectations: []*suite.Expectation{
@@ -1315,6 +1471,54 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					},
 				},
 			},
+			{
+				Name: "App diagnostic report",
+				Setup: serviceSetup(testContainer, "configured", mqttAddr, func(client *mockapi.Client) {
+					client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
+					client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
+					client.On("Ping").Return(nil)
+				}, signalRSetup(test.DefaultSignalRAddr, nil)),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Command:       suite.NullMessage("pt:j1/mt:cmd/rt:ad/rn:easee/ad:1", "cmd.app.get_diag", "easee"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectMessage("pt:j1/mt:evt/rt:ad/rn:easee/ad:1", "evt.app.diag_report", "easee"),
+						},
+					},
+				},
+			},
+			{
+				Name: "Token refresh task should call Ping() at configured interval",
+				Setup: serviceSetup(testContainer, "configured", mqttAddr, func(client *mockapi.Client) {
+					client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
+					client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
+					refreshTaskPings.Store(0)
+					client.On("Ping").Return(nil).Run(func(mock.Arguments) { refreshTaskPings.Add(1) }).Maybe()
+				}, signalRSetup(test.DefaultSignalRAddr, nil)),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{
+							waitForRunning(),
+							func(t *testing.T) {
+								t.Helper()
+								// Poll for repeated Ping calls instead of asserting an exact, timing-dependent
+								// count: the refresh task fires more than once, but the number depends on
+								// scheduler and CI jitter.
+								deadline := time.Now().Add(2 * time.Second)
+								for refreshTaskPings.Load() < 3 {
+									if time.Now().After(deadline) {
+										t.Fatalf("expected repeated Ping calls at the configured interval, got %d", refreshTaskPings.Load())
+									}
+									time.Sleep(20 * time.Millisecond)
+								}
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 
@@ -1322,7 +1526,7 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 }
 
 //nolint:unparam
-func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn func(c *mocks.APIClient), opts ...func(tc *testContainer)) suite.ServiceSetup {
+func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn func(c *mockapi.Client), opts ...func(tc *testContainer)) suite.ServiceSetup {
 	return func(t *testing.T) (service suite.Service, _ []suite.Mock) {
 		t.Helper()
 
@@ -1337,12 +1541,12 @@ func serviceSetup(tc *testContainer, configSet, mqttAddr string, mockClientFn fu
 
 		tc.SetUp()
 
-		client := mocks.NewAPIClient(t)
+		client := mockapi.NewClient(t)
 		mockClientFn(client)
 
 		services.easeeAPIClient = client
 
-		app, err := Build(cfg)
+		app, err := Build(cfg, "easee", "test")
 		if err != nil {
 			t.Fatalf("failed to build app: %s", err)
 		}
@@ -1381,22 +1585,24 @@ func cleanUpTestData(t *testing.T, configSet string) {
 	}
 
 	// recreate 'data' path
-	if err = os.Mkdir(dataPath, 0o755); err != nil {
+	if err = os.Mkdir(dataPath, 0o750); err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
 
 	// copy 'adapter.json' from 'defaults' to 'data'
+	// #nosec
 	fin, err := os.Open(path.Join(defaultsPath, "adapter.json"))
 	if err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
-	defer fin.Close()
+	defer func() { _ = fin.Close() }()
 
+	// #nosec
 	fout, err := os.Create(path.Join(dataPath, "adapter.json"))
 	if err != nil {
 		t.Fatalf("failed to clean up after previous tests: %s", err)
 	}
-	defer fout.Close()
+	defer func() { _ = fout.Close() }()
 
 	_, err = io.Copy(fout, fin)
 	if err != nil {
@@ -1414,7 +1620,7 @@ func configSetup(t *testing.T, configSet, mqttAddr string) *config.Config {
 
 	cfgDir := path.Join("./../../testdata/testing/", configSet)
 	cfg := config.New(cfgDir)
-	storage := cliffConfig.NewStorage(cfg, cfgDir)
+	storage := cliffStorage.New(cfg, cfgDir, "config.json")
 
 	service := config.NewService(storage)
 
@@ -1425,21 +1631,37 @@ func configSetup(t *testing.T, configSet, mqttAddr string) *config.Config {
 	service.Model().MQTTServerURI = mqttAddr
 	services.configService = service
 
+	credentials := config.NewCredentialsStore(cfgDir)
+	if err := credentials.Load(); err != nil {
+		t.Fatalf("failed to load credentials: %s", err)
+	}
+
+	// The suite bypasses getConfigService, so run the migration that moves the testdata
+	// tokens out of config.json into the secrets store by hand.
+	if err := config.MigrateCredentials(service.Model(), credentials); err != nil {
+		t.Fatalf("failed to migrate credentials: %s", err)
+	}
+
+	services.credentialsStore = credentials
+
 	return service.Model()
 }
 
 func loggerSetup(t *testing.T) {
 	t.Helper()
 
-	cfg := getConfigService().Model()
-	bootstrap.InitializeLogger(cfg.LogFile, cfg.LogLevel, cfg.LogFormat)
+	store := cliffCfg.NewDefaultStoreFromStorage(
+		getConfigService().Storage,
+		func(c *config.Config) *cliffCfg.Default { return &c.Default },
+	)
+	_ = debug.InitializeLogger(store)
 }
 
 func waitForRunning() suite.Callback {
 	return func(t *testing.T) {
 		t.Helper()
 
-		getLifecycle().WaitFor("test_suite", lifecycle.StateTypeAppState, lifecycle.AppStateRunning)
+		getLifecycle().WaitFor("test_suite", lifecycle.StateTypeAppHealth, lifecycle.AppHealthRunning)
 	}
 }
 
