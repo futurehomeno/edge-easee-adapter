@@ -420,8 +420,8 @@ func (a *application) Initialize() error {
 
 func (a *application) Logout() error {
 	log.Info("[app] Logout requested")
-
-	a.dropCachedChargers()
+	// Deferred: a concurrent manifest may cache the old account's chargers while auth.Logout runs.
+	defer a.dropCachedChargers()
 
 	if err := a.signalRClient.Close(); err != nil {
 		log.Warnf("[app] Disconnect signalR client. err: %v", err)
