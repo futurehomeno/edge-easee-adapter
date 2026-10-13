@@ -359,6 +359,96 @@ func TestClient_SetPhaseMode(t *testing.T) {
 	}
 }
 
+func TestClient_SetCableAlwaysLocked(t *testing.T) {
+	tests := []struct {
+		name             string
+		chargerID        string
+		accessToken      string
+		serverHandler    http.Handler
+		forceServerError bool
+		locked           bool
+		wantErr          bool
+	}{
+		{
+			name:        "successful call to Easee API",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/lock_state",
+				requestBody:   `{"state":true}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusOK,
+			}),
+			locked: true,
+		},
+		{
+			name:        "accepted is a valid response too",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/lock_state",
+				requestBody:   `{"state":false}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusAccepted,
+			}),
+		},
+		{
+			name:        "unexpected response code",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/lock_state",
+				requestBody:   `{"state":true}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			locked:  true,
+			wantErr: true,
+		},
+		{
+			name:             "http client error",
+			chargerID:        test.ChargerID,
+			accessToken:      test.AccessToken,
+			forceServerError: true,
+			wantErr:          true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			c := api.NewHTTPClient(&http.Client{Timeout: 3 * time.Second}, s.URL)
+
+			err := c.SetCableAlwaysLocked(tt.accessToken, tt.chargerID, tt.locked)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
 //nolint:dupl
 func TestClient_UpdateDynamicCurrent(t *testing.T) {
 	t.Parallel()
