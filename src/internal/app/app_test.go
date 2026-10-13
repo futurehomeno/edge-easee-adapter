@@ -98,7 +98,6 @@ func TestApplication_GetManifest_CachesChargerList(t *testing.T) { //nolint:para
 	clientMock.On("Ping").Return(errors.New("offline")).Maybe()
 
 	authMock := mockapi.NewAuthenticator(t)
-	authMock.On("Login", "user", "pass").Return(errors.New("bad password"))
 	authMock.On("Logout").Return(nil)
 
 	signalRMock := mocksignalr.NewClient(t)
@@ -141,10 +140,13 @@ func TestApplication_GetManifest_CachesChargerList(t *testing.T) { //nolint:para
 	getManifest()
 
 	expectFetch(nil)
+	expectFetch(nil)
+	mockClock.Add(11 * time.Second)
+	authMock.On("Login", "user", "pass").Return(errors.New("bad password")).Run(func(mock.Arguments) { getManifest() })
 	require.Error(t, a.Login(&cliffApp.LoginCredentials{Username: "user", Password: "pass"}))
 	getManifest()
 
-	clientMock.AssertNumberOfCalls(t, "Chargers", 5)
+	clientMock.AssertNumberOfCalls(t, "Chargers", 6)
 }
 
 func TestApplication_Configure_RejectsWrongModelType(t *testing.T) {

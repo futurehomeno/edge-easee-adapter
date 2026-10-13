@@ -326,8 +326,8 @@ func (a *application) Uninstall() error {
 
 func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 	defer func() { _ = a.Check() }()
-
-	a.dropCachedChargers()
+	// Deferred: a concurrent manifest may cache the old account's chargers while auth.Login runs.
+	defer a.dropCachedChargers()
 
 	if err := a.auth.Login(credentials.Username, credentials.Password); err != nil {
 		a.lifecycle.MarkNotConfigured()
