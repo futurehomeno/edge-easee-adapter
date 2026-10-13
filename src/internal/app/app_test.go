@@ -87,6 +87,69 @@ func TestApplication_GetManifest(t *testing.T) {
 	}
 }
 
+func TestApplication_GetManifest_CachesChargerList(t *testing.T) { //nolint:paralleltest
+	mockClock := clock.Mock(time.Date(2022, time.September, 10, 8, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	loaderMock := mockedmanifest.NewLoader(t)
+	loaderMock.On("Load").Return(func() (*manifest.Manifest, error) { return test.LoadManifest(t), nil })
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Ping").Return(errors.New("offline")).Maybe()
+
+	authMock := mockapi.NewAuthenticator(t)
+	signalRMock := mocksignalr.NewClient(t)
+	signalRMock.On("Close").Return(nil)
+
+	lc := lifecycle.New(nil)
+	cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	a := app.New(nil, cfgService, lc, loaderMock, clientMock, authMock, signalRMock, newCredentialsStore(t, config.Credentials{}), nil)
+
+	getManifest := func() {
+		lc.SetConnAndAuthState(lifecycle.ConnStateConnected, lifecycle.AuthStateAuthenticated)
+		_, err := a.GetManifest()
+		require.NoError(t, err)
+	}
+
+	chargers := []model.Charger{{ID: "1"}}
+	expectFetch := func(err error) {
+		if err != nil {
+			clientMock.On("Chargers").Return(nil, err).Once()
+		} else {
+			clientMock.On("Chargers").Return(chargers, nil).Once()
+		}
+	}
+
+	expectFetch(errors.New("429"))
+	getManifest()
+
+	expectFetch(nil)
+	getManifest()
+	getManifest()
+	mockClock.Add(9 * time.Second)
+	getManifest()
+
+	expectFetch(nil)
+	mockClock.Add(2 * time.Second)
+	getManifest()
+
+	expectFetch(nil)
+	expectFetch(nil)
+	mockClock.Add(11 * time.Second)
+	authMock.On("Logout").Return(nil).Run(func(mock.Arguments) { getManifest() })
+	require.NoError(t, a.Logout())
+	getManifest()
+
+	expectFetch(nil)
+	expectFetch(nil)
+	mockClock.Add(11 * time.Second)
+	authMock.On("Login", "user", "pass").Return(errors.New("bad password")).Run(func(mock.Arguments) { getManifest() })
+	require.Error(t, a.Login(&cliffApp.LoginCredentials{Username: "user", Password: "pass"}))
+	getManifest()
+
+	clientMock.AssertNumberOfCalls(t, "Chargers", 7)
+}
+
 func TestApplication_Configure_RejectsWrongModelType(t *testing.T) {
 	t.Parallel()
 
