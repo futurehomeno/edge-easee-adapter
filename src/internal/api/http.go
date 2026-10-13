@@ -179,12 +179,11 @@ func (c *httpClient) StopCharging(accessToken, chargerID string) error {
 
 func (c *httpClient) SetCableAlwaysLocked(accessToken, chargerID string, locked bool) error {
 	return c.postCommand(accessToken, c.buildURL(cableLockURITemplate, chargerID),
-		cableLockStateBody{State: locked}, "cable lock request")
+		cableLockStateBody{State: locked}, "cable lock request", http.StatusOK, http.StatusAccepted)
 }
 
 func (c *httpClient) SetPhaseMode(accessToken, chargerID string, phaseMode int) error {
-	// Unlike the other command endpoints this one is documented to answer 200, but Easee
-	// has been observed answering 202 as well.
+	// Documented to answer 200, but Easee has been observed answering 202 as well.
 	return c.postCommand(accessToken, c.buildURL(phaseModeURITemplate, chargerID),
 		phaseModeBody{PhaseMode: phaseMode}, "phase mode request", http.StatusOK, http.StatusAccepted)
 }
@@ -293,7 +292,7 @@ func (c *httpClient) bearerTokenHeader(authToken string) string {
 }
 
 // postCommand sends a command to the Easee cloud and checks the status against okStatuses,
-// defaulting to 202 - the answer every command endpoint but SetPhaseMode is documented to give.
+// defaulting to 202 - the answer the command endpoints are documented to give.
 // A nil body sends no content type, as the endpoints taking no body reject one.
 func (c *httpClient) postCommand(accessToken, url string, body any, message string, okStatuses ...int) error {
 	headers := map[string]string{authorizationHeader: c.bearerTokenHeader(accessToken)}

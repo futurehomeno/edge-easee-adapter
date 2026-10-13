@@ -636,6 +636,7 @@ type recordingHandler struct {
 	handled  chan struct{}
 	closes   atomic.Int32
 	charging bool
+	reported func()
 }
 
 func (h *recordingHandler) IsOnline() bool { return true }
@@ -643,6 +644,12 @@ func (h *recordingHandler) IsOnline() bool { return true }
 func (h *recordingHandler) Charging() bool { return h.charging }
 
 func (h *recordingHandler) Close() { h.closes.Add(1) }
+
+func (h *recordingHandler) ReportConnectivity() {
+	if h.reported != nil {
+		h.reported()
+	}
+}
 
 func (h *recordingHandler) HandleObservation(model.Observation) error {
 	h.once.Do(func() { close(h.handled) })
@@ -1280,4 +1287,47 @@ func TestWatchdog_LeavesAChargerThatIsNotChargingAlone(t *testing.T) {
 	runSubscriptions(t, m)
 
 	assert.Zero(t, client.subscribes.Load())
+}
+
+// connectivityReports records what Connected said each time the handler was asked for a node
+// report; calling Connected from the callback also fails the test by deadlock if the manager
+// asks while holding its lock.
+func connectivityReports(m *manager) *[]bool {
+	var reports []bool
+
+	m.chargers[chargerID].handler = &recordingHandler{handled: make(chan struct{}), reported: func() {
+		ok, _ := m.Connected(chargerID)
+		reports = append(reports, ok)
+	}}
+
+	return &reports
+}
+
+func TestSubscribeSuccessReportsConnectivityUp(t *testing.T) {
+	m := newTestManagerWithClient(t, &countingSubscribeClient{})
+	reports := connectivityReports(m)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, []bool{true}, *reports)
+}
+
+func TestSubscribeFailureReportsConnectivityDown(t *testing.T) {
+	m, _ := newTestManager(t)
+	reports := connectivityReports(m)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, []bool{false}, *reports)
+}
+
+func TestDisconnectReportsConnectivityDown(t *testing.T) {
+	m := newTestManagerWithClient(t, &countingSubscribeClient{})
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	reports := connectivityReports(m)
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	assert.Equal(t, []bool{false}, *reports)
 }

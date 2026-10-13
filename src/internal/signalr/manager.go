@@ -367,8 +367,13 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// the charger would be left idle with nothing pending. Enqueued after the unlock below:
 	// enqueueSubscription takes m.mu itself.
 	requeue := false
+	report := false
 
 	defer func() {
+		if report {
+			charger.handler.ReportConnectivity()
+		}
+
 		if requeue {
 			m.enqueueSubscription(chargerID)
 		}
@@ -418,6 +423,8 @@ func (m *manager) handleSubscription(chargerID string) error {
 	}
 
 	if err != nil {
+		report = true
+
 		// A sustained outage (e.g. not logged in) retries forever; warn on the first
 		// failure of a streak only, so it does not accumulate thousands of lines.
 		if charger.subscribeFailed {
@@ -448,6 +455,8 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 		return nil
 	}
+
+	report = true
 
 	charger.backoff.Reset()
 	charger.isSubscribed = true
@@ -545,7 +554,10 @@ func (m *manager) handleClientState(state model.ClientState) {
 		// must not mark the charger subscribed on it.
 		m.epoch++
 
+		handlers := make([]Handler, 0, len(m.chargers))
+
 		for _, charger := range m.chargers {
+			handlers = append(handlers, charger.handler)
 			charger.backoff.Reset()
 			charger.isSubscribed = false
 			// Connected() counts an in-flight subscribe as connected; left set, it would keep
@@ -557,6 +569,10 @@ func (m *manager) handleClientState(state model.ClientState) {
 		}
 
 		m.mu.Unlock()
+
+		for _, handler := range handlers {
+			handler.ReportConnectivity()
+		}
 
 	default:
 		log.Warnf("Unknown client state %v", state)
