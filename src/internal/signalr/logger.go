@@ -22,24 +22,20 @@ func (l logger) Log(keyVals ...interface{}) error {
 		return nil
 	}
 
-	e := log.NewEntry(log.StandardLogger())
-
-	for i := 0; i < len(keyVals); i += 2 {
-		key, ok := keyVals[i].(string)
-		if !ok {
-			continue
-		}
-
-		if key == "level" {
-			continue
-		}
-
-		e = e.WithField(key, keyVals[i+1])
+	level := l.detectLevel(keyVals)
+	if !log.IsLevelEnabled(level) {
+		return nil
 	}
 
-	level := l.detectLevel(keyVals)
+	fields := make(log.Fields, len(keyVals)/2)
 
-	e.Log(level, "signalR client log")
+	for i := 0; i < len(keyVals); i += 2 {
+		if key, ok := keyVals[i].(string); ok && key != "level" {
+			fields[key] = keyVals[i+1]
+		}
+	}
+
+	log.WithFields(fields).Log(level, "signalR client log")
 
 	return nil
 }

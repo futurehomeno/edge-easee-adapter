@@ -11,12 +11,11 @@ import (
 
 	"github.com/michalkurzeja/go-clock"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
-	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test"
-	mockedstorage "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/storage"
 )
 
 func TestClient_Login(t *testing.T) {
@@ -110,12 +109,8 @@ func TestClient_Login(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.Login(tt.username, tt.password)
 			if tt.wantErr {
@@ -173,11 +168,7 @@ func TestClient_RefreshToken(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(handler))
 			defer server.Close()
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
-			client := api.NewHTTPClient(cfgSrv, server.Client(), server.URL+v.baseURLAdj)
+			client := api.NewHTTPClient(server.Client(), server.URL+v.baseURLAdj)
 			creds, err := client.RefreshToken("", "")
 
 			if v.errorContains != "" {
@@ -266,12 +257,8 @@ func TestClient_UpdateMaxCurrent(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.UpdateMaxCurrent(tt.accessToken, tt.chargerID, tt.current)
 			if tt.wantErr {
@@ -285,13 +272,101 @@ func TestClient_UpdateMaxCurrent(t *testing.T) {
 	}
 }
 
+func TestClient_SetPhaseMode(t *testing.T) {
+	tests := []struct {
+		name             string
+		chargerID        string
+		accessToken      string
+		serverHandler    http.Handler
+		forceServerError bool
+		phaseMode        int
+		wantErr          bool
+	}{
+		{
+			name:        "successful call to Easee API",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/set_phase_mode",
+				requestBody:   `{"phaseMode":1}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusOK,
+			}),
+			phaseMode: 1,
+		},
+		{
+			name:        "accepted is a valid response too",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/set_phase_mode",
+				requestBody:   `{"phaseMode":2}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusAccepted,
+			}),
+			phaseMode: 2,
+		},
+		{
+			name:        "unexpected response code",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodPost,
+				requestPath:   "/api/chargers/XX12345/commands/set_phase_mode",
+				requestBody:   `{"phaseMode":1}`,
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusInternalServerError,
+			}),
+			phaseMode: 1,
+			wantErr:   true,
+		},
+		{
+			name:             "http client error",
+			chargerID:        test.ChargerID,
+			accessToken:      test.AccessToken,
+			forceServerError: true,
+			phaseMode:        1,
+			wantErr:          true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := httptest.NewServer(tt.serverHandler)
+
+			t.Cleanup(func() {
+				s.Close()
+			})
+
+			if tt.forceServerError {
+				s.Close()
+			}
+
+			c := api.NewHTTPClient(&http.Client{Timeout: 3 * time.Second}, s.URL)
+
+			err := c.SetPhaseMode(tt.accessToken, tt.chargerID, tt.phaseMode)
+			if tt.wantErr {
+				assert.Error(t, err)
+
+				return
+			}
+
+			assert.NoError(t, err)
+		})
+	}
+}
+
 //nolint:dupl
 func TestClient_UpdateDynamicCurrent(t *testing.T) {
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
-
-	t.Cleanup(func() {
-		clock.Restore()
-	})
+	t.Parallel()
 
 	tests := []struct {
 		name             string
@@ -361,12 +436,8 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.UpdateDynamicCurrent(tt.accessToken, tt.chargerID, tt.current)
 			if tt.wantErr {
@@ -381,11 +452,7 @@ func TestClient_UpdateDynamicCurrent(t *testing.T) {
 }
 
 func TestClient_StopCharging(t *testing.T) {
-	clock.Mock(time.Date(2022, time.September, 10, 8, 0o0, 12, 0o0, time.UTC))
-
-	t.Cleanup(func() {
-		clock.Restore()
-	})
+	t.Parallel()
 
 	tests := []struct {
 		name             string
@@ -451,12 +518,8 @@ func TestClient_StopCharging(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.StopCharging(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -504,6 +567,24 @@ func TestClient_ChargerConfig(t *testing.T) {
 			},
 		},
 		{
+			// GridTypeNotYetDetected is 0, so a charger that has not detected its grid yet
+			// answers all-zero. That used to be rejected as "does not contain expected
+			// data", and the charger's thing was then never created at all.
+			name:        "grid type not yet detected",
+			chargerID:   test.ChargerID,
+			accessToken: test.AccessToken,
+			serverHandler: newTestHandler(t, call{
+				requestMethod: http.MethodGet,
+				requestPath:   "/api/chargers/XX12345/config",
+				requestHeaders: map[string]string{
+					"Authorization": "Bearer test.access.token",
+				},
+				responseCode: http.StatusOK,
+				responseBody: `{"detectedPowerGridType":0,"phaseMode":0}`,
+			}),
+			want: &model.ChargerConfig{},
+		},
+		{
 			name:        "response code != 200",
 			chargerID:   test.ChargerID,
 			accessToken: test.AccessToken,
@@ -543,12 +624,8 @@ func TestClient_ChargerConfig(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.ChargerConfig(tt.accessToken, tt.chargerID)
 			if tt.wantErr {
@@ -626,12 +703,8 @@ func TestClient_Ping(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			err := c.Ping(tt.accessToken)
 			if tt.wantErr {
@@ -723,12 +796,8 @@ func TestClient_Chargers(t *testing.T) {
 				s.Close()
 			}
 
-			storage := mockedstorage.Storage[*config.Config]{}
-
-			cfgSrv := config.NewService(&storage)
-
 			httpClient := &http.Client{Timeout: 3 * time.Second}
-			c := api.NewHTTPClient(cfgSrv, httpClient, s.URL)
+			c := api.NewHTTPClient(httpClient, s.URL)
 
 			got, err := c.Chargers(tt.accessToken)
 			if tt.wantErr {
@@ -802,4 +871,27 @@ func (t *testHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(call.responseCode)
 	_, err = w.Write([]byte(call.responseBody))
 	assert.NoError(t.testingT, err)
+}
+
+// Pacing lives in the controller's per-charger channel, so the client must pass every write
+// through: a second write or a stop right behind the first is the channel's decision, not the
+// client's to refuse.
+func TestClient_UpdateDynamicCurrent_IsNotThrottled(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	t.Cleanup(s.Close)
+
+	c := api.NewHTTPClient(s.Client(), s.URL)
+
+	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 16))
+	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 10), "a second write right behind the first reaches the server")
+	require.NoError(t, c.StopCharging("token", "test-charger"), "a stop right behind a write reaches the server")
+	assert.Equal(t, 3, calls)
 }
