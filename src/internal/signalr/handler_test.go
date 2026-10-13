@@ -70,6 +70,29 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 	}))
 }
 
+// A re-sync replays the snapshot with the timestamps already cached; that is no new end of a
+// session, so the current requested since is kept.
+func TestObservationsHandler_ReplayedSessionFinishedKeepsRequestedCurrent(t *testing.T) {
+	t.Parallel()
+
+	at := time.Now().Add(-time.Hour)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("ChargerState").Return(chargepoint.StateFinished, at)
+	cacheMock.On("SetChargerState", chargepoint.StateFinished, at).Return(true)
+
+	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	require.Error(t, handler.HandleObservation(model.Observation{
+		ID:        model.ChargerOPState,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: at,
+		Value:     strconv.Itoa(int(model.ChargerStateCompleted)),
+	}))
+}
+
 // phaseThing exposes a single chargepoint service and counts inclusion reports.
 type phaseThing struct {
 	adapter.Thing

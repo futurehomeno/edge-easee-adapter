@@ -27,6 +27,7 @@ import (
 // Handler handles signalr observations for one charger.
 type Handler interface {
 	IsOnline() bool
+	Charging() bool
 	HandleObservation(observation model.Observation) error
 	// Close drains the pending reports and stops the sender. Must be called once the handler
 	// is unregistered, or its goroutine outlives the thing it reports for.
@@ -153,6 +154,10 @@ func (h *observationsHandler) runSender() {
 			log.Warnf("[%s] Send report err: %v", h.chargerID, err)
 		}
 	}
+}
+
+func (h *observationsHandler) Charging() bool {
+	return cache.ReportedState(h.cache) == chargepoint.StateCharging
 }
 
 // Close stops every goroutine that can publish on the thing - the report sender once the reports
@@ -371,7 +376,10 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 
 	state := model.ChargerState(val)
 
-	if prevState, _ := h.cache.ChargerState(); prevState != state.ToFimpState() {
+	prevState, prevAt := h.cache.ChargerState()
+	changed := prevState != state.ToFimpState()
+
+	if changed {
 		log.Infof("[%s] State=%s", h.chargerID, state.Str())
 	} else {
 		log.Debugf("[%s] State=%s", h.chargerID, state.Str())
@@ -382,7 +390,7 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		return nil
 	}
 
-	if state.IsSessionFinished() {
+	if state.IsSessionFinished() && (changed || observation.Timestamp.After(prevAt)) {
 		h.cache.SetRequestedOfferedCurrent(0, time.Now())
 	}
 

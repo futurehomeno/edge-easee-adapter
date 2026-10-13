@@ -110,6 +110,8 @@ type onlineHandler struct{}
 
 func (onlineHandler) IsOnline() bool { return true }
 
+func (onlineHandler) Charging() bool { return false }
+
 func (onlineHandler) Close() {}
 
 func (onlineHandler) HandleObservation(model.Observation) error { return nil }
