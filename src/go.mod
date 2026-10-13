@@ -3,7 +3,7 @@ module github.com/futurehomeno/edge-easee-adapter
 go 1.26.0
 
 require (
-	github.com/futurehomeno/cliffhanger v1.3.8-0.20261011082117-d22799b8b170
+	github.com/futurehomeno/cliffhanger v1.4.0
 	github.com/futurehomeno/fimpgo v1.17.1
 	github.com/google/go-cmp v0.7.0
 	github.com/michalkurzeja/go-clock v1.0.2
@@ -44,7 +44,7 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 // indirect
 	github.com/magiconair/properties v1.18.12 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
@@ -63,7 +63,7 @@ require (
 	github.com/quic-go/quic-go v0.63.0 // indirect
 	github.com/quic-go/webtransport-go v0.13.0 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.9 // indirect
-	github.com/stretchr/objx v0.5.3 // indirect
+	github.com/stretchr/objx v0.7.0 // indirect
 	github.com/teivah/onecontext v1.3.0 // indirect
 	github.com/tidwall/btree v1.8.2 // indirect
 	github.com/tidwall/buntdb v1.3.2 // indirect
