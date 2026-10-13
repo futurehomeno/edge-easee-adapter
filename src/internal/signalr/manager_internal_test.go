@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
+	"github.com/michalkurzeja/go-clock"
 	log "github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -631,14 +632,24 @@ func (c *blockingSubscribeClient) ObservationC() <-chan model.Observation { retu
 
 // recordingHandler closes handled on the first observation the run loop dispatches to it.
 type recordingHandler struct {
-	once    sync.Once
-	handled chan struct{}
-	closes  atomic.Int32
+	once     sync.Once
+	handled  chan struct{}
+	closes   atomic.Int32
+	charging bool
+	reported func()
 }
 
 func (h *recordingHandler) IsOnline() bool { return true }
 
+func (h *recordingHandler) Charging() bool { return h.charging }
+
 func (h *recordingHandler) Close() { h.closes.Add(1) }
+
+func (h *recordingHandler) ReportConnectivity() {
+	if h.reported != nil {
+		h.reported()
+	}
+}
 
 func (h *recordingHandler) HandleObservation(model.Observation) error {
 	h.once.Do(func() { close(h.handled) })
@@ -1124,4 +1135,199 @@ func (c *gapClient) running() bool {
 	defer c.mu.Unlock()
 
 	return c.up
+}
+
+type countingSubscribeClient struct {
+	failingSubscribeClient
+
+	subscribes atomic.Int32
+}
+
+func (c *countingSubscribeClient) SubscribeCharger(string) error {
+	c.subscribes.Add(1)
+
+	return nil
+}
+
+func newResyncManager(t *testing.T) (*manager, *countingSubscribeClient) {
+	t.Helper()
+
+	client := &countingSubscribeClient{}
+	m := newTestManagerWithClient(t, client)
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	m.chargers[chargerID].isSubscribed = true
+
+	return m, client
+}
+
+// runSubscriptions handles the queued subscriptions the way the run loop does.
+func runSubscriptions(t *testing.T, m *manager) {
+	t.Helper()
+
+	for {
+		select {
+		case id := <-m.subscriptions:
+			require.NoError(t, m.handleSubscription(id))
+		default:
+			return
+		}
+	}
+}
+
+func TestResync_ResubscribesASubscribedCharger(t *testing.T) {
+	m, client := newResyncManager(t)
+
+	m.Resync(chargerID)
+	runSubscriptions(t, m)
+
+	assert.Equal(t, int32(1), client.subscribes.Load())
+	assert.True(t, m.chargers[chargerID].isSubscribed)
+}
+
+// midSubscribeResyncClient has a re-sync asked for, and handled, while its first subscribe is in flight.
+type midSubscribeResyncClient struct {
+	countingSubscribeClient
+
+	m *manager
+}
+
+func (c *midSubscribeResyncClient) SubscribeCharger(id string) error {
+	if c.subscribes.Add(1) == 1 {
+		c.m.Resync(id)
+		_ = c.m.handleSubscription(<-c.m.subscriptions)
+	}
+
+	return nil
+}
+
+// The in-flight subscribe may have replayed the state from before the command that asked for the re-sync.
+func TestResync_AskedForDuringASubscribeRunsAfterIt(t *testing.T) {
+	client := &midSubscribeResyncClient{}
+	m := newTestManagerWithClient(t, client)
+	client.m = m
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+	m.chargers[chargerID].isSubscribed = true
+
+	m.Resync(chargerID)
+	runSubscriptions(t, m)
+
+	assert.Equal(t, int32(2), client.subscribes.Load())
+}
+
+// A reconnect sweep or a pending subscribe brings its own snapshot.
+func TestResync_SkipsAChargerThatIsNotSubscribed(t *testing.T) {
+	m, client := newResyncManager(t)
+
+	m.handleClientState(model.ClientStateDisconnected)
+	m.Resync(chargerID)
+	m.Resync("unknown")
+	runSubscriptions(t, m)
+
+	assert.Zero(t, client.subscribes.Load())
+}
+
+func TestResync_FailureKeepsTheChargerSubscribed(t *testing.T) {
+	m := newTestManagerWithClient(t, &failingSubscribeClient{})
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+	m.chargers[chargerID].isSubscribed = true
+
+	m.Resync(chargerID)
+	runSubscriptions(t, m)
+
+	assert.True(t, m.chargers[chargerID].isSubscribed)
+}
+
+// Hub 7a18325dc9eaa3b7: after a stop the stream carried only DynamicChargerCurrent echoes and
+// i1/i2 once, so the charger stayed cached as charging for twelve minutes.
+func TestWatchdog_ResyncsAChargingChargerWhoseStateWentSilent(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 24, 0, 46, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	m, client := newResyncManager(t)
+	m.chargers[chargerID].handler = &recordingHandler{handled: make(chan struct{}), charging: true}
+
+	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.TotalPower}))
+
+	clk.Add(4 * time.Minute)
+	m.resyncStale()
+	runSubscriptions(t, m)
+	assert.Zero(t, client.subscribes.Load(), "four minutes of silence is not stale yet")
+
+	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.DynamicChargerCurrent}))
+	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.InCurrentT3}))
+
+	clk.Add(time.Minute)
+	m.resyncStale()
+	runSubscriptions(t, m)
+	assert.Equal(t, int32(1), client.subscribes.Load(), "echoes and phase currents do not keep the state fresh")
+
+	clk.Add(4 * time.Minute)
+	m.resyncStale()
+	runSubscriptions(t, m)
+	assert.Equal(t, int32(1), client.subscribes.Load(), "re-syncs are at least five minutes apart")
+
+	clk.Add(time.Minute)
+	m.resyncStale()
+	runSubscriptions(t, m)
+	assert.Equal(t, int32(2), client.subscribes.Load())
+}
+
+func TestWatchdog_LeavesAChargerThatIsNotChargingAlone(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 24, 0, 46, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	m, client := newResyncManager(t)
+
+	clk.Add(time.Hour)
+	m.resyncStale()
+	runSubscriptions(t, m)
+
+	assert.Zero(t, client.subscribes.Load())
+}
+
+// connectivityReports records what Connected said each time the handler was asked for a node
+// report; calling Connected from the callback also fails the test by deadlock if the manager
+// asks while holding its lock.
+func connectivityReports(m *manager) *[]bool {
+	var reports []bool
+
+	m.chargers[chargerID].handler = &recordingHandler{handled: make(chan struct{}), reported: func() {
+		ok, _ := m.Connected(chargerID)
+		reports = append(reports, ok)
+	}}
+
+	return &reports
+}
+
+func TestSubscribeSuccessReportsConnectivityUp(t *testing.T) {
+	m := newTestManagerWithClient(t, &countingSubscribeClient{})
+	reports := connectivityReports(m)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, []bool{true}, *reports)
+}
+
+func TestSubscribeFailureReportsConnectivityDown(t *testing.T) {
+	m, _ := newTestManager(t)
+	reports := connectivityReports(m)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, []bool{false}, *reports)
+}
+
+func TestDisconnectReportsConnectivityDown(t *testing.T) {
+	m := newTestManagerWithClient(t, &countingSubscribeClient{})
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	reports := connectivityReports(m)
+
+	m.handleClientState(model.ClientStateDisconnected)
+
+	assert.Equal(t, []bool{false}, *reports)
 }

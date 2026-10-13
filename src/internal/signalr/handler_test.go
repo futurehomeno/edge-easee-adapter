@@ -70,6 +70,29 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 	}))
 }
 
+// A re-sync replays the snapshot with the timestamps already cached; that is no new end of a
+// session, so the current requested since is kept.
+func TestObservationsHandler_ReplayedSessionFinishedKeepsRequestedCurrent(t *testing.T) {
+	t.Parallel()
+
+	at := time.Now().Add(-time.Hour)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("ChargerState").Return(chargepoint.StateFinished, at)
+	cacheMock.On("SetChargerState", chargepoint.StateFinished, at).Return(true)
+
+	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	require.Error(t, handler.HandleObservation(model.Observation{
+		ID:        model.ChargerOPState,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: at,
+		Value:     strconv.Itoa(int(model.ChargerStateCompleted)),
+	}))
+}
+
 // phaseThing exposes a single chargepoint service and counts inclusion reports.
 type phaseThing struct {
 	adapter.Thing
@@ -78,9 +101,11 @@ type phaseThing struct {
 
 	// The inclusion report is published on the sender goroutine, so the counter and the failure
 	// budget are both touched off the test goroutine.
-	mu        sync.Mutex
-	inclusion int
-	fail      int
+	mu           sync.Mutex
+	inclusion    int
+	fail         int
+	connectivity []bool
+	online       func() bool
 }
 
 func (t *phaseThing) Services(fimptype.ServiceNameT) []adapter.Service {
@@ -101,6 +126,22 @@ func (t *phaseThing) SendInclusionReport(bool) (bool, error) {
 	}
 
 	return true, nil
+}
+
+func (t *phaseThing) SendConnectivityReport(bool) (bool, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.connectivity = append(t.connectivity, t.online != nil && t.online())
+
+	return true, nil
+}
+
+func (t *phaseThing) connectivityReports() []bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.connectivity
 }
 
 func (t *phaseThing) inclusionCount() int {
@@ -1075,4 +1116,68 @@ func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
 	flushReports(t, handler)
 
 	assert.Equal(t, 2, thing.inclusionCount(), "the dropped topology republish was never retried")
+}
+
+func TestObservationsHandler_CloudConnectedFlipSendsConnectivityReport(t *testing.T) {
+	t.Parallel()
+
+	thing := &phaseThing{}
+
+	handler, err := signalr.NewObservationsHandler(thing, mockedcache.NewCache(t), nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	thing.online = handler.IsOnline
+
+	cloud := func(v string) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.CloudConnected, ChargerID: testChargerID, DataType: model.ObservationDataTypeBoolean, Value: v,
+		}))
+	}
+
+	cloud("true")
+	cloud("false")
+	waitFor(t, func() bool { return len(thing.connectivityReports()) == 1 })
+	cloud("false")
+	cloud("true")
+	flushReports(t, handler)
+
+	assert.Equal(t, []bool{false, true}, thing.connectivityReports())
+}
+
+func TestObservationsHandler_StateOnlineFlipSendsConnectivityReport(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
+	cacheMock.On("SetChargerState", mock.Anything, now).Return(true)
+	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil)
+
+	thing := &phaseThing{srv: srv}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	thing.online = handler.IsOnline
+
+	state := func(s model.ChargerState) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: now, Value: strconv.Itoa(int(s)),
+		}))
+	}
+
+	state(model.ChargerStateCharging)
+	state(model.ChargerStateOffline)
+	waitFor(t, func() bool { return len(thing.connectivityReports()) == 1 })
+	state(model.ChargerStateOffline)
+	state(model.ChargerStateReadyToCharge)
+	flushReports(t, handler)
+
+	assert.Equal(t, []bool{false, true}, thing.connectivityReports())
 }

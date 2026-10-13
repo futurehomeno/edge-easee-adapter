@@ -19,6 +19,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
 	mockapi "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/api"
+	mockedsignalr "github.com/futurehomeno/edge-easee-adapter/internal/test/mocks/signalr"
 )
 
 // fakeAdapter satisfies adapter.Adapter with just enough behavior for thingFactory.Create to
@@ -310,8 +311,11 @@ func TestThingFactory_Create_SeedsMaxCurrentFromStoredState(t *testing.T) {
 	clientMock.On("ChargerSiteInfo", "test-charger").Return((*model.ChargerSiteInfo)(nil), errors.New("signalR and REST both cold"))
 	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(20)).Return(nil)
 
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Resync", "test-charger").Maybe()
+
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), managerMock, nil)
 
 	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
 		info:  easee.Info{ChargerID: "test-charger", Product: "Home"},
