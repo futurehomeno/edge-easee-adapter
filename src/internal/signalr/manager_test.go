@@ -114,4 +114,6 @@ func (onlineHandler) Charging() bool { return false }
 
 func (onlineHandler) Close() {}
 
+func (onlineHandler) ReportConnectivity() {}
+
 func (onlineHandler) HandleObservation(model.Observation) error { return nil }

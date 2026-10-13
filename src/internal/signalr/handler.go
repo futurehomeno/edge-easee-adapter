@@ -29,6 +29,7 @@ type Handler interface {
 	IsOnline() bool
 	Charging() bool
 	HandleObservation(observation model.Observation) error
+	ReportConnectivity()
 	// Close drains the pending reports and stops the sender. Must be called once the handler
 	// is unregistered, or its goroutine outlives the thing it reports for.
 	Close()
@@ -187,6 +188,16 @@ func (h *observationsHandler) IsOnline() bool {
 	return h.isCloudOnline.Load() && h.isStateOnline.Load()
 }
 
+func (h *observationsHandler) ReportConnectivity() {
+	h.enqueue("connectivity", h.sendConnectivityReport)
+}
+
+func (h *observationsHandler) sendConnectivityReport() error {
+	_, err := h.thing.SendConnectivityReport(false)
+
+	return err
+}
+
 func (h *observationsHandler) HandleObservation(observation model.Observation) error {
 	if prev, ok := h.storedObs[observation.ID]; !ok || prev.Value != observation.Value {
 		if log.IsLevelEnabled(log.TraceLevel) {
@@ -271,11 +282,17 @@ func (h *observationsHandler) handleCloudConnected(observation model.Observation
 		return err
 	}
 
-	if was := h.isCloudOnline.Swap(val); was && !val {
-		log.Warnf("[%s] Disconnected from cloud", h.chargerID)
-	} else if !was && val {
-		log.Infof("[%s] Connected to cloud", h.chargerID)
+	if h.isCloudOnline.Swap(val) == val {
+		return nil
 	}
+
+	if val {
+		log.Infof("[%s] Connected to cloud", h.chargerID)
+	} else {
+		log.Warnf("[%s] Disconnected from cloud", h.chargerID)
+	}
+
+	h.ReportConnectivity()
 
 	return nil
 }
@@ -412,6 +429,8 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 	seq := h.stateSeq.Add(1)
 
 	queued := h.enqueue("state", func() error {
+		online := h.isStateOnline.Load()
+
 		if !goingOffline && seq == h.stateSeq.Load() {
 			h.isStateOnline.Store(true)
 		}
@@ -420,6 +439,10 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 
 		if goingOffline && seq == h.stateSeq.Load() {
 			h.isStateOnline.Store(false)
+		}
+
+		if online != h.isStateOnline.Load() {
+			err = errors.Join(err, h.sendConnectivityReport())
 		}
 
 		return err
