@@ -14,6 +14,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/manifest"
 	"github.com/futurehomeno/cliffhanger/selection"
+	"github.com/michalkurzeja/go-clock"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/api"
@@ -30,6 +31,8 @@ const (
 	maxMissingSelectedRetries = 3
 	// maxAutoSelected caps how many chargers an unconfigured install auto-selects.
 	maxAutoSelected = 10
+	// chargersCacheTTL lets the app's back-to-back manifest polls share one fetch; Easee answers 429 otherwise.
+	chargersCacheTTL = 10 * time.Second
 
 	blockConfiguration    = "configuration"
 	configSelectedDevices = "selected_devices"
@@ -102,6 +105,35 @@ type application struct {
 	missingMu      sync.Mutex
 	missingRetries int
 	lastMissing    string
+
+	chargersMu sync.Mutex
+	chargers   []model.Charger
+	chargersAt time.Time
+}
+
+func (a *application) cachedChargers() ([]model.Charger, error) {
+	a.chargersMu.Lock()
+	defer a.chargersMu.Unlock()
+
+	if a.chargers != nil && clock.Since(a.chargersAt) < chargersCacheTTL {
+		return a.chargers, nil
+	}
+
+	chargers, err := a.client.Chargers()
+	if err != nil {
+		return nil, err
+	}
+
+	a.chargers, a.chargersAt = chargers, clock.Now()
+
+	return chargers, nil
+}
+
+func (a *application) dropCachedChargers() {
+	a.chargersMu.Lock()
+	defer a.chargersMu.Unlock()
+
+	a.chargers = nil
 }
 
 // tickMissingBudget records another refusal for the given missing set, resetting the count when
@@ -151,7 +183,7 @@ func (a *application) GetManifest() (*manifest.Manifest, error) {
 		Config:   configSelectedDevices,
 		NotReady: "Warning! You're currently not connected to Easee, please return to the previous page and log in.",
 		Failed:   "Warning! Failed to retrieve any chargers from Easee, please try again later.",
-	}, ready, func() ([]model.Charger, error) { return a.client.Chargers() }, func(charger model.Charger) manifest.SelectOption {
+	}, ready, a.cachedChargers, func(charger model.Charger) manifest.SelectOption {
 		return manifest.SelectOption{Val: charger.ID, Label: map[string]string{"en": chargerLabel(charger)}}
 	})
 	if err != nil {
@@ -295,6 +327,8 @@ func (a *application) Uninstall() error {
 func (a *application) Login(credentials *cliffApp.LoginCredentials) error {
 	defer func() { _ = a.Check() }()
 
+	a.dropCachedChargers()
+
 	if err := a.auth.Login(credentials.Username, credentials.Password); err != nil {
 		a.lifecycle.MarkNotConfigured()
 
@@ -386,6 +420,8 @@ func (a *application) Initialize() error {
 
 func (a *application) Logout() error {
 	log.Info("[app] Logout requested")
+
+	a.dropCachedChargers()
 
 	if err := a.signalRClient.Close(); err != nil {
 		log.Warnf("[app] Disconnect signalR client. err: %v", err)
