@@ -98,10 +98,10 @@ type controller struct {
 	// stopTimer cancels the armed deferred send. Held as a closure rather than the timer so the
 	// indirect benbjohnson/clock type this package never otherwise names stays out of the graph.
 	stopTimer func() bool
-	// inFlight counts sends that have released pace but have not yet finished. stopTimer only cancels a send that has not fired; one that already won the race
-	// for pace against Teardown is past the point clearing pending can stop it, so Teardown waits
-	// this out instead to keep its "nothing more will reach the charger" guarantee true for a send
-	// already in progress.
+	// inFlight counts sends that have released pace but have not yet finished. stopTimer only
+	// cancels a send that has not fired; one that already won the race for pace against Teardown
+	// is past the point clearing pending can stop it, so Teardown waits this out instead to keep
+	// its "nothing more will reach the charger" guarantee true for a send already in progress.
 	inFlight sync.WaitGroup
 	// stopResync cancels the re-sync armed by the last start or stop, guarded by pace.
 	stopResync func() bool

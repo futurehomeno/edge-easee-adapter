@@ -9,5 +9,5 @@ Easee, and SHALL cancel the re-sync that send arms.
 - **THEN** Teardown returns only after the stop finished, and no re-sync fires afterwards
 
 #### Scenario: command after Teardown
-- **WHEN** a start, stop or current write for the charger arrives after Teardown
-- **THEN** it is refused with an error and never reaches Easee
+- **WHEN** a start, stop or offered-current write for the charger arrives after Teardown
+- **THEN** it never reaches Easee and arms no re-sync
