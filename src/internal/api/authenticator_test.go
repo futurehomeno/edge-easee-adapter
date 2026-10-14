@@ -746,6 +746,26 @@ func TestFailedReloginInTheSessionsLastDayFallsBackToRefresh(t *testing.T) {
 	assert.Equal(t, config.Secret("pwd"), credentials.Credentials().Password)
 }
 
+// A changed password ends the session when the refresh token does, not up to a day early.
+func TestRejectedPasswordInTheSessionsLastDayFallsBackToRefresh(t *testing.T) {
+	t.Parallel()
+
+	credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(-time.Minute), time.Now().Add(20*time.Hour)))
+	session := newSession()
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").
+		Return(nil, fmt.Errorf("login request failed, status code: 400: %w", api.ErrInvalidCredentials)).Once()
+	httpClient.On("RefreshToken", "old access token", credentials.Credentials().RefreshToken).Return(session, nil).Once()
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+	token, err := authenticator.AccessToken()
+	require.NoError(t, err)
+	assert.Equal(t, session.AccessToken, token)
+	assert.Empty(t, credentials.Credentials().Password)
+}
+
 // A rejected refresh after the failed login reports that login's failure: the outage stays transient
 // instead of counting as an unauthorized exchange, without a second login in the same exchange.
 func TestFailedReloginThenRejectedRefreshStaysTransient(t *testing.T) {

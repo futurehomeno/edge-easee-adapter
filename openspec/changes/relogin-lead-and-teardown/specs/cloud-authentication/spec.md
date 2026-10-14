@@ -6,11 +6,11 @@ a password is stored, the token exchange SHALL log in again with the stored user
 instead of refreshing when the refresh token expires within 25 hours or has expired, and SHALL do
 the same when Easee rejects a refresh as unauthorized. The new session SHALL be written through the
 same guarded write as a refresh, so a logout or login landing during the re-login wins. A login
-Easee rejects with 400, 401 or 403 SHALL forget the stored password and report the exchange as
-unauthorized, so the app ends the session as it did before and never repeats a rejected login.
-Any other failure SHALL keep the password; while the refresh token is still valid the exchange
-SHALL refresh instead, otherwise the next attempt is left to the backoff. An exchange SHALL log in
-at most once.
+Easee rejects with 400, 401 or 403 SHALL forget the stored password, so the app ends the session
+as it did before and never repeats a rejected login. Any other failure SHALL keep the password.
+After either failure, while the refresh token is still valid the exchange
+SHALL refresh instead; once it has expired, a rejected login is reported as unauthorized and any
+other failure is left to the backoff. An exchange SHALL log in at most once.
 
 #### Scenario: session ends
 - **WHEN** a token is needed after the access and refresh tokens expired and a password is stored
@@ -22,7 +22,7 @@ at most once.
 - **THEN** the adapter logs in with the stored password instead of refreshing
 
 #### Scenario: login fails before the session ends
-- **WHEN** that login fails with a transport error or a 5xx while the refresh token is still valid
+- **WHEN** that login fails while the refresh token is still valid
 - **THEN** the adapter refreshes instead
 
 #### Scenario: refresh rejected
@@ -31,8 +31,8 @@ at most once.
 
 #### Scenario: password rejected
 - **WHEN** the re-login is rejected with 400, 401 or 403
-- **THEN** the stored password is forgotten and the exchange is reported as unauthorized
-- **AND** no later token request logs in with it
+- **THEN** the stored password is forgotten and no later token request logs in with it
+- **AND** once the session has ended the exchange is reported as unauthorized
 
 #### Scenario: transient failure
 - **WHEN** the re-login fails with a transport error or a 5xx

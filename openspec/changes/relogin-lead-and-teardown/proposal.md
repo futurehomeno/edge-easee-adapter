@@ -9,6 +9,6 @@ Review of PR #180 (release 3.2):
 ## What Changes
 
 - Re-login instead of refreshing when the session ends within 25 h (longer than the 24 h access token);
-  a login failing for a reason other than the password falls back to the refresh.
+  a failed login falls back to the refresh while it is still valid.
 - Teardown waits for an immediate send in flight, as it already does for a deferred one.
 - Teardown refuses commands arriving after it (the router runs messages concurrently).

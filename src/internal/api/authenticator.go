@@ -324,7 +324,7 @@ func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2
 	var loginErr error
 	if stored.Password != "" && !session.RefreshTokenExpiresAt.IsZero() && time.Until(session.RefreshTokenExpiresAt) < reloginLead {
 		response, err := e.relogin(stored, "session ends")
-		if err == nil || errors.Is(err, httpclient.ErrUnauthorized) || time.Until(session.RefreshTokenExpiresAt) <= 0 {
+		if err == nil || time.Until(session.RefreshTokenExpiresAt) <= 0 {
 			return response, err
 		}
 
