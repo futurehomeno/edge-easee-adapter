@@ -171,12 +171,12 @@ func (c *Config) MigrateSignalRFinalBackoff() error {
 	return nil
 }
 
-// MigrateTelemetryOn enables the disabled block older versions seeded. A block the cloud
-// disabled also has a zero EnabledAt and is enabled too, until the cloud's next config poll.
+// MigrateTelemetryOn enables the disabled block older versions seeded; telemetry.New starts its
+// window. A block the cloud disabled also has a zero EnabledAt and is enabled too, until the
+// cloud's next config poll.
 func (c *Config) MigrateTelemetryOn() error {
 	if c.Telemetry != nil && !c.Telemetry.Enabled && c.Telemetry.EnabledAt.IsZero() {
 		c.Telemetry.Enabled = true
-		c.Telemetry.EnabledAt = clock.Now()
 	}
 
 	return nil
