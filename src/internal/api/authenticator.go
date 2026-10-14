@@ -25,8 +25,9 @@ const (
 	logoutAddress = "pt:j1/mt:cmd/rt:ad/rn:easee/ad:1"
 
 	// Easee ends a session 60 days after the password login and refreshing never moves that, so
-	// this close to the end the stored password starts a new session instead.
-	reloginLead = time.Hour
+	// this close to the end the stored password starts a new session instead. Longer than the
+	// 24h access token, so the last refresh before the end always falls inside it.
+	reloginLead = 25 * time.Hour
 )
 
 // publisher narrows fimpgo.MqttTransport to what the auth-loss path calls, so a successful
@@ -319,12 +320,23 @@ func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2
 	stored := e.snapshot.refreshing
 	session := e.snapshot.sessionFor(refreshToken)
 
+	var loginErr error
 	if stored.Password != "" && !session.RefreshTokenExpiresAt.IsZero() && time.Until(session.RefreshTokenExpiresAt) < reloginLead {
-		return e.relogin(stored, "session ends")
+		response, err := e.relogin(stored, "session ends")
+		if err == nil || time.Until(session.RefreshTokenExpiresAt) <= 0 {
+			return response, err
+		}
+
+		log.Warnf("[auth] Log in again err, refresh instead: %v", err)
+		loginErr = err
 	}
 
 	credentials, err := e.http.RefreshToken(session.AccessToken, refreshToken)
 	if errors.Is(err, httpclient.ErrUnauthorized) && stored.Password != "" {
+		if loginErr != nil {
+			return nil, loginErr
+		}
+
 		return e.relogin(stored, "refresh rejected")
 	}
 

@@ -98,14 +98,16 @@ type controller struct {
 	// stopTimer cancels the armed deferred send. Held as a closure rather than the timer so the
 	// indirect benbjohnson/clock type this package never otherwise names stays out of the graph.
 	stopTimer func() bool
-	// inFlight counts sendPending calls that have claimed the slot and released pace but have
-	// not yet finished sending. stopTimer only cancels a send that has not fired; one that
-	// already won the race for pace against Teardown is already past the point clearing pending
-	// can stop it, so Teardown waits this out instead to keep its "nothing more will reach the
-	// charger" guarantee true for a send already in progress.
+	// inFlight counts sends that have released pace but have not yet finished. stopTimer only
+	// cancels a send that has not fired; one that already won the race for pace against Teardown
+	// is past the point clearing pending can stop it, so Teardown waits this out instead to keep
+	// its "nothing more will reach the charger" guarantee true for a send already in progress.
 	inFlight sync.WaitGroup
 	// stopResync cancels the re-sync armed by the last start or stop, guarded by pace.
 	stopResync func() bool
+	// closed is set by Teardown. The router runs messages concurrently, so a command for the
+	// deleted charger can still arrive; it must not be sent, nor Add to inFlight under its Wait.
+	closed bool
 }
 
 type chargerCommand struct {
@@ -137,6 +139,12 @@ func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
 func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (bool, error) {
 	c.pace.Lock()
 
+	if c.closed {
+		c.pace.Unlock()
+
+		return false, errors.New("charger removed")
+	}
+
 	if c.pending != nil {
 		// Both halves of a stored pair go, so name the follow-up too: without it a discarded
 		// resume leaves no trace and "why did the resume never fire" is unanswerable from logs.
@@ -161,6 +169,7 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 			c.stopTimer = clock.AfterFunc(c.cfgService.OfferedCurrentWaitTime(), c.sendPending).Stop
 		}
 
+		c.inFlight.Add(1)
 		c.pace.Unlock()
 
 		err := c.send(cmd)
@@ -200,6 +209,7 @@ func (c *controller) Teardown() {
 
 	c.pending = nil
 	c.followUp = nil
+	c.closed = true
 
 	c.pace.Unlock()
 
@@ -265,7 +275,10 @@ func (c *controller) clampToMax(current int) int {
 	return current
 }
 
+// send releases the inFlight slot its caller took under pace.
 func (c *controller) send(cmd chargerCommand) error {
+	defer c.inFlight.Done()
+
 	var err error
 
 	if cmd.stop {
@@ -323,8 +336,6 @@ func (c *controller) sendPending() {
 	c.pace.Unlock()
 
 	err := c.send(*cmd)
-	c.inFlight.Done()
-
 	if err != nil {
 		log.Errorf("[%s] Deferred %s failed: %v", c.chargerID, cmd, err)
 
