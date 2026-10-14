@@ -20,8 +20,8 @@ Any other failure SHALL keep the password, leaving the next attempt to the backo
 - **THEN** the adapter logs in with the stored password instead of refreshing
 
 #### Scenario: login fails before the session ends
-- **WHEN** that login fails, for any reason, while the refresh token is still valid
-- **THEN** the adapter refreshes instead, without a second login attempt
+- **WHEN** that login fails with a transport error or a 5xx while the refresh token is still valid
+- **THEN** the adapter refreshes instead
 
 #### Scenario: refresh rejected
 - **WHEN** Easee rejects a refresh as unauthorized and a password is stored

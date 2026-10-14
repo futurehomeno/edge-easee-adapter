@@ -322,13 +322,11 @@ func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2
 
 	if stored.Password != "" && !session.RefreshTokenExpiresAt.IsZero() && time.Until(session.RefreshTokenExpiresAt) < reloginLead {
 		response, err := e.relogin(stored, "session ends")
-		if err == nil || time.Until(session.RefreshTokenExpiresAt) <= 0 {
+		if err == nil || errors.Is(err, httpclient.ErrUnauthorized) || time.Until(session.RefreshTokenExpiresAt) <= 0 {
 			return response, err
 		}
 
-		// Not tried again on a rejected refresh: a second failed login risks Easee's account lock.
 		log.Warnf("[auth] Log in again err, refresh instead: %v", err)
-		stored.Password = ""
 	}
 
 	credentials, err := e.http.RefreshToken(session.AccessToken, refreshToken)
