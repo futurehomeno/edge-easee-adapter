@@ -2378,6 +2378,22 @@ func TestController_Teardown_WaitsOutAnImmediateSend(t *testing.T) {
 	}
 }
 
+// The router runs several messages at once, so a command for the deleted charger can reach the
+// controller after Teardown: it must not go out, or arm a re-sync Teardown already cancelled.
+func TestController_Teardown_RefusesLaterCommands(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	clientMock := mockapi.NewClient(t)
+	ctrl := newTestController(t, mockedsignalr.NewManager(t), mockedcache.NewCache(t), clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	ctrl.Teardown()
+
+	require.Error(t, ctrl.StopChargepointCharging())
+	clk.Add(time.Minute)
+	clientMock.AssertNotCalled(t, "StopCharging", "test-charger")
+}
+
 // The 3.1.4 beta warned that deferred writes were not echoed, and every echo landed 1-3s past
 // current_wait_duration. Nothing waits on a deferred send's answer, so it gives the charger the
 // channel's whole window to echo.

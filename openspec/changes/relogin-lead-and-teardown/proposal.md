@@ -10,3 +10,4 @@ Review of PR #180 (release 3.2):
 
 - Re-login instead of refreshing when the session ends within 25 h (longer than the 24 h access token).
 - Teardown waits for an immediate send in flight, as it already does for a deferred one.
+- Teardown refuses commands arriving after it (the router runs messages concurrently).

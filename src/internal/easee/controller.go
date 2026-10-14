@@ -98,14 +98,16 @@ type controller struct {
 	// stopTimer cancels the armed deferred send. Held as a closure rather than the timer so the
 	// indirect benbjohnson/clock type this package never otherwise names stays out of the graph.
 	stopTimer func() bool
-	// inFlight counts sends that have claimed the slot and released pace but have not yet
-	// finished. stopTimer only cancels a send that has not fired; one that already won the race
+	// inFlight counts sends that have released pace but have not yet finished. stopTimer only cancels a send that has not fired; one that already won the race
 	// for pace against Teardown is past the point clearing pending can stop it, so Teardown waits
 	// this out instead to keep its "nothing more will reach the charger" guarantee true for a send
 	// already in progress.
 	inFlight sync.WaitGroup
 	// stopResync cancels the re-sync armed by the last start or stop, guarded by pace.
 	stopResync func() bool
+	// closed is set by Teardown. The router runs messages concurrently, so a command for the
+	// deleted charger can still arrive; it must not be sent, nor Add to inFlight under its Wait.
+	closed bool
 }
 
 type chargerCommand struct {
@@ -136,6 +138,12 @@ func (c *controller) dispatch(cmd chargerCommand) (bool, error) {
 // stop from another.
 func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (bool, error) {
 	c.pace.Lock()
+
+	if c.closed {
+		c.pace.Unlock()
+
+		return false, errors.New("charger removed")
+	}
 
 	if c.pending != nil {
 		// Both halves of a stored pair go, so name the follow-up too: without it a discarded
@@ -203,6 +211,7 @@ func (c *controller) Teardown() {
 
 	c.pending = nil
 	c.followUp = nil
+	c.closed = true
 
 	c.pace.Unlock()
 
