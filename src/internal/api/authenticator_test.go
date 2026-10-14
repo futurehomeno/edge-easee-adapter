@@ -746,15 +746,15 @@ func TestFailedReloginInTheSessionsLastDayFallsBackToRefresh(t *testing.T) {
 	assert.Equal(t, config.Secret("pwd"), credentials.Credentials().Password)
 }
 
-// A rejected refresh after the failed login gets the usual re-login, so the outage stays transient
-// instead of counting as an unauthorized exchange.
+// A rejected refresh after the failed login reports that login's failure: the outage stays transient
+// instead of counting as an unauthorized exchange, without a second login in the same exchange.
 func TestFailedReloginThenRejectedRefreshStaysTransient(t *testing.T) {
 	t.Parallel()
 
 	credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(-time.Minute), time.Now().Add(20*time.Hour)))
 
 	httpClient := mockapi.NewHTTPClient(t)
-	httpClient.On("Login", "user", "pwd").Return(nil, errors.New("login request failed, status code: 500")).Twice()
+	httpClient.On("Login", "user", "pwd").Return(nil, errors.New("login request failed, status code: 500")).Once()
 	httpClient.On("RefreshToken", "old access token", credentials.Credentials().RefreshToken).
 		Return(nil, fmt.Errorf("InvalidRefreshToken: %w", httpclient.ErrUnauthorized)).Once()
 

@@ -8,7 +8,9 @@ the same when Easee rejects a refresh as unauthorized. The new session SHALL be 
 same guarded write as a refresh, so a logout or login landing during the re-login wins. A login
 Easee rejects with 400, 401 or 403 SHALL forget the stored password and report the exchange as
 unauthorized, so the app ends the session as it did before and never repeats a rejected login.
-Any other failure SHALL keep the password, leaving the next attempt to the backoff.
+Any other failure SHALL keep the password; while the refresh token is still valid the exchange
+SHALL refresh instead, otherwise the next attempt is left to the backoff. An exchange SHALL log in
+at most once.
 
 #### Scenario: session ends
 - **WHEN** a token is needed after the access and refresh tokens expired and a password is stored

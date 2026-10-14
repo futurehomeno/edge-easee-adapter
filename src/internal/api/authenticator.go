@@ -320,6 +320,7 @@ func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2
 	stored := e.snapshot.refreshing
 	session := e.snapshot.sessionFor(refreshToken)
 
+	var loginErr error
 	if stored.Password != "" && !session.RefreshTokenExpiresAt.IsZero() && time.Until(session.RefreshTokenExpiresAt) < reloginLead {
 		response, err := e.relogin(stored, "session ends")
 		if err == nil || errors.Is(err, httpclient.ErrUnauthorized) || time.Until(session.RefreshTokenExpiresAt) <= 0 {
@@ -327,10 +328,15 @@ func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2
 		}
 
 		log.Warnf("[auth] Log in again err, refresh instead: %v", err)
+		loginErr = err
 	}
 
 	credentials, err := e.http.RefreshToken(session.AccessToken, refreshToken)
 	if errors.Is(err, httpclient.ErrUnauthorized) && stored.Password != "" {
+		if loginErr != nil {
+			return nil, loginErr
+		}
+
 		return e.relogin(stored, "refresh rejected")
 	}
 
