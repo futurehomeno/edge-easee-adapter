@@ -184,6 +184,28 @@ func TestAuthLossHandler_SnapshotsCredentialsBeforePublishing(t *testing.T) {
 	}
 }
 
+// The snapshot is the first thing the callback does: a login landing while the lifecycle update
+// waits on its lock would otherwise be captured as the session being cleaned up - and wiped.
+func TestAuthLossHandler_SnapshotsCredentialsBeforeMarkingLost(t *testing.T) {
+	t.Parallel()
+
+	lc := lifecycle.New(nil)
+	lc.MarkRunning()
+
+	var stateAtSnapshot atomic.Pointer[lifecycle.State]
+
+	credentials := func() config.Credentials {
+		state := lc.AuthState()
+		stateAtSnapshot.CompareAndSwap(nil, &state)
+
+		return config.Credentials{}
+	}
+
+	authLossHandler(lc, stubNotifier{}, stubPublisher{}, fimptype.EaseeService, credentials, nil)("token rejected")
+
+	assert.NotEqual(t, lifecycle.AuthStateLost, *stateAtSnapshot.Load())
+}
+
 // A credentials change in the gap between the synchronous snapshot and the goroutine actually
 // running must stop the publish too, or the stale cmd.auth.logout message can still reach the
 // routed handler and clear the session that replaced the one that triggered this callback.
