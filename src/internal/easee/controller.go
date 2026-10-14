@@ -173,8 +173,6 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 		c.pace.Unlock()
 
 		err := c.send(cmd)
-		c.inFlight.Done()
-
 		if err != nil && follow != nil {
 			c.clearFollowUp(follow)
 		}
@@ -277,7 +275,10 @@ func (c *controller) clampToMax(current int) int {
 	return current
 }
 
+// send releases the inFlight slot its caller took under pace.
 func (c *controller) send(cmd chargerCommand) error {
+	defer c.inFlight.Done()
+
 	var err error
 
 	if cmd.stop {
@@ -335,8 +336,6 @@ func (c *controller) sendPending() {
 	c.pace.Unlock()
 
 	err := c.send(*cmd)
-	c.inFlight.Done()
-
 	if err != nil {
 		log.Errorf("[%s] Deferred %s failed: %v", c.chargerID, cmd, err)
 

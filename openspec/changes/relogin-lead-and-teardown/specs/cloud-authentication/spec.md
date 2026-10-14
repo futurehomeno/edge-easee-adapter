@@ -29,8 +29,8 @@ Any other failure SHALL keep the password, leaving the next attempt to the backo
 
 #### Scenario: password rejected
 - **WHEN** the re-login is rejected with 400, 401 or 403
-- **THEN** the stored password is forgotten
-- **AND** the next token request ends in auth loss without another login attempt
+- **THEN** the stored password is forgotten and the exchange is reported as unauthorized
+- **AND** no later token request logs in with it
 
 #### Scenario: transient failure
 - **WHEN** the re-login fails with a transport error or a 5xx
