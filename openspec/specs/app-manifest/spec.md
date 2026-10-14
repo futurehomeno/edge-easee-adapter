@@ -1,7 +1,8 @@
 # app-manifest Specification
 
 ## Purpose
-TBD - created by archiving change manifest-log-node-interfaces. Update Purpose after archive.
+Keep the packaged app manifest in step with the FIMP interfaces the adapter routes, so clients can
+discover every command it accepts and every event it reports.
 ## Requirements
 ### Requirement: Routed Interfaces Declared
 The packaged app manifest SHALL declare both sides of the log-level and single-node interfaces the
