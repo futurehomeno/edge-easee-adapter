@@ -2326,6 +2326,58 @@ func TestController_Teardown_WaitsOutASendThatAlreadyWonTheRace(t *testing.T) {
 	clientMock.AssertNumberOfCalls(t, "StopCharging", 1)
 }
 
+// A stop sent at once is in flight just like a deferred one: Teardown must wait it out, or the
+// re-sync it arms once Easee answers fires on a charger that is gone.
+func TestController_Teardown_WaitsOutAnImmediateSend(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	sending := make(chan struct{})
+	release := make(chan struct{})
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("StopCharging", "test-charger").
+		Run(func(mock.Arguments) {
+			close(sending)
+			<-release
+		}).
+		Return(nil).Once()
+
+	resynced := make(chan struct{}, 1)
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Resync", "test-charger").Run(signal(resynced)).Maybe()
+
+	ctrl := newTestController(t, managerMock, mockedcache.NewCache(t), clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	go func() { _ = ctrl.StopChargepointCharging() }()
+
+	awaitDeferred(t, sending)
+
+	teardownDone := make(chan struct{})
+
+	go func() {
+		ctrl.Teardown()
+		close(teardownDone)
+	}()
+
+	select {
+	case <-teardownDone:
+		t.Fatal("Teardown returned while the immediate send was still blocked")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	awaitDeferred(t, teardownDone)
+
+	clk.Add(time.Minute)
+
+	select {
+	case <-resynced:
+		t.Fatal("a re-sync armed by the immediate stop fired after Teardown")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
 // The 3.1.4 beta warned that deferred writes were not echoed, and every echo landed 1-3s past
 // current_wait_duration. Nothing waits on a deferred send's answer, so it gives the charger the
 // channel's whole window to echo.

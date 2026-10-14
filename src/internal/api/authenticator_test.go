@@ -708,10 +708,12 @@ func TestReloginWhenTheSessionEnded(t *testing.T) {
 	assert.True(t, notifier.NoEventsReceived())
 }
 
-func TestReloginInsteadOfRefreshNearTheSessionEnd(t *testing.T) {
+// Refreshes come about a day apart, so a lead any shorter than the access token's lifetime would
+// mostly miss the last one before the session ends.
+func TestReloginInsteadOfRefreshInTheSessionsLastDay(t *testing.T) {
 	t.Parallel()
 
-	credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(2*time.Minute), time.Now().Add(30*time.Minute)))
+	credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(2*time.Minute), time.Now().Add(20*time.Hour)))
 	session := newSession()
 
 	httpClient := mockapi.NewHTTPClient(t)

@@ -25,8 +25,9 @@ const (
 	logoutAddress = "pt:j1/mt:cmd/rt:ad/rn:easee/ad:1"
 
 	// Easee ends a session 60 days after the password login and refreshing never moves that, so
-	// this close to the end the stored password starts a new session instead.
-	reloginLead = time.Hour
+	// this close to the end the stored password starts a new session instead. Longer than the
+	// 24h access token, so the last refresh before the end always falls inside it.
+	reloginLead = 25 * time.Hour
 )
 
 // publisher narrows fimpgo.MqttTransport to what the auth-loss path calls, so a successful
