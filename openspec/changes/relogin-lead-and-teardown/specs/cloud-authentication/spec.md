@@ -19,6 +19,10 @@ Any other failure SHALL keep the password, leaving the next attempt to the backo
 - **WHEN** the access token is due for refresh and the refresh token expires within 25 hours
 - **THEN** the adapter logs in with the stored password instead of refreshing
 
+#### Scenario: login fails before the session ends
+- **WHEN** that login fails, for any reason, while the refresh token is still valid
+- **THEN** the adapter refreshes instead, without a second login attempt
+
 #### Scenario: refresh rejected
 - **WHEN** Easee rejects a refresh as unauthorized and a password is stored
 - **THEN** the adapter logs in with the stored password

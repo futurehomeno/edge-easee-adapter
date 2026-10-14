@@ -726,6 +726,33 @@ func TestReloginInsteadOfRefreshInTheSessionsLastDay(t *testing.T) {
 	assert.Equal(t, session.AccessToken, token)
 }
 
+// The session still has up to a day left, so a failed login must not cost it.
+func TestFailedReloginInTheSessionsLastDayFallsBackToRefresh(t *testing.T) {
+	t.Parallel()
+
+	for name, loginErr := range map[string]error{
+		"login fails":       errors.New("login request failed, status code: 500"),
+		"password rejected": fmt.Errorf("login request failed, status code: 400: %w", api.ErrInvalidCredentials),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(-time.Minute), time.Now().Add(20*time.Hour)))
+			session := newSession()
+
+			httpClient := mockapi.NewHTTPClient(t)
+			httpClient.On("Login", "user", "pwd").Return(nil, loginErr).Once()
+			httpClient.On("RefreshToken", "old access token", credentials.Credentials().RefreshToken).Return(session, nil).Once()
+
+			authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+
+			token, err := authenticator.AccessToken()
+			require.NoError(t, err)
+			assert.Equal(t, session.AccessToken, token)
+		})
+	}
+}
+
 func TestReloginWhenRefreshIsRejected(t *testing.T) {
 	t.Parallel()
 
