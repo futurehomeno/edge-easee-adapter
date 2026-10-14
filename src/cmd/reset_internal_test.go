@@ -17,7 +17,7 @@ import (
 // cliffhanger v1.3.4 storage.Reset zeroes the model before reloading the defaults, so every
 // config field the packaged defaults do not carry is genuinely cleared - selected_devices,
 // auth_backoff, auth_max_unauthorized and config_version. The dropped version makes the next
-// boot re-run migrations 0->7, which must be harmless.
+// boot re-run migrations 0->8, which must be harmless.
 func TestUninstall_resetAndReMigrate(t *testing.T) {
 	t.Parallel()
 
