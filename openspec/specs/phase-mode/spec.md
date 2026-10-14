@@ -176,6 +176,13 @@ Easee mode at all: the mode was changed elsewhere, and nothing else ever clears 
 The fallback SHALL be the last supported mode when the charger's internal mode is auto and the
 first otherwise: the auto row ends with the multi-phase mode, which is what a three-phase request
 maps onto, so reporting the first would answer a request the user just made with a single leg.
+A persisted phase among the supported modes SHALL be preferred over the first.
+
+When the refetched internal mode is 0 (Easee leaves it unset on some models) the supported modes
+SHALL be the advertised `sup_phase_modes` for the grid type, phase count and persisted phase, so the
+report stays within what the inclusion report advertises instead of failing. An unset mode SHALL be
+read as auto and report the last advertised mode: a single leg would let energy guard load the other
+two phases while the charger may draw on all three.
 
 A cached output phase SHALL count as stale once an internal phase-mode observation newer than it no
 longer lists that leg among the supported modes — unless the charger is charging, because Easee
@@ -215,6 +222,16 @@ applies a new mode only at a session boundary and the leg in use is still the ol
 - **THEN** the charger state is refetched and the last supported mode, the multi-phase one, is
   reported
 
+#### Scenario: internal mode unset on a 1-phase charger
+- **WHEN** neither a requested mode nor an output phase is cached and the refetched state carries
+  grid TN, 1 phase and internal mode 0
+- **THEN** `NL1` is reported without an error
+
+#### Scenario: internal mode unset on a 3-phase charger
+- **WHEN** neither a requested mode nor an output phase is cached and the refetched state carries
+  grid TN, 3 phases and internal mode 0
+- **THEN** `NL1L2L3` is reported without an error, whatever leg is persisted
+
 #### Scenario: nothing mappable
 - **WHEN** the refetched state yields no supported modes
 - **THEN** an error is logged with the charger ID, grid type, phases and internal mode, and
@@ -236,7 +253,12 @@ loop publishing it is the only drainer of that observation.
 - **THEN** nothing is published
 
 ### Requirement: Output Phase Observation Handling
-The output-phase observation SHALL be translated to a FIMP phase mode and cached. A translation
+The output-phase observation SHALL be translated to a FIMP phase mode and cached. The translation
+SHALL follow the cached FIMP grid type rather than the TN/IT suffix of Easee's value, because a
+charger on an IT grid has been seen reporting the TN variant: on an IT or TT grid a TN-suffixed
+value SHALL map to the mode of its IT twin on the same terminals (10 as 11, 12 as 13, 20 as 22),
+and on a TN grid an IT-suffixed value SHALL map to the mode of its TN twin. A value without a twin,
+or any value while the grid type is unknown, SHALL map on its suffix. A translation
 yielding an empty mode SHALL be dropped without updating the cache, because the charger reports an
 unassigned output phase whenever it is not charging, even during an ongoing session. A successful
 cache update SHALL publish an unforced `evt.phase_mode.report`.
@@ -248,6 +270,18 @@ cache update SHALL publish an unforced `evt.phase_mode.report`.
 #### Scenario: charging on a known leg
 - **WHEN** the output-phase observation maps to a concrete mode newer than the cached one
 - **THEN** the cache is updated and an unforced phase-mode report is published
+
+#### Scenario: TN-suffixed phase on an IT grid
+- **WHEN** a charger whose grid type is IT reports `P1_T2_T3_TN` (10)
+- **THEN** `L1L2` is cached and reported, never `NL1`
+
+#### Scenario: IT-suffixed phase on a TN grid
+- **WHEN** a charger whose grid type is TN reports `P1_T2_T3_IT` (11)
+- **THEN** `NL1` is cached and reported
+
+#### Scenario: grid type not yet known
+- **WHEN** the grid type is empty
+- **THEN** the value maps on its own suffix
 
 ### Requirement: Grid Type Observation Refreshes The Specification
 A detected-power-grid-type observation SHALL first publish grounding-fault and grid-type-fault alarm

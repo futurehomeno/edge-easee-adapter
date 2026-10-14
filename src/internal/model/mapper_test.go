@@ -253,3 +253,31 @@ func TestPhaseModeName(t *testing.T) {
 		})
 	}
 }
+
+func TestOutputPhaseType_ToFimpState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		phase    model.OutputPhaseType
+		gridType types.GridType
+		want     types.PhaseMode
+	}{
+		{"TN suffix on an IT grid names the IT legs", model.P1T2T3TN, types.GridTypeIT, types.PhaseModeL1L2},
+		{"TN suffix on a TT grid names the IT legs", model.P1T2T4TN, types.GridTypeTT, types.PhaseModeL3L1},
+		{"two-phase TN suffix on an IT grid", model.P2T2T3T4TN, types.GridTypeIT, types.PhaseModeL1L2L3},
+		{"IT suffix on a TN grid names the TN leg", model.P1T2T3IT, types.GridTypeTN, types.PhaseModeNL1},
+		{"matching suffix is kept", model.P1T2T5TN, types.GridTypeTN, types.PhaseModeNL3},
+		{"no twin keeps its suffix", model.P1T2T5TN, types.GridTypeIT, types.PhaseModeNL3},
+		{"unknown grid keeps the suffix", model.P1T2T3TN, "", types.PhaseModeNL1},
+		{"unassigned stays empty", model.Unassigned, types.GridTypeIT, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, tt.phase.ToFimpState(tt.gridType))
+		})
+	}
+}

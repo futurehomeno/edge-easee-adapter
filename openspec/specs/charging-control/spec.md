@@ -23,14 +23,15 @@ ever set one or because the session-finished observation cleared it — the cach
 instead; otherwise, for a non-slow mode, raised to at least `initial_charging_current` (default 16A).
 Slow mode SHALL be exempt from that floor and SHALL instead use `slowChargingCurrentInAmperes` when
 that is greater than zero, rounded to the nearest ampere. A resulting current of zero SHALL fail with
-`invalid start current`. A start Easee accepts but the charger never echoes back within the current
-wait duration SHALL fail with `start accepted, but the charger did not resume at <current>A` - an
-unconfirmed start may well have left the charger paused. A start the command channel defers SHALL
+`invalid start current`. A start Easee accepts SHALL succeed even when the charger does not echo it
+back within the current wait duration; the miss SHALL be logged at info. A paused charger can take
+well over that wait to act on the resume, and waiting longer would hold the chargepoint service lock
+that a stop or a lower current needs. The state report shows whether the charger resumed. A start the command channel defers SHALL
 report success at once; the deferred send checks the echo.
 
 #### Scenario: the charger never echoes the start back
-- **WHEN** Easee accepts the start but no observation confirms the current within the wait duration
-- **THEN** the command fails rather than reporting a start that may not have happened
+- **WHEN** Easee accepts the start and no observation confirms the current within the wait duration
+- **THEN** the command succeeds and the missing echo is logged at info
 
 #### Scenario: the start is deferred
 - **WHEN** the start arrives within `offered_current_wait_time` of another command
@@ -239,4 +240,23 @@ level. A stored command SHALL NOT survive an adapter restart.
 #### Scenario: the deferred send is refused
 - **WHEN** Easee refuses the write when the deadline fires
 - **THEN** the refusal is logged at error level; the command had already reported success
+
+### Requirement: Deferred Write Echo Wait
+A deferred dynamic-current write SHALL wait up to `offered_current_wait_time` for the charger to echo
+it, not `current_wait_duration`. A paused charger often echoes after `current_wait_duration`, and
+nothing waits on a deferred send's answer. A missing echo SHALL still be logged as a warning once
+that wait ends. Teardown SHALL wait for a deferred send that has started until it reaches Easee, but
+not for its echo.
+
+#### Scenario: late echo of a deferred write
+- **WHEN** a deferred write is sent and the charger echoes it 6s later
+- **THEN** no `was not echoed back` warning is logged
+
+#### Scenario: no echo within the window
+- **WHEN** a deferred write is sent and no echo arrives within `offered_current_wait_time`
+- **THEN** `Deferred set_current N was not echoed back by the charger` is logged as a warning
+
+#### Scenario: teardown during the echo wait
+- **WHEN** the thing is deleted while a sent deferred write is still waiting for its echo
+- **THEN** Teardown returns without waiting for the echo
 

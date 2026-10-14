@@ -60,6 +60,8 @@ type Credentials struct {
 	RefreshToken          string    `json:"refreshToken"`
 	AccessTokenExpiresAt  time.Time `json:"expiresAt,omitzero"`
 	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt,omitzero"`
+	Username              Secret    `json:"username,omitempty"`
+	Password              Secret    `json:"password,omitempty"`
 }
 
 func (c Credentials) Empty() bool {

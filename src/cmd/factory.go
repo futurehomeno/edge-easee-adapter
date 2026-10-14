@@ -102,6 +102,8 @@ func getCredentialsStore() *config.CredentialsStore {
 			services.credentialsStore.DiscardLoaded()
 
 			log.Errorf("[config] Load credentials failed, starting logged out (error omitted: it carries the file body)")
+		} else {
+			config.SealPlainSecrets(bootstrap.GetConfigurationDirectory(), services.credentialsStore)
 		}
 
 		config.PinSecretModes(bootstrap.GetConfigurationDirectory())

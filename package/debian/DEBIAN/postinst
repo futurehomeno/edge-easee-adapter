@@ -24,6 +24,12 @@ add_user_and_group() {
 			--no-create-home \
 			--disabled-password \
 			easee 2>/dev/null || true
+	else
+		# An install upgraded from the thingsplex layout already has the user with primary
+		# group thingsplex. The unit sets no Group= and migrate.sh runs as easee, so the
+		# migrated and newly written secrets would keep that group.
+		usermod -g futurehome easee 2>/dev/null ||
+			echo "Warning: could not move easee to the futurehome group" >&2
 	fi
 }
 
