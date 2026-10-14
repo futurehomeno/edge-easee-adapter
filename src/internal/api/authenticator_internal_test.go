@@ -206,11 +206,18 @@ func TestAuthLossHandler_SkipsPublishWhenCredentialsChangedBeforeGoroutineRuns(t
 
 	publisher := stubPublisher{onPublish: func() { close(published) }}
 
-	handler := authLossHandler(lifecycle.New(nil), stubNotifier{}, publisher, fimptype.EaseeService, credentials, func() error {
+	lc := lifecycle.New(nil)
+	lc.MarkRunning()
+
+	handler := authLossHandler(lc, stubNotifier{}, publisher, fimptype.EaseeService, credentials, func() error {
 		return nil
 	})
 
 	handler("token rejected")
+
+	// The loss is real even when a re-login follows it: LOST is recorded in the callback so
+	// the telemetry is never skipped, and the re-login's own MarkRunning re-arms afterwards.
+	assert.Equal(t, lifecycle.AuthStateLost, lc.AuthState())
 
 	select {
 	case <-published:

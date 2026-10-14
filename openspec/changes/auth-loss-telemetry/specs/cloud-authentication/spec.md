@@ -5,9 +5,10 @@ On auth loss the adapter SHALL send the `easee_status_offline` push notification
 `cmd.auth.logout` to `pt:j1/mt:cmd/rt:ad/rn:easee/ad:1`. Both SHALL happen on their own goroutine
 rather than in the callback, which the framework invokes holding the authenticator lock: a publish
 blocks on a saturated or unreachable broker for the transport write timeout, and holding that lock
-stalls every access-token caller. Before them, on that same goroutine, it SHALL set the lifecycle
-to disconnected and auth state `LOST` with the loss reason, so cliffhanger's auth-loss watcher
-emits the `auth`/`logged_out` telemetry event and the app state report. It SHALL additionally run a
+stalls every access-token caller. Before spawning it, in the callback itself, it SHALL set the
+lifecycle to disconnected and auth state `LOST` with the loss reason, so cliffhanger's auth-loss
+watcher emits the `auth`/`logged_out` telemetry event and the app state report even when a
+re-login follows. It SHALL additionally run a
 local logout fallback on that same goroutine, whether or not the publish succeeded, because the
 routed handler takes a try-lock that discards rather than queues a concurrent command. The
 escalation SHALL compare the credentials against a snapshot taken when the loss was detected —

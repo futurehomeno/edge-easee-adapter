@@ -138,9 +138,9 @@ func (a *authenticator) Logout() error {
 	return a.creds.ClearCredentials()
 }
 
-// authLossHandler notifies the user and asks the app to log out. It runs under the
-// authenticator lock, so it does its work on a goroutine and returns at once - the credentials
-// are already cleared, and everything it does from there is best-effort.
+// authLossHandler marks the auth state lost, notifies the user and asks the app to log out. It
+// runs under the authenticator lock, so it does its work on a goroutine and returns at once - the
+// credentials are already cleared, and everything it does from there is best-effort.
 func authLossHandler(
 	lc *lifecycle.Lifecycle,
 	notify Notifier,
@@ -151,6 +151,12 @@ func authLossHandler(
 ) func(string) {
 	return func(reason string) {
 		log.Infof("[auth] Trigger app logout: %s", reason)
+
+		// cliffhanger emits the auth/logged_out telemetry only on AUTHENTICATED -> LOST; the
+		// logout below alone would skip LOST and go straight to NOT_AUTHENTICATED. Set here, not
+		// on the goroutine, so a re-login racing it can neither suppress the loss nor be marked
+		// lost itself; the lifecycle emit never blocks.
+		lc.SetConnAndAuthStateReason(lifecycle.ConnStateDisconnected, lifecycle.AuthStateLost, reason)
 
 		// Snapshotted ahead of the publishes below, not next to the goroutine that reads it: the
 		// framework cleared the credentials immediately before this callback, and Login() writes to
@@ -173,10 +179,6 @@ func authLossHandler(
 
 				return
 			}
-
-			// cliffhanger emits the auth/logged_out telemetry only on AUTHENTICATED -> LOST; the
-			// logout below alone would skip LOST and go straight to NOT_AUTHENTICATED.
-			lc.SetConnAndAuthStateReason(lifecycle.ConnStateDisconnected, lifecycle.AuthStateLost, reason)
 
 			if err := notify.Event(&notification.Event{EventName: notificationEaseeStatusOffline}); err != nil {
 				log.Errorf("[auth] Send push notification err: %v", err)
