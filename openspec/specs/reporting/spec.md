@@ -4,12 +4,12 @@
 Publish charger telemetry to FIMP: operating state, electricity meter values, alarms, and charging
 session history. Reports are driven by SignalR observations as they arrive, and by a periodic polling
 task as a backstop.
-
 ## Requirements
-
 ### Requirement: Charger State Report
 `evt.chargepoint.state_report` SHALL report the cached charger state, except that a cached total
-power greater than zero SHALL be reported as `charging` regardless of the cached state. The
+power greater than zero SHALL be reported as `charging` when its observation is not older than the
+cached charger-state observation. A charger-state observation newer than the last power reading
+SHALL win, so a power value the stream stopped updating cannot hold the charger at `charging`. The
 chargepoint service SHALL advertise in `sup_states` the FIMP states `unknown`, `disconnected`,
 `ready_to_charge`, `charging`, `finished`, `error`, `suspended_by_ev` and `requesting` — Easee's nine
 operating states mapped to FIMP and deduplicated, `offline` and `de-authenticating` both collapsing
@@ -17,8 +17,12 @@ to `unknown`. The FIMP names are not the Easee ones: Easee's awaiting start maps
 `ready_to_charge`, while Easee's ready to charge maps to `suspended_by_ev`.
 
 #### Scenario: power observed while state says otherwise
-- **WHEN** the cached total power is above zero
+- **WHEN** the cached total power is above zero and its observation is not older than the cached state
 - **THEN** `charging` is reported
+
+#### Scenario: newer state after the last power reading
+- **WHEN** the cached total power is above zero but a non-charging state was observed after it
+- **THEN** the cached charger state is reported
 
 #### Scenario: no power observed
 - **WHEN** the cached total power is zero or unset
@@ -210,3 +214,22 @@ would record every warning into the report twice.
 #### Scenario: second application constructed
 - **WHEN** a second application instance is built in the same process
 - **THEN** the hook is not attached again
+
+### Requirement: Connectivity Reported On Change
+The adapter SHALL send a charger's node report as soon as its connectivity changes, without waiting
+for the periodic connectivity task: when its SignalR subscribe succeeds or fails, when the SignalR
+client disconnects, and when the charger's cloud-connected or offline state flips. The report SHALL
+be non-forced, so an unchanged status is deduped by the reporting cache.
+
+#### Scenario: login after a logout
+- **WHEN** the SignalR client reconnects after a login and the charger resubscribes
+- **THEN** a node report with connectivity up is sent right away
+
+#### Scenario: SignalR connection lost
+- **WHEN** the SignalR client disconnects
+- **THEN** a node report with connectivity down is sent for every registered charger
+
+#### Scenario: charger leaves the cloud
+- **WHEN** the charger's cloud-connected observation flips to false or back to true
+- **THEN** a node report is sent with the new connectivity
+
