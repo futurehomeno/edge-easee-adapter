@@ -9,6 +9,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/httpclient"
+	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/notification"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
@@ -68,6 +69,7 @@ func NewAuthenticator(
 	http HTTPClient,
 	creds CredentialsStore,
 	cfgSvc *config.Service,
+	lc *lifecycle.Lifecycle,
 	notify Notifier,
 	mqtt *fimpgo.MqttTransport,
 	serviceName fimptype.ServiceNameT,
@@ -89,7 +91,7 @@ func NewAuthenticator(
 			// Easee has historically returned transient 401s on a still-valid refresh token,
 			// so a rejection streak has to outlive the grace before concluding auth loss.
 			UnauthorizedGrace: cfgSvc.AuthenticatorMaxUnauthorized(),
-			OnAuthLoss:        authLossHandler(notify, mqtt, serviceName, creds.Credentials, logoutFallback),
+			OnAuthLoss:        authLossHandler(lc, notify, mqtt, serviceName, creds.Credentials, logoutFallback),
 		},
 	)
 
@@ -146,10 +148,11 @@ func (a *authenticator) Logout() error {
 	return a.creds.ClearCredentials()
 }
 
-// authLossHandler notifies the user and asks the app to log out. It runs under the
-// authenticator lock, so it does its work on a goroutine and returns at once - the credentials
-// are already cleared, and everything it does from there is best-effort.
+// authLossHandler marks the auth state lost, notifies the user and asks the app to log out. It
+// runs under the authenticator lock, so it does its work on a goroutine and returns at once - the
+// credentials are already cleared, and everything it does from there is best-effort.
 func authLossHandler(
+	lc *lifecycle.Lifecycle,
 	notify Notifier,
 	mqtt publisher,
 	serviceName fimptype.ServiceNameT,
@@ -159,12 +162,19 @@ func authLossHandler(
 	return func(reason string) {
 		log.Infof("[auth] Trigger app logout: %s", reason)
 
-		// Snapshotted ahead of the publishes below, not next to the goroutine that reads it: the
-		// framework cleared the credentials immediately before this callback, and Login() writes to
-		// the store without taking the lock this callback holds, so a re-login can land while a
-		// publish blocks on a broker that is down. A snapshot taken after them would capture that
-		// fresh session and the fallback would mistake it for the one it is cleaning up.
+		// Snapshotted first, not next to the goroutine that reads it: the framework cleared the
+		// credentials immediately before this callback, and Login() writes to the store without
+		// taking the lock this callback holds, so a re-login can land while the lifecycle update
+		// waits on its lock or a publish blocks on a broker that is down. A snapshot taken after
+		// them would capture that fresh session and the fallback would mistake it for the one it
+		// is cleaning up.
 		before := credentials()
+
+		// cliffhanger emits the auth/logged_out telemetry only on AUTHENTICATED -> LOST; the
+		// logout below alone would skip LOST and go straight to NOT_AUTHENTICATED. Set here, not
+		// on the goroutine, so a re-login racing it can neither suppress the loss nor be marked
+		// lost itself; the lifecycle emit never blocks.
+		lc.SetConnAndAuthStateReason(lifecycle.ConnStateDisconnected, lifecycle.AuthStateLost, reason)
 
 		// Published off this callback: fimpgo gives paho a 15s write timeout and Publish blocks
 		// on the outbound queue up to that, so two publishes on a saturated or down broker could

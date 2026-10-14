@@ -10,6 +10,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/httpclient"
+	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/pkg/errors"
@@ -601,7 +602,7 @@ func newAuthenticator(
 
 	mqtt := fimpgo.NewMqttTransport("", "", "", "", true, 1, 1, nil)
 
-	return api.NewAuthenticator(httpClient, credentials, cfgSrv, notifier, mqtt, fimptype.EaseeService, nil)
+	return api.NewAuthenticator(httpClient, credentials, cfgSrv, lifecycle.New(nil), notifier, mqtt, fimptype.EaseeService, nil)
 }
 
 func newCredentialsStore(t *testing.T, credentials config.Credentials) *config.CredentialsStore {

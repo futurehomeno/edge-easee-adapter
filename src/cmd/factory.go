@@ -323,6 +323,7 @@ func getAuthenticator(cfg *config.Config) api.Authenticator {
 			getEaseeHTTPClient(),
 			getCredentialsStore(),
 			getConfigService(),
+			getLifecycle(),
 			notification.NewNotification(getMQTT(cfg)),
 			getMQTT(cfg),
 			fimptype.EaseeService,
