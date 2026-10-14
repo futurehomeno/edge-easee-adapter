@@ -7,6 +7,7 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/backoff"
+	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/notification"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
@@ -61,6 +62,7 @@ func NewAuthenticator(
 	http HTTPClient,
 	creds CredentialsStore,
 	cfgSvc *config.Service,
+	lc *lifecycle.Lifecycle,
 	notify Notifier,
 	mqtt *fimpgo.MqttTransport,
 	serviceName fimptype.ServiceNameT,
@@ -82,7 +84,7 @@ func NewAuthenticator(
 			// Easee has historically returned transient 401s on a still-valid refresh token,
 			// so a rejection streak has to outlive the grace before concluding auth loss.
 			UnauthorizedGrace: cfgSvc.AuthenticatorMaxUnauthorized(),
-			OnAuthLoss:        authLossHandler(notify, mqtt, serviceName, creds.Credentials, logoutFallback),
+			OnAuthLoss:        authLossHandler(lc, notify, mqtt, serviceName, creds.Credentials, logoutFallback),
 		},
 	)
 
@@ -140,6 +142,7 @@ func (a *authenticator) Logout() error {
 // authenticator lock, so it does its work on a goroutine and returns at once - the credentials
 // are already cleared, and everything it does from there is best-effort.
 func authLossHandler(
+	lc *lifecycle.Lifecycle,
 	notify Notifier,
 	mqtt publisher,
 	serviceName fimptype.ServiceNameT,
@@ -170,6 +173,10 @@ func authLossHandler(
 
 				return
 			}
+
+			// cliffhanger emits the auth/logged_out telemetry only on AUTHENTICATED -> LOST; the
+			// logout below alone would skip LOST and go straight to NOT_AUTHENTICATED.
+			lc.SetConnAndAuthStateReason(lifecycle.ConnStateDisconnected, lifecycle.AuthStateLost, reason)
 
 			if err := notify.Event(&notification.Event{EventName: notificationEaseeStatusOffline}); err != nil {
 				log.Errorf("[auth] Send push notification err: %v", err)

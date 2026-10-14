@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/notification"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
@@ -62,7 +63,7 @@ func TestAuthLossHandler_RunsLocalLogout(t *testing.T) {
 
 			called := make(chan struct{})
 
-			handler := authLossHandler(stubNotifier{}, stubPublisher{err: tt.publishErr}, fimptype.EaseeService, unchangedCredentials, func() error {
+			handler := authLossHandler(lifecycle.New(nil), stubNotifier{}, stubPublisher{err: tt.publishErr}, fimptype.EaseeService, unchangedCredentials, func() error {
 				close(called)
 
 				return tt.fallbackErr
@@ -76,6 +77,42 @@ func TestAuthLossHandler_RunsLocalLogout(t *testing.T) {
 				require.Fail(t, "logout fallback was not invoked")
 			}
 		})
+	}
+}
+
+// cliffhanger's auth-loss watcher emits the auth/logged_out telemetry only for an
+// AUTHENTICATED -> LOST transition and disarms on NOT_AUTHENTICATED, so LOST has to land before
+// the logout fallback marks the app not configured.
+func TestAuthLossHandler_MarksAuthLostBeforeLogout(t *testing.T) {
+	t.Parallel()
+
+	lc := lifecycle.New(nil)
+	lc.MarkRunning()
+
+	events := lc.Subscribe("test", 10)
+
+	handler := authLossHandler(lc, stubNotifier{}, stubPublisher{}, fimptype.EaseeService, unchangedCredentials, func() error {
+		lc.MarkNotConfigured()
+
+		return nil
+	})
+
+	handler("token rejected")
+
+	for {
+		select {
+		case evt := <-events:
+			if evt.Type != lifecycle.StateTypeAuthState {
+				continue
+			}
+
+			require.Equal(t, lifecycle.AuthStateLost, evt.State)
+			assert.Equal(t, "token rejected", evt.Params["reason"])
+
+			return
+		case <-time.After(5 * time.Second):
+			require.Fail(t, "auth state never changed")
+		}
 	}
 }
 
@@ -99,7 +136,7 @@ func TestAuthLossHandler_SkipsFallbackWhenCredentialsChanged(t *testing.T) {
 
 	fallbackCalled := make(chan struct{})
 
-	handler := authLossHandler(stubNotifier{}, stubPublisher{}, fimptype.EaseeService, credentials, func() error {
+	handler := authLossHandler(lifecycle.New(nil), stubNotifier{}, stubPublisher{}, fimptype.EaseeService, credentials, func() error {
 		close(fallbackCalled)
 
 		return nil
@@ -130,7 +167,7 @@ func TestAuthLossHandler_SnapshotsCredentialsBeforePublishing(t *testing.T) {
 
 	fallbackCalled := make(chan struct{})
 
-	handler := authLossHandler(stubNotifier{}, publisher, fimptype.EaseeService,
+	handler := authLossHandler(lifecycle.New(nil), stubNotifier{}, publisher, fimptype.EaseeService,
 		func() config.Credentials { return *current.Load() },
 		func() error {
 			close(fallbackCalled)
@@ -169,7 +206,7 @@ func TestAuthLossHandler_SkipsPublishWhenCredentialsChangedBeforeGoroutineRuns(t
 
 	publisher := stubPublisher{onPublish: func() { close(published) }}
 
-	handler := authLossHandler(stubNotifier{}, publisher, fimptype.EaseeService, credentials, func() error {
+	handler := authLossHandler(lifecycle.New(nil), stubNotifier{}, publisher, fimptype.EaseeService, credentials, func() error {
 		return nil
 	})
 
@@ -187,6 +224,6 @@ func TestAuthLossHandler_NilFallback(t *testing.T) {
 	t.Parallel()
 
 	assert.NotPanics(t, func() {
-		authLossHandler(stubNotifier{}, stubPublisher{}, fimptype.EaseeService, unchangedCredentials, nil)("token rejected")
+		authLossHandler(lifecycle.New(nil), stubNotifier{}, stubPublisher{}, fimptype.EaseeService, unchangedCredentials, nil)("token rejected")
 	})
 }
