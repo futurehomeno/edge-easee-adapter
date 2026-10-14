@@ -1,7 +1,6 @@
 package api
 
 import (
-	"cmp"
 	"errors"
 	"fmt"
 	"strings"
@@ -333,12 +332,16 @@ func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2
 	}
 
 	credentials, err := e.http.RefreshToken(session.AccessToken, refreshToken)
-	if errors.Is(err, httpclient.ErrUnauthorized) && stored.Password != "" && loginErr == nil {
+	if errors.Is(err, httpclient.ErrUnauthorized) && stored.Password != "" {
+		if loginErr != nil {
+			return nil, loginErr
+		}
+
 		return e.relogin(stored, "refresh rejected")
 	}
 
 	if err != nil {
-		return nil, cmp.Or(loginErr, err)
+		return nil, err
 	}
 
 	return oauth2Response(credentials), nil

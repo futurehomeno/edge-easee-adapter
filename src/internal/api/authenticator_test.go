@@ -778,12 +778,33 @@ func TestFailedReloginThenRejectedRefreshStaysTransient(t *testing.T) {
 	httpClient.On("RefreshToken", "old access token", credentials.Credentials().RefreshToken).
 		Return(nil, fmt.Errorf("InvalidRefreshToken: %w", httpclient.ErrUnauthorized)).Once()
 
-	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), time.Hour)
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
 
 	_, err := authenticator.AccessToken()
 	require.Error(t, err)
-	assert.NotErrorIs(t, err, httpclient.ErrUnauthorized)
+	assert.NotErrorIs(t, err, auth.ErrReloginRequired)
+	assert.NotEmpty(t, credentials.Credentials().RefreshToken)
 	assert.Equal(t, config.Secret("pwd"), credentials.Credentials().Password)
+}
+
+func TestRejectedPasswordThenFailedRefreshKeepsTheSession(t *testing.T) {
+	t.Parallel()
+
+	credentials := newCredentialsStore(t, sessionWithPassword(time.Now().Add(-time.Minute), time.Now().Add(20*time.Hour)))
+
+	httpClient := mockapi.NewHTTPClient(t)
+	httpClient.On("Login", "user", "pwd").
+		Return(nil, fmt.Errorf("login request failed, status code: 400: %w", api.ErrInvalidCredentials)).Once()
+	httpClient.On("RefreshToken", "old access token", credentials.Credentials().RefreshToken).
+		Return(nil, errors.New("refresh request failed, status code: 503")).Once()
+
+	authenticator := newAuthenticator(t, httpClient, credentials, fakes.NewNotifier(t), 0)
+
+	_, err := authenticator.AccessToken()
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, auth.ErrReloginRequired)
+	assert.NotEmpty(t, credentials.Credentials().RefreshToken)
+	assert.Empty(t, credentials.Credentials().Password)
 }
 
 func TestReloginWhenRefreshIsRejected(t *testing.T) {
