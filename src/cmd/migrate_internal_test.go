@@ -100,7 +100,7 @@ func TestMigrateConfig_upgradesFrom280(t *testing.T) {
 		AccessTokenExpiresAt: accessExp, RefreshTokenExpiresAt: refreshExp,
 	}
 
-	assert.Equal(t, 7, svc.Model().ConfigVersion)
+	assert.Equal(t, 8, svc.Model().ConfigVersion)
 	assert.Equal(t, 30*time.Second, svc.OfferedCurrentWaitTime())
 	assert.Equal(t, 10*time.Minute, svc.SignalRFinalBackoff())
 	assert.Equal(t, 2*time.Hour, svc.AuthenticatorMaxUnauthorized(), "untouched 2.8.0 settings survive")
@@ -110,7 +110,7 @@ func TestMigrateConfig_upgradesFrom280(t *testing.T) {
 	// What the next boot loads.
 	reloaded := config.New(dir)
 	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load())
-	assert.Equal(t, 7, reloaded.ConfigVersion)
+	assert.Equal(t, 8, reloaded.ConfigVersion)
 	assert.True(t, reloaded.Empty())
 
 	reloadedSecrets := config.NewCredentialsStore(dir)

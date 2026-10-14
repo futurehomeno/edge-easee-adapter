@@ -17,7 +17,6 @@ import (
 	cliffStorage "github.com/futurehomeno/cliffhanger/storage"
 	"github.com/futurehomeno/cliffhanger/task"
 	"github.com/futurehomeno/cliffhanger/telemetry"
-	telemetryTypes "github.com/futurehomeno/cliffhanger/telemetry/types"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
@@ -136,6 +135,7 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 			return config.MigrateCredentials(cfg, credentials)
 		}},
 		cliffCfg.Migration{From: 6, To: 7, Do: cfg.MigrateOfferedCurrentWaitTime},
+		cliffCfg.Migration{From: 7, To: 8, Do: cfg.MigrateTelemetryOn},
 	)
 	if err != nil {
 		return fmt.Errorf("migrate config: %w", err)
@@ -352,8 +352,8 @@ func getSignalRManager(cfg *config.Config) signalr.Manager {
 	return services.signalRManager
 }
 
-// getTelemetry builds the telemetry reporter. It publishes nothing until the cloud enables it,
-// but wiring it here is what lets the root app and the SignalR loops report a panic.
+// getTelemetry builds the telemetry reporter; wiring it here is what lets the root app and the
+// SignalR loops report a panic.
 func getTelemetry(cfg *config.Config) telemetry.Telemetry {
 	if services.telemetry != nil || services.telemetryTried {
 		return services.telemetry
@@ -363,15 +363,7 @@ func getTelemetry(cfg *config.Config) telemetry.Telemetry {
 	// remembering the attempt keeps one broken init from logging once per call site.
 	services.telemetryTried = true
 
-	store := getDefaultStore()
-
-	if err := seedTelemetryDisabled(store); err != nil {
-		log.Errorf("[cmd] Seed telemetry config err: %v", err)
-
-		return nil
-	}
-
-	t, err := telemetry.New(getMQTT(cfg), fimptype.EaseeRn, store, services.version)
+	t, err := telemetry.New(getMQTT(cfg), fimptype.EaseeRn, getDefaultStore(), services.version)
 	if err != nil {
 		log.Errorf("[cmd] Init telemetry err: %v", err)
 
@@ -381,17 +373,6 @@ func getTelemetry(cfg *config.Config) telemetry.Telemetry {
 	services.telemetry = t
 
 	return services.telemetry
-}
-
-// seedTelemetryDisabled writes a disabled telemetry block when the config has none. cliffhanger's
-// telemetry.New seeds a missing block as enabled for 30 days, which would make reporting opt-out
-// on a fresh install and on upgrades from a config predating telemetry.
-func seedTelemetryDisabled(store *cliffCfg.DefaultStore) error {
-	if _, err := store.Telemetry(); err == nil {
-		return nil
-	}
-
-	return store.SetTelemetry(&telemetryTypes.TelemetryConfig{})
 }
 
 func newRouting(cfg *config.Config) []*cliffRouter.Routing {
