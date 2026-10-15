@@ -191,9 +191,10 @@ current entirely.
 - **THEN** the report carries lock true and no cable current
 
 ### Requirement: Command Response Codes
-The Easee command endpoints for dynamic current, max current, stop charging and cable lock SHALL be
-treated as successful only on HTTP 202. The set-phase-mode endpoint SHALL accept both 200 and 202,
-because Easee documents 200 but has been observed answering 202. Any other status SHALL be logged
+The Easee command endpoints for dynamic current, max current and stop charging SHALL be
+treated as successful only on HTTP 202. The set-phase-mode and cable-lock endpoints SHALL accept both 200 and 202,
+because Easee has been observed answering set-phase-mode, documented as 200, with 202, and
+cable-lock, expected to answer 202, with 200. Any other status SHALL be logged
 with its body and returned as an error.
 
 #### Scenario: unexpected status on a command
@@ -401,4 +402,16 @@ The adapter SHALL check every minute each charger whose cached state is `chargin
 #### Scenario: silence continues
 - **WHEN** the silence continues after a watchdog re-sync
 - **THEN** the next re-sync comes no sooner than 5 minutes after the previous one
+
+### Requirement: Teardown Waits Out Immediate Sends
+Teardown SHALL wait for a start, stop or current write that is being sent at once until it reaches
+Easee, and SHALL cancel the re-sync that send arms.
+
+#### Scenario: thing deleted during an immediate stop
+- **WHEN** the thing is deleted while a stop sent at once is still waiting for Easee
+- **THEN** Teardown returns only after the stop finished, and no re-sync fires afterwards
+
+#### Scenario: command after Teardown
+- **WHEN** a start, stop or offered-current write for the charger arrives after Teardown
+- **THEN** it never reaches Easee and arms no re-sync
 
