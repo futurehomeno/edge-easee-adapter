@@ -29,24 +29,38 @@ func TestPostinst_FailedGroupMoveWarns(t *testing.T) {
 	assert.Contains(t, out, "Warning: could not move easee to the futurehome group")
 }
 
+func TestPostinst_DataModesGiveMigratedFilesFuturehomeGroup(t *testing.T) {
+	t.Parallel()
+
+	_, calls := runPostinst(t, "set_data_modes", map[string]string{"chown": `echo "chown $*" >> "$CALLS"`})
+
+	assert.Equal(t, "chown -R easee:futurehome /var/lib/futurehome/easee\n", calls)
+}
+
 func runAddUserAndGroup(t *testing.T, usermodExit string) (out, calls string) {
+	t.Helper()
+
+	return runPostinst(t, "add_user_and_group", map[string]string{
+		"getent":   "exit 0",
+		"usermod":  `echo "usermod $*" >> "$CALLS"` + "\n" + usermodExit,
+		"adduser":  `echo "adduser $*" >> "$CALLS"`,
+		"addgroup": `echo "addgroup $*" >> "$CALLS"`,
+	})
+}
+
+func runPostinst(t *testing.T, fn string, stubs map[string]string) (out, calls string) {
 	t.Helper()
 
 	bin := t.TempDir()
 	callsFile := filepath.Join(bin, "calls")
 
-	for name, body := range map[string]string{
-		"getent":   "exit 0",
-		"usermod":  `echo "usermod $*" >> ` + callsFile + "\n" + usermodExit,
-		"adduser":  `echo "adduser $*" >> ` + callsFile,
-		"addgroup": `echo "addgroup $*" >> ` + callsFile,
-	} {
+	for name, body := range stubs {
 		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755)) //nolint:gosec // test stub must be executable
 	}
 
 	// Only the functions: the dispatch at the bottom would run the whole configure as root.
-	cmd := exec.CommandContext(t.Context(), "sh", "-c", `eval "$(sed '/^case /,$d' "$0")"; add_user_and_group`, postinstScript)
-	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cmd := exec.CommandContext(t.Context(), "sh", "-c", `eval "$(sed '/^case /,$d' "$0")"; "$1"`, postinstScript, fn) //nolint:gosec // fn names a postinst function from the tests
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "CALLS="+callsFile)
 
 	b, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(b))
