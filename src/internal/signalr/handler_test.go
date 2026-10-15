@@ -1166,6 +1166,46 @@ func TestObservationsHandler_OutdatedTopologyKeepsProps(t *testing.T) {
 	assert.Equal(t, 0, thing.inclusionCount())
 }
 
+func TestObservationsHandler_TopologyOlderThanPendingKeepsProps(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeIT, now.Add(-2*time.Minute))
+	cacheMock.On("Phases").Return(1, now.Add(-2*time.Minute))
+	cacheMock.On("SetInstallationParameters", mock.Anything, mock.Anything, mock.Anything).Return(true).Maybe()
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{}})
+
+	block := make(chan struct{})
+	thing := &phaseThing{srv: srv, block: block}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	for _, obs := range []struct {
+		at time.Time
+		gt model.GridType
+	}{{now, model.GridTypeTN3Phase}, {now.Add(-time.Minute), model.GridTypeIT3Phase}} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID:        model.DetectedPowerGridType,
+			ChargerID: testChargerID,
+			DataType:  model.ObservationDataTypeInteger,
+			Timestamp: obs.at,
+			Value:     strconv.Itoa(int(obs.gt)),
+		}))
+	}
+
+	close(block)
+	flushReports(t, handler)
+
+	assert.Equal(t, types.GridTypeTN, srv.Specification().Props[chargepoint.PropertyGridType])
+	assert.Equal(t, 1, thing.inclusionCount())
+}
+
 func TestObservationsHandler_CloudConnectedFlipSendsConnectivityReport(t *testing.T) {
 	t.Parallel()
 
