@@ -31,4 +31,4 @@
 - [x] 5.1 `go vet ./...`, `go build ./...`, `golangci-lint run`.
 - [x] 5.2 `make test`.
 - [x] 5.3 `openspec validate resync-state-after-charge-command --strict`.
-- [ ] 5.4 Archive the change in the PR.
+- [x] 5.4 Archive the change in the PR.

@@ -20,18 +20,19 @@ for max current and offered current SHALL NOT apply this gate.
 command clears the dynamic current. The starting current SHALL be chosen as follows: the cached
 requested offered current; if that is zero or less — meaning unknown, either because no load balancer
 ever set one or because the session-finished observation cleared it — the cached max current
-instead; otherwise, for a non-slow mode, raised to at least `initial_charging_current` (default 16A).
+instead; if that is also zero — meaning the cache has not been seeded by an observation since the
+last restart — 32A, the same ceiling the offered-current write already falls back to, so a restart
+does not leave the charger unstartable until observation 47 arrives; otherwise, for a non-slow mode,
+raised to at least `initial_charging_current` (default 16A).
 Slow mode SHALL be exempt from that floor and SHALL instead use `slowChargingCurrentInAmperes` when
 that is greater than zero, rounded to the nearest ampere. A resulting current of zero SHALL fail with
-`invalid start current`. A start Easee accepts SHALL succeed even when the charger does not echo it
-back within the current wait duration; the miss SHALL be logged at info. A paused charger can take
-well over that wait to act on the resume, and waiting longer would hold the chargepoint service lock
-that a stop or a lower current needs. The state report shows whether the charger resumed. A start the command channel defers SHALL
-report success at once; the deferred send checks the echo.
+`invalid start current`. A start Easee accepts but the charger never echoes back within the current
+wait duration SHALL fail with `start accepted, but the charger did not resume at <current>A` - an
+unconfirmed start may well have left the charger paused.
 
 #### Scenario: the charger never echoes the start back
-- **WHEN** Easee accepts the start and no observation confirms the current within the wait duration
-- **THEN** the command succeeds and the missing echo is logged at info
+- **WHEN** Easee accepts the start but no observation confirms the current within the wait duration
+- **THEN** the command fails rather than reporting a start that may not have happened
 
 #### Scenario: the start is deferred
 - **WHEN** the start arrives within `offered_current_wait_time` of another command
@@ -55,7 +56,8 @@ report success at once; the deferred send checks the echo.
 
 #### Scenario: nothing to start from
 - **WHEN** both the cached requested offered current and the cached max current are zero
-- **THEN** the command fails with `invalid start current`
+- **THEN** the charger is started at 32A rather than failing with `invalid start current`, because
+  an unseeded cache after a restart is not the same as a charger that cannot charge
 
 ### Requirement: Start Bypasses The Offered-Current Dedup
 The start path SHALL bypass the recent-value dedup. If the user presses Start within
@@ -142,7 +144,7 @@ nearest ampere, capped at 32A.
 ### Requirement: Cable Lock Parameter
 The parameters service SHALL expose exactly one parameter, `cable_always_locked`, as a boolean select
 with `Yes`/`No` options defaulting to false. `cmd.param.set` SHALL send the lock-state command to
-Easee and, on success, seed the cache with the written value, because the framework answers the
+Easee, treating both `200` and `202` as success, and, on success, seed the cache with the written value, because the framework answers the
 command with a forced report the reporting cache cannot suppress. The seed SHALL carry the zero
 timestamp rather than the hub's current time, so that the observation stays authoritative and
 overwrites it whenever it lands: observations are stamped with Easee's clock, and a hub running
@@ -153,6 +155,10 @@ with `parameter: <id> not supported`.
 #### Scenario: lock the cable
 - **WHEN** `cable_always_locked` is set to true
 - **THEN** the Easee lock-state command is sent with state true
+
+#### Scenario: Easee answers 200
+- **WHEN** the lock-state command is answered with `200 OK`
+- **THEN** the set succeeds
 
 #### Scenario: the observation contradicts the seed
 - **WHEN** an observation carries a timestamp behind the hub's clock after a seed was written
@@ -212,7 +218,7 @@ at the last send time plus `offered_current_wait_time` (default 30s) - the momen
 quiet again; a
 newer command SHALL replace the stored one and SHALL NOT move that deadline, so a stream of commands
 yields exactly one send per wait time, carrying the latest value. Storing a command SHALL log
-`[<id>] Deferred <stop|set_current N>, sending in <d>` and the FIMP command SHALL succeed at once,
+`[<id>] <stop|set_current N>, delayed <d>` and the FIMP command SHALL succeed at once,
 without waiting for the send. The deferred send SHALL run off the command goroutine and outside the
 per-thing service lock; it SHALL stamp the channel, cache the requested current when the command is
 a dynamic-current write, wait for the SignalR echo for logging only, and log a refused send at error
@@ -234,12 +240,15 @@ level. A stored command SHALL NOT survive an adapter restart.
 
 #### Scenario: a start replaces a stored stop
 - **WHEN** a stop is stored and a start arrives before the deadline
-- **THEN** the start displaces the stop and is sent at the deadline, the dedup notwithstanding; the
-  charger is never paused, and the displacement is logged as `<new> preempts <old>`
+- **THEN** only the start is sent at the deadline and the charger is never paused
 
 #### Scenario: the deferred send is refused
 - **WHEN** Easee refuses the write when the deadline fires
 - **THEN** the refusal is logged at error level; the command had already reported success
+
+#### Scenario: storing a command is logged
+- **WHEN** a `set_current 26` is stored with 15s left in the window
+- **THEN** `set_current 26, delayed 15s` is logged for that charger
 
 ### Requirement: Deferred Write Echo Wait
 A deferred dynamic-current write SHALL wait up to `offered_current_wait_time` for the charger to echo
@@ -259,4 +268,137 @@ not for its echo.
 #### Scenario: teardown during the echo wait
 - **WHEN** the thing is deleted while a sent deferred write is still waiting for its echo
 - **THEN** Teardown returns without waiting for the echo
+
+### Requirement: The Last Command Always Wins
+The command stored in the per-charger channel SHALL always be the most recent one, whatever kind it
+is and whichever command issued it: a stop SHALL displace a stored dynamic-current write, and a
+dynamic-current write - an explicit `cmd.charge.start` among them - SHALL displace a stored stop.
+The displaced command SHALL NOT reach Easee, its own command having already reported success, and
+the deadline SHALL NOT move. The dedup that suppresses a repeated current SHALL NOT apply while a
+stop is stored, so a write carrying the last-sent value displaces that stop like any other.
+
+Displacing a stored command SHALL be logged as `[<id>] <new> preempts <old>`, naming both, so the
+log shows which command was dropped and what replaced it rather than only what was stored. When the
+displaced command is a pair, both halves SHALL be named, or a discarded resume would leave no trace.
+
+The charger acts on whatever it last heard, so the hub's latest intent is the only one worth
+sending; holding an older command in the slot makes the adapter answer a command it did not carry
+out. This supersedes the rule that a stored stop could not be displaced: a balancing refresh landing
+inside `offered_current_wait_time` after a pause now cancels that pause, an emergency pause among
+them, because nothing on this path distinguishes one stop from another.
+
+#### Scenario: a different current arrives after a stop
+- **WHEN** `cmd.charge.stop` is stored in the slot and a `cmd.smart_charge.set` for a different
+  current arrives before the deadline
+- **THEN** the write replaces the stop and is sent at the deadline; the charger is never paused
+
+#### Scenario: a same current arrives after a stop
+- **WHEN** `cmd.charge.stop` is stored in the slot and a write for the last-sent current arrives
+- **THEN** the write replaces the stop and is sent at the deadline, the dedup notwithstanding
+
+#### Scenario: a stop replaces a stored current
+- **WHEN** a dynamic-current write is stored in the slot and `cmd.charge.stop` arrives before the
+  deadline
+- **THEN** the stop replaces the stored write and is sent at the deadline
+
+#### Scenario: an explicit start arrives after a stop
+- **WHEN** `cmd.charge.stop` is stored in the slot and `cmd.charge.start` arrives before the deadline
+- **THEN** the start replaces the stop and the charger resumes at the deadline
+
+#### Scenario: a stream of alternating kinds
+- **WHEN** start, stop, start and stop arrive in turn inside one wait window
+- **THEN** exactly one command reaches Easee at the deadline and it is the final stop
+
+#### Scenario: the displacement is logged
+- **WHEN** a `set_current 26` displaces a stored stop
+- **THEN** `set_current 26 preempts stop` is logged for that charger
+
+### Requirement: A Restart Is An Ordered Pair
+A session restart SHALL occupy the channel as an ordered pair - a stop followed by a resume - stored
+atomically, so that no command can interleave between the two halves. The resume SHALL be sent one
+`offered_current_wait_time` after the stop, because Easee ignores a dynamic-current write that
+reaches the charger within that window of a stop. A restart SHALL NOT be stored unless both halves
+are known, so a restart can never end with the charger paused.
+
+A later command SHALL discard the pair in whole, both the stop and the resume, and take the slot
+itself. Preempting only one half would either pause the charger with no resume to follow, or resume
+it at a current the hub has since superseded.
+
+#### Scenario: an uncontested restart
+- **WHEN** a restart is stored and nothing else arrives
+- **THEN** the stop is sent at the deadline and the resume one wait time after it, leaving the
+  charger charging
+
+#### Scenario: a command preempts a stored restart
+- **WHEN** a restart is stored and a dynamic-current write arrives before either half is sent
+- **THEN** both halves are discarded and only that write is sent at the deadline
+
+#### Scenario: a command arrives between the halves
+- **WHEN** the stop has been sent and a dynamic-current write arrives before the resume's deadline
+- **THEN** the write replaces the resume and is sent at that deadline
+
+#### Scenario: the pair's first half is refused
+- **WHEN** the stop of a restart is sent at once and Easee refuses it
+- **THEN** the resume is discarded rather than sent on its own, and the slot is left free for the
+  next command
+
+#### Scenario: the thing is deleted with a restart stored
+- **WHEN** a restart is stored and the thing is deleted before either half is sent
+- **THEN** both halves are discarded and no call reaches Easee
+
+### Requirement: Deferred Commands Do Not Outlive The Thing
+The timer that sends a stored command SHALL be cancelled, and the slot cleared, when the charger's
+connector is disconnected. `cmd.thing.delete` disconnects the thing, and a timer armed before it
+would otherwise issue `StopCharging` or `UpdateDynamicCurrent` for a charger the hub no longer owns.
+Uninstall is already safe because it clears the credentials first; thing delete is not.
+
+#### Scenario: thing deleted with a command stored
+- **WHEN** a command is stored in the slot and the thing is deleted before the deadline
+- **THEN** the timer is cancelled and no call reaches Easee
+
+#### Scenario: the timer fires after teardown cleared the slot
+- **WHEN** the send fires for a slot that teardown has already cleared
+- **THEN** it is a no-op
+
+### Requirement: State Re-sync After Start Or Stop
+After `cmd.charge.start` or `cmd.charge.stop` is sent to Easee and accepted, the adapter SHALL request a state re-sync for that charger 15 s after the send, because Easee's live stream may never deliver the state, power or phase-current change the command causes. At most one re-sync per charger SHALL be pending; a later accepted start or stop SHALL replace it with one 15 s after the later send. A command that fails, or that is stored for a later send, SHALL NOT schedule a re-sync until it is actually sent.
+
+#### Scenario: stop accepted
+- **WHEN** a pause-charging command is sent and Easee accepts it
+- **THEN** a state re-sync for that charger is requested 15 s later
+
+#### Scenario: start accepted
+- **WHEN** a start or resume command is sent and Easee accepts it
+- **THEN** a state re-sync for that charger is requested 15 s later
+
+#### Scenario: second command within the delay
+- **WHEN** another start or stop is accepted before the pending re-sync runs
+- **THEN** only one re-sync runs, 15 s after the later send
+
+#### Scenario: command fails
+- **WHEN** the start or stop request fails
+- **THEN** no re-sync is scheduled
+
+#### Scenario: stop stored by the pacing window
+- **WHEN** a stop is stored because a write went out within `offered_current_wait_time`
+- **THEN** the re-sync is scheduled 15 s after the stored stop is actually sent
+
+### Requirement: Charging Watchdog
+The adapter SHALL check every minute each charger whose cached state is `charging`. When no `ChargerOPState` or `TotalPower` observation, the two the state report is built from, has arrived for that charger for 5 minutes, it SHALL request a state re-sync, and while the silence lasts it SHALL request at most one re-sync every 5 minutes. `DynamicChargerCurrent` observations SHALL NOT count as activity, because Easee echoes the adapter's own writes with them while the rest of the stream is silent.
+
+#### Scenario: charging and silent
+- **WHEN** a charger is cached as `charging` and no state or power observation arrived for 5 minutes
+- **THEN** a state re-sync is requested for it
+
+#### Scenario: only command echoes arrive
+- **WHEN** the only observations for a charger cached as `charging` are `DynamicChargerCurrent`
+- **THEN** the watchdog still requests a re-sync after 5 minutes
+
+#### Scenario: not charging
+- **WHEN** a charger's cached state is anything other than `charging`
+- **THEN** the watchdog requests no re-sync however long the stream is silent
+
+#### Scenario: silence continues
+- **WHEN** the silence continues after a watchdog re-sync
+- **THEN** the next re-sync comes no sooner than 5 minutes after the previous one
 
