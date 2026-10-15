@@ -631,7 +631,7 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		return err
 	}
 
-	gridType, _ := h.cache.GridType()
+	gridType, cachedAt := h.cache.GridType()
 	phases, _ := h.cache.Phases()
 
 	supportedGridType, supportedPhases := model.GridType(val).ToFimpGridType()
@@ -656,6 +656,12 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	// the last known topology leaves the recovery observation a genuine change. The alarm above
 	// is the report for this case.
 	if supportedPhases == 0 {
+		return nil
+	}
+
+	// The cache would reject it after the props took it, and the equality check against the cache
+	// would then skip every later correct observation.
+	if observation.Timestamp.Before(cachedAt) {
 		return nil
 	}
 

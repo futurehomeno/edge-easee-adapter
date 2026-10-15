@@ -1128,6 +1128,44 @@ func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
 	assert.Equal(t, 2, thing.inclusionCount(), "the dropped topology republish was never retried")
 }
 
+func TestObservationsHandler_OutdatedTopologyKeepsProps(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeIT, now)
+	cacheMock.On("Phases").Return(1, now)
+
+	props := map[string]interface{}{
+		chargepoint.PropertyGridType:            types.GridTypeIT,
+		chargepoint.PropertyPhases:              1,
+		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{types.PhaseModeNL1},
+	}
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: props}).Maybe()
+
+	thing := &phaseThing{srv: srv}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID:        model.DetectedPowerGridType,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now.Add(-time.Minute),
+		Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
+	}))
+
+	flushReports(t, handler)
+
+	assert.Equal(t, types.GridTypeIT, srv.Specification().Props[chargepoint.PropertyGridType])
+	assert.Equal(t, 0, thing.inclusionCount())
+}
+
 func TestObservationsHandler_CloudConnectedFlipSendsConnectivityReport(t *testing.T) {
 	t.Parallel()
 
