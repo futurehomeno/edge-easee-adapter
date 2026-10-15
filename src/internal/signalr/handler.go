@@ -52,7 +52,8 @@ type observationsHandler struct {
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
 
-	// Newest accepted topology: its cache write waits on the queued republish, so cachedAt lags it.
+	// Newest observed topology: an unchanged one skips the cache write, and a changed one waits on the
+	// queued republish, so cachedAt lags it either way.
 	topologyAt time.Time
 
 	reports  chan func() error
@@ -668,11 +669,11 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		return nil
 	}
 
+	h.topologyAt = observation.Timestamp
+
 	if supportedGridType == gridType && supportedPhases == phases {
 		return nil
 	}
-
-	h.topologyAt = observation.Timestamp
 
 	log.Debugf("[%s] supGridType=%v supPh=%v", h.chargerID, supportedGridType, supportedPhases)
 
