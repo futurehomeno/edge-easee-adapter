@@ -18,6 +18,10 @@ exists from the thingsplex layout, so that the files the adapter and the migrati
 - **WHEN** postinst has run the state migration
 - **THEN** it re-owns the data tree to `easee:futurehome`, whatever group the migration wrote with
 
+#### Scenario: re-own fails
+- **WHEN** postinst cannot re-own the migrated data tree
+- **THEN** it warns on stderr and the install continues
+
 #### Scenario: fresh install
 - **WHEN** postinst configures a hub without the `easee` user
 - **THEN** it creates the user with primary group `futurehome`

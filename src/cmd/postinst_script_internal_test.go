@@ -41,6 +41,18 @@ func TestPostinst_DataModesGiveMigratedFilesFuturehomeGroup(t *testing.T) {
 	assert.Equal(t, "chown -R easee:futurehome /var/lib/futurehome/easee\n", calls)
 }
 
+func TestPostinst_FailedDataChownWarns(t *testing.T) {
+	t.Parallel()
+
+	out, _ := runPostinst(t, "set_data_modes", map[string]string{
+		"chown": `echo "chown $*" >> "$CALLS"` + "\nexit 1",
+		"find":  "exit 0",
+		"rm":    "exit 0",
+	})
+
+	assert.Contains(t, out, "Warning: could not give the migrated data group futurehome")
+}
+
 func runAddUserAndGroup(t *testing.T, usermodExit string) (out, calls string) {
 	t.Helper()
 

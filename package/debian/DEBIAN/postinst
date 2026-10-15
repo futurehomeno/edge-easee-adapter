@@ -129,7 +129,8 @@ set_ownership() {
 # single pre-migration pass would never see the migrated files.
 set_data_modes() {
 	# migrate.sh wrote as easee's primary group, still the legacy one if usermod failed.
-	chown -R easee:futurehome "$NEW_DATA" || true
+	chown -R easee:futurehome "$NEW_DATA" ||
+		echo "Warning: could not give the migrated data group futurehome" >&2
 
 	# Directories only: data/ must be traversable like logs, but the secrets
 	# under it (secrets.json and its .bak, config.json.bak) keep whatever mode
