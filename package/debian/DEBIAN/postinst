@@ -128,6 +128,10 @@ set_ownership() {
 # publishes is renamed into place after set_ownership has already run, so a
 # single pre-migration pass would never see the migrated files.
 set_data_modes() {
+	# migrate.sh wrote as easee's primary group, still the legacy one if usermod failed.
+	chown -R easee:futurehome "$NEW_DATA" ||
+		echo "Warning: could not give the migrated data group futurehome" >&2
+
 	# Directories only: data/ must be traversable like logs, but the secrets
 	# under it (secrets.json and its .bak, config.json.bak) keep whatever mode
 	# they were written with. A recursive u=rwX,go=rX would widen every one of
