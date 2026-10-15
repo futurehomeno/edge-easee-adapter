@@ -195,7 +195,6 @@ func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true).Once()
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(false)
-	cacheMock.On("GridType").Return(types.GridTypeTN, now)
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
@@ -238,7 +237,8 @@ func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T
 }
 
 // An Easee on an IT grid has been seen reporting the TN variant of its output phase; the grid it
-// detected decides which legs those terminals are.
+// detected decides which legs those terminals are. The props carry it: a topology republish still
+// queued has replaced them but not yet written the cache.
 func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
 	t.Parallel()
 
@@ -246,7 +246,7 @@ func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
 
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeL1L2, now).Return(true).Once()
-	cacheMock.On("GridType").Return(types.GridTypeIT, now)
+	cacheMock.On("GridType").Return(types.GridTypeTN, now).Maybe()
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
@@ -282,7 +282,6 @@ func TestObservationsHandler_OutputPhaseRepublishRetriedAfterFailure(t *testing.
 
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true)
-	cacheMock.On("GridType").Return(types.GridTypeTN, now)
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
@@ -1127,6 +1126,120 @@ func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
 	flushReports(t, handler)
 
 	assert.Equal(t, 2, thing.inclusionCount(), "the dropped topology republish was never retried")
+}
+
+func TestObservationsHandler_OutdatedTopologyKeepsProps(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeIT, now)
+	cacheMock.On("Phases").Return(1, now)
+
+	props := map[string]interface{}{
+		chargepoint.PropertyGridType:            types.GridTypeIT,
+		chargepoint.PropertyPhases:              1,
+		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{types.PhaseModeNL1},
+	}
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: props}).Maybe()
+
+	thing := &phaseThing{srv: srv}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID:        model.DetectedPowerGridType,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now.Add(-time.Minute),
+		Value:     strconv.Itoa(int(model.GridTypeTN3Phase)),
+	}))
+
+	flushReports(t, handler)
+
+	assert.Equal(t, types.GridTypeIT, srv.Specification().Props[chargepoint.PropertyGridType])
+	assert.Equal(t, 0, thing.inclusionCount())
+}
+
+func TestObservationsHandler_TopologyOlderThanPendingKeepsProps(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeIT, now.Add(-2*time.Minute))
+	cacheMock.On("Phases").Return(1, now.Add(-2*time.Minute))
+	cacheMock.On("SetInstallationParameters", mock.Anything, mock.Anything, mock.Anything).Return(true).Maybe()
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{}})
+
+	block := make(chan struct{})
+	thing := &phaseThing{srv: srv, block: block}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	for _, obs := range []struct {
+		at time.Time
+		gt model.GridType
+	}{{now, model.GridTypeTN3Phase}, {now.Add(-time.Minute), model.GridTypeIT3Phase}} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID:        model.DetectedPowerGridType,
+			ChargerID: testChargerID,
+			DataType:  model.ObservationDataTypeInteger,
+			Timestamp: obs.at,
+			Value:     strconv.Itoa(int(obs.gt)),
+		}))
+	}
+
+	close(block)
+	flushReports(t, handler)
+
+	assert.Equal(t, types.GridTypeTN, srv.Specification().Props[chargepoint.PropertyGridType])
+	assert.Equal(t, 1, thing.inclusionCount())
+}
+
+func TestObservationsHandler_TopologyOlderThanUnchangedKeepsProps(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeIT, now.Add(-2*time.Minute))
+	cacheMock.On("Phases").Return(3, now.Add(-2*time.Minute))
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{}}).Maybe()
+
+	thing := &phaseThing{srv: srv}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	for _, obs := range []struct {
+		at time.Time
+		gt model.GridType
+	}{{now, model.GridTypeIT3Phase}, {now.Add(-time.Minute), model.GridTypeTN3Phase}} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID:        model.DetectedPowerGridType,
+			ChargerID: testChargerID,
+			DataType:  model.ObservationDataTypeInteger,
+			Timestamp: obs.at,
+			Value:     strconv.Itoa(int(obs.gt)),
+		}))
+	}
+
+	flushReports(t, handler)
+
+	assert.Nil(t, srv.Specification().Props[chargepoint.PropertyGridType])
+	assert.Equal(t, 0, thing.inclusionCount())
 }
 
 func TestObservationsHandler_CloudConnectedFlipSendsConnectivityReport(t *testing.T) {

@@ -263,7 +263,7 @@ loop publishing it is the only drainer of that observation.
 
 ### Requirement: Output Phase Observation Handling
 The output-phase observation SHALL be translated to a FIMP phase mode and cached. The translation
-SHALL follow the cached FIMP grid type rather than the TN/IT suffix of Easee's value, because a
+SHALL follow the FIMP grid type in the chargepoint props (replaced as soon as a topology republish is queued, ahead of the cache) rather than the TN/IT suffix of Easee's value, because a
 charger on an IT grid has been seen reporting the TN variant: on an IT or TT grid a TN-suffixed
 value SHALL map to the mode of its IT twin on the same terminals (10 as 11, 12 as 13, 20 as 22),
 and on a TN grid an IT-suffixed value SHALL map to the mode of its TN twin. A value without a twin,
@@ -292,17 +292,36 @@ cache update SHALL publish an unforced `evt.phase_mode.report`.
 - **WHEN** the grid type is empty
 - **THEN** the value maps on its own suffix
 
+#### Scenario: topology republish still queued
+- **WHEN** the props already carry an IT grid but the cache still holds TN, and the charger reports `P1_T2_T3_TN` (10)
+- **THEN** `L1L2` is cached and reported
+
 ### Requirement: Grid Type Observation Refreshes The Specification
 A detected-power-grid-type observation SHALL first publish grounding-fault and grid-type-fault alarm
 reports, before the equivalence check below, because several raw grid types map onto the same FIMP
-pair and a fault must be reported even when the topology is unchanged. When the mapped grid type and
-phase count both equal the cached values the handler SHALL then stop. Otherwise the installation
-parameters SHALL be cached, the chargepoint service specification refreshed and a thing inclusion
-report published, so that the new phase-mode and grid-type properties reach consumers.
+pair and a fault must be reported even when the topology is unchanged. An observation older than the
+cached grid type, or than the newest one already observed (changed, unchanged or still awaiting
+publication), SHALL then stop the handler, because the cache would reject it after the props took
+it. When the mapped grid type and phase count both equal the cached values the handler SHALL then
+stop. Otherwise the installation parameters SHALL be cached, the chargepoint service specification
+refreshed and a thing inclusion report published, so that the new phase-mode and grid-type
+properties reach consumers.
 
 #### Scenario: fault on an unchanged topology
 - **WHEN** a grid type mapping to the same FIMP grid and phase count but carrying a fault arrives
 - **THEN** the grounding-fault and grid-type-fault alarms are reported before the handler stops
+
+#### Scenario: outdated topology
+- **WHEN** a grid type differing from the cache arrives with a timestamp older than the cached one
+- **THEN** the props, the cache and the inclusion report are left untouched
+
+#### Scenario: older than a queued topology
+- **WHEN** a grid type arrives older than a newer one whose republish is still queued
+- **THEN** the props keep the newer topology and no second inclusion report is sent
+
+#### Scenario: older than an unchanged topology
+- **WHEN** a grid type arrives older than a newer one that matched the cache
+- **THEN** the props, the cache and the inclusion report are left untouched
 
 #### Scenario: topology changes
 - **WHEN** the mapped grid type or phase count differs from the cache

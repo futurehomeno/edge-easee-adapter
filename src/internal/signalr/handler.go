@@ -52,6 +52,10 @@ type observationsHandler struct {
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
 
+	// Newest observed topology: an unchanged one skips the cache write, and a changed one waits on the
+	// queued republish, so cachedAt lags it either way.
+	topologyAt time.Time
+
 	reports  chan func() error
 	senderWG sync.WaitGroup
 
@@ -549,7 +553,13 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
-	gridType, _ := h.cache.GridType()
+	chargepointSrv, err := getChargepointService(h.thing)
+	if err != nil {
+		return err
+	}
+
+	// From the props, as persistOutputPhase reads them: a queued topology republish has not written the cache yet.
+	gridType, _ := chargepointSrv.Specification().Props[chargepoint.PropertyGridType].(types.GridType)
 	outPhaseType := model.OutputPhaseType(val).ToFimpState(gridType)
 
 	// Charger sets outPhaseType parameter to "" if charger not charging, even if it has ongoing charging session.
@@ -569,11 +579,6 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	// Props first: the hub matches the reported mode against the sup_phase_modes it currently
 	// holds, so a report naming a leg the old list does not advertise is discarded.
 	if err := h.persistOutputPhase(outPhaseType); err != nil {
-		return err
-	}
-
-	chargepointSrv, err := getChargepointService(h.thing)
-	if err != nil {
 		return err
 	}
 
@@ -630,7 +635,7 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		return err
 	}
 
-	gridType, _ := h.cache.GridType()
+	gridType, cachedAt := h.cache.GridType()
 	phases, _ := h.cache.Phases()
 
 	supportedGridType, supportedPhases := model.GridType(val).ToFimpGridType()
@@ -657,6 +662,14 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	if supportedPhases == 0 {
 		return nil
 	}
+
+	// The cache would reject it after the props took it, and the equality check against the cache
+	// would then skip every later correct observation.
+	if observation.Timestamp.Before(cachedAt) || observation.Timestamp.Before(h.topologyAt) {
+		return nil
+	}
+
+	h.topologyAt = observation.Timestamp
 
 	if supportedGridType == gridType && supportedPhases == phases {
 		return nil
