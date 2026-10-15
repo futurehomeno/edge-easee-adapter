@@ -3,7 +3,6 @@ package signalr
 import (
 	"errors"
 	"fmt"
-	"slices"
 	"sync"
 	"time"
 
@@ -28,9 +27,18 @@ const (
 // staleStateWindow mirrors the Zaptec adapter's chargingStaleWindow.
 const staleStateWindow = 5 * time.Minute
 
-// stateObservations are the ones the state report is built from. Easee kept streaming
-// DynamicChargerCurrent echoes and phase currents while these stopped (#178).
-var stateObservations = []model.ObservationID{model.ChargerOPState, model.TotalPower}
+// refreshesState reports whether an observation confirms the state the report is built from.
+// Easee kept streaming DynamicChargerCurrent echoes and phase currents while these stopped
+// (#178), and zero power does not confirm charging.
+func refreshesState(observation model.Observation) bool {
+	if observation.ID == model.TotalPower {
+		power, err := observation.Float64Value()
+
+		return err == nil && power > 0
+	}
+
+	return observation.ID == model.ChargerOPState
+}
 
 // Manager owns the single signalR connection and the chargers subscribed on it.
 type Manager interface {
@@ -625,7 +633,7 @@ func (m *manager) handleObservation(observation model.Observation) error {
 	m.mu.Lock()
 	chargerHandler, ok := m.chargers[observation.ChargerID]
 
-	if ok && slices.Contains(stateObservations, observation.ID) {
+	if ok && refreshesState(observation) {
 		chargerHandler.stateSeen = clock.Now()
 	}
 

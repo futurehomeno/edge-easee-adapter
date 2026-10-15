@@ -7,6 +7,7 @@ Description=Futurehome Easee EV charger adapter.
 Type=simple
 ExecStart=/usr/bin/easee -c /var/lib/futurehome/easee
 User=easee
+Group=futurehome
 WorkingDirectory=/var/lib/futurehome/easee
 Restart=always
 RestartSec=10
