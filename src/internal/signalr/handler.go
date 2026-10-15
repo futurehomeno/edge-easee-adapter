@@ -549,7 +549,13 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
-	gridType, _ := h.cache.GridType()
+	chargepointSrv, err := getChargepointService(h.thing)
+	if err != nil {
+		return err
+	}
+
+	// From the props, as persistOutputPhase reads them: a queued topology republish has not written the cache yet.
+	gridType, _ := chargepointSrv.Specification().Props[chargepoint.PropertyGridType].(types.GridType)
 	outPhaseType := model.OutputPhaseType(val).ToFimpState(gridType)
 
 	// Charger sets outPhaseType parameter to "" if charger not charging, even if it has ongoing charging session.
@@ -569,11 +575,6 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	// Props first: the hub matches the reported mode against the sup_phase_modes it currently
 	// holds, so a report naming a leg the old list does not advertise is discarded.
 	if err := h.persistOutputPhase(outPhaseType); err != nil {
-		return err
-	}
-
-	chargepointSrv, err := getChargepointService(h.thing)
-	if err != nil {
 		return err
 	}
 

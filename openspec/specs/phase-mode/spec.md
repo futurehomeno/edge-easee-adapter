@@ -263,7 +263,7 @@ loop publishing it is the only drainer of that observation.
 
 ### Requirement: Output Phase Observation Handling
 The output-phase observation SHALL be translated to a FIMP phase mode and cached. The translation
-SHALL follow the cached FIMP grid type rather than the TN/IT suffix of Easee's value, because a
+SHALL follow the FIMP grid type in the chargepoint props (replaced as soon as a topology republish is queued, ahead of the cache) rather than the TN/IT suffix of Easee's value, because a
 charger on an IT grid has been seen reporting the TN variant: on an IT or TT grid a TN-suffixed
 value SHALL map to the mode of its IT twin on the same terminals (10 as 11, 12 as 13, 20 as 22),
 and on a TN grid an IT-suffixed value SHALL map to the mode of its TN twin. A value without a twin,
@@ -291,6 +291,10 @@ cache update SHALL publish an unforced `evt.phase_mode.report`.
 #### Scenario: grid type not yet known
 - **WHEN** the grid type is empty
 - **THEN** the value maps on its own suffix
+
+#### Scenario: topology republish still queued
+- **WHEN** the props already carry an IT grid but the cache still holds TN, and the charger reports `P1_T2_T3_TN` (10)
+- **THEN** `L1L2` is cached and reported
 
 ### Requirement: Grid Type Observation Refreshes The Specification
 A detected-power-grid-type observation SHALL first publish grounding-fault and grid-type-fault alarm

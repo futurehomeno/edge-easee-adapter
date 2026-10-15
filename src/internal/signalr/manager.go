@@ -424,6 +424,8 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 	if err != nil {
 		report = true
+		// Cleared before the invoke; the charger stays subscribed, so without it the retry is a no-op.
+		charger.resync = charger.resync || resync
 
 		// A sustained outage (e.g. not logged in) retries forever; warn on the first
 		// failure of a streak only, so it does not accumulate thousands of lines.

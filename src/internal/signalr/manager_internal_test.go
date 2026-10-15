@@ -1229,8 +1229,22 @@ func TestResync_SkipsAChargerThatIsNotSubscribed(t *testing.T) {
 	assert.Zero(t, client.subscribes.Load())
 }
 
-func TestResync_FailureKeepsTheChargerSubscribed(t *testing.T) {
-	m := newTestManagerWithClient(t, &failingSubscribeClient{})
+// flakySubscribeClient fails its first subscribe only.
+type flakySubscribeClient struct {
+	countingSubscribeClient
+}
+
+func (c *flakySubscribeClient) SubscribeCharger(string) error {
+	if c.subscribes.Add(1) == 1 {
+		return errors.New("invoke timeout")
+	}
+
+	return nil
+}
+
+func TestResync_FailureKeepsTheChargerSubscribedAndRetries(t *testing.T) {
+	client := &flakySubscribeClient{}
+	m := newTestManagerWithClient(t, client)
 	m.done = make(chan struct{})
 	t.Cleanup(func() { close(m.done) })
 	m.chargers[chargerID].isSubscribed = true
@@ -1239,6 +1253,11 @@ func TestResync_FailureKeepsTheChargerSubscribed(t *testing.T) {
 	runSubscriptions(t, m)
 
 	assert.True(t, m.chargers[chargerID].isSubscribed)
+
+	// The retry the failure armed.
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, int32(2), client.subscribes.Load())
 }
 
 // Hub 7a18325dc9eaa3b7: after a stop the stream carried only DynamicChargerCurrent echoes and

@@ -195,7 +195,6 @@ func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true).Once()
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(false)
-	cacheMock.On("GridType").Return(types.GridTypeTN, now)
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
@@ -238,7 +237,8 @@ func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T
 }
 
 // An Easee on an IT grid has been seen reporting the TN variant of its output phase; the grid it
-// detected decides which legs those terminals are.
+// detected decides which legs those terminals are. The props carry it: a topology republish still
+// queued has replaced them but not yet written the cache.
 func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
 	t.Parallel()
 
@@ -246,7 +246,7 @@ func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
 
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeL1L2, now).Return(true).Once()
-	cacheMock.On("GridType").Return(types.GridTypeIT, now)
+	cacheMock.On("GridType").Return(types.GridTypeTN, now).Maybe()
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
@@ -282,7 +282,6 @@ func TestObservationsHandler_OutputPhaseRepublishRetriedAfterFailure(t *testing.
 
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true)
-	cacheMock.On("GridType").Return(types.GridTypeTN, now)
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
