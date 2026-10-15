@@ -1269,7 +1269,7 @@ func TestWatchdog_ResyncsAChargingChargerWhoseStateWentSilent(t *testing.T) {
 	m, client := newResyncManager(t)
 	m.chargers[chargerID].handler = &recordingHandler{handled: make(chan struct{}), charging: true}
 
-	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.TotalPower}))
+	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.TotalPower, DataType: model.ObservationDataTypeDouble, Value: "7.2"}))
 
 	clk.Add(4 * time.Minute)
 	m.resyncStale()
@@ -1293,6 +1293,25 @@ func TestWatchdog_ResyncsAChargingChargerWhoseStateWentSilent(t *testing.T) {
 	m.resyncStale()
 	runSubscriptions(t, m)
 	assert.Equal(t, int32(2), client.subscribes.Load())
+}
+
+func TestWatchdog_ZeroPowerDoesNotKeepAChargingChargerFresh(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.September, 24, 0, 46, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	m, client := newResyncManager(t)
+	m.chargers[chargerID].handler = &recordingHandler{handled: make(chan struct{}), charging: true}
+
+	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.ChargerOPState}))
+
+	for range 5 {
+		clk.Add(time.Minute)
+		require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.TotalPower, DataType: model.ObservationDataTypeDouble, Value: "0"}))
+	}
+
+	m.resyncStale()
+	runSubscriptions(t, m)
+	assert.Equal(t, int32(1), client.subscribes.Load())
 }
 
 func TestWatchdog_LeavesAChargerThatIsNotChargingAlone(t *testing.T) {

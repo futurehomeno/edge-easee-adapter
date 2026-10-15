@@ -1,0 +1,2 @@
+- [x] Zero power does not keep the watchdog quiet (test first)
+- [x] Unit runs as group futurehome
