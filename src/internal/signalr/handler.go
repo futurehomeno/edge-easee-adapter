@@ -27,7 +27,9 @@ import (
 // Handler handles signalr observations for one charger.
 type Handler interface {
 	IsOnline() bool
+	Charging() bool
 	HandleObservation(observation model.Observation) error
+	ReportConnectivity()
 	// Close drains the pending reports and stops the sender. Must be called once the handler
 	// is unregistered, or its goroutine outlives the thing it reports for.
 	Close()
@@ -49,6 +51,10 @@ type observationsHandler struct {
 	chargerID      string
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
+
+	// Newest observed topology: an unchanged one skips the cache write, and a changed one waits on the
+	// queued republish, so cachedAt lags it either way.
+	topologyAt time.Time
 
 	reports  chan func() error
 	senderWG sync.WaitGroup
@@ -155,6 +161,10 @@ func (h *observationsHandler) runSender() {
 	}
 }
 
+func (h *observationsHandler) Charging() bool {
+	return cache.ReportedState(h.cache) == chargepoint.StateCharging
+}
+
 // Close stops every goroutine that can publish on the thing - the report sender once the reports
 // already queued have gone out, and the lifetime-energy timer - and waits for both. Safe to call
 // more than once, and safe against an observation still being dispatched concurrently.
@@ -180,6 +190,16 @@ func (h *observationsHandler) Close() {
 
 func (h *observationsHandler) IsOnline() bool {
 	return h.isCloudOnline.Load() && h.isStateOnline.Load()
+}
+
+func (h *observationsHandler) ReportConnectivity() {
+	h.enqueue("connectivity", h.sendConnectivityReport)
+}
+
+func (h *observationsHandler) sendConnectivityReport() error {
+	_, err := h.thing.SendConnectivityReport(false)
+
+	return err
 }
 
 func (h *observationsHandler) HandleObservation(observation model.Observation) error {
@@ -266,11 +286,17 @@ func (h *observationsHandler) handleCloudConnected(observation model.Observation
 		return err
 	}
 
-	if was := h.isCloudOnline.Swap(val); was && !val {
-		log.Warnf("[%s] Disconnected from cloud", h.chargerID)
-	} else if !was && val {
-		log.Infof("[%s] Connected to cloud", h.chargerID)
+	if h.isCloudOnline.Swap(val) == val {
+		return nil
 	}
+
+	if val {
+		log.Infof("[%s] Connected to cloud", h.chargerID)
+	} else {
+		log.Warnf("[%s] Disconnected from cloud", h.chargerID)
+	}
+
+	h.ReportConnectivity()
 
 	return nil
 }
@@ -371,7 +397,10 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 
 	state := model.ChargerState(val)
 
-	if prevState, _ := h.cache.ChargerState(); prevState != state.ToFimpState() {
+	prevState, prevAt := h.cache.ChargerState()
+	changed := prevState != state.ToFimpState()
+
+	if changed {
 		log.Infof("[%s] State=%s", h.chargerID, state.Str())
 	} else {
 		log.Debugf("[%s] State=%s", h.chargerID, state.Str())
@@ -382,7 +411,7 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		return nil
 	}
 
-	if state.IsSessionFinished() {
+	if state.IsSessionFinished() && (changed || observation.Timestamp.After(prevAt)) {
 		h.cache.SetRequestedOfferedCurrent(0, time.Now())
 	}
 
@@ -404,6 +433,8 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 	seq := h.stateSeq.Add(1)
 
 	queued := h.enqueue("state", func() error {
+		online := h.isStateOnline.Load()
+
 		if !goingOffline && seq == h.stateSeq.Load() {
 			h.isStateOnline.Store(true)
 		}
@@ -412,6 +443,10 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 
 		if goingOffline && seq == h.stateSeq.Load() {
 			h.isStateOnline.Store(false)
+		}
+
+		if online != h.isStateOnline.Load() {
+			err = errors.Join(err, h.sendConnectivityReport())
 		}
 
 		return err
@@ -518,7 +553,14 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
-	outPhaseType := model.OutputPhaseType(val).ToFimpState()
+	chargepointSrv, err := getChargepointService(h.thing)
+	if err != nil {
+		return err
+	}
+
+	// From the props, as persistOutputPhase reads them: a queued topology republish has not written the cache yet.
+	gridType, _ := chargepointSrv.Specification().Props[chargepoint.PropertyGridType].(types.GridType)
+	outPhaseType := model.OutputPhaseType(val).ToFimpState(gridType)
 
 	// Charger sets outPhaseType parameter to "" if charger not charging, even if it has ongoing charging session.
 	if outPhaseType == "" {
@@ -537,11 +579,6 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	// Props first: the hub matches the reported mode against the sup_phase_modes it currently
 	// holds, so a report naming a leg the old list does not advertise is discarded.
 	if err := h.persistOutputPhase(outPhaseType); err != nil {
-		return err
-	}
-
-	chargepointSrv, err := getChargepointService(h.thing)
-	if err != nil {
 		return err
 	}
 
@@ -598,7 +635,7 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		return err
 	}
 
-	gridType, _ := h.cache.GridType()
+	gridType, cachedAt := h.cache.GridType()
 	phases, _ := h.cache.Phases()
 
 	supportedGridType, supportedPhases := model.GridType(val).ToFimpGridType()
@@ -625,6 +662,14 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	if supportedPhases == 0 {
 		return nil
 	}
+
+	// The cache would reject it after the props took it, and the equality check against the cache
+	// would then skip every later correct observation.
+	if observation.Timestamp.Before(cachedAt) || observation.Timestamp.Before(h.topologyAt) {
+		return nil
+	}
+
+	h.topologyAt = observation.Timestamp
 
 	if supportedGridType == gridType && supportedPhases == phases {
 		return nil

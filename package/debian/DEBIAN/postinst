@@ -24,6 +24,12 @@ add_user_and_group() {
 			--no-create-home \
 			--disabled-password \
 			easee 2>/dev/null || true
+	else
+		# An install upgraded from the thingsplex layout already has the user with primary
+		# group thingsplex. migrate.sh runs as easee with that primary group, so the
+		# migrated secrets would keep that group.
+		usermod -g futurehome easee 2>/dev/null ||
+			echo "Warning: could not move easee to the futurehome group" >&2
 	fi
 }
 
@@ -122,6 +128,10 @@ set_ownership() {
 # publishes is renamed into place after set_ownership has already run, so a
 # single pre-migration pass would never see the migrated files.
 set_data_modes() {
+	# migrate.sh wrote as easee's primary group, still the legacy one if usermod failed.
+	chown -R easee:futurehome "$NEW_DATA" ||
+		echo "Warning: could not give the migrated data group futurehome" >&2
+
 	# Directories only: data/ must be traversable like logs, but the secrets
 	# under it (secrets.json and its .bak, config.json.bak) keep whatever mode
 	# they were written with. A recursive u=rwX,go=rX would widen every one of

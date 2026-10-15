@@ -2,12 +2,18 @@ package signalr
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/philippseith/signalr"
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -370,5 +376,112 @@ func waitForClientState(t *testing.T, states <-chan model.ClientState) model.Cli
 		t.Fatal("timed out waiting for a client state")
 
 		return model.ClientStateDisconnected
+	}
+}
+
+// On hub 59e47463 the reconnect replay overflowed the buffer while the run loop was busy writing
+// sessions, and the Start session replay was lost. The replay of every supported observation for a
+// 20-charger account has to fit without any draining.
+func TestClient_ObservationBufferHoldsAReconnectReplay(t *testing.T) {
+	c := newTestClient(t, time.Minute, nil)
+
+	for i := range 20 {
+		for _, id := range model.SupportedObservationIDs() {
+			c.receiver.ProductUpdate(model.Observation{ID: id, ChargerID: fmt.Sprintf("EH%d", i)})
+		}
+	}
+
+	assert.Len(t, c.observations, 20*len(model.SupportedObservationIDs()))
+}
+
+// Hubs keep their chargers' things after a logout, so the client is started with no session
+// and used to warn on every retry forever; a later login then waited out the backoff.
+func TestClient_WaitsForLoginWithoutWarning(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	var loggedIn atomic.Bool
+
+	calls := make(chan struct{}, 10)
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+
+	c, ok := NewClient(cfg, func() (string, error) {
+		in := loggedIn.Load()
+		calls <- struct{}{}
+
+		if !in {
+			return "", fmt.Errorf("refresh: %w", auth.ErrNotLoggedIn)
+		}
+
+		return "test-token", nil
+	}, nil).(*client)
+	require.True(t, ok)
+
+	c.backoff = backoff.NewStateful(time.Hour, time.Hour, time.Hour, 1, 1)
+
+	c.Start()
+	t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+	awaitCall := func(msg string) {
+		t.Helper()
+
+		select {
+		case <-calls:
+		case <-time.After(time.Second):
+			require.FailNow(t, msg)
+		}
+	}
+
+	awaitCall("the client never asked for a token")
+
+	c.Start()
+	awaitCall("Start must wake a client waiting for login")
+
+	loggedIn.Store(true)
+	c.Start()
+	awaitCall("Start after login must dial at once, not after the backoff")
+
+	var infos int
+
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "not logged in") {
+			assert.Greater(t, entry.Level, log.WarnLevel, "not logged in must not warn: %q", entry.Message)
+		}
+
+		if entry.Level == log.InfoLevel && strings.Contains(entry.Message, "login") {
+			infos++
+		}
+	}
+
+	assert.Equal(t, 1, infos, "waiting for login must be logged at info once per streak")
+}
+
+// Register calls Start() once per charger, so a wake left over from before an attempt must not
+// cut short the wait that attempt's "not logged in" begins.
+func TestClient_StaleWakeDoesNotSkipLoginWait(t *testing.T) {
+	calls := make(chan struct{}, 10)
+
+	cfg := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+
+	c, ok := NewClient(cfg, func() (string, error) {
+		calls <- struct{}{}
+
+		return "", auth.ErrNotLoggedIn
+	}, nil).(*client)
+	require.True(t, ok)
+
+	c.backoff = backoff.NewStateful(time.Hour, time.Hour, time.Hour, 1, 1)
+	c.wake <- struct{}{}
+
+	c.Start()
+	t.Cleanup(func() { require.NoError(t, c.Close()) })
+
+	<-calls
+
+	select {
+	case <-calls:
+		assert.Fail(t, "a stale wake skipped the wait for login")
+	case <-time.After(100 * time.Millisecond):
 	}
 }

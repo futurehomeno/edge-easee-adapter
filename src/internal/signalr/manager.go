@@ -9,6 +9,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/backoff"
 	"github.com/futurehomeno/cliffhanger/root"
 	"github.com/futurehomeno/cliffhanger/telemetry"
+	"github.com/michalkurzeja/go-clock"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -23,6 +24,22 @@ const (
 	ChargerOffline       DisconnectionReason = "charger is offline"
 )
 
+// staleStateWindow mirrors the Zaptec adapter's chargingStaleWindow.
+const staleStateWindow = 5 * time.Minute
+
+// refreshesState reports whether an observation confirms the state the report is built from.
+// Easee kept streaming DynamicChargerCurrent echoes and phase currents while these stopped
+// (#178), and zero power does not confirm charging.
+func refreshesState(observation model.Observation) bool {
+	if observation.ID == model.TotalPower {
+		power, err := observation.Float64Value()
+
+		return err == nil && power > 0
+	}
+
+	return observation.ID == model.ChargerOPState
+}
+
 // Manager owns the single signalR connection and the chargers subscribed on it.
 type Manager interface {
 	root.Service
@@ -31,6 +48,8 @@ type Manager interface {
 	Connected(chargerID string) (bool, DisconnectionReason)
 	Register(chargerID string, handler Handler)
 	Unregister(chargerID string) error
+	// Resync asks Easee to replay a subscribed charger's current state.
+	Resync(chargerID string)
 }
 
 type manager struct {
@@ -278,10 +297,17 @@ func (m *manager) run() {
 	states := m.client.StateC()
 	observations := m.client.ObservationC()
 
+	ticker := clock.Ticker(time.Minute)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-done:
 			return
+
+		case <-ticker.C:
+			// Off the loop: Resync enqueues on m.subscriptions, which this goroutine drains.
+			go m.resyncStale()
 
 		case chargerID := <-m.subscriptions:
 			// Off the loop: SubscribeCharger blocks for up to SignalRInvokeTimeout, and this
@@ -317,15 +343,18 @@ func (m *manager) handleSubscription(chargerID string) error {
 		return fmt.Errorf("unknown charger")
 	}
 
+	resync := charger.resync
+
 	// A retry armed before a disconnect can fire after the reconnect sweep already
 	// re-subscribed this charger; don't subscribe twice on the same connection. Subscribes
 	// run concurrently now, so an in-flight one has to block a second the same way.
-	if charger.isSubscribed || charger.subscribing {
+	if (charger.isSubscribed && !resync) || charger.subscribing {
 		m.mu.Unlock()
 
 		return nil
 	}
 
+	charger.resync = false
 	charger.subscribing = true
 	epoch := m.epoch
 	subscribeEpoch := charger.subscribeEpoch
@@ -345,10 +374,15 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// guard above drops that retry when it arrives while this subscribe is still in flight, so
 	// the charger would be left idle with nothing pending. Enqueued after the unlock below:
 	// enqueueSubscription takes m.mu itself.
-	retired := false
+	requeue := false
+	report := false
 
 	defer func() {
-		if retired {
+		if report {
+			charger.handler.ReportConnectivity()
+		}
+
+		if requeue {
 			m.enqueueSubscription(chargerID)
 		}
 
@@ -397,6 +431,10 @@ func (m *manager) handleSubscription(chargerID string) error {
 	}
 
 	if err != nil {
+		report = true
+		// Cleared before the invoke; the charger stays subscribed, so without it the retry is a no-op.
+		charger.resync = charger.resync || resync
+
 		// A sustained outage (e.g. not logged in) retries forever; warn on the first
 		// failure of a streak only, so it does not accumulate thousands of lines.
 		if charger.subscribeFailed {
@@ -423,14 +461,18 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// would leave the retry the repair enqueued short-circuiting on a subscription that no
 	// longer exists - silent until the next reconnect.
 	if charger.subscribeEpoch != subscribeEpoch {
-		retired = true
+		requeue = true
 
 		return nil
 	}
 
+	report = true
+
 	charger.backoff.Reset()
 	charger.isSubscribed = true
 	charger.subscribeFailed = false
+	// A re-sync asked for while this subscribe ran may postdate the state it replayed.
+	requeue = charger.resync
 
 	log.Debugf("signalR: subscribed charger '%s'", chargerID)
 	return nil
@@ -522,7 +564,10 @@ func (m *manager) handleClientState(state model.ClientState) {
 		// must not mark the charger subscribed on it.
 		m.epoch++
 
+		handlers := make([]Handler, 0, len(m.chargers))
+
 		for _, charger := range m.chargers {
+			handlers = append(handlers, charger.handler)
 			charger.backoff.Reset()
 			charger.isSubscribed = false
 			// Connected() counts an in-flight subscribe as connected; left set, it would keep
@@ -535,19 +580,64 @@ func (m *manager) handleClientState(state model.ClientState) {
 
 		m.mu.Unlock()
 
+		for _, handler := range handlers {
+			handler.ReportConnectivity()
+		}
+
 	default:
 		log.Warnf("Unknown client state %v", state)
 	}
 }
 
-func (m *manager) handleObservation(observation model.Observation) error {
-	if !observation.ID.Supported() {
-		return nil
+// Resync re-invokes the subscribe, which makes Easee replay the charger's current state. A
+// charger that is not subscribed gets that replay from its pending subscribe anyway.
+func (m *manager) Resync(chargerID string) {
+	m.mu.Lock()
+
+	charger, ok := m.chargers[chargerID]
+	ok = ok && charger.isSubscribed
+
+	if ok {
+		charger.resync = true
 	}
 
-	m.mu.RLock()
+	m.mu.Unlock()
+
+	if ok {
+		m.enqueueSubscription(chargerID)
+	}
+}
+
+// resyncStale re-syncs every charging charger whose state went silent, at most once per window.
+func (m *manager) resyncStale() {
+	var stale []string
+
+	m.mu.Lock()
+
+	for chargerID, charger := range m.chargers {
+		if charger.isSubscribed && clock.Since(charger.stateSeen) >= staleStateWindow && charger.handler.Charging() {
+			charger.stateSeen = clock.Now()
+			stale = append(stale, chargerID)
+		}
+	}
+
+	m.mu.Unlock()
+
+	for _, chargerID := range stale {
+		log.Infof("[%s] No state or power for %s while charging, re-syncing", chargerID, staleStateWindow)
+		m.Resync(chargerID)
+	}
+}
+
+func (m *manager) handleObservation(observation model.Observation) error {
+	m.mu.Lock()
 	chargerHandler, ok := m.chargers[observation.ChargerID]
-	m.mu.RUnlock()
+
+	if ok && refreshesState(observation) {
+		chargerHandler.stateSeen = clock.Now()
+	}
+
+	m.mu.Unlock()
 
 	if !ok {
 		return errors.New("no handler")
@@ -566,7 +656,9 @@ type charger struct {
 	subscribing     bool
 	subscribeFailed bool
 	retryArmed      bool
+	resync          bool
 	backoff         backoff.Stateful
+	stateSeen       time.Time
 
 	// Bumped whenever a stale UnsubscribeCharger tears this charger's subscription down, so a
 	// subscribe that was already in flight cannot report success for a subscription that is

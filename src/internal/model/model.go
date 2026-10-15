@@ -306,7 +306,24 @@ var outputPhaseModes = map[OutputPhaseType]types.PhaseMode{
 	P3T2T3T4T5TN: types.PhaseModeNL1L2L3,
 }
 
-func (o OutputPhaseType) ToFimpState() types.PhaseMode {
+// itTwins pairs values naming the same terminals. The detected grid decides between them: an
+// Easee on an IT grid has been seen reporting the TN variant.
+var itTwins = map[OutputPhaseType]OutputPhaseType{
+	P1T2T3TN:   P1T2T3IT,
+	P1T2T4TN:   P1T2T4IT,
+	P2T2T3T4TN: P2T2T3T4IT,
+}
+
+func (o OutputPhaseType) ToFimpState(gridType types.GridType) types.PhaseMode {
+	for tn, it := range itTwins {
+		switch {
+		case o == tn && (gridType == types.GridTypeIT || gridType == types.GridTypeTT):
+			o = it
+		case o == it && gridType == types.GridTypeTN:
+			o = tn
+		}
+	}
+
 	return outputPhaseModes[o]
 }
 

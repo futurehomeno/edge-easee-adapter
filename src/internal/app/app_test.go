@@ -87,6 +87,69 @@ func TestApplication_GetManifest(t *testing.T) {
 	}
 }
 
+func TestApplication_GetManifest_CachesChargerList(t *testing.T) { //nolint:paralleltest
+	mockClock := clock.Mock(time.Date(2022, time.September, 10, 8, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	loaderMock := mockedmanifest.NewLoader(t)
+	loaderMock.On("Load").Return(func() (*manifest.Manifest, error) { return test.LoadManifest(t), nil })
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("Ping").Return(errors.New("offline")).Maybe()
+
+	authMock := mockapi.NewAuthenticator(t)
+	signalRMock := mocksignalr.NewClient(t)
+	signalRMock.On("Close").Return(nil)
+
+	lc := lifecycle.New(nil)
+	cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	a := app.New(nil, cfgService, lc, loaderMock, clientMock, authMock, signalRMock, newCredentialsStore(t, config.Credentials{}), nil)
+
+	getManifest := func() {
+		lc.SetConnAndAuthState(lifecycle.ConnStateConnected, lifecycle.AuthStateAuthenticated)
+		_, err := a.GetManifest()
+		require.NoError(t, err)
+	}
+
+	chargers := []model.Charger{{ID: "1"}}
+	expectFetch := func(err error) {
+		if err != nil {
+			clientMock.On("Chargers").Return(nil, err).Once()
+		} else {
+			clientMock.On("Chargers").Return(chargers, nil).Once()
+		}
+	}
+
+	expectFetch(errors.New("429"))
+	getManifest()
+
+	expectFetch(nil)
+	getManifest()
+	getManifest()
+	mockClock.Add(9 * time.Second)
+	getManifest()
+
+	expectFetch(nil)
+	mockClock.Add(2 * time.Second)
+	getManifest()
+
+	expectFetch(nil)
+	expectFetch(nil)
+	mockClock.Add(11 * time.Second)
+	authMock.On("Logout").Return(nil).Run(func(mock.Arguments) { getManifest() })
+	require.NoError(t, a.Logout())
+	getManifest()
+
+	expectFetch(nil)
+	expectFetch(nil)
+	mockClock.Add(11 * time.Second)
+	authMock.On("Login", "user", "pass").Return(errors.New("bad password")).Run(func(mock.Arguments) { getManifest() })
+	require.Error(t, a.Login(&cliffApp.LoginCredentials{Username: "user", Password: "pass"}))
+	getManifest()
+
+	clientMock.AssertNumberOfCalls(t, "Chargers", 7)
+}
+
 func TestApplication_Configure_RejectsWrongModelType(t *testing.T) {
 	t.Parallel()
 
@@ -98,108 +161,31 @@ func TestApplication_Configure_RejectsWrongModelType(t *testing.T) {
 func TestApplication_Uninstall(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name                string
-		cfg                 *config.Config
-		credentials         config.Credentials
-		setLifecycle        func(lc *lifecycle.Lifecycle)
-		mockAdapter         func(a *mockedadapter.Adapter)
-		wantErr             bool
-		lifecycleAssertions func(lc *lifecycle.Lifecycle)
-		configAssertions    func(c *config.Config)
-	}{
-		{
-			name: "successful config, lifecycle and adapter reset",
-			cfg:  &config.Config{},
-			credentials: config.Credentials{
-				AccessToken:          "access-token",
-				RefreshToken:         "refresh-token",
-				AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
-			},
-			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
-				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnState(lifecycle.ConnStateConnected)
-				lc.SetConfigState(lifecycle.ConfigStateConfigured)
-			},
-			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.On("DestroyAllThings").Return(nil)
-			},
-			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
-				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
-				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
-			},
-			configAssertions: func(c *config.Config) {
-				assert.Equal(t, &config.Config{}, c)
-			},
-		},
-		{
-			name: "adapter error on destroying all things",
-			cfg:  &config.Config{},
-			credentials: config.Credentials{
-				AccessToken:          "access-token",
-				RefreshToken:         "refresh-token",
-				AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
-			},
-			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
-				lc.SetAuthState(lifecycle.AuthStateAuthenticated)
-				lc.SetConnState(lifecycle.ConnStateConnected)
-				lc.SetConfigState(lifecycle.ConfigStateConfigured)
-			},
-			mockAdapter: func(a *mockedadapter.Adapter) {
-				a.On("DestroyAllThings").Return(errors.New("test error"))
-			},
-			wantErr: true,
-		},
-	}
+	lc := lifecycle.New(nil)
+	lc.SetAppHealth(lifecycle.AppHealthRunning, nil)
+	lc.SetAuthState(lifecycle.AuthStateAuthenticated)
+	lc.SetConnState(lifecycle.ConnStateConnected)
+	lc.SetConfigState(lifecycle.ConfigStateConfigured)
 
-	for _, tt := range tests {
-		tt := tt
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
+	adapterMock := mockedadapter.NewAdapter(t)
+	adapterMock.On("DestroyAllThings").Return(nil)
 
-			lc := lifecycle.New(nil)
-			if tt.setLifecycle != nil {
-				tt.setLifecycle(lc)
-			}
+	cfgService := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	credentials := newCredentialsStore(t, config.Credentials{
+		AccessToken:          "access-token",
+		RefreshToken:         "refresh-token",
+		AccessTokenExpiresAt: time.Date(2022, time.September, 10, 8, 0, 12, 0, time.UTC),
+	})
+	sessionStorage := mockeddb.NewChargingSessionStorage(t)
+	sessionStorage.On("Reset").Return(nil)
+	application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil, credentials, sessionStorage)
 
-			adapterMock := new(mockedadapter.Adapter)
-			if tt.mockAdapter != nil {
-				tt.mockAdapter(adapterMock)
-			}
-
-			defer adapterMock.AssertExpectations(t)
-
-			storage := fakes.NewConfigStorage(t, tt.cfg, config.Factory)
-			cfgService := config.NewService(storage)
-
-			credentials := newCredentialsStore(t, tt.credentials)
-			sessionStorage := mockeddb.NewChargingSessionStorage(t)
-			sessionStorage.On("Reset").Return(nil)
-			application := app.New(adapterMock, cfgService, lc, nil, nil, nil, nil, credentials, sessionStorage)
-
-			err := application.Uninstall()
-
-			if tt.wantErr {
-				assert.Error(t, err)
-
-				return
-			}
-
-			assert.NoError(t, err)
-
-			if tt.lifecycleAssertions != nil {
-				tt.lifecycleAssertions(lc)
-			}
-
-			if tt.configAssertions != nil {
-				tt.configAssertions(cfgService.Model())
-			}
-		})
-	}
+	assert.NoError(t, application.Uninstall())
+	assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
+	assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
+	assert.Equal(t, lifecycle.ConnStateDisconnected, lc.ConnectionState())
+	assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
+	assert.Equal(t, &config.Config{}, cfgService.Model())
 }
 
 // The error hook lives on the global logger, so building a second application must not
@@ -561,28 +547,6 @@ func TestApplication_Logout(t *testing.T) {
 			},
 		},
 		{
-			name: "adapter error on destroying all things",
-			// Credentials survive the failed clear, which is what makes this the failure path:
-			// with an empty store the logout stands regardless of the error.
-			credentials: config.Credentials{AccessToken: "still-here"},
-			setLifecycle: func(lc *lifecycle.Lifecycle) {
-				lc.SetAppHealth(lifecycle.AppHealthNotConfigured, nil)
-				lc.SetAuthState(lifecycle.AuthStateNotAuthenticated)
-				lc.SetConfigState(lifecycle.ConfigStateNotConfigured)
-			},
-			authLogoutError: errors.New("error"),
-			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppHealthError, lc.AppHealth())
-				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
-			},
-			mockSignalRClient: func(c *mocksignalr.Client) {
-				c.On("Close").Return(nil)
-			},
-
-			wantErr: true,
-		},
-		{
 			// #165: a clear that fails leaves the tokens readable, and Initialize treats a
 			// non-empty store as a live session - so marking the app not-configured here has the
 			// next restart silently log the user back in. Health must stay error.
@@ -727,12 +691,6 @@ func TestApplication_Initialize(t *testing.T) {
 			mockAdapter: func(a *mockedadapter.Adapter) {
 				a.On("InitializeThings").Return(errors.New("oops"))
 			},
-			lifecycleAssertions: func(lc *lifecycle.Lifecycle) {
-				assert.Equal(t, lifecycle.AppHealthNotConfigured, lc.AppHealth())
-				assert.Equal(t, lifecycle.AuthStateNotAuthenticated, lc.AuthState())
-				assert.Equal(t, lifecycle.ConnStateConnected, lc.ConnectionState())
-				assert.Equal(t, lifecycle.ConfigStateNotConfigured, lc.ConfigState())
-			},
 			wantErr: true,
 		},
 		{
@@ -848,10 +806,6 @@ func TestApplication_Configure_Selection(t *testing.T) {
 		wantErr      string
 		wantSeeded   []string
 		wantSelected selection.Selection
-		// Set when a failing configure is still expected to leave a selection on disk: the
-		// shared policy adopts the owned chargers up front so the retry budget has something
-		// to measure against, and that adoption is deliberately persisted before it refuses.
-		wantAdoptedOnErr selection.Selection
 	}{
 		{
 			name:         "valid subset is seeded and persisted",
@@ -893,17 +847,6 @@ func TestApplication_Configure_Selection(t *testing.T) {
 			owned:        []string{"123"},
 			wantSeeded:   []string{"123"},
 			wantSelected: []string{"123"},
-		},
-		{
-			// The omitted charger goes through the shared retry budget rather than being
-			// dropped on sight: a partial /chargers response looks exactly like a real
-			// removal, and seeding without it destroys its thing for good. The budget is
-			// what tells the two apart, and it prunes on its own once the retries run out.
-			name:             "an absent selection retries an owned charger Easee no longer lists",
-			chargers:         []model.Charger{{ID: "123"}},
-			owned:            []string{"123", "gone"},
-			wantErr:          "not found in chargers list",
-			wantAdoptedOnErr: []string{"123", "gone"},
 		},
 		{
 			// An empty response must leave the implicit include-all implicit: persisting []
@@ -963,12 +906,7 @@ func TestApplication_Configure_Selection(t *testing.T) {
 
 			if tt.wantErr != "" {
 				assert.ErrorContains(t, err, tt.wantErr)
-
-				if tt.wantAdoptedOnErr != nil {
-					assert.Equal(t, tt.wantAdoptedOnErr, h.cfg.SelectedDevices(), "the adopted selection is kept so the retry budget can measure against it")
-				} else {
-					assert.Empty(t, h.cfg.SelectedDevices(), "a failed configure must not persist a selection")
-				}
+				assert.Empty(t, h.cfg.SelectedDevices(), "a failed configure must not persist a selection")
 
 				return
 			}

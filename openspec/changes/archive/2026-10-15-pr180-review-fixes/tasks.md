@@ -1,0 +1,2 @@
+- [x] Failed re-sync is retried (test first)
+- [x] Output phase maps through the props grid type (test first)

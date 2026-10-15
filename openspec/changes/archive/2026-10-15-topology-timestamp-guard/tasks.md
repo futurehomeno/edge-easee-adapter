@@ -1,0 +1,1 @@
+- [x] Outdated grid-type observation keeps the props (test first)
