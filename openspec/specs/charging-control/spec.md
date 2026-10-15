@@ -193,7 +193,8 @@ current entirely.
 ### Requirement: Command Response Codes
 The Easee command endpoints for dynamic current, max current and stop charging SHALL be
 treated as successful only on HTTP 202. The set-phase-mode and cable-lock endpoints SHALL accept both 200 and 202,
-because Easee documents 200 but has been observed answering 202. Any other status SHALL be logged
+because Easee has been observed answering set-phase-mode, documented as 200, with 202, and
+cable-lock, expected to answer 202, with 200. Any other status SHALL be logged
 with its body and returned as an error.
 
 #### Scenario: unexpected status on a command
