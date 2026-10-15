@@ -3,7 +3,8 @@
 ### Requirement: Service User Group
 The package SHALL give the `easee` user the primary group `futurehome`, also when the user already
 exists from the thingsplex layout, so that the files the adapter and the migration write carry the
-`futurehome` group.
+`futurehome` group. After the state migration postinst SHALL re-own the data tree to
+`easee:futurehome`.
 
 #### Scenario: upgraded from the thingsplex layout
 - **WHEN** postinst configures a hub where the `easee` user already exists

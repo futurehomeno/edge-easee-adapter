@@ -32,7 +32,11 @@ func TestPostinst_FailedGroupMoveWarns(t *testing.T) {
 func TestPostinst_DataModesGiveMigratedFilesFuturehomeGroup(t *testing.T) {
 	t.Parallel()
 
-	_, calls := runPostinst(t, "set_data_modes", map[string]string{"chown": `echo "chown $*" >> "$CALLS"`})
+	_, calls := runPostinst(t, "set_data_modes", map[string]string{
+		"chown": `echo "chown $*" >> "$CALLS"`,
+		"find":  "exit 0",
+		"rm":    "exit 0",
+	})
 
 	assert.Equal(t, "chown -R easee:futurehome /var/lib/futurehome/easee\n", calls)
 }
