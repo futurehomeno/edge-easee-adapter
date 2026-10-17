@@ -12,7 +12,6 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/types"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -448,19 +447,18 @@ func (g GridType) IsWiringFault() bool {
 	}
 }
 
+// IsFaulty reports whether the detected grid type is a wiring warning or error, or one Easee has not documented.
+func (g GridType) IsFaulty() bool {
+	_, known := gridTypeNames[g]
+
+	return !known || g >= GridTypeWarningTN2PhasePin235
+}
+
 // ToFimpGridType maps an Easee grid type onto a FIMP grid type and phase count.
 func (g GridType) ToFimpGridType() (types.GridType, int) {
-	if g >= GridTypeWarningTN2PhasePin235 {
-		log.Warnf("faulty grid type detected: %s", g)
-	}
+	t := easeeNetworkTypeMap[g]
 
-	if t, ok := easeeNetworkTypeMap[g]; ok {
-		return t.gridType, t.phases
-	}
-
-	log.Warnf("unknown grid type detected: %d", g)
-
-	return "", 0
+	return t.gridType, t.phases
 }
 
 var gridTypeNames = map[GridType]string{
