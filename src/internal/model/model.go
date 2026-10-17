@@ -449,7 +449,7 @@ func (g GridType) IsWiringFault() bool {
 
 // IsFaulty reports whether the detected grid type is a wiring warning or error, or one Easee has not documented.
 func (g GridType) IsFaulty() bool {
-	_, known := gridTypeNames[g]
+	_, known := easeeNetworkTypeMap[g]
 
 	return !known || g >= GridTypeWarningTN2PhasePin235
 }

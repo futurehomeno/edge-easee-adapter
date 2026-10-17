@@ -576,6 +576,7 @@ func TestObservationsHandler_FaultyGridTypeWarnsOnChange(t *testing.T) {
 		model.GridTypeTN1Phase,
 		model.GridTypeWarningTN1PhaseNeutralOnPin3,
 		model.GridTypeWarningTN1PhaseNeutralOnPin3,
+		model.GridTypeUnknown,
 		model.GridType(6),
 	} {
 		require.NoError(t, handler.HandleObservation(model.Observation{
@@ -597,8 +598,12 @@ func TestObservationsHandler_FaultyGridTypeWarnsOnChange(t *testing.T) {
 		}
 	}
 
-	require.Len(t, warnings, 3, "one warning per change to a faulty or undocumented grid type")
-	assert.Contains(t, warnings[0], testChargerID)
+	want := []int{31, 31, 6}
+	require.Len(t, warnings, len(want), "one warning per change to a faulty or undocumented grid type: %v", warnings)
+
+	for i, gridType := range want {
+		assert.Contains(t, warnings[i], "["+testChargerID+"] Faulty grid type "+strconv.Itoa(gridType)+" ")
+	}
 }
 
 // Every report the handler sends takes the same service lock a chargepoint command holds while
