@@ -50,8 +50,8 @@ github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeO
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
 github.com/futurehomeno/cliffhanger v1.4.1 h1:NLD3J4xTeXACdlQJChFeIeGBYQzGg6BiCqiKCXPg1oM=
 github.com/futurehomeno/cliffhanger v1.4.1/go.mod h1:Ym2hVu4ZlzPfWEOG6917TmFNWr94Kf4ODKXVd8jq4TI=
-github.com/futurehomeno/fimpgo v1.17.1 h1:Q/bkSs8bWa3sU1F04DmB3u5vONbRVrFEcot9o4VwCD4=
-github.com/futurehomeno/fimpgo v1.17.1/go.mod h1:cvIvjuk4ndes2adOC84DdukQKnjHL9ty0f2C5RXe5W4=
+github.com/futurehomeno/fimpgo v1.17.2-0.20261017012154-8bde28ac0569 h1:ZzB6EZDEWTif4MJv3fa431JJhVzncNDuLq7dwzKWMTw=
+github.com/futurehomeno/fimpgo v1.17.2-0.20261017012154-8bde28ac0569/go.mod h1:Nr7SX0K6vO/7l9nIhFBToPSjB7Jr1yfK5AmrAfbAMVU=
 github.com/go-kit/log v0.2.1 h1:MRVx0/zhvdseW+Gza6N9rVzU/IVzaeE1SFI4raAhmBU=
 github.com/go-kit/log v0.2.1/go.mod h1:NwTd00d/i8cPZ3xOwwiv2PO5MOcx78fFErGNcVmBjv0=
 github.com/go-logfmt/logfmt v0.6.1 h1:4hvbpePJKnIzH1B+8OR/JPbTx37NktoI9LE2QZBBkvE=
