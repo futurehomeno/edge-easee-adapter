@@ -2,6 +2,7 @@ package signalr_test
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,8 @@ import (
 	mockednumericmeter "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/futurehomeno/fimpgo/fimptype"
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -550,6 +553,52 @@ func TestObservationsHandler_FaultGridTypeKeepsTheChargepointProps(t *testing.T)
 	assert.Equal(t, 3, srv.Specification().Props[chargepoint.PropertyPhases],
 		"a fault must not delete the known phase count")
 	assert.Zero(t, thing.inclusionCount(), "nothing to republish when the topology did not change")
+}
+
+// A charger repeats its grid type on every reconnect, so a lasting wiring warning is logged when
+// it changes rather than on every observation.
+func TestObservationsHandler_FaultyGridTypeWarnsOnChange(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, now)
+	cacheMock.On("Phases").Return(1, now)
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: mockedchargepoint.NewService(t)}, cacheMock, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	for _, gridType := range []model.GridType{
+		model.GridTypeWarningTN1PhaseNeutralOnPin3,
+		model.GridTypeWarningTN1PhaseNeutralOnPin3,
+		model.GridTypeTN1Phase,
+		model.GridTypeWarningTN1PhaseNeutralOnPin3,
+		model.GridTypeWarningTN1PhaseNeutralOnPin3,
+		model.GridType(6),
+	} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID:        model.DetectedPowerGridType,
+			ChargerID: testChargerID,
+			DataType:  model.ObservationDataTypeInteger,
+			Timestamp: now,
+			Value:     strconv.Itoa(int(gridType)),
+		}))
+	}
+
+	flushReports(t, handler)
+
+	var warnings []string
+
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(strings.ToLower(entry.Message), "faulty grid type") {
+			warnings = append(warnings, entry.Message)
+		}
+	}
+
+	require.Len(t, warnings, 3, "one warning per change to a faulty or undocumented grid type")
+	assert.Contains(t, warnings[0], testChargerID)
 }
 
 // Every report the handler sends takes the same service lock a chargepoint command holds while
