@@ -1,3 +1,3 @@
 - [x] The idle phase-mode report logs no grid type warning (test first)
 - [x] The grid-type observation warns only when the faulty grid type changes (test first)
-- [ ] Switch cliffhanger to its next release (futurehomeno/cliffhanger#279) once tagged
+- [x] Use cliffhanger v1.5.0
