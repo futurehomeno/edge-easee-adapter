@@ -2,6 +2,7 @@ package signalr_test
 
 import (
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,6 +17,8 @@ import (
 	mockednumericmeter "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/futurehomeno/fimpgo/fimptype"
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -550,6 +553,76 @@ func TestObservationsHandler_FaultGridTypeKeepsTheChargepointProps(t *testing.T)
 	assert.Equal(t, 3, srv.Specification().Props[chargepoint.PropertyPhases],
 		"a fault must not delete the known phase count")
 	assert.Zero(t, thing.inclusionCount(), "nothing to republish when the topology did not change")
+}
+
+// A charger repeats its grid type on every reconnect, so a lasting wiring warning is logged when
+// it changes rather than on every observation.
+func TestObservationsHandler_FaultyGridTypeWarnsOnChange(t *testing.T) {
+	type obs struct {
+		gridType model.GridType
+		at       time.Duration
+	}
+
+	faulty := model.GridTypeWarningTN1PhaseNeutralOnPin3
+
+	tests := []struct {
+		name string
+		obs  []obs
+		want []int
+	}{
+		{
+			name: "each change to a faulty or undocumented grid type",
+			obs:  []obs{{faulty, 0}, {faulty, 0}, {model.GridTypeTN1Phase, 0}, {faulty, 0}, {faulty, 0}, {model.GridTypeUnknown, 0}, {6, 0}},
+			want: []int{31, 31, 6},
+		},
+		{
+			name: "a stale healthy grid type does not reset the warning",
+			obs:  []obs{{faulty, 2 * time.Second}, {faulty, 4 * time.Second}, {model.GridTypeTN1Phase, 3 * time.Second}, {faulty, 5 * time.Second}},
+			want: []int{31},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hook := logtest.NewLocal(log.StandardLogger())
+			t.Cleanup(hook.Reset)
+
+			now := time.Now()
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("GridType").Return(types.GridTypeTN, now)
+			cacheMock.On("Phases").Return(1, now)
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: mockedchargepoint.NewService(t)}, cacheMock, nil, nil, testChargerID, nil)
+			require.NoError(t, err)
+
+			for _, o := range tt.obs {
+				require.NoError(t, handler.HandleObservation(model.Observation{
+					ID:        model.DetectedPowerGridType,
+					ChargerID: testChargerID,
+					DataType:  model.ObservationDataTypeInteger,
+					Timestamp: now.Add(o.at),
+					Value:     strconv.Itoa(int(o.gridType)),
+				}))
+			}
+
+			flushReports(t, handler)
+
+			var warnings []string
+
+			for _, entry := range hook.AllEntries() {
+				if strings.Contains(strings.ToLower(entry.Message), "faulty grid type") {
+					warnings = append(warnings, entry.Message)
+				}
+			}
+
+			require.Len(t, warnings, len(tt.want), "warnings: %v", warnings)
+
+			for i, gridType := range tt.want {
+				assert.Contains(t, warnings[i], "["+testChargerID+"] Faulty grid type "+strconv.Itoa(gridType)+" ")
+			}
+		})
+	}
 }
 
 // Every report the handler sends takes the same service lock a chargepoint command holds while

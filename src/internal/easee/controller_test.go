@@ -3,6 +3,7 @@ package easee_test
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/michalkurzeja/go-clock"
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -1793,6 +1796,36 @@ func TestController_ChargepointPhaseModeReport_InternalModeUnset(t *testing.T) {
 			assert.Equal(t, tt.want == "", err != nil, err)
 			assert.Equal(t, tt.want, mode)
 		})
+	}
+}
+
+// An idle charger answers every phase-mode report from the REST charger config, so a warning in
+// the grid type mapping repeated a lasting wiring fault on every poll - every 30 s in the field.
+func TestController_ChargepointPhaseModeReport_FaultyGridTypeDoesNotWarn(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("OutputPhaseType").Return(types.PhaseMode(""), time.Time{})
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseMode(""), time.Time{})
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("ChargerConfig", "test-charger").
+		Return(&model.ChargerConfig{DetectedPowerGridType: model.GridTypeWarningTN1PhaseNeutralOnPin3, PhaseMode: model.EaseePhaseModeAuto}, nil)
+	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	for range 3 {
+		_, err := ctrl.ChargepointPhaseModeReport()
+		require.NoError(t, err)
+	}
+
+	for _, entry := range hook.AllEntries() {
+		assert.NotContains(t, strings.ToLower(entry.Message), "faulty grid type")
 	}
 }
 

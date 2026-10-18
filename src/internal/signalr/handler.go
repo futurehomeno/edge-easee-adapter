@@ -52,6 +52,9 @@ type observationsHandler struct {
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
 
+	detectedGridType   model.GridType
+	detectedGridTypeAt time.Time
+
 	// Newest observed topology: an unchanged one skips the cache write, and a changed one waits on the
 	// queued republish, so cachedAt lags it either way.
 	topologyAt time.Time
@@ -635,10 +638,20 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 		return err
 	}
 
+	detected := model.GridType(val)
+	if !observation.Timestamp.Before(h.detectedGridTypeAt) {
+		if detected != h.detectedGridType && detected.IsFaulty() {
+			log.Warnf("[%s] Faulty grid type %d detected: %s", h.chargerID, val, detected)
+		}
+
+		h.detectedGridType = detected
+		h.detectedGridTypeAt = observation.Timestamp
+	}
+
 	gridType, cachedAt := h.cache.GridType()
 	phases, _ := h.cache.Phases()
 
-	supportedGridType, supportedPhases := model.GridType(val).ToFimpGridType()
+	supportedGridType, supportedPhases := detected.ToFimpGridType()
 
 	// Several raw grid types map onto the same FIMP pair, so faults must be reported
 	// before the equivalence check below short-circuits an otherwise unchanged topology.
@@ -646,8 +659,8 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	// the send is refused, and abandoning here would drop the grid-type update with it - the
 	// topology change is the more durable of the two, and nothing republishes it afterwards.
 	if err := h.sendAlarmReports(map[string]bool{
-		alarm.EventGroundingFault: model.GridType(val).IsGroundFault(),
-		alarm.EventGridTypeFault:  model.GridType(val).IsWiringFault(),
+		alarm.EventGroundingFault: detected.IsGroundFault(),
+		alarm.EventGridTypeFault:  detected.IsWiringFault(),
 	}, observation.Timestamp); err != nil {
 		log.Warnf("[%s] Send grid type alarm reports err: %v", h.chargerID, err)
 	}
