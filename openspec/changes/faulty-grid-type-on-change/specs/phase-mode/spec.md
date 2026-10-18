@@ -15,6 +15,11 @@ be logged on every poll.
 - **WHEN** a charger reports a faulty grid type, then a healthy one, then the faulty one again
 - **THEN** a warning is logged for each change to the faulty grid type and none for the healthy one
 
+#### Scenario: stale healthy grid type
+- **WHEN** a charger reports a faulty grid type, then a healthy one older than that report, then the
+  faulty one again
+- **THEN** one warning is logged
+
 #### Scenario: idle phase-mode report
 - **WHEN** the phase-mode report reads the charger config of an idle charger with a faulty grid type
 - **THEN** no grid type warning is logged

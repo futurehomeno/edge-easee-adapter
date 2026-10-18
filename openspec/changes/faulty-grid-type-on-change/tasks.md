@@ -1,3 +1,4 @@
 - [x] The idle phase-mode report logs no grid type warning (test first)
 - [x] The grid-type observation warns only when the faulty grid type changes (test first)
+- [x] A stale grid-type observation does not reset the warning (test first)
 - [x] Use cliffhanger v1.5.0

@@ -558,51 +558,70 @@ func TestObservationsHandler_FaultGridTypeKeepsTheChargepointProps(t *testing.T)
 // A charger repeats its grid type on every reconnect, so a lasting wiring warning is logged when
 // it changes rather than on every observation.
 func TestObservationsHandler_FaultyGridTypeWarnsOnChange(t *testing.T) {
-	hook := logtest.NewLocal(log.StandardLogger())
-	t.Cleanup(hook.Reset)
-
-	now := time.Now()
-
-	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("GridType").Return(types.GridTypeTN, now)
-	cacheMock.On("Phases").Return(1, now)
-
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: mockedchargepoint.NewService(t)}, cacheMock, nil, nil, testChargerID, nil)
-	require.NoError(t, err)
-
-	for _, gridType := range []model.GridType{
-		model.GridTypeWarningTN1PhaseNeutralOnPin3,
-		model.GridTypeWarningTN1PhaseNeutralOnPin3,
-		model.GridTypeTN1Phase,
-		model.GridTypeWarningTN1PhaseNeutralOnPin3,
-		model.GridTypeWarningTN1PhaseNeutralOnPin3,
-		model.GridTypeUnknown,
-		model.GridType(6),
-	} {
-		require.NoError(t, handler.HandleObservation(model.Observation{
-			ID:        model.DetectedPowerGridType,
-			ChargerID: testChargerID,
-			DataType:  model.ObservationDataTypeInteger,
-			Timestamp: now,
-			Value:     strconv.Itoa(int(gridType)),
-		}))
+	type obs struct {
+		gridType model.GridType
+		at       time.Duration
 	}
 
-	flushReports(t, handler)
+	faulty := model.GridTypeWarningTN1PhaseNeutralOnPin3
 
-	var warnings []string
-
-	for _, entry := range hook.AllEntries() {
-		if strings.Contains(strings.ToLower(entry.Message), "faulty grid type") {
-			warnings = append(warnings, entry.Message)
-		}
+	tests := []struct {
+		name string
+		obs  []obs
+		want []int
+	}{
+		{
+			name: "each change to a faulty or undocumented grid type",
+			obs:  []obs{{faulty, 0}, {faulty, 0}, {model.GridTypeTN1Phase, 0}, {faulty, 0}, {faulty, 0}, {model.GridTypeUnknown, 0}, {6, 0}},
+			want: []int{31, 31, 6},
+		},
+		{
+			name: "a stale healthy grid type does not reset the warning",
+			obs:  []obs{{faulty, 2 * time.Second}, {faulty, 4 * time.Second}, {model.GridTypeTN1Phase, 3 * time.Second}, {faulty, 5 * time.Second}},
+			want: []int{31},
+		},
 	}
 
-	want := []int{31, 31, 6}
-	require.Len(t, warnings, len(want), "one warning per change to a faulty or undocumented grid type: %v", warnings)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hook := logtest.NewLocal(log.StandardLogger())
+			t.Cleanup(hook.Reset)
 
-	for i, gridType := range want {
-		assert.Contains(t, warnings[i], "["+testChargerID+"] Faulty grid type "+strconv.Itoa(gridType)+" ")
+			now := time.Now()
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("GridType").Return(types.GridTypeTN, now)
+			cacheMock.On("Phases").Return(1, now)
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: mockedchargepoint.NewService(t)}, cacheMock, nil, nil, testChargerID, nil)
+			require.NoError(t, err)
+
+			for _, o := range tt.obs {
+				require.NoError(t, handler.HandleObservation(model.Observation{
+					ID:        model.DetectedPowerGridType,
+					ChargerID: testChargerID,
+					DataType:  model.ObservationDataTypeInteger,
+					Timestamp: now.Add(o.at),
+					Value:     strconv.Itoa(int(o.gridType)),
+				}))
+			}
+
+			flushReports(t, handler)
+
+			var warnings []string
+
+			for _, entry := range hook.AllEntries() {
+				if strings.Contains(strings.ToLower(entry.Message), "faulty grid type") {
+					warnings = append(warnings, entry.Message)
+				}
+			}
+
+			require.Len(t, warnings, len(tt.want), "warnings: %v", warnings)
+
+			for i, gridType := range tt.want {
+				assert.Contains(t, warnings[i], "["+testChargerID+"] Faulty grid type "+strconv.Itoa(gridType)+" ")
+			}
+		})
 	}
 }
 

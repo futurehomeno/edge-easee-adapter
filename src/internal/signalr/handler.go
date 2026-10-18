@@ -52,7 +52,8 @@ type observationsHandler struct {
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
 
-	detectedGridType model.GridType
+	detectedGridType   model.GridType
+	detectedGridTypeAt time.Time
 
 	// Newest observed topology: an unchanged one skips the cache write, and a changed one waits on the
 	// queued republish, so cachedAt lags it either way.
@@ -638,12 +639,13 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	}
 
 	detected := model.GridType(val)
-	if detected != h.detectedGridType {
-		h.detectedGridType = detected
-
-		if detected.IsFaulty() {
+	if !observation.Timestamp.Before(h.detectedGridTypeAt) {
+		if detected != h.detectedGridType && detected.IsFaulty() {
 			log.Warnf("[%s] Faulty grid type %d detected: %s", h.chargerID, val, detected)
 		}
+
+		h.detectedGridType = detected
+		h.detectedGridTypeAt = observation.Timestamp
 	}
 
 	gridType, cachedAt := h.cache.GridType()
