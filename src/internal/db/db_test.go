@@ -229,6 +229,36 @@ func (suite *SessionStorageSuite) TestRegister_StartReplayedAfterStop() {
 	suite.Nil(got.Previous())
 }
 
+func (suite *SessionStorageSuite) TestRegister_OlderStartReplayed() {
+	start244 := time.Date(2026, time.October, 14, 18, 13, 49, 0, time.UTC)
+	stop244 := time.Date(2026, time.October, 15, 15, 40, 49, 0, time.UTC)
+	start245 := time.Date(2026, time.October, 16, 8, 0, 0, 0, time.UTC)
+
+	err := suite.storage.RegisterSessionStop(suite.chargerID, model.StopChargingSession{
+		ID:     244,
+		Start:  start244,
+		Stop:   stop244,
+		Energy: 55.227043,
+	})
+	suite.Require().NoError(err)
+
+	err = suite.storage.RegisterSessionStart(suite.chargerID, model.StartChargingSession{ID: 245, Start: start245})
+	suite.Require().NoError(err)
+
+	err = suite.storage.RegisterSessionStart(suite.chargerID, model.StartChargingSession{ID: 244, Start: start244})
+	suite.Require().NoError(err)
+
+	got, err := suite.storage.LatestSessionsByChargerID(suite.chargerID)
+	suite.Require().NoError(err)
+	suite.Equal(&db.ChargingSession{ID: 245, Start: start245}, got.Latest())
+	suite.Equal(&db.ChargingSession{
+		ID:     244,
+		Start:  start244,
+		Stop:   stop244,
+		Energy: 55.227043,
+	}, got.Previous())
+}
+
 func (suite *SessionStorageSuite) TestGetSessionNonExistChargerID() {
 	result, err := suite.storage.LatestSessionsByChargerID(suite.chargerID)
 

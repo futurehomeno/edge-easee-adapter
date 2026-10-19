@@ -15,6 +15,10 @@ Registering a session stop SHALL write the session's start, stop and energy.
 - **WHEN** a session start is registered for a session ID that is already stored with a stop time
 - **THEN** the stored session keeps its start, stop and energy
 
+#### Scenario: start of an older stored session replayed
+- **WHEN** a session start is registered for a stored session ID older than the latest session
+- **THEN** both sessions stay unchanged and the latest one is not closed
+
 #### Scenario: session stop
 - **WHEN** a session stop observation arrives
 - **THEN** the session's start, stop and energy are written under its ID
