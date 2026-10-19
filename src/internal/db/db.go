@@ -57,6 +57,12 @@ func (s *sessionStorage) RegisterSessionStart(chargerID string, session model.St
 	bucket := s.bucketName(chargerID)
 	latest := sessions.Latest()
 
+	// Easee replays the latest session's stop and then its start on every signalR connect;
+	// rewriting the stored session would drop its stop time and energy.
+	if latest != nil && latest.ID == session.ID {
+		return nil
+	}
+
 	if latest != nil && latest.Stop.IsZero() {
 		latest.Stop = session.Start
 
