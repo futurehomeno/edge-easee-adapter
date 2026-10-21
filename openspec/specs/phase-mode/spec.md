@@ -112,18 +112,19 @@ Because the charger applies a new phase mode only at a session boundary, an in-p
 be bounced after the mode is set: a pause followed by a resume, both through the per-charger command
 channel. The restart SHALL be skipped when the charger state is not charging. A failure to read the
 state, or a failure to pause, SHALL be logged as a warning and treated as success — the mode is
-stored and takes effect on the next session anyway. The pause and the resume SHALL be dispatched as one
-ordered pair, so a mode change never leaves the charger paused: whether the pause goes out at once
-or is stored, the resume follows it one `offered_current_wait_time` later. The command SHALL report
-success once the pair is accepted. Because the pair is stored as a unit, the resume can no longer
-fail on its own after the pause has been accepted - the failure the `charger was left stopped` error
-reported no longer arises. A resume Easee refuses or the charger never echoes back is logged only.
-The resume SHALL restore the session's own current — the cached requested offered
-current, falling back to the cached offered current the charger itself reports, and to the cached max
-current when both are zero or less — read before the pause, since the session-finished observation
-clears it asynchronously. When none of the three is known the resume SHALL NOT be attempted and the
-failure SHALL be reported, rather than issuing a zero-current resume that leaves the charger paused.
-It SHALL NOT be issued as a normal-mode start, which would floor the current to
+stored and takes effect on the next session anyway. The pause and the resume SHALL be dispatched as
+one ordered pair, so a mode change never leaves the charger paused: whether the pause goes out at
+once or is stored, the resume follows it one `offered_current_wait_time` later. The command SHALL
+report success once the pair is accepted. Because the pair is stored as a unit, the resume can no
+longer fail on its own after the pause has been accepted - the failure the `charger was left
+stopped` error reported no longer arises. A resume Easee refuses or the charger never echoes back is
+logged only. The
+resume SHALL restore the session's own current — the cached requested offered current, falling back
+to the cached offered current the charger itself reports, and to the cached max current when both
+are zero or less — read before the pause, since the session-finished observation clears it
+asynchronously. When none of the three is known the resume SHALL NOT be attempted and the failure
+SHALL be reported, rather than issuing a zero-current resume that leaves the charger paused. It
+SHALL NOT be issued as a normal-mode start, which would floor the current to
 `initial_charging_current` and silently raise a slow session; the session's mode is recorded nowhere,
 so it cannot be reconstructed.
 
@@ -133,17 +134,21 @@ so it cannot be reconstructed.
 
 #### Scenario: a session is bounced
 - **WHEN** the pause is sent for a charging charger
-- **THEN** the resume is stored, the command reports success, and the resume is sent at the
-  channel's deadline
-
-#### Scenario: a slow session is bounced
-- **WHEN** a session running below `initial_charging_current` is bounced to apply a mode
-- **THEN** it resumes at the current it was running, not at `initial_charging_current`
+- **THEN** the resume is stored and sent at the channel's deadline, and the command reports success
 
 #### Scenario: pause inside the window
 - **WHEN** a dynamic-current write went out within `offered_current_wait_time` before the pause
 - **THEN** the pause is stored ahead of the resume, is sent at the deadline, and the resume follows
-  it one `offered_current_wait_time` later
+  one wait time later, leaving the charger charging on the new mode
+
+#### Scenario: the restart is preempted
+- **WHEN** a dynamic-current write arrives while the restart is stored
+- **THEN** both halves are discarded, only that write is sent, and the mode takes effect at the next
+  session
+
+#### Scenario: a slow session is bounced
+- **WHEN** a session running below `initial_charging_current` is bounced to apply a mode
+- **THEN** it resumes at the current it was running, not at `initial_charging_current`
 
 #### Scenario: pause fails
 - **WHEN** stopping the session fails
@@ -156,6 +161,10 @@ so it cannot be reconstructed.
 #### Scenario: resume is never confirmed
 - **WHEN** the deferred resume is sent but no observation echoes the current back in time
 - **THEN** a warning is logged; the command had already reported success
+
+#### Scenario: no resume current is known
+- **WHEN** the requested offered current, the offered current and the max current are all zero
+- **THEN** no resume is attempted and the command fails
 
 #### Scenario: charger state unknown
 - **WHEN** the state report fails
@@ -176,6 +185,13 @@ Easee mode at all: the mode was changed elsewhere, and nothing else ever clears 
 The fallback SHALL be the last supported mode when the charger's internal mode is auto and the
 first otherwise: the auto row ends with the multi-phase mode, which is what a three-phase request
 maps onto, so reporting the first would answer a request the user just made with a single leg.
+A persisted phase among the supported modes SHALL be preferred over the first.
+
+When the refetched internal mode is 0 (Easee leaves it unset on some models) the supported modes
+SHALL be the advertised `sup_phase_modes` for the grid type, phase count and persisted phase, so the
+report stays within what the inclusion report advertises instead of failing. An unset mode SHALL be
+read as auto and report the last advertised mode: a single leg would let energy guard load the other
+two phases while the charger may draw on all three.
 
 A cached output phase SHALL count as stale once an internal phase-mode observation newer than it no
 longer lists that leg among the supported modes — unless the charger is charging, because Easee
@@ -215,6 +231,16 @@ applies a new mode only at a session boundary and the leg in use is still the ol
 - **THEN** the charger state is refetched and the last supported mode, the multi-phase one, is
   reported
 
+#### Scenario: internal mode unset on a 1-phase charger
+- **WHEN** neither a requested mode nor an output phase is cached and the refetched state carries
+  grid TN, 1 phase and internal mode 0
+- **THEN** `NL1` is reported without an error
+
+#### Scenario: internal mode unset on a 3-phase charger
+- **WHEN** neither a requested mode nor an output phase is cached and the refetched state carries
+  grid TN, 3 phases and internal mode 0
+- **THEN** `NL1L2L3` is reported without an error, whatever leg is persisted
+
 #### Scenario: nothing mappable
 - **WHEN** the refetched state yields no supported modes
 - **THEN** an error is logged with the charger ID, grid type, phases and internal mode, and
@@ -236,7 +262,12 @@ loop publishing it is the only drainer of that observation.
 - **THEN** nothing is published
 
 ### Requirement: Output Phase Observation Handling
-The output-phase observation SHALL be translated to a FIMP phase mode and cached. A translation
+The output-phase observation SHALL be translated to a FIMP phase mode and cached. The translation
+SHALL follow the FIMP grid type in the chargepoint props (replaced as soon as a topology republish is queued, ahead of the cache) rather than the TN/IT suffix of Easee's value, because a
+charger on an IT grid has been seen reporting the TN variant: on an IT or TT grid a TN-suffixed
+value SHALL map to the mode of its IT twin on the same terminals (10 as 11, 12 as 13, 20 as 22),
+and on a TN grid an IT-suffixed value SHALL map to the mode of its TN twin. A value without a twin,
+or any value while the grid type is unknown, SHALL map on its suffix. A translation
 yielding an empty mode SHALL be dropped without updating the cache, because the charger reports an
 unassigned output phase whenever it is not charging, even during an ongoing session. A successful
 cache update SHALL publish an unforced `evt.phase_mode.report`.
@@ -249,17 +280,48 @@ cache update SHALL publish an unforced `evt.phase_mode.report`.
 - **WHEN** the output-phase observation maps to a concrete mode newer than the cached one
 - **THEN** the cache is updated and an unforced phase-mode report is published
 
+#### Scenario: TN-suffixed phase on an IT grid
+- **WHEN** a charger whose grid type is IT reports `P1_T2_T3_TN` (10)
+- **THEN** `L1L2` is cached and reported, never `NL1`
+
+#### Scenario: IT-suffixed phase on a TN grid
+- **WHEN** a charger whose grid type is TN reports `P1_T2_T3_IT` (11)
+- **THEN** `NL1` is cached and reported
+
+#### Scenario: grid type not yet known
+- **WHEN** the grid type is empty
+- **THEN** the value maps on its own suffix
+
+#### Scenario: topology republish still queued
+- **WHEN** the props already carry an IT grid but the cache still holds TN, and the charger reports `P1_T2_T3_TN` (10)
+- **THEN** `L1L2` is cached and reported
+
 ### Requirement: Grid Type Observation Refreshes The Specification
 A detected-power-grid-type observation SHALL first publish grounding-fault and grid-type-fault alarm
 reports, before the equivalence check below, because several raw grid types map onto the same FIMP
-pair and a fault must be reported even when the topology is unchanged. When the mapped grid type and
-phase count both equal the cached values the handler SHALL then stop. Otherwise the installation
-parameters SHALL be cached, the chargepoint service specification refreshed and a thing inclusion
-report published, so that the new phase-mode and grid-type properties reach consumers.
+pair and a fault must be reported even when the topology is unchanged. An observation older than the
+cached grid type, or than the newest one already observed (changed, unchanged or still awaiting
+publication), SHALL then stop the handler, because the cache would reject it after the props took
+it. When the mapped grid type and phase count both equal the cached values the handler SHALL then
+stop. Otherwise the installation parameters SHALL be cached, the chargepoint service specification
+refreshed and a thing inclusion report published, so that the new phase-mode and grid-type
+properties reach consumers.
 
 #### Scenario: fault on an unchanged topology
 - **WHEN** a grid type mapping to the same FIMP grid and phase count but carrying a fault arrives
 - **THEN** the grounding-fault and grid-type-fault alarms are reported before the handler stops
+
+#### Scenario: outdated topology
+- **WHEN** a grid type differing from the cache arrives with a timestamp older than the cached one
+- **THEN** the props, the cache and the inclusion report are left untouched
+
+#### Scenario: older than a queued topology
+- **WHEN** a grid type arrives older than a newer one whose republish is still queued
+- **THEN** the props keep the newer topology and no second inclusion report is sent
+
+#### Scenario: older than an unchanged topology
+- **WHEN** a grid type arrives older than a newer one that matched the cache
+- **THEN** the props, the cache and the inclusion report are left untouched
 
 #### Scenario: topology changes
 - **WHEN** the mapped grid type or phase count differs from the cache
@@ -275,4 +337,38 @@ specification at once but commits the cache only after its inclusion report land
 - **WHEN** a charger with no cached grid type reports a grid type and then an output phase before the
   topology inclusion report has been published
 - **THEN** `sup_phase_modes` advertises the reported leg for the new topology
+
+### Requirement: Internal Phase Mode Naming
+Easee's internal phase modes SHALL have a human-readable name: internal mode 1 is `single phase`,
+internal mode 2 is `auto` and internal mode 3 is `three phase`. Any other value SHALL be named
+`unknown`, so a mode Easee adds later is never given a wrong name.
+
+#### Scenario: known internal mode
+- **WHEN** a name is requested for internal mode 1, 2 or 3
+- **THEN** `single phase`, `auto` and `three phase` are returned respectively
+
+#### Scenario: unrecognised internal mode
+- **WHEN** a name is requested for a value outside 1, 2 and 3
+- **THEN** `unknown` is returned
+
+### Requirement: Internal Phase Mode Logging
+Every log line carrying an Easee internal phase mode SHALL name it and keep the number in
+parentheses, as `<name> (<n>)`. The number is kept because it is the value on the wire, and a line
+carrying only the name could not be matched against Easee's API.
+
+The set-phase-mode call SHALL log `Set phase mode to <name> (<n>)`. The phase-mode observation
+SHALL log `Phase mode=<name> (<n>)`; it previously read `Connected phases=<n>`, which named the
+wrong quantity - the value is Easee's internal mode, not a count of connected phases.
+
+#### Scenario: three-phase request logged
+- **WHEN** internal mode 2 is posted for a charger
+- **THEN** the line reads `Set phase mode to auto (2)`
+
+#### Scenario: single-phase request logged
+- **WHEN** internal mode 1 is posted for a charger
+- **THEN** the line reads `Set phase mode to single phase (1)`
+
+#### Scenario: the observation is logged
+- **WHEN** a phase-mode observation carrying internal mode 2 arrives
+- **THEN** the line reads `Phase mode=auto (2)`, not `Connected phases=2`
 

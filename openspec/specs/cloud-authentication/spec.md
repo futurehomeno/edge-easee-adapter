@@ -4,19 +4,19 @@
 Obtain and keep alive an Easee cloud session for the hub. Covers the username/password login, the
 persisted credential pair, the refresh-token exchange, the backoff and grace policy around
 rejections, the auth-loss escalation, and explicit logout.
-
 ## Requirements
-
 ### Requirement: Password Login
 `Authenticator.Login` SHALL exchange a username and password at `POST /api/accounts/login` and
-persist the returned credentials in the credential store. A store write failure SHALL be logged as
+persist the returned credentials, together with the username and password it was called with, in
+the credential store. A store write failure SHALL be logged as
 a warning and SHALL NOT fail the login, because the credentials remain usable in memory until the
 next restart. A successful login SHALL reset the authenticator backoff. A 200 response carrying no
 access token SHALL be rejected as an error, on both the login and the token-refresh path.
 
 #### Scenario: successful login
 - **WHEN** `Login` is called with credentials Easee accepts
-- **THEN** the access and refresh tokens are written to the credential store
+- **THEN** the access and refresh tokens, the username and the password are written to the
+  credential store
 - **AND** the backoff is reset
 - **AND** `Login` returns no error
 
@@ -46,8 +46,8 @@ check depends on this derivation.
 ### Requirement: Access Token Provision
 `AccessToken` SHALL return a valid access token, refreshing it proactively through the framework
 authenticator's `RefreshLead` window (default 5 minutes before expiry) rather than waiting for the
-access token to actually expire. When the refresh token's local expiry (`RefreshExpiresAt`) is
-already past and the access token is also expired, the framework SHALL clear the credentials and
+access token to actually expire. While no password is stored and the refresh token's local expiry
+(`RefreshExpiresAt`) is already past and the access token is also expired, the framework SHALL clear the credentials and
 return an error identified by `ErrReloginRequired` without attempting an HTTP refresh. When the
 framework reports `ErrRefreshSuspended` or `ErrRefreshDeferred` the authenticator SHALL translate
 both into `ErrRefreshBackoff`, so callers log them at debug level rather than warning on every
@@ -58,7 +58,8 @@ request for the whole grace window.
 - **THEN** the stored token is returned without a network call
 
 #### Scenario: refresh token locally expired
-- **WHEN** `AccessToken` is called with an expired access token and `RefreshExpiresAt` in the past
+- **WHEN** `AccessToken` is called with an expired access token, `RefreshExpiresAt` in the past and
+  no password stored
 - **THEN** credentials are cleared, the auth-loss handler fires, and an error identified by
   `ErrReloginRequired` is returned
 
@@ -104,16 +105,25 @@ On auth loss the adapter SHALL send the `easee_status_offline` push notification
 `cmd.auth.logout` to `pt:j1/mt:cmd/rt:ad/rn:easee/ad:1`. Both SHALL happen on their own goroutine
 rather than in the callback, which the framework invokes holding the authenticator lock: a publish
 blocks on a saturated or unreachable broker for the transport write timeout, and holding that lock
-stalls every access-token caller. It SHALL additionally run a local logout fallback on that same
-goroutine, whether or not the publish succeeded, because the routed handler takes a try-lock that
-discards rather than queues a concurrent command. The fallback SHALL compare the credentials
-against a snapshot taken when the loss was detected — before the publishes, which are no longer
-ordered ahead of it — and skip itself when a new session has replaced the one that triggered the
-loss.
+stalls every access-token caller. Before spawning it, in the callback itself, it SHALL set the
+lifecycle to disconnected and auth state `LOST` with the loss reason, so cliffhanger's auth-loss
+watcher emits the `auth`/`logged_out` telemetry event and the app state report even when a
+re-login follows. It SHALL additionally run a
+local logout fallback on that same goroutine, whether or not the publish succeeded, because the
+routed handler takes a try-lock that discards rather than queues a concurrent command. The
+escalation SHALL compare the credentials against a snapshot taken when the loss was detected —
+before the publishes, which are no longer ordered ahead of it — and skip itself when a new session
+has replaced the one that triggered the loss.
 
 #### Scenario: auth loss with a reachable broker
 - **WHEN** the auth-loss handler runs
-- **THEN** a push notification is sent, `cmd.auth.logout` is published, and the fallback runs
+- **THEN** the auth state becomes `LOST` with the reason, a push notification is sent,
+  `cmd.auth.logout` is published, and the fallback runs
+
+#### Scenario: auth loss is reported to telemetry
+- **WHEN** an authenticated session is lost
+- **THEN** the lifecycle reaches `LOST` before the logout marks it not-authenticated, so the
+  `auth`/`logged_out` telemetry event is emitted
 
 #### Scenario: broker is unreachable
 - **WHEN** the auth-loss handler runs while a publish would block
@@ -130,24 +140,33 @@ loss.
 ### Requirement: Explicit Logout
 `Authenticator.Logout` SHALL clear the stored credentials. The application-level logout SHALL first
 close the SignalR client, logging a close failure as a warning without aborting, then clear the
-credentials. On success it SHALL mark the app not configured; on failure it SHALL set app health to
-error, auth state to not-authenticated, config state to not-configured and the connection state to
-disconnected — the reporting tasks are gated on the connection state, so leaving it connected keeps
-them polling for a session the app has declared dead — and return the error.
+credentials. It SHALL mark the app not configured only once the credential store is actually empty:
+`Initialize` treats a non-empty store as a live session and re-authenticates from it, so a logout
+that left tokens on disk while reporting itself successful is silently undone by the next hub
+restart. When the clear fails but the store is empty regardless, the logout SHALL stand. When
+credentials remain readable, the app SHALL set app health to error, auth state to
+not-authenticated, config state to not-configured and the connection state to disconnected — the
+reporting tasks are gated on the connection state, so leaving it connected keeps them polling for a
+session the app has declared dead — and return the error.
 
 #### Scenario: successful logout
 - **WHEN** `cmd.auth.logout` is handled and credential clearing succeeds
 - **THEN** the SignalR client is closed and the app is marked not configured
 
 #### Scenario: credential clearing fails
-- **WHEN** clearing the credentials returns an error
+- **WHEN** clearing the credentials returns an error and credentials are still readable
 - **THEN** app health is error, auth state is not-authenticated, config state is not-configured
 - **AND** the error is returned
+
+#### Scenario: clearing reports an error but leaves no credentials
+- **WHEN** clearing the credentials returns an error but the store is empty afterwards
+- **THEN** the app is marked not configured, because a restart would find nothing to resume from
 
 ### Requirement: Credential Persistence
 Credentials SHALL be held in a dedicated secrets store separate from the public configuration, so
 that resetting the configuration cannot leave the Easee tokens on the hub. The stored model SHALL
-carry the access token, the refresh token and both derived expiry times.
+carry the access token, the refresh token, both derived expiry times, and the username and
+password of the last login. A token refresh SHALL keep the stored username and password.
 
 #### Scenario: uninstall clears both stores
 - **WHEN** the app is uninstalled
@@ -156,6 +175,10 @@ carry the access token, the refresh token and both derived expiry times.
 #### Scenario: empty credentials mean unconfigured
 - **WHEN** the adapter initializes and the credential store is empty
 - **THEN** the app is marked not configured and initialization returns without contacting Easee
+
+#### Scenario: refresh keeps the password
+- **WHEN** a token refresh stores rotated tokens
+- **THEN** the stored username and password are unchanged
 
 ### Requirement: Periodic Token Refresh
 A background task SHALL refresh the token on `token_refresh_interval` (default 30m), jittered by up
@@ -183,3 +206,67 @@ log the reconnection and set the state to connected.
 #### Scenario: ping fails while backing off
 - **WHEN** the ping fails with `ErrRefreshBackoff`
 - **THEN** the reason is logged at debug level and the connection state becomes disconnected
+
+### Requirement: Re-login With Stored Password
+Easee ends a session 60 days after the password login, whatever refreshes happen in between. While
+a password is stored, the token exchange SHALL log in again with the stored username and password
+instead of refreshing when the refresh token expires within 25 hours or has expired, and SHALL do
+the same when Easee rejects a refresh as unauthorized. The new session SHALL be written through the
+same guarded write as a refresh, so a logout or login landing during the re-login wins. A login
+Easee rejects with 400, 401 or 403 SHALL forget the stored password, so the app ends the session
+as it did before and never repeats a rejected login. Any other failure SHALL keep the password.
+After either failure, while the refresh token is still valid the exchange
+SHALL refresh instead; once it has expired, a rejected login is reported as unauthorized and any
+other failure is left to the backoff. An exchange SHALL log in at most once.
+
+#### Scenario: session ends
+- **WHEN** a token is needed after the access and refresh tokens expired and a password is stored
+- **THEN** the adapter logs in with the stored username and password and stores the new tokens
+- **AND** no auth loss is reported
+
+#### Scenario: session about to end
+- **WHEN** the access token is due for refresh and the refresh token expires within 25 hours
+- **THEN** the adapter logs in with the stored password instead of refreshing
+
+#### Scenario: login fails before the session ends
+- **WHEN** that login fails while the refresh token is still valid
+- **THEN** the adapter refreshes instead
+
+#### Scenario: refresh rejected
+- **WHEN** Easee rejects a refresh as unauthorized and a password is stored
+- **THEN** the adapter logs in with the stored password
+
+#### Scenario: password rejected
+- **WHEN** the re-login is rejected with 400, 401 or 403
+- **THEN** the stored password is forgotten and no later token request logs in with it
+- **AND** once the session has ended the exchange is reported as unauthorized
+
+#### Scenario: transient failure
+- **WHEN** the re-login fails with a transport error or a 5xx
+- **THEN** the password is kept and a later token request logs in again
+
+#### Scenario: logout during the re-login
+- **WHEN** a logout or another login lands while the re-login is in flight
+- **THEN** the re-login's tokens are not stored
+
+### Requirement: Stored Password Encrypted
+The credential store SHALL write the username and password to the secrets file encrypted with
+AES-256-GCM under a key built into the adapter, and SHALL read back a plain-text value written by an
+earlier version. A value that does not decrypt SHALL read as empty without failing the load.
+
+#### Scenario: Secrets file holds no plain password
+- **WHEN** credentials with a username and password are saved
+- **THEN** the secrets file contains neither in plain text and loading it returns both unchanged
+
+#### Scenario: Plain-text password from an earlier version
+- **WHEN** the secrets file holds a username and password in plain text
+- **THEN** loading it returns both unchanged
+
+#### Scenario: Password that does not decrypt
+- **WHEN** the stored password cannot be decrypted
+- **THEN** loading keeps the tokens and reads the password as empty
+
+#### Scenario: Plain-text secrets sealed at startup
+- **WHEN** the adapter starts with a secrets file, or its backup, holding a plain-text username or password
+- **THEN** it rewrites the file encrypted and removes the backup that holds the plain text
+

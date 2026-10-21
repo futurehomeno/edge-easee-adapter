@@ -2,11 +2,14 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/backoff"
+	"github.com/futurehomeno/cliffhanger/httpclient"
+	"github.com/futurehomeno/cliffhanger/lifecycle"
 	"github.com/futurehomeno/cliffhanger/notification"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
@@ -20,6 +23,11 @@ const (
 	notificationEaseeStatusOffline = "easee_status_offline"
 
 	logoutAddress = "pt:j1/mt:cmd/rt:ad/rn:easee/ad:1"
+
+	// Easee ends a session 60 days after the password login and refreshing never moves that, so
+	// this close to the end the stored password starts a new session instead. Longer than the
+	// 24h access token, so the last refresh before the end always falls inside it.
+	reloginLead = 25 * time.Hour
 )
 
 // publisher narrows fimpgo.MqttTransport to what the auth-loss path calls, so a successful
@@ -37,6 +45,7 @@ type CredentialsStore interface {
 	Credentials() config.Credentials
 	SetCredentials(config.Credentials) error
 	RefreshCredentials(config.Credentials, string) error
+	ForgetPassword(username, password config.Secret) error
 	ClearCredentials() error
 }
 
@@ -61,6 +70,7 @@ func NewAuthenticator(
 	http HTTPClient,
 	creds CredentialsStore,
 	cfgSvc *config.Service,
+	lc *lifecycle.Lifecycle,
 	notify Notifier,
 	mqtt *fimpgo.MqttTransport,
 	serviceName fimptype.ServiceNameT,
@@ -82,7 +92,7 @@ func NewAuthenticator(
 			// Easee has historically returned transient 401s on a still-valid refresh token,
 			// so a rejection streak has to outlive the grace before concluding auth loss.
 			UnauthorizedGrace: cfgSvc.AuthenticatorMaxUnauthorized(),
-			OnAuthLoss:        authLossHandler(notify, mqtt, serviceName, creds.Credentials, logoutFallback),
+			OnAuthLoss:        authLossHandler(lc, notify, mqtt, serviceName, creds.Credentials, logoutFallback),
 		},
 	)
 
@@ -106,7 +116,10 @@ func (a *authenticator) Login(userName, password string) error {
 	// The store keeps the new credentials in memory when the write fails, so the session is
 	// usable until the next restart. Failing the login would mark the app not configured and
 	// skip the charger setup over a disk error the next successful save repairs.
-	if err = a.creds.SetCredentials(credentialsFromResponse(creds)); err != nil {
+	session := credentialsFromResponse(creds)
+	session.Username, session.Password = config.Secret(userName), config.Secret(password)
+
+	if err = a.creds.SetCredentials(session); err != nil {
 		log.Warnf("[auth] Store credentials err: %v", err)
 	}
 
@@ -136,10 +149,11 @@ func (a *authenticator) Logout() error {
 	return a.creds.ClearCredentials()
 }
 
-// authLossHandler notifies the user and asks the app to log out. It runs under the
-// authenticator lock, so it does its work on a goroutine and returns at once - the credentials
-// are already cleared, and everything it does from there is best-effort.
+// authLossHandler marks the auth state lost, notifies the user and asks the app to log out. It
+// runs under the authenticator lock, so it does its work on a goroutine and returns at once - the
+// credentials are already cleared, and everything it does from there is best-effort.
 func authLossHandler(
+	lc *lifecycle.Lifecycle,
 	notify Notifier,
 	mqtt publisher,
 	serviceName fimptype.ServiceNameT,
@@ -149,12 +163,19 @@ func authLossHandler(
 	return func(reason string) {
 		log.Infof("[auth] Trigger app logout: %s", reason)
 
-		// Snapshotted ahead of the publishes below, not next to the goroutine that reads it: the
-		// framework cleared the credentials immediately before this callback, and Login() writes to
-		// the store without taking the lock this callback holds, so a re-login can land while a
-		// publish blocks on a broker that is down. A snapshot taken after them would capture that
-		// fresh session and the fallback would mistake it for the one it is cleaning up.
+		// Snapshotted first, not next to the goroutine that reads it: the framework cleared the
+		// credentials immediately before this callback, and Login() writes to the store without
+		// taking the lock this callback holds, so a re-login can land while the lifecycle update
+		// waits on its lock or a publish blocks on a broker that is down. A snapshot taken after
+		// them would capture that fresh session and the fallback would mistake it for the one it
+		// is cleaning up.
 		before := credentials()
+
+		// cliffhanger emits the auth/logged_out telemetry only on AUTHENTICATED -> LOST; the
+		// logout below alone would skip LOST and go straight to NOT_AUTHENTICATED. Set here, not
+		// on the goroutine, so a re-login racing it can neither suppress the loss nor be marked
+		// lost itself; the lifecycle emit never blocks.
+		lc.SetConnAndAuthStateReason(lifecycle.ConnStateDisconnected, lifecycle.AuthStateLost, reason)
 
 		// Published off this callback: fimpgo gives paho a 15s write timeout and Publish blocks
 		// on the outbound queue up to that, so two publishes on a saturated or down broker could
@@ -223,25 +244,32 @@ type credentialsAdapter struct {
 	rotated config.Credentials
 }
 
-// accessTokenFor returns the access token issued alongside refreshToken. Easee rejects a pair
-// drawn from two sessions, so the token cannot simply be read off the store.
-func (c *credentialsAdapter) accessTokenFor(refreshToken string) string {
+// sessionFor returns the tokens issued alongside refreshToken. Easee rejects a pair drawn from
+// two sessions, so the access token cannot simply be read off the store.
+func (c *credentialsAdapter) sessionFor(refreshToken string) config.Credentials {
 	if c.rotated.RefreshToken == refreshToken {
-		return c.rotated.AccessToken
+		return c.rotated
 	}
 
-	return c.refreshing.AccessToken
+	return c.refreshing
 }
 
 func (c *credentialsAdapter) Credentials() auth.Credentials {
 	creds := c.store.Credentials()
 	c.refreshing = creds
 
+	// With a password stored the exchange can always start a new session, so the framework must
+	// not conclude auth loss from the refresh token's expiry on its own.
+	refreshExpiresAt := creds.RefreshTokenExpiresAt
+	if creds.Password != "" {
+		refreshExpiresAt = time.Time{}
+	}
+
 	return auth.Credentials{
 		AccessToken:      creds.AccessToken,
 		RefreshToken:     creds.RefreshToken,
 		ExpiresAt:        creds.AccessTokenExpiresAt,
-		RefreshExpiresAt: creds.RefreshTokenExpiresAt,
+		RefreshExpiresAt: refreshExpiresAt,
 	}
 }
 
@@ -289,16 +317,64 @@ type tokenExchanger struct {
 }
 
 func (e *tokenExchanger) ExchangeRefreshToken(refreshToken string) (*auth.OAuth2TokenResponse, error) {
-	credentials, err := e.http.RefreshToken(e.snapshot.accessTokenFor(refreshToken), refreshToken)
+	stored := e.snapshot.refreshing
+	session := e.snapshot.sessionFor(refreshToken)
+
+	var loginErr error
+	if stored.Password != "" && !session.RefreshTokenExpiresAt.IsZero() && time.Until(session.RefreshTokenExpiresAt) < reloginLead {
+		response, err := e.relogin(stored, "session ends")
+		if err == nil || time.Until(session.RefreshTokenExpiresAt) <= 0 {
+			return response, err
+		}
+
+		log.Warnf("[auth] Log in again err, refresh instead: %v", err)
+		loginErr = err
+	}
+
+	credentials, err := e.http.RefreshToken(session.AccessToken, refreshToken)
+	if errors.Is(err, httpclient.ErrUnauthorized) && stored.Password != "" {
+		if loginErr != nil {
+			return nil, loginErr
+		}
+
+		return e.relogin(stored, "refresh rejected")
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
+	return oauth2Response(credentials), nil
+}
+
+// relogin starts a new session with the stored password. Its result goes through the same
+// guarded write as a refresh, so a logout or login landing meanwhile wins. A password Easee
+// refuses is forgotten at once: Easee locks the account after repeated failed logins.
+func (e *tokenExchanger) relogin(stored config.Credentials, reason string) (*auth.OAuth2TokenResponse, error) {
+	log.Infof("[auth] Log in again with the stored password: %s", reason)
+
+	credentials, err := e.http.Login(string(stored.Username), string(stored.Password))
+	if errors.Is(err, ErrInvalidCredentials) {
+		if forgetErr := e.snapshot.store.ForgetPassword(stored.Username, stored.Password); forgetErr != nil {
+			log.Errorf("[auth] Forget the rejected password err: %v", forgetErr)
+		}
+
+		return nil, fmt.Errorf("stored password rejected: %w: %w", err, httpclient.ErrUnauthorized)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return oauth2Response(credentials), nil
+}
+
+func oauth2Response(credentials *model.Credentials) *auth.OAuth2TokenResponse {
 	return &auth.OAuth2TokenResponse{
 		AccessToken:  credentials.AccessToken,
 		ExpiresIn:    credentials.ExpiresIn,
 		RefreshToken: credentials.RefreshToken,
-	}, nil
+	}
 }
 
 func credentialsFromResponse(credentials *model.Credentials) config.Credentials {

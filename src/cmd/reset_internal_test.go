@@ -17,7 +17,7 @@ import (
 // cliffhanger v1.3.4 storage.Reset zeroes the model before reloading the defaults, so every
 // config field the packaged defaults do not carry is genuinely cleared - selected_devices,
 // auth_backoff, auth_max_unauthorized and config_version. The dropped version makes the next
-// boot re-run migrations 0->7, which must be harmless.
+// boot re-run migrations 0->8, which must be harmless.
 func TestUninstall_resetAndReMigrate(t *testing.T) {
 	t.Parallel()
 
@@ -35,7 +35,7 @@ func TestUninstall_resetAndReMigrate(t *testing.T) {
 	require.NoError(t, credentials.Load())
 
 	require.NoError(t, migrateConfig(cfgSvc, credentials))
-	require.Equal(t, 7, cfg.ConfigVersion)
+	require.Equal(t, 8, cfg.ConfigVersion)
 
 	require.NoError(t, cfgSvc.SetSelectedDevices([]string{"charger-1"}))
 	require.NoError(t, cfgSvc.SetAuthenticatorBackoff(time.Second, 2*time.Second, 3*time.Second, 1, 2, time.Hour))
@@ -66,7 +66,7 @@ func TestUninstall_resetAndReMigrate(t *testing.T) {
 	// has nothing to move.
 	require.NoError(t, migrateConfig(cfgSvc, credentials))
 
-	assert.Equal(t, 7, cfg.ConfigVersion)
+	assert.Equal(t, 8, cfg.ConfigVersion)
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "budzik", cfg.LogFormat)
 	assert.Equal(t, "1m", cfg.AuthBackoff.InitialBackoff)

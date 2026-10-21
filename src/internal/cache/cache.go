@@ -128,6 +128,17 @@ func store[T any](c *cache, dst *model.TimestampedValue[T], name string, v T, ti
 	return true
 }
 
+// ReportedState is the cached state, overridden to charging by a power reading not older than it.
+func ReportedState(c Cache) chargepoint.State {
+	state, stateAt := c.ChargerState()
+
+	if power, powerAt := c.TotalPower(); power > 0 && !powerAt.Before(stateAt) {
+		return chargepoint.StateCharging
+	}
+
+	return state
+}
+
 func (c *cache) PhaseMode() (int, time.Time) { return value(c, &c.phaseMode) }
 
 func (c *cache) OutputPhaseType() (types.PhaseMode, time.Time) { return value(c, &c.outputPhase) }

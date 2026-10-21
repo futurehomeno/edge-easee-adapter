@@ -1,0 +1,1 @@
+- [x] Topology older than a queued one keeps the props (test first)
