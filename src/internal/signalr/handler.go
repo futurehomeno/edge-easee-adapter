@@ -3,7 +3,6 @@ package signalr
 import (
 	"errors"
 	"math"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -561,7 +560,7 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
-	// From the props, as persistOutputPhase reads them: a queued topology republish has not written the cache yet.
+	// From the props: a queued topology republish has not written the cache yet.
 	gridType, _ := chargepointSrv.Specification().Props[chargepoint.PropertyGridType].(types.GridType)
 	outPhaseType := model.OutputPhaseType(val).ToFimpState(gridType)
 
@@ -579,8 +578,6 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	// again on every reconnect - is not a phase change and costs nothing to skip.
 	log.Infof("[%s] PhaseMode=%s", h.chargerID, outPhaseType)
 
-	// Props first: the hub matches the reported mode against the sup_phase_modes it currently
-	// holds, so a report naming a leg the old list does not advertise is discarded.
 	if err := h.persistOutputPhase(outPhaseType); err != nil {
 		return err
 	}
@@ -594,39 +591,11 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	return nil
 }
 
-// persistOutputPhase stores the phase the charger reported and re-advertises sup_phase_modes if
-// that changes the list - the hub otherwise keeps requesting a phase the charger cannot use.
+// persistOutputPhase stores the single leg the charger reported, so a restart reports it before
+// the next observation.
 func (h *observationsHandler) persistOutputPhase(outPhaseType types.PhaseMode) error {
-	if h.phaseStore == nil || outPhaseType.EffectivePhasesCnt() != 1 {
+	if h.phaseStore == nil || outPhaseType.EffectivePhasesCnt() != 1 || h.phaseStore.OutputPhase() == outPhaseType {
 		return nil
-	}
-
-	stored := h.phaseStore.OutputPhase()
-	if stored == outPhaseType {
-		return nil
-	}
-
-	service, err := getChargepointService(h.thing)
-	if err != nil {
-		return err
-	}
-
-	// Read from the props, not the cache: a topology republish still in the queue has already
-	// replaced the props but writes the cache only once its report lands.
-	props := service.Specification().Props
-	gridType, _ := props[chargepoint.PropertyGridType].(types.GridType)
-	phases, _ := props[chargepoint.PropertyPhases].(int)
-
-	before := model.AdvertisedPhaseModes(gridType, phases, stored)
-	after := model.AdvertisedPhaseModes(gridType, phases, outPhaseType)
-
-	// Persisted only after a successful republish, so a failed one is retried on the next
-	// observation. The republish is queued, so the write goes with it rather than happening here.
-	if !slices.Equal(before, after) {
-		return h.republishChargepointProps(
-			map[string]any{chargepoint.PropertySupportedPhaseModes: after},
-			func() error { return h.phaseStore.SetOutputPhase(outPhaseType) },
-		)
 	}
 
 	return h.phaseStore.SetOutputPhase(outPhaseType)
@@ -690,20 +659,14 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 
 	log.Debugf("[%s] supGridType=%v supPh=%v", h.chargerID, supportedGridType, supportedPhases)
 
-	outputPhase := types.PhaseMode("")
-	if h.phaseStore != nil {
-		outputPhase = h.phaseStore.OutputPhase()
-	}
-
 	// The cache write is deferred to onPublished, which runs only after the inclusion report has
 	// landed. Committing it up front made a dropped or failed republish permanent: the equality
 	// check above reads the cache, so every repeat observation short-circuited and nothing
-	// re-advertised the topology until the next restart. persistOutputPhase gates its own write
-	// the same way.
+	// re-advertised the topology until the next restart.
 	return h.republishChargepointProps(map[string]any{
 		chargepoint.PropertyGridType:            supportedGridType,
 		chargepoint.PropertyPhases:              supportedPhases,
-		chargepoint.PropertySupportedPhaseModes: model.AdvertisedPhaseModes(supportedGridType, supportedPhases, outputPhase),
+		chargepoint.PropertySupportedPhaseModes: model.SettablePhaseModes(supportedGridType, supportedPhases),
 	}, func() error {
 		h.cache.SetInstallationParameters(supportedGridType, supportedPhases, observation.Timestamp)
 
@@ -732,7 +695,7 @@ func (h *observationsHandler) republishChargepointProps(props map[string]any, on
 	// second call's props rather than its own. Snapshotting the value at enqueue time and
 	// restoring it here would close that window, but it re-introduces a second unsynchronised
 	// write racing the synchronous read the rest of the package relies on (see
-	// TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes) - not worth it for a
+	// TestObservationsHandler_OutputPhaseKeepsEveryLegAdvertised) - not worth it for a
 	// same-charger, back-to-back topology change this narrow.
 	service.Specification().Props = chargepointPropsUpdate(service, props)
 
@@ -740,10 +703,6 @@ func (h *observationsHandler) republishChargepointProps(props map[string]any, on
 	// the republish waits on MQTT, and the drain is the only drainer of the observation channel.
 	// Parking it there fills the observation buffer, and the session start/stop pair is
 	// edge-triggered, so a dropped one loses the session's record for good.
-	//
-	// onPublished runs only after the report lands, on the sender goroutine. persistOutputPhase
-	// relies on that: a phase written before a failed republish would never be retried, leaving
-	// the charger advertising a phase mode it cannot use until the next restart.
 	h.enqueue("inclusion", func() error {
 		if err := h.thing.Update(adapter.ThingUpdateRemoveService(service), adapter.ThingUpdateAddService(service)); err != nil {
 			return err
@@ -760,8 +719,8 @@ func (h *observationsHandler) republishChargepointProps(props map[string]any, on
 		return onPublished()
 	})
 
-	// A dropped report is retried: onPublished doesn't run, so persistOutputPhase's caller never
-	// marks the phase as persisted, and enqueue already logged the drop.
+	// A dropped report is retried: onPublished doesn't run, so the topology is not cached as
+	// published, and enqueue already logged the drop.
 	return nil
 }
 
