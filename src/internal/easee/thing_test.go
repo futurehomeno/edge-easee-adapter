@@ -205,11 +205,10 @@ func TestThingFactory_Create_RegistersPhaseModeSet(t *testing.T) {
 
 	spec := services[0].Specification()
 
-	// The charger sits in Easee's locked-3-phase mode, yet both modes stay advertised -
-	// otherwise switching back to a single phase would be impossible. Only one phase is offered:
-	// the charger cannot choose which phase it uses.
+	// The charger sits in Easee's locked-3-phase mode, yet every settable mode stays advertised -
+	// otherwise switching back to a single phase would be impossible.
 	assert.Equal(t,
-		[]string{"NL1", "NL1L2L3"},
+		[]string{"NL1", "NL2", "NL3", "NL1L2L3"},
 		spec.PropertyStrings(chargepoint.PropertySupportedPhaseModes),
 	)
 	assert.Contains(t, spec.Interfaces, fimptype.Interface{
@@ -272,10 +271,9 @@ func TestThingFactory_Create_AdvertisesDeduplicatedFimpStates(t *testing.T) {
 	)
 }
 
-// An Easee always uses the phase it is wired to, so once an OutputPhase observation has revealed
-// it, sup_phase_modes must offer that phase instead of NL1 - a hub asking for NL1 on a charger
-// wired to L3 never gets it and retries forever.
-func TestThingFactory_Create_AdvertisesPersistedOutputPhase(t *testing.T) {
+// The persisted leg is only the last one the charger picked: it picks per session, so every
+// settable leg stays advertised or a hub's request for another one is rejected.
+func TestThingFactory_Create_PersistedOutputPhaseKeepsEveryLeg(t *testing.T) {
 	clientMock := mockapi.NewClient(t)
 	clientMock.On("ChargerConfig", "test-charger").Return(&model.ChargerConfig{
 		DetectedPowerGridType: model.GridTypeTN3Phase,
@@ -296,7 +294,7 @@ func TestThingFactory_Create_AdvertisesPersistedOutputPhase(t *testing.T) {
 	require.Len(t, services, 1)
 
 	assert.Equal(t,
-		[]string{"NL3", "NL1L2L3"},
+		[]string{"NL1", "NL2", "NL3", "NL1L2L3"},
 		services[0].Specification().PropertyStrings(chargepoint.PropertySupportedPhaseModes),
 	)
 }

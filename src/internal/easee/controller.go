@@ -446,7 +446,7 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 	// read as auto - a single leg would let energy guard load the other two.
 	unset := state.PhaseMode == 0
 	if unset {
-		modes = model.AdvertisedPhaseModes(state.GridType, state.Phases, c.persistedPhase())
+		modes = model.SettablePhaseModes(state.GridType, state.Phases)
 	}
 
 	if len(modes) > 0 {
@@ -458,7 +458,7 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		}
 
 		// The cache is empty after a restart; the persisted phase keeps the report on the
-		// same phase the inclusion report advertises.
+		// leg the charger last used.
 		if persisted := c.persistedPhase(); slices.Contains(modes, persisted) {
 			return persisted, nil
 		}

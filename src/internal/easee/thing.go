@@ -187,7 +187,7 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 		options = append(options, chargepoint.WithGridType(gridType))
 	}
 
-	if phaseModes := model.AdvertisedPhaseModes(state.GridType, state.Phases, state.OutputPhase); len(phaseModes) > 0 {
+	if phaseModes := model.SettablePhaseModes(state.GridType, state.Phases); len(phaseModes) > 0 {
 		options = append(options, chargepoint.WithSupportedPhaseModes(phaseModes...))
 	}
 

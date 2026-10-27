@@ -187,56 +187,45 @@ func (s *fakePhaseStore) SetOutputPhase(mode types.PhaseMode) error {
 	return nil
 }
 
-// An Easee always uses the phase it is wired to, so the first OutputPhase observation must narrow
-// sup_phase_modes to that phase - a hub asking for any other one retries forever. A repeat
-// observation carries no news, so it must not republish the inclusion report.
-func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T) {
+// An Easee picks its leg per session (hub 8ee88ca8: T2T3 and T2T4 in turn on an IT grid), so a new
+// leg must not narrow sup_phase_modes: cliffhanger would reject the leg a hub requested a moment ago.
+func TestObservationsHandler_OutputPhaseKeepsEveryLegAdvertised(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
+	all := []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL2L3, types.PhaseModeL3L1, types.PhaseModeL1L2L3}
 
 	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true).Once()
-	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(false)
+	cacheMock.On("SetOutputPhaseType", types.PhaseModeL3L1, now).Return(true).Once()
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
-		chargepoint.PropertyGridType: types.GridTypeTN,
-		chargepoint.PropertyPhases:   3,
-		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{
-			types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL3, types.PhaseModeNL1L2L3,
-		},
+		chargepoint.PropertyGridType:            types.GridTypeIT,
+		chargepoint.PropertyPhases:              3,
+		chargepoint.PropertySupportedPhaseModes: all,
 	}})
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
 
 	thing := &phaseThing{srv: srv}
-	store := &fakePhaseStore{}
+	store := &fakePhaseStore{mode: types.PhaseModeL1L2}
 
 	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store)
 	require.NoError(t, err)
 
-	observation := model.Observation{
+	require.NoError(t, handler.HandleObservation(model.Observation{
 		ID:        model.OutputPhase,
 		ChargerID: testChargerID,
 		DataType:  model.ObservationDataTypeInteger,
 		Timestamp: now,
-		Value:     strconv.Itoa(int(model.P1T2T5TN)),
-	}
-
-	require.NoError(t, handler.HandleObservation(observation))
-
-	// The props assignment is synchronous; the report and the phase-store write that follows it
-	// run on the sender goroutine, so both need the queue flushed first.
-	assert.Equal(t, []types.PhaseMode{types.PhaseModeNL3, types.PhaseModeNL1L2L3},
-		srv.Specification().Props[chargepoint.PropertySupportedPhaseModes])
-
-	require.NoError(t, handler.HandleObservation(observation))
+		Value:     strconv.Itoa(int(model.P1T2T4IT)),
+	}))
 
 	flushReports(t, handler)
 
-	assert.Equal(t, types.PhaseModeNL3, store.mode)
-	assert.Equal(t, 1, thing.inclusionCount(), "an unchanged phase must not republish the inclusion report")
+	assert.Equal(t, all, srv.Specification().Props[chargepoint.PropertySupportedPhaseModes])
+	assert.Equal(t, types.PhaseModeL3L1, store.mode)
+	assert.Zero(t, thing.inclusionCount(), "a new leg must not republish the inclusion report")
 }
 
 // An Easee on an IT grid has been seen reporting the TN variant of its output phase; the grid it
@@ -275,53 +264,6 @@ func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
 	flushReports(t, handler)
 
 	assert.Equal(t, types.PhaseModeL1L2, store.mode)
-}
-
-// A republish that fails must not be recorded as done: the next observation has to retry it.
-func TestObservationsHandler_OutputPhaseRepublishRetriedAfterFailure(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now()
-
-	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true)
-
-	srv := mockedchargepoint.NewService(t)
-	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
-	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
-		chargepoint.PropertyGridType: types.GridTypeTN,
-		chargepoint.PropertyPhases:   3,
-	}})
-	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
-
-	thing := &phaseThing{srv: srv, fail: 1}
-	store := &fakePhaseStore{}
-
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store)
-	require.NoError(t, err)
-
-	observation := model.Observation{
-		ID:        model.OutputPhase,
-		ChargerID: testChargerID,
-		DataType:  model.ObservationDataTypeInteger,
-		Timestamp: now,
-		Value:     strconv.Itoa(int(model.P1T2T5TN)),
-	}
-
-	// The failure now surfaces on the sender goroutine rather than from HandleObservation, so
-	// the drain sees no error; what must still hold is that the phase is not persisted, which is
-	// what makes the next observation retry the republish.
-	require.NoError(t, handler.HandleObservation(observation))
-
-	waitFor(t, func() bool { return thing.inclusionCount() == 1 })
-	assert.Equal(t, types.PhaseModeUnknown, store.mode, "a failed republish must not be persisted")
-
-	require.NoError(t, handler.HandleObservation(observation))
-
-	flushReports(t, handler)
-
-	assert.Equal(t, types.PhaseModeNL3, store.mode)
-	assert.Equal(t, 2, thing.inclusionCount())
 }
 
 // The offline state report is the one report that must survive the offline gate. The handler
@@ -1129,8 +1071,7 @@ func TestObservationsHandler_CloseStopsTheEnergyGoroutineBeforeDrainingReports(t
 // #176: the topology was written to the cache before the inclusion report was enqueued, so a
 // republish the sender dropped or failed left the cache already holding the new grid type - and
 // the equality check turned every repeat observation away, leaving the hub advertising the old
-// topology until the next restart. persistOutputPhase gates its write on onPublished for the
-// same reason; the grid-type path passed nil.
+// topology until the next restart.
 func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
 	t.Parallel()
 
@@ -1417,12 +1358,12 @@ func TestObservationsHandler_OutputPhaseUsesPendingTopology(t *testing.T) {
 		Value:     strconv.Itoa(int(model.P1T2T4TN)),
 	}))
 
-	assert.Equal(t, model.AdvertisedPhaseModes(types.GridTypeTN, 3, types.PhaseModeNL2),
+	assert.Equal(t, model.SettablePhaseModes(types.GridTypeTN, 3),
 		srv.Specification().Props[chargepoint.PropertySupportedPhaseModes])
 
 	close(block)
 	flushReports(t, handler)
 
 	assert.Equal(t, types.PhaseModeNL2, store.mode)
-	assert.Equal(t, 2, thing.inclusionCount())
+	assert.Equal(t, 1, thing.inclusionCount(), "only the topology republishes")
 }
