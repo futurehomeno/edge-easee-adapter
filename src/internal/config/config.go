@@ -60,6 +60,8 @@ type Credentials struct {
 	RefreshToken          string    `json:"refreshToken"`
 	AccessTokenExpiresAt  time.Time `json:"expiresAt,omitzero"`
 	RefreshTokenExpiresAt time.Time `json:"refreshTokenExpiresAt,omitzero"`
+	Username              Secret    `json:"username,omitempty"`
+	Password              Secret    `json:"password,omitempty"`
 }
 
 func (c Credentials) Empty() bool {
@@ -166,6 +168,17 @@ func (c *Config) MigrateOfferedCurrentWaitTime() error {
 func (c *Config) MigrateSignalRFinalBackoff() error {
 	if c.SignalR.FinalBackoff == "2m" {
 		c.SignalR.FinalBackoff = "10m"
+	}
+
+	return nil
+}
+
+// MigrateTelemetryOn enables the disabled block older versions seeded; telemetry.New starts its
+// window. A block the cloud disabled also has a zero EnabledAt and is enabled too, until the
+// cloud's next config poll.
+func (c *Config) MigrateTelemetryOn() error {
+	if c.Telemetry != nil && !c.Telemetry.Enabled && c.Telemetry.EnabledAt.IsZero() {
+		c.Telemetry.Enabled = true
 	}
 
 	return nil

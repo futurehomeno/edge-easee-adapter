@@ -1,0 +1,1 @@
+- [x] Topology older than an unchanged newer one keeps the props (test first)

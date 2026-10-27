@@ -4,9 +4,7 @@
 Maintain a single SignalR connection to the Easee cloud, keep every managed charger subscribed to it,
 and dispatch the resulting observations into the per-charger cache and FIMP reports. This is the only
 source of live charger telemetry; the HTTP API is used for commands and static configuration.
-
 ## Requirements
-
 ### Requirement: Single Shared Connection
 One SignalR client SHALL serve every charger on the hub. The manager SHALL start the client when the
 first charger registers and SHALL close it when the last charger unregisters. Starting an
@@ -239,3 +237,87 @@ handler error can surface from off the dispatch loop.
 #### Scenario: mismatched data type on lifetime energy
 - **WHEN** a lifetime-energy observation declares a data type that is not double
 - **THEN** the background goroutine logs a warning and skips it, and no handler error surfaces
+
+### Requirement: Observation Buffer Holds A Reconnect Replay
+The SignalR receiver SHALL drop an observation whose ID is not in `SupportedObservationIDs` before it
+enters the dispatch buffer. The buffer SHALL hold 500 observations. Easee replays each charger's
+full snapshot on every (re)connect, mostly unsupported IDs, while the run loop may be busy with
+synced session writes. The edge-triggered session start/stop replay must not be dropped for lack of
+a slot.
+
+#### Scenario: unsupported observation
+- **WHEN** an observation with an unsupported ID arrives
+- **THEN** it takes no buffer slot and is dropped without a log line
+
+#### Scenario: replay while the run loop is stalled
+- **WHEN** a 20-charger account reconnects and every charger replays all its supported observations before the run loop drains any
+- **THEN** none of them is dropped
+
+### Requirement: On-Demand State Re-sync
+The manager SHALL accept a state re-sync request for a registered charger and, when the client is connected and the charger is subscribed, invoke `SubscribeWithCurrentState(id, true)` again, bypassing the already-subscribed skip, so Easee replays the charger's current observations. The replay SHALL go through the normal observation dispatch. A request for a charger that is not subscribed, or while the client is not connected, SHALL invoke nothing, because the reconnect sweep or the pending subscription already brings a snapshot. The invoke SHALL follow the same rules as a subscribe: off the manager lock, bounded by the invoke timeout, and discarded if the charger is unregistered or the connection is replaced meanwhile. A failed re-sync SHALL be logged, SHALL NOT mark the charger unsubscribed, and SHALL be retried with the subscribe backoff.
+
+#### Scenario: subscribed charger
+- **WHEN** a re-sync is requested for a subscribed charger on a connected client
+- **THEN** `SubscribeWithCurrentState` is invoked for it and its replayed observations are dispatched
+
+#### Scenario: charger not subscribed
+- **WHEN** a re-sync is requested for a charger that is not subscribed
+- **THEN** nothing is invoked
+
+#### Scenario: client disconnected
+- **WHEN** a re-sync is requested while the client is not connected
+- **THEN** nothing is invoked
+
+#### Scenario: re-sync fails
+- **WHEN** the re-sync invoke fails or times out
+- **THEN** the failure is logged, the charger stays subscribed and the re-sync is retried
+
+### Requirement: Every Report Leaves The Observation Drain
+Every report published in response to an observation SHALL be handed to the handler's report queue,
+alarm reports and inclusion reports included. The observation drain is the only drainer of the
+observation channel, and every report takes a service lock a chargepoint command may hold for up to
+`currentWaitDuration`; publishing inline parks the drain behind that command. A parked drain fills
+the observation buffer, `ProductUpdate` then drops observations, and the session start/stop pair is
+edge-triggered and never replayed - so a dropped one loses the session's DB and FIMP record.
+
+#### Scenario: an alarm report while the drain is busy
+- **WHEN** an error-code observation raises an alarm and the service lock is held
+- **THEN** the report is queued and the observation drain continues
+
+#### Scenario: an inclusion report while the drain is busy
+- **WHEN** a detected-power-grid-type observation republishes the chargepoint props
+- **THEN** the thing update and inclusion report are queued and the observation drain continues
+
+### Requirement: Close Stops Every Publisher
+Closing an observations handler SHALL stop every goroutine that can publish on its thing and SHALL
+wait for each to finish, the lifetime-energy goroutine included. `Unregister` closes the handler, so
+after `cmd.thing.delete` a goroutine left running would publish a meter report on a thing that has
+been torn down. Close SHALL remain safe to call more than once and safe against an observation being
+dispatched concurrently.
+
+#### Scenario: close with the energy goroutine running
+- **WHEN** a lifetime-energy observation has started the energy goroutine and the handler is closed
+- **THEN** the goroutine stops without publishing, and Close returns only once it has finished
+
+#### Scenario: close before any lifetime energy arrives
+- **WHEN** the handler is closed and no lifetime-energy observation ever started the goroutine
+- **THEN** Close returns normally
+
+#### Scenario: close twice
+- **WHEN** Close is called a second time
+- **THEN** it returns without panicking
+
+### Requirement: SignalR Waits For Login Without Warning
+While no Easee session exists, the SignalR client SHALL treat a failed start as waiting for login:
+it SHALL log that once at info per streak (debug afterwards), never as a warning, and SHALL start a
+connection attempt as soon as `Start()` is called again (the login path), without waiting out its
+backoff.
+
+#### Scenario: chargers registered while logged out
+- **WHEN** the client is started and the token provider reports "not logged in" on every attempt
+- **THEN** no warning is logged and the waiting state is logged at info only once
+
+#### Scenario: login while the client waits
+- **WHEN** the user logs in and the login path calls `Start()` on the waiting client
+- **THEN** the client asks for a token again immediately, not after its backoff
+

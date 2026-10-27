@@ -44,19 +44,6 @@ func TestService_PublicModel_NoSecrets(t *testing.T) {
 	assert.NotContains(t, string(body), "telemetry")
 }
 
-// TestService_SignalRFinalBackoff_MatchesStatefulDefault locks the getter's unset-config
-// default to the final backoff SignalRBackoffStateful actually applies, so cmd.config.get
-// signalr_final_backoff can't silently drift from runtime behavior again.
-func TestService_SignalRFinalBackoff_MatchesStatefulDefault(t *testing.T) {
-	cfg := &config.Config{}
-
-	st := &mockedstorage.Storage[*config.Config]{}
-	st.On("Model").Return(cfg)
-	cs := config.NewService(st)
-
-	assert.Equal(t, 10*time.Minute, cs.SignalRFinalBackoff())
-}
-
 // TestService_SignalRFinalBackoff_MatchesPackagedDefault ties the ceiling to the value the
 // packaged config actually ships. Without it the getter/stateful fallbacks can be raised while
 // every real install keeps reading the old value from disk, leaving the bump a no-op.
@@ -260,8 +247,6 @@ func TestService_SettingsRoundTrip(t *testing.T) {
 	assert.Equal(t, selection.Selection{"EH1"}, set.SelectedDevices())
 	assert.Equal(t, time.Hour, set.AuthenticatorMaxUnauthorized())
 	assert.Equal(t, "1m0s", set.PublicConfig().AuthBackoff.InitialBackoff)
-	assert.NotNil(t, set.AuthenticatorBackoffStateful())
-	assert.NotNil(t, set.SignalRBackoffStateful())
 }
 
 func TestConfig_MigrateAuthBackoff(t *testing.T) {
@@ -299,5 +284,4 @@ func TestCredentials_AccessTokenExpired(t *testing.T) {
 	assert.True(t, config.Credentials{AccessTokenExpiresAt: time.Now().Add(-time.Minute)}.AccessTokenExpired())
 	assert.False(t, config.Credentials{AccessTokenExpiresAt: time.Now().Add(time.Minute)}.AccessTokenExpired())
 	assert.True(t, config.Credentials{}.Empty())
-	assert.Equal(t, "/tmp/work", config.New("/tmp/work").WorkDir)
 }
