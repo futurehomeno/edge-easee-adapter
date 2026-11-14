@@ -346,6 +346,46 @@ func TestController_SetChargepointOfferedCurrent(t *testing.T) {
 	}
 }
 
+// Energy Guard repeats its target current on every balancing tick, so a charger whose max sits
+// below it logged the clamp hundreds of times an hour.
+func TestController_SetChargepointOfferedCurrent_WarnsClampOnChange(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	limit := 13
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(func() int { return limit }, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.Anything).Return(true).Maybe()
+	cacheMock.On("WaitForOfferedCurrent", mock.Anything, mock.Anything).Return(true).Maybe()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil).Maybe()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	for _, req := range []struct{ current, limit int }{{20, 13}, {20, 13}, {22, 13}, {22, 16}, {10, 16}, {22, 16}, {22, 16}} {
+		limit = req.limit
+		require.NoError(t, ctrl.SetChargepointOfferedCurrent(req.current))
+	}
+
+	var warned []string
+
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "Clamp offered current") {
+			warned = append(warned, entry.Message)
+		}
+	}
+
+	assert.Equal(t, []string{
+		"[test-charger] Clamp offered current 20A to max 13A",
+		"[test-charger] Clamp offered current 22A to max 13A",
+		"[test-charger] Clamp offered current 22A to max 16A",
+		"[test-charger] Clamp offered current 22A to max 16A",
+	}, warned)
+}
+
 func TestController_StartChargepointCharging(t *testing.T) {
 	t.Parallel()
 

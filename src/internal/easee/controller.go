@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
@@ -80,6 +81,7 @@ type controller struct {
 	chargerID      string
 	sessionStorage db.ChargingSessionStorage
 	persistedPhase func() types.PhaseMode
+	clamp          atomic.Value
 
 	// Easee ignores a dynamic-current write that reaches the charger within ~20s of the
 	// previous one, or of a stop, although the cloud accepts it. Every such write goes through
@@ -266,13 +268,17 @@ func (c *controller) clampToMax(current int) int {
 		limit = maxCurrentValue
 	}
 
-	if current > limit {
-		log.Warnf("[%s] Clamp offered current %dA to max %dA", c.chargerID, current, limit)
+	if current <= limit {
+		c.clamp.Store([2]int{})
 
-		return limit
+		return current
 	}
 
-	return current
+	if clamp := [2]int{current, limit}; c.clamp.Swap(clamp) != clamp {
+		log.Warnf("[%s] Clamp offered current %dA to max %dA", c.chargerID, current, limit)
+	}
+
+	return limit
 }
 
 // send releases the inFlight slot its caller took under pace.
