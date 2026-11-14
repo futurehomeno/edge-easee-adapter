@@ -1,0 +1,4 @@
+- [x] An unauthorized re-subscribe of a subscribed charger restarts the client once per connection (test first)
+- [x] An unauthorized subscribe on the reconnected connection does not restart again (test first)
+- [x] An unauthorized first subscribe after connect does not restart (test first)
+- [x] Another subscribe error does not restart (test first)

@@ -1025,8 +1025,8 @@ func TestUnregister_KeepsTheClientUpForARegisterLandingBeforeClose(t *testing.T)
 // gapClient parks inside Close so a test can land a Register in Unregister's decide-then-close
 // gap, and tracks running the way the real client does.
 // The raced Register can itself be gone by the time Close returns: Unregister(A) parks in
-// Close, Register(B) bumps the epoch, Unregister(B) removes the last charger and parks in its
-// own Close. A restart on the epoch alone would then leave the client up for nobody.
+// Close, Register(B) lands, Unregister(B) removes the last charger and parks in its own Close.
+// A restart for that Register alone would then leave the client up for nobody.
 func TestUnregister_DoesNotRestartWhenTheRacedChargerIsGoneToo(t *testing.T) {
 	client := &orderedGapClient{entered: make(chan struct{}), releases: []chan struct{}{make(chan struct{}), make(chan struct{})}}
 
@@ -1368,4 +1368,78 @@ func TestDisconnectReportsConnectivityDown(t *testing.T) {
 	m.handleClientState(model.ClientStateDisconnected)
 
 	assert.Equal(t, []bool{false}, *reports)
+}
+
+var errUnauthorized = errors.New("invoking 'SubscribeWithCurrentState' on the server. HubException: Unauthorized for " + chargerID)
+
+// scriptedSubscribeClient fails its subscribes with errs in call order, then succeeds.
+type scriptedSubscribeClient struct {
+	failingSubscribeClient
+
+	errs                  []error
+	calls, closes, starts atomic.Int32
+}
+
+func (c *scriptedSubscribeClient) SubscribeCharger(string) error {
+	if n := int(c.calls.Add(1)) - 1; n < len(c.errs) {
+		return c.errs[n]
+	}
+
+	return nil
+}
+
+func (c *scriptedSubscribeClient) Close() error {
+	c.closes.Add(1)
+
+	return nil
+}
+
+func (c *scriptedSubscribeClient) Start() { c.starts.Add(1) }
+
+func resubscribe(t *testing.T, m *manager) {
+	t.Helper()
+
+	m.chargers[chargerID].isSubscribed = true
+	m.chargers[chargerID].resync = true
+	require.NoError(t, m.handleSubscription(chargerID))
+}
+
+func TestUnauthorizedResubscribe_RestartsTheClientOncePerConnection(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	resubscribe(t, m)
+	resubscribe(t, m)
+
+	assert.Equal(t, int32(1), client.closes.Load())
+	assert.Equal(t, int32(1), client.starts.Load())
+}
+
+func TestUnauthorizedResubscribe_DoesNotRestartAgainWhenTheNewConnectionRefusesToo(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	resubscribe(t, m)
+	m.handleClientState(model.ClientStateConnected)
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, int32(1), client.closes.Load())
+}
+
+func TestUnauthorizedFirstSubscribe_DoesNotRestartTheClient(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Zero(t, client.closes.Load())
+}
+
+func TestResubscribeFailingWithAnotherError_DoesNotRestartTheClient(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errors.New("timeout")}}
+	m := newTestManagerWithClient(t, client)
+
+	resubscribe(t, m)
+
+	assert.Zero(t, client.closes.Load())
 }
