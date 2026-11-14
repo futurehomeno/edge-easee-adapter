@@ -116,6 +116,11 @@ var phaseModeMatrix = map[types.GridType]map[int]map[int][]types.PhaseMode{
 			1: []types.PhaseMode{types.PhaseModeNL1},
 			2: []types.PhaseMode{types.PhaseModeNL1},
 		},
+		2: {
+			1: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2},
+			2: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL1L2},
+			3: []types.PhaseMode{types.PhaseModeNL1L2},
+		},
 		3: {
 			1: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL3},
 			2: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL3, types.PhaseModeNL1L2L3},
