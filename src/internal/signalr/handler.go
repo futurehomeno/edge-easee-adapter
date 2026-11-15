@@ -522,12 +522,11 @@ func (h *observationsHandler) handleEnergySession(observation model.Observation)
 
 var phaseCurrents = [...]struct {
 	set   func(cache.Cache, float64, time.Time) bool
-	label string
 	value numericmeter.Value
 }{
-	{cache.Cache.SetPhase1Current, "i1", numericmeter.ValueCurrentPhase1},
-	{cache.Cache.SetPhase2Current, "i2", numericmeter.ValueCurrentPhase2},
-	{cache.Cache.SetPhase3Current, "i3", numericmeter.ValueCurrentPhase3},
+	{cache.Cache.SetPhase1Current, numericmeter.ValueCurrentPhase1},
+	{cache.Cache.SetPhase2Current, numericmeter.ValueCurrentPhase2},
+	{cache.Cache.SetPhase3Current, numericmeter.ValueCurrentPhase3},
 }
 
 func (h *observationsHandler) handlePhaseCurrent(observation model.Observation) error {
@@ -554,14 +553,14 @@ func (h *observationsHandler) handlePhaseCurrent(observation model.Observation) 
 		return nil
 	}
 
-	log.Debugf("[%s] %s=%.1f", h.chargerID, phase.label, val)
+	log.Debugf("[%s] %s=%.1f", h.chargerID, phase.value, val)
 
 	meterElecSrv, err := getMeterElecService(h.thing)
 	if err != nil {
 		return err
 	}
 
-	h.enqueue(phase.label, func() error {
+	h.enqueue(string(phase.value), func() error {
 		_, err := meterElecSrv.SendMeterExtendedReport(numericmeter.Values{phase.value}, false)
 
 		return err
