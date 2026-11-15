@@ -108,9 +108,10 @@ func NewObservationsHandler(
 		model.TotalPower:            handler.handleTotalPower,
 		model.LifetimeEnergy:        handler.energyHandler.handle,
 		model.EnergySession:         handler.handleEnergySession,
-		model.InCurrentT3:           handler.handlePhaseCurrent(cache.SetPhase1Current, "i1", numericmeter.ValueCurrentPhase1),
-		model.InCurrentT4:           handler.handlePhaseCurrent(cache.SetPhase2Current, "i2", numericmeter.ValueCurrentPhase2),
-		model.InCurrentT5:           handler.handlePhaseCurrent(cache.SetPhase3Current, "i3", numericmeter.ValueCurrentPhase3),
+		model.InCurrentT2:           handler.handlePhaseCurrent,
+		model.InCurrentT3:           handler.handlePhaseCurrent,
+		model.InCurrentT4:           handler.handlePhaseCurrent,
+		model.InCurrentT5:           handler.handlePhaseCurrent,
 		model.CloudConnected:        handler.handleCloudConnected,
 		model.CableLocked:           handler.handleCableLocked,
 		model.CableRating:           handler.handleCableRating,
@@ -519,34 +520,54 @@ func (h *observationsHandler) handleEnergySession(observation model.Observation)
 	return nil
 }
 
-func (h *observationsHandler) handlePhaseCurrent(
-	set func(float64, time.Time) bool, label string, value numericmeter.Value,
-) func(model.Observation) error {
-	return func(observation model.Observation) error {
-		val, err := observation.Float64Value()
-		if err != nil {
-			return err
-		}
+var phaseCurrents = [...]struct {
+	set   func(cache.Cache, float64, time.Time) bool
+	label string
+	value numericmeter.Value
+}{
+	{cache.Cache.SetPhase1Current, "i1", numericmeter.ValueCurrentPhase1},
+	{cache.Cache.SetPhase2Current, "i2", numericmeter.ValueCurrentPhase2},
+	{cache.Cache.SetPhase3Current, "i3", numericmeter.ValueCurrentPhase3},
+}
 
-		if !set(val, observation.Timestamp) {
-			return nil
-		}
+func (h *observationsHandler) handlePhaseCurrent(observation model.Observation) error {
+	val, err := observation.Float64Value()
+	if err != nil {
+		return err
+	}
 
-		log.Debugf("[%s] %s=%.1f", h.chargerID, label, val)
+	chargepointSrv, err := getChargepointService(h.thing)
+	if err != nil {
+		return err
+	}
 
-		meterElecSrv, err := getMeterElecService(h.thing)
-		if err != nil {
-			return err
-		}
+	// From the props: a queued topology republish has not written the cache yet.
+	gridType, _ := chargepointSrv.Specification().Props[chargepoint.PropertyGridType].(types.GridType)
 
-		h.enqueue(label, func() error {
-			_, err := meterElecSrv.SendMeterExtendedReport(numericmeter.Values{value}, false)
-
-			return err
-		})
-
+	line := observation.ID.Line(gridType)
+	if line == 0 {
 		return nil
 	}
+
+	phase := phaseCurrents[line-1]
+	if !phase.set(h.cache, val, observation.Timestamp) {
+		return nil
+	}
+
+	log.Debugf("[%s] %s=%.1f", h.chargerID, phase.label, val)
+
+	meterElecSrv, err := getMeterElecService(h.thing)
+	if err != nil {
+		return err
+	}
+
+	h.enqueue(phase.label, func() error {
+		_, err := meterElecSrv.SendMeterExtendedReport(numericmeter.Values{phase.value}, false)
+
+		return err
+	})
+
+	return nil
 }
 
 func (h *observationsHandler) handleOutPhase(observation model.Observation) error {
