@@ -1033,7 +1033,9 @@ func TestObservationsHandler_PhaseCurrentsFollowTheGridType(t *testing.T) {
 
 			meter := mockednumericmeter.NewService(t)
 			meter.On("Name").Return(numericmeter.MeterElec).Maybe()
-			meter.On("SendMeterExtendedReport", mock.Anything, false).Return(true, nil).Times(3)
+			for _, v := range []numericmeter.Value{numericmeter.ValueCurrentPhase1, numericmeter.ValueCurrentPhase2, numericmeter.ValueCurrentPhase3} {
+				meter.On("SendMeterExtendedReport", numericmeter.Values{v}, false).Return(true, nil).Once()
+			}
 
 			handler, err := signalr.NewObservationsHandler(
 				&meterThing{cp: cp, meter: meter}, phases, nil, nil, testChargerID, nil)

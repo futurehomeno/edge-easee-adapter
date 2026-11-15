@@ -34,5 +34,8 @@
   the props can only come from stored state.
 - A terminal outside the grid's lines returns no error: on TN, T2 is the neutral current Easee
   streams with the others, and an error is logged as a warning per observation.
-- When the grid type changes, each phase keeps its cached value until its new terminal reports;
-  no reset is needed, Easee streams the currents as events and replays them on every reconnect.
+- When the grid type changes, each phase keeps its cached value until its new terminal reports a
+  reading newer than the cached one; the cache's timestamp guard does not know the terminal, so an
+  older replayed reading is dropped. No reset: the thing is created with the grid type from the
+  charger config, so a change while currents flow needs a failed config fetch with no stored state
+  or a rewired charger, and the next reading while charging corrects it.
