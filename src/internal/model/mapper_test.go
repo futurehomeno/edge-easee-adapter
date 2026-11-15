@@ -31,6 +31,12 @@ func TestSettablePhaseModes(t *testing.T) {
 			want:     []types.PhaseMode{types.PhaseModeNL1},
 		},
 		{
+			name:     "TN 2-phase offers both wired legs and the two-phase mode",
+			gridType: types.GridTypeTN,
+			phases:   2,
+			want:     []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL1L2},
+		},
+		{
 			name:     "IT 3-phase",
 			gridType: types.GridTypeIT,
 			phases:   3,
@@ -50,7 +56,7 @@ func TestSettablePhaseModes(t *testing.T) {
 		{
 			name:     "unsupported phase count",
 			gridType: types.GridTypeTN,
-			phases:   2,
+			phases:   4,
 		},
 	}
 
@@ -115,6 +121,20 @@ func TestToEaseePhaseMode(t *testing.T) {
 			phases:   1,
 			mode:     types.PhaseModeNL1,
 			want:     1,
+		},
+		{
+			name:     "TN 2-phase, the reported NL2 locks to a single phase",
+			gridType: types.GridTypeTN,
+			phases:   2,
+			mode:     types.PhaseModeNL2,
+			want:     1,
+		},
+		{
+			name:     "TN 2-phase, NL1L2 maps to auto",
+			gridType: types.GridTypeTN,
+			phases:   2,
+			mode:     types.PhaseModeNL1L2,
+			want:     2,
 		},
 		{
 			name:     "TN 1-phase cannot go three phase",
