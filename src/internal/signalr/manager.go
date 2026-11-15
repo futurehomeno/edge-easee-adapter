@@ -224,11 +224,12 @@ func (m *manager) Unregister(chargerID string) error {
 func (m *manager) restartClient() error {
 	err := m.client.Close()
 
+	// Started under the lock: released first, the last Unregister could close the client in
+	// between and this Start would bring it back up for nobody.
 	m.mu.RLock()
-	remaining := len(m.chargers) > 0
-	m.mu.RUnlock()
+	defer m.mu.RUnlock()
 
-	if remaining {
+	if len(m.chargers) > 0 {
 		m.client.Start()
 	}
 
@@ -464,7 +465,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 		// One retry chain per charger. Every reconnect enqueues a subscription for every
 		// charger, so without this a charger that keeps failing accumulated one more
 		// self-perpetuating chain - and one more blocking invoke per cycle - per reconnect.
-		if !charger.retryArmed {
+		if !restart && !charger.retryArmed {
 			charger.retryArmed = true
 
 			go m.addChargerSubscription(chargerID, charger)

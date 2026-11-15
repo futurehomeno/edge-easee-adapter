@@ -37,8 +37,9 @@ itself is narrower and fixes the observed symptom whatever invalidated the token
 - At most one restart per connection: `reconnecting` is set when the restart is decided and cleared
   only by the next connect.
 - Only the `HubException: Unauthorized` error; timeouts and other errors keep the existing retry.
-- The refused re-sync keeps its normal retry; the reconnect sweep re-subscribes every charger with
-  `SubscribeWithCurrentState`, which replays the state the re-sync wanted.
+- The refused re-sync arms no retry: the reconnect sweep re-subscribes every charger with
+  `SubscribeWithCurrentState`, which replays the state the re-sync wanted, and a retry armed here
+  would outlive its connection.
 
 ## Unexplained variant
 A subscribe refused right after connect that succeeds on the same connection 1-2 minutes later is

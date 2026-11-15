@@ -1415,6 +1415,31 @@ func TestUnauthorizedResubscribe_RestartsTheClientOncePerConnection(t *testing.T
 	assert.Equal(t, int32(1), client.starts.Load())
 }
 
+func TestUnauthorizedResubscribe_RestartsAgainOnTheNextConnection(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, nil, errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	resubscribe(t, m)
+	m.handleClientState(model.ClientStateConnected)
+	require.NoError(t, m.handleSubscription(chargerID))
+	resubscribe(t, m)
+
+	assert.Equal(t, int32(2), client.closes.Load())
+}
+
+// The reconnect sweep re-subscribes every charger; a retry armed here would outlive its connection.
+func TestUnauthorizedResubscribe_LeavesTheRetryToTheReconnect(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	resubscribe(t, m)
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assert.False(t, m.chargers[chargerID].retryArmed)
+}
+
 func TestUnauthorizedResubscribe_DoesNotRestartAgainWhenTheNewConnectionRefusesToo(t *testing.T) {
 	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, errUnauthorized}}
 	m := newTestManagerWithClient(t, client)
