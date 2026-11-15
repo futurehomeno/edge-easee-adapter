@@ -80,7 +80,8 @@ type controller struct {
 	chargerID      string
 	sessionStorage db.ChargingSessionStorage
 	persistedPhase func() types.PhaseMode
-	clamp          [2]int
+	// Guarded by the chargepoint service lock, which every command that clamps holds.
+	clamp [2]int
 
 	// Easee ignores a dynamic-current write that reaches the charger within ~20s of the
 	// previous one, or of a stop, although the cloud accepts it. Every such write goes through
@@ -267,10 +268,12 @@ func (c *controller) clampToMax(current int, requested bool) int {
 		limit = maxCurrentValue
 	}
 
+	if !requested {
+		return min(current, limit)
+	}
+
 	if current <= limit {
-		if requested {
-			c.clamp = [2]int{}
-		}
+		c.clamp = [2]int{}
 
 		return current
 	}

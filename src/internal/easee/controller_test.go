@@ -356,7 +356,7 @@ func TestController_SetChargepointOfferedCurrent_WarnsClampOnChange(t *testing.T
 
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("MaxCurrent").Return(func() int { return limit }, time.Time{})
-	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
 	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("WaitForOfferedCurrent", mock.Anything, mock.Anything).Return(true).Maybe()
 
@@ -365,7 +365,8 @@ func TestController_SetChargepointOfferedCurrent_WarnsClampOnChange(t *testing.T
 
 	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
 
-	// A start resumes at the clamped current and must not reset the clamp; the unclamped 16A does.
+	// A start, here resuming at a cached 16A, must neither log nor reset the clamp; the unclamped
+	// 16A request does reset it.
 	for _, req := range []struct{ current, limit int }{{20, 13}, {20, 13}, {0, 13}, {20, 13}, {22, 13}, {22, 16}, {16, 16}, {22, 16}, {22, 16}} {
 		limit = req.limit
 

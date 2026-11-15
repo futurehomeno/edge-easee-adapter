@@ -6,14 +6,15 @@ channel. The requested value SHALL be clamped to the cached max current, or to 3
 current is cached, logging the clamp when the requested value or the limit differs from the
 charger's previous clamp, and not on a repeat: Energy Guard resends its target current on every
 balancing tick. A `cmd.current_session.set_current` that is not clamped SHALL reset this, so the
-next clamp is logged; a start or a phase-mode restart SHALL NOT. Unless forced, a value equal to the
-last requested value within `offered_current_wait_time` SHALL be skipped. When the write goes out
-immediately, the requested value SHALL be cached with the current hub time and the adapter SHALL
-wait up to `current_wait_duration` (default 3s) for the charger to echo it back over SignalR; a
-deferred write does both when it is sent. The wait SHALL resolve on either the value delivered by
-the notification or the value the cache holds when it wakes: notifications are dropped on a full
-listener buffer, so neither source alone sees every echo - a confirmation immediately superseded by
-a further observation is gone from the cache, while a delivered value can itself be the stale one.
+next clamp is logged; a start or a phase-mode restart SHALL clamp without logging and SHALL NOT
+reset it. Unless forced, a value equal to the last requested value within
+`offered_current_wait_time` SHALL be skipped. When the write goes out immediately, the requested
+value SHALL be cached with the current hub time and the adapter SHALL wait up to
+`current_wait_duration` (default 3s) for the charger to echo it back over SignalR; a deferred write
+does both when it is sent. The wait SHALL resolve on either the value delivered by the notification
+or the value the cache holds when it wakes: notifications are dropped on a full listener buffer, so
+neither source alone sees every echo - a confirmation immediately superseded by a further
+observation is gone from the cache, while a delivered value can itself be the stale one.
 
 #### Scenario: the echo is immediately superseded
 - **WHEN** the awaited current is observed and then at once replaced by a different value
@@ -40,8 +41,9 @@ a further observation is gone from the cache, while a delivered value can itself
 - **THEN** the clamp is logged once and every request is clamped to 13A
 
 #### Scenario: start between repeated clamps
-- **WHEN** 20A is requested at a 13A max, charging is started, and 20A is requested again
-- **THEN** the clamp is logged once
+- **WHEN** 20A is requested at a 13A max, charging is started at a cached 16A, and 20A is requested
+  again
+- **THEN** the start is clamped to 13A without a log line and the clamp is logged once
 
 #### Scenario: clamp changes
 - **WHEN** 20A is requested at a 13A max, then 22A at a 13A max, then 22A at a 16A max

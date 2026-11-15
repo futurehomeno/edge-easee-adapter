@@ -9,7 +9,7 @@
 ## What Changes
 - The clamp warning is logged once per charger for each new requested/limit pair; repeats stay
   silent, and a set-current that is not clamped resets it so the next clamp warns again. A start or
-  a phase-mode restart, which resend the already clamped current, do not reset it.
+  a phase-mode restart clamps without logging and does not reset it.
 - The current written to Easee is unchanged.
 
 ## Impact
