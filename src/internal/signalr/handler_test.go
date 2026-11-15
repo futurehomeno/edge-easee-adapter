@@ -1012,12 +1012,13 @@ func TestObservationsHandler_PhaseCurrentsFollowTheGridType(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		gridType types.GridType
+		ignored  model.ObservationID
 		want     [3]float64
 	}{
-		{"TN", types.GridTypeTN, [3]float64{3, 4, 5}},
-		{"unknown", "", [3]float64{3, 4, 5}},
-		{"IT", types.GridTypeIT, [3]float64{2, 3, 4}},
-		{"TT", types.GridTypeTT, [3]float64{2, 3, 4}},
+		{"TN", types.GridTypeTN, model.InCurrentT2, [3]float64{3, 4, 5}},
+		{"unknown", "", model.InCurrentT2, [3]float64{3, 4, 5}},
+		{"IT", types.GridTypeIT, model.InCurrentT5, [3]float64{2, 3, 4}},
+		{"TT", types.GridTypeTT, model.InCurrentT5, [3]float64{2, 3, 4}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -1042,10 +1043,15 @@ func TestObservationsHandler_PhaseCurrentsFollowTheGridType(t *testing.T) {
 			require.NoError(t, err)
 
 			for i, id := range []model.ObservationID{model.InCurrentT2, model.InCurrentT3, model.InCurrentT4, model.InCurrentT5} {
+				value := strconv.Itoa(i + 2)
+				if id == tc.ignored {
+					value = "x"
+				}
+
 				assert.True(t, id.Supported(), "the receiver drops %s", id.Str())
 				assert.NoError(t, handler.HandleObservation(model.Observation{
 					ID: id, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
-					Timestamp: now, Value: strconv.Itoa(i + 2),
+					Timestamp: now, Value: value,
 				}))
 			}
 

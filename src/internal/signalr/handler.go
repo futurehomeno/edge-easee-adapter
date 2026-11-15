@@ -531,11 +531,6 @@ var phaseCurrents = [...]struct {
 }
 
 func (h *observationsHandler) handlePhaseCurrent(observation model.Observation) error {
-	val, err := observation.Float64Value()
-	if err != nil {
-		return err
-	}
-
 	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err
@@ -547,6 +542,11 @@ func (h *observationsHandler) handlePhaseCurrent(observation model.Observation) 
 	line := observation.ID.Line(gridType)
 	if line == 0 {
 		return nil
+	}
+
+	val, err := observation.Float64Value()
+	if err != nil {
+		return err
 	}
 
 	phase := phaseCurrents[line-1]

@@ -17,7 +17,8 @@ meter report on a successful cache update.
 - **THEN** they are cached as the phase 1, 2 and 3 currents, each with its own extended report
 
 #### Scenario: terminal without a line
-- **WHEN** a TN charger reports in-current T2, or an IT or TT charger reports in-current T5
+- **WHEN** a TN charger reports in-current T2, or an IT or TT charger reports in-current T5, even
+  with a value that does not parse
 - **THEN** no phase current is written, no report is published and the handler returns no error
 
 #### Scenario: grid type unknown
