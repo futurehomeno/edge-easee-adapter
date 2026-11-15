@@ -1162,9 +1162,9 @@ func TestController_SetChargepointPhaseMode_StaleRequestDoesNotOutrankTheLiveLeg
 	assert.Equal(t, types.PhaseModeNL3, got)
 }
 
-// The store lags the cache whenever a props republish failed, so it can still name the previous
-// leg while the charger is charging on a new one. Substituting the stored leg there would report
-// one the charger is demonstrably not on, and the hub would learn it as the fixed phase.
+// The store lags the cache whenever its queued write failed or was dropped, so it can still name
+// the previous leg while the charger is charging on a new one. Substituting the stored leg there
+// would report one the charger is demonstrably not on, and the hub would learn it as the fixed phase.
 func TestController_SetChargepointPhaseMode_LiveLegOutranksTheStoredOne(t *testing.T) {
 	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(clock.Restore)
