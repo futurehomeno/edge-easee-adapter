@@ -346,6 +346,55 @@ func TestController_SetChargepointOfferedCurrent(t *testing.T) {
 	}
 }
 
+// Energy Guard repeats its target current on every balancing tick, so a charger whose max sits
+// below it logged the clamp on each one.
+func TestController_SetChargepointOfferedCurrent_WarnsClampOnChange(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	limit := 13
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(func() int { return limit }, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.Anything).Return(true).Maybe()
+	cacheMock.On("WaitForOfferedCurrent", mock.Anything, mock.Anything).Return(true).Maybe()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil).Maybe()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
+
+	// A start, here resuming at a cached 16A, must neither log nor reset the clamp; the unclamped
+	// 16A request does reset it.
+	for _, req := range []struct{ current, limit int }{{20, 13}, {20, 13}, {0, 13}, {20, 13}, {22, 13}, {22, 16}, {16, 16}, {22, 16}, {22, 16}} {
+		limit = req.limit
+
+		if req.current == 0 {
+			require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+
+			continue
+		}
+
+		require.NoError(t, ctrl.SetChargepointOfferedCurrent(req.current))
+	}
+
+	var warned []string
+
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "Clamp offered current") {
+			warned = append(warned, entry.Message)
+		}
+	}
+
+	assert.Equal(t, []string{
+		"[test-charger] Clamp offered current 20A to max 13A",
+		"[test-charger] Clamp offered current 22A to max 13A",
+		"[test-charger] Clamp offered current 22A to max 16A",
+		"[test-charger] Clamp offered current 22A to max 16A",
+	}, warned)
+}
+
 func TestController_StartChargepointCharging(t *testing.T) {
 	t.Parallel()
 
@@ -1162,9 +1211,9 @@ func TestController_SetChargepointPhaseMode_StaleRequestDoesNotOutrankTheLiveLeg
 	assert.Equal(t, types.PhaseModeNL3, got)
 }
 
-// The store lags the cache whenever a props republish failed, so it can still name the previous
-// leg while the charger is charging on a new one. Substituting the stored leg there would report
-// one the charger is demonstrably not on, and the hub would learn it as the fixed phase.
+// The store lags the cache whenever its queued write failed or was dropped, so it can still name
+// the previous leg while the charger is charging on a new one. Substituting the stored leg there
+// would report one the charger is demonstrably not on, and the hub would learn it as the fixed phase.
 func TestController_SetChargepointPhaseMode_LiveLegOutranksTheStoredOne(t *testing.T) {
 	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(clock.Restore)

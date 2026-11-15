@@ -1,0 +1,2 @@
+- [x] Repeated identical clamps warn once; a changed request or limit, or a clamp after an unclamped request, warns again (test first)
+- [x] `clampToMax` remembers the last clamp per charger

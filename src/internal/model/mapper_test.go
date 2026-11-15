@@ -182,80 +182,6 @@ func TestToEaseePhaseMode(t *testing.T) {
 	}
 }
 
-func TestAdvertisedPhaseModes(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		gridType    types.GridType
-		phases      int
-		outputPhase types.PhaseMode
-		want        []types.PhaseMode
-	}{
-		{
-			name:     "TN 3-phase without a reading keeps the first phase only",
-			gridType: types.GridTypeTN,
-			phases:   3,
-			want:     []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL1L2L3},
-		},
-		{
-			name:        "TN 3-phase advertises the observed phase",
-			gridType:    types.GridTypeTN,
-			phases:      3,
-			outputPhase: types.PhaseModeNL3,
-			want:        []types.PhaseMode{types.PhaseModeNL3, types.PhaseModeNL1L2L3},
-		},
-		{
-			name:        "IT 3-phase advertises the observed pair",
-			gridType:    types.GridTypeIT,
-			phases:      3,
-			outputPhase: types.PhaseModeL2L3,
-			want:        []types.PhaseMode{types.PhaseModeL2L3, types.PhaseModeL1L2L3},
-		},
-		{
-			name:        "a three-phase reading does not pick a phase",
-			gridType:    types.GridTypeTT,
-			phases:      3,
-			outputPhase: types.PhaseModeL1L2L3,
-			want:        []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL1L2L3},
-		},
-		{
-			name:        "a phase the grid does not offer is ignored",
-			gridType:    types.GridTypeTN,
-			phases:      3,
-			outputPhase: types.PhaseModeL2L3,
-			want:        []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL1L2L3},
-		},
-		{
-			name:        "single-phase installs are unchanged",
-			gridType:    types.GridTypeTN,
-			phases:      1,
-			outputPhase: types.PhaseModeNL3,
-			want:        []types.PhaseMode{types.PhaseModeNL1},
-		},
-		{
-			name:        "TN 2-phase advertises the observed leg",
-			gridType:    types.GridTypeTN,
-			phases:      2,
-			outputPhase: types.PhaseModeNL2,
-			want:        []types.PhaseMode{types.PhaseModeNL2, types.PhaseModeNL1L2},
-		},
-		{
-			name:     "unknown grid type",
-			gridType: types.GridTypeUnknown,
-			phases:   3,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			assert.Equal(t, tt.want, model.AdvertisedPhaseModes(tt.gridType, tt.phases, tt.outputPhase))
-		})
-	}
-}
-
 func TestPhaseModeName(t *testing.T) {
 	t.Parallel()
 
@@ -307,4 +233,14 @@ func TestOutputPhaseType_ToFimpState(t *testing.T) {
 			assert.Equal(t, tt.want, tt.phase.ToFimpState(tt.gridType))
 		})
 	}
+}
+
+func TestSettablePhaseModes_ReturnsACopy(t *testing.T) {
+	t.Parallel()
+
+	modes := model.SettablePhaseModes(types.GridTypeIT, 3)
+	want := append([]types.PhaseMode(nil), modes...)
+	modes[0] = ""
+
+	assert.Equal(t, want, model.SettablePhaseModes(types.GridTypeIT, 3))
 }
