@@ -176,15 +176,71 @@ func waitFor(t *testing.T, cond func() bool) {
 }
 
 type fakePhaseStore struct {
-	mode types.PhaseMode
+	mode  types.PhaseMode
+	block chan struct{}
+	err   error
 }
 
 func (s *fakePhaseStore) OutputPhase() types.PhaseMode { return s.mode }
 
 func (s *fakePhaseStore) SetOutputPhase(mode types.PhaseMode) error {
+	if s.block != nil {
+		<-s.block
+	}
+
+	if s.err != nil {
+		return s.err
+	}
+
 	s.mode = mode
 
 	return nil
+}
+
+// The leg is written to flash, so the write goes with the queued report: on the drain it would
+// park the only reader of the observation channel, and its failure would cost the hub the report.
+func TestObservationsHandler_OutputPhaseStoreWriteStaysOffTheDrain(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetOutputPhaseType", types.PhaseModeL3L1, now).Return(true).Once()
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType: types.GridTypeIT,
+	}})
+	srv.On("SendPhaseModeReport", false).Return(true, nil).Once()
+
+	store := &fakePhaseStore{mode: types.PhaseModeL1L2, block: make(chan struct{}), err: assert.AnError}
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store)
+	require.NoError(t, err)
+
+	handled := make(chan error, 1)
+
+	go func() {
+		handled <- handler.HandleObservation(model.Observation{
+			ID:        model.OutputPhase,
+			ChargerID: testChargerID,
+			DataType:  model.ObservationDataTypeInteger,
+			Timestamp: now,
+			Value:     strconv.Itoa(int(model.P1T2T4IT)),
+		})
+	}()
+
+	select {
+	case err := <-handled:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		close(store.block)
+		t.Fatal("the store write parked the observation drain")
+	}
+
+	close(store.block)
+	flushReports(t, handler)
 }
 
 // An Easee picks its leg per session (hub 8ee88ca8: T2T3 and T2T4 in turn on an IT grid), so a new

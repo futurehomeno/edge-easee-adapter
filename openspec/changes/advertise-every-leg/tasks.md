@@ -4,8 +4,14 @@
 - [x] 1.2 Advertise `SettablePhaseModes`; the output phase handler only persists the leg.
 - [x] 1.3 Update the tests that asserted the single-leg list; run green.
 
-## 2. Verify
+## 2. Review fixes
 
-- [x] 2.1 `go build ./...`, `go vet ./...`, `golangci-lint run`.
-- [x] 2.2 `go test ./internal/model ./internal/signalr ./internal/easee ./cmd/...`.
-- [x] 2.3 `openspec validate advertise-every-leg --strict`.
+- [x] 2.1 Failing test: a store write that blocks or fails neither parks the observation drain nor drops the phase-mode report.
+- [x] 2.2 Write the leg inside the queued phase-mode job.
+- [x] 2.3 Spec: the unset-mode fallback of Phase Mode Report Precedence no longer names the persisted phase.
+
+## 3. Verify
+
+- [x] 3.1 `go build ./...`, `go vet ./...`, `golangci-lint run`.
+- [x] 3.2 `go test ./internal/model ./internal/signalr ./internal/easee ./cmd/...`.
+- [x] 3.3 `openspec validate advertise-every-leg --strict`.

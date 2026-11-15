@@ -578,14 +578,13 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	// again on every reconnect - is not a phase change and costs nothing to skip.
 	log.Infof("[%s] PhaseMode=%s", h.chargerID, outPhaseType)
 
-	if err := h.persistOutputPhase(outPhaseType); err != nil {
-		return err
-	}
-
+	// The store write is flash I/O, so it stays off the drain like the republish, and its
+	// failure must not cost the hub the report.
 	h.enqueue("phase mode", func() error {
+		persistErr := h.persistOutputPhase(outPhaseType)
 		_, err := chargepointSrv.SendPhaseModeReport(false)
 
-		return err
+		return errors.Join(persistErr, err)
 	})
 
 	return nil
@@ -695,7 +694,7 @@ func (h *observationsHandler) republishChargepointProps(props map[string]any, on
 	// second call's props rather than its own. Snapshotting the value at enqueue time and
 	// restoring it here would close that window, but it re-introduces a second unsynchronised
 	// write racing the synchronous read the rest of the package relies on (see
-	// TestObservationsHandler_OutputPhaseKeepsEveryLegAdvertised) - not worth it for a
+	// TestObservationsHandler_OutputPhaseUsesPendingTopology) - not worth it for a
 	// same-charger, back-to-back topology change this narrow.
 	service.Specification().Props = chargepointPropsUpdate(service, props)
 
