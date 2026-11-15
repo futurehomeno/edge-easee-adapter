@@ -38,7 +38,7 @@ func PhaseModeName(phaseMode int) string {
 // SettablePhaseModes returns every phase mode the charger can be switched to, regardless
 // of the mode it currently sits in. The auto row of the matrix is the union of the others.
 func SettablePhaseModes(gridType types.GridType, phases int) []types.PhaseMode {
-	return SupportedPhaseModes(gridType, EaseePhaseModeAuto, phases)
+	return slices.Clone(SupportedPhaseModes(gridType, EaseePhaseModeAuto, phases))
 }
 
 // ToEaseePhaseMode maps a FIMP phase mode onto Easee's internal phase mode.

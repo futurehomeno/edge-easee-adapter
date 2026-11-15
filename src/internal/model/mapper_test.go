@@ -214,3 +214,13 @@ func TestOutputPhaseType_ToFimpState(t *testing.T) {
 		})
 	}
 }
+
+func TestSettablePhaseModes_ReturnsACopy(t *testing.T) {
+	t.Parallel()
+
+	modes := model.SettablePhaseModes(types.GridTypeIT, 3)
+	want := append([]types.PhaseMode(nil), modes...)
+	modes[0] = ""
+
+	assert.Equal(t, want, model.SettablePhaseModes(types.GridTypeIT, 3))
+}
