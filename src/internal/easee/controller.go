@@ -583,6 +583,10 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 		return err
 	}
 
+	// A request landing before the echo must see this target. The replaced observation's timestamp
+	// lets any newer observation still win, whatever the hub clock says.
+	c.cache.SetPhaseMode(target, internalAt)
+
 	_, outputPhaseSet := c.cache.OutputPhaseType()
 
 	c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), c.recordAt(outputPhaseSet, internalAt))
