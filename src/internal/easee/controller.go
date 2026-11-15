@@ -80,6 +80,8 @@ type controller struct {
 	chargerID      string
 	sessionStorage db.ChargingSessionStorage
 	persistedPhase func() types.PhaseMode
+	// Guarded by the chargepoint service lock, which every command that clamps holds.
+	clamp [2]int
 
 	// Easee ignores a dynamic-current write that reaches the charger within ~20s of the
 	// previous one, or of a stop, although the cloud accepts it. Every such write goes through
@@ -260,19 +262,28 @@ func (c *controller) pendingDiffers(current int) bool {
 	return c.pending != nil && (c.pending.stop || c.pending.current != current)
 }
 
-func (c *controller) clampToMax(current int) int {
+func (c *controller) clampToMax(current int, requested bool) int {
 	limit, _ := c.cache.MaxCurrent()
 	if limit == 0 {
 		limit = maxCurrentValue
 	}
 
-	if current > limit {
-		log.Warnf("[%s] Clamp offered current %dA to max %dA", c.chargerID, current, limit)
-
-		return limit
+	if !requested {
+		return min(current, limit)
 	}
 
-	return current
+	if current <= limit {
+		c.clamp = [2]int{}
+
+		return current
+	}
+
+	if clamp := [2]int{current, limit}; clamp != c.clamp {
+		c.clamp = clamp
+		log.Warnf("[%s] Clamp offered current %dA to max %dA", c.chargerID, current, limit)
+	}
+
+	return limit
 }
 
 // send releases the inFlight slot its caller took under pace.
@@ -672,7 +683,7 @@ func (c *controller) restartForPhaseMode(target int) error {
 	// Resumed at the session's own current rather than through StartChargepointCharging: a
 	// normal-mode start floors the current to initial_charging_current, which would silently
 	// raise a slow session - the mode is not recorded anywhere, so it cannot be restored.
-	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{start: true, current: c.clampToMax(resume)}); err != nil {
+	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{start: true, current: c.clampToMax(resume, false)}); err != nil {
 		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
 
 		return nil
@@ -717,7 +728,7 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 // CurrentWaitDuration; a deferred write counts as confirmed, its echo is checked by the
 // deferred send. Callers that need to know the change actually landed check it.
 func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
-	current = c.clampToMax(current)
+	current = c.clampToMax(current, !force)
 
 	if !force && !c.pendingDiffers(current) {
 		lastValue, lastSet := c.cache.RequestedOfferedCurrent()
