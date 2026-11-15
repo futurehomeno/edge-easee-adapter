@@ -347,7 +347,7 @@ func TestController_SetChargepointOfferedCurrent(t *testing.T) {
 }
 
 // Energy Guard repeats its target current on every balancing tick, so a charger whose max sits
-// below it logged the clamp hundreds of times an hour.
+// below it logged the clamp on each one.
 func TestController_SetChargepointOfferedCurrent_WarnsClampOnChange(t *testing.T) {
 	hook := logtest.NewLocal(log.StandardLogger())
 	t.Cleanup(hook.Reset)
@@ -365,8 +365,16 @@ func TestController_SetChargepointOfferedCurrent_WarnsClampOnChange(t *testing.T
 
 	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), nil)
 
-	for _, req := range []struct{ current, limit int }{{20, 13}, {20, 13}, {22, 13}, {22, 16}, {10, 16}, {22, 16}, {22, 16}} {
+	// A start resumes at the clamped current and must not reset the clamp; the unclamped 16A does.
+	for _, req := range []struct{ current, limit int }{{20, 13}, {20, 13}, {0, 13}, {20, 13}, {22, 13}, {22, 16}, {16, 16}, {22, 16}, {22, 16}} {
 		limit = req.limit
+
+		if req.current == 0 {
+			require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+
+			continue
+		}
+
 		require.NoError(t, ctrl.SetChargepointOfferedCurrent(req.current))
 	}
 
