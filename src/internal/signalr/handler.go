@@ -593,13 +593,12 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	// again on every reconnect - is not a phase change and costs nothing to skip.
 	log.Infof("[%s] PhaseMode=%s", h.chargerID, outPhaseType)
 
-	// The store write is flash I/O, so it stays off the drain like the republish, and its
-	// failure must not cost the hub the report.
+	// The store write is flash I/O, so it stays off the drain like the republish, and after the
+	// report: blocked or failed, it must not cost the hub the report.
 	h.enqueue("phase mode", func() error {
-		persistErr := h.persistOutputPhase(outPhaseType)
 		_, err := chargepointSrv.SendPhaseModeReport(false)
 
-		return errors.Join(persistErr, err)
+		return errors.Join(err, h.persistOutputPhase(outPhaseType))
 	})
 
 	return nil

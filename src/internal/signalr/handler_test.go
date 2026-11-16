@@ -244,6 +244,50 @@ func TestObservationsHandler_OutputPhaseStoreWriteStaysOffTheDrain(t *testing.T)
 	flushReports(t, handler)
 }
 
+// One sender publishes every report of the charger in order, so a write that blocks has to come
+// after the report it would otherwise hold back.
+func TestObservationsHandler_OutputPhaseReportDoesNotWaitForTheStoreWrite(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetOutputPhaseType", types.PhaseModeL3L1, now).Return(true).Once()
+
+	reported := make(chan struct{})
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType: types.GridTypeIT,
+	}})
+	srv.On("SendPhaseModeReport", false).Run(func(mock.Arguments) { close(reported) }).Return(true, nil).Once()
+
+	store := &fakePhaseStore{mode: types.PhaseModeL1L2, block: make(chan struct{})}
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID:        model.OutputPhase,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.P1T2T4IT)),
+	}))
+
+	select {
+	case <-reported:
+	case <-time.After(time.Second):
+		t.Error("the report waited for the store write")
+	}
+
+	close(store.block)
+	flushReports(t, handler)
+
+	assert.Equal(t, types.PhaseModeL3L1, store.mode)
+}
+
 // An Easee picks its leg per session (hub 8ee88ca8: T2T3 and T2T4 in turn on an IT grid), so a new
 // leg must not narrow sup_phase_modes: cliffhanger would reject the leg a hub requested a moment ago.
 func TestObservationsHandler_OutputPhaseKeepsEveryLegAdvertised(t *testing.T) {
