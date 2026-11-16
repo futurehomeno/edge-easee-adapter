@@ -28,19 +28,7 @@ import (
 // itself, so it is remembered and applied on the way out - without that, a login racing the
 // auth-loss teardown left every charger unsubscribed until the process restarted.
 func TestClient_StartDuringCloseIsReArmed(t *testing.T) {
-	storage := mockedstorage.NewStorage[*config.Config](t)
-	storage.On("Model").Return(&config.Config{}).Maybe()
-	storage.On("Save").Return(nil).Maybe()
-
-	// A token provider that always fails keeps the re-armed goroutine cheap: it retries
-	// behind the backoff instead of reaching the network.
-	c := &client{
-		cfg:           config.NewService(storage),
-		tokenProvider: func() (string, error) { return "", assert.AnError },
-		backoff:       backoff.NewStateful(time.Millisecond, time.Millisecond, time.Millisecond, 1, 1),
-	}
-
-	t.Cleanup(func() { assert.NoError(t, c.Close()) })
+	c := newIdleClient(t)
 
 	// Stand in for a live connection goroutine: Close blocks in wg.Wait() until this is
 	// released, holding the window open for the Start below.
@@ -86,15 +74,7 @@ func TestClient_StartDuringCloseIsReArmed(t *testing.T) {
 // also clear the pending start - otherwise the drain re-arms the client on its way out and
 // leaves a logout racing a login with the connection still up.
 func TestClient_ConcurrentCloseCancelsDeferredStart(t *testing.T) {
-	storage := mockedstorage.NewStorage[*config.Config](t)
-	storage.On("Model").Return(&config.Config{}).Maybe()
-	storage.On("Save").Return(nil).Maybe()
-
-	c := &client{
-		cfg:           config.NewService(storage),
-		tokenProvider: func() (string, error) { return "", assert.AnError },
-		backoff:       backoff.NewStateful(time.Millisecond, time.Millisecond, time.Millisecond, 1, 1),
-	}
+	c := newIdleClient(t)
 
 	c.running = true
 
@@ -125,6 +105,89 @@ func TestClient_ConcurrentCloseCancelsDeferredStart(t *testing.T) {
 
 	assert.False(t, c.running, "a Close that returned nil must not leave the client running")
 	assert.False(t, c.startRequested, "the later Close must cancel the deferred Start")
+}
+
+// newIdleClient returns a client closed on cleanup. Its token provider always fails, which keeps a
+// (re-)armed goroutine cheap: it retries behind the backoff instead of reaching the network.
+func newIdleClient(t *testing.T) *client {
+	t.Helper()
+
+	storage := mockedstorage.NewStorage[*config.Config](t)
+	storage.On("Model").Return(&config.Config{}).Maybe()
+	storage.On("Save").Return(nil).Maybe()
+
+	c := &client{
+		cfg:           config.NewService(storage),
+		tokenProvider: func() (string, error) { return "", assert.AnError },
+		backoff:       backoff.NewStateful(time.Millisecond, time.Millisecond, time.Millisecond, 1, 1),
+	}
+
+	t.Cleanup(func() { assert.NoError(t, c.Close()) })
+
+	return c
+}
+
+// The unauthorized re-subscribe reconnects through Restart, which drains like Close: a Logout or
+// Stop closing the client meanwhile must win over the relaunch, and a Restart that finds the
+// client closing must neither relaunch it nor cancel the Start that close deferred.
+func TestClient_Restart(t *testing.T) {
+	closeClient := func(c *client) { _ = c.Close() }
+
+	for _, tc := range []struct {
+		name    string
+		open    func(c *client)
+		during  []func(c *client)
+		running bool
+	}{
+		{"relaunches", (*client).Restart, nil, true},
+		{"a close during the drain wins", (*client).Restart, []func(*client){closeClient}, false},
+		{"does not relaunch a closing client", closeClient, []func(*client){(*client).Restart}, false},
+		{"keeps a start deferred by a close", closeClient, []func(*client){(*client).Start, (*client).Restart}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newIdleClient(t)
+
+			// Stands in for a live connection goroutine, holding the drain open until released.
+			c.running = true
+
+			c.wg.Add(1)
+
+			opened := make(chan struct{})
+
+			go func() { defer close(opened); tc.open(c) }()
+
+			require.Eventually(t, func() bool {
+				c.mu.Lock()
+				defer c.mu.Unlock()
+
+				return c.closing
+			}, time.Second, time.Millisecond, "the drain window never opened")
+
+			for _, call := range tc.during {
+				call(c)
+			}
+
+			c.wg.Done()
+			<-opened
+
+			c.mu.Lock()
+			defer c.mu.Unlock()
+
+			assert.Equal(t, tc.running, c.running)
+			assert.False(t, c.startRequested)
+		})
+	}
+}
+
+func TestClient_RestartLeavesAStoppedClientStopped(t *testing.T) {
+	c := newIdleClient(t)
+
+	c.Restart()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	assert.False(t, c.running)
 }
 
 // fakeLibClient mirrors philippseith/signalr v0.11.0: state changes reach only the

@@ -323,6 +323,43 @@ func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
 	assert.Equal(t, types.PhaseModeL1L2, store.mode)
 }
 
+// The controller caches a sent target with the timestamp of the observation it replaced, so the
+// echo of that target must record its own: the library dispatches each hub call on its own
+// goroutine, and an older observation landing after the echo would otherwise win.
+func TestObservationsHandler_PhaseModeRepeatKeepsItsTimestamp(t *testing.T) {
+	t.Parallel()
+
+	t0 := time.Now()
+	t1, t2 := t0.Add(time.Second), t0.Add(2*time.Second)
+
+	phases := cache.NewCache(testChargerID)
+	phases.SetPhaseMode(1, t0)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, phases, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	for _, obs := range []struct {
+		mode int
+		at   time.Time
+	}{{1, t2}, {2, t1}} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.PhaseMode, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: obs.at, Value: strconv.Itoa(obs.mode),
+		}))
+	}
+
+	flushReports(t, handler)
+
+	mode, at := phases.PhaseMode()
+	assert.Equal(t, 1, mode)
+	assert.Equal(t, t2, at)
+	srv.AssertNotCalled(t, "SendPhaseModeReport", false)
+}
+
 // The offline state report is the one report that must survive the offline gate. The handler
 // used to flip isStateOnline before sending, so the controller's checkConnection rejected the
 // very report announcing the charger had gone offline, and the app kept the last online state

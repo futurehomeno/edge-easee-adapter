@@ -383,10 +383,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 	defer func() {
 		if restart {
 			log.Warnf("signalR: re-subscribe of '%s' refused as unauthorized, reconnecting with the current token", chargerID)
-
-			if err := m.restartClient(); err != nil {
-				log.Warnf("signalR: restart err: %v", err)
-			}
+			m.client.Restart()
 		}
 
 		if report {

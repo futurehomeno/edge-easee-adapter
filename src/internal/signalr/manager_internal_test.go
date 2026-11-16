@@ -602,6 +602,7 @@ type failingSubscribeClient struct{}
 
 func (c *failingSubscribeClient) Start()                                 {}
 func (c *failingSubscribeClient) Close() error                           { return nil }
+func (c *failingSubscribeClient) Restart()                               {}
 func (c *failingSubscribeClient) SubscribeCharger(string) error          { return errors.New("not logged in") }
 func (c *failingSubscribeClient) UnsubscribeCharger(string) error        { return nil }
 func (c *failingSubscribeClient) Connected() bool                        { return false }
@@ -1376,8 +1377,8 @@ var errUnauthorized = errors.New("invoking 'SubscribeWithCurrentState' on the se
 type scriptedSubscribeClient struct {
 	failingSubscribeClient
 
-	errs                  []error
-	calls, closes, starts atomic.Int32
+	errs            []error
+	calls, restarts atomic.Int32
 }
 
 func (c *scriptedSubscribeClient) SubscribeCharger(string) error {
@@ -1388,13 +1389,7 @@ func (c *scriptedSubscribeClient) SubscribeCharger(string) error {
 	return nil
 }
 
-func (c *scriptedSubscribeClient) Close() error {
-	c.closes.Add(1)
-
-	return nil
-}
-
-func (c *scriptedSubscribeClient) Start() { c.starts.Add(1) }
+func (c *scriptedSubscribeClient) Restart() { c.restarts.Add(1) }
 
 func resubscribe(t *testing.T, m *manager) {
 	t.Helper()
@@ -1411,8 +1406,7 @@ func TestUnauthorizedResubscribe_RestartsTheClientOncePerConnection(t *testing.T
 	resubscribe(t, m)
 	resubscribe(t, m)
 
-	assert.Equal(t, int32(1), client.closes.Load())
-	assert.Equal(t, int32(1), client.starts.Load())
+	assert.Equal(t, int32(1), client.restarts.Load())
 }
 
 func TestUnauthorizedResubscribe_RestartsAgainOnTheNextConnection(t *testing.T) {
@@ -1424,7 +1418,7 @@ func TestUnauthorizedResubscribe_RestartsAgainOnTheNextConnection(t *testing.T) 
 	require.NoError(t, m.handleSubscription(chargerID))
 	resubscribe(t, m)
 
-	assert.Equal(t, int32(2), client.closes.Load())
+	assert.Equal(t, int32(2), client.restarts.Load())
 }
 
 // The reconnect sweep re-subscribes every charger; a retry armed here would outlive its connection.
@@ -1448,7 +1442,7 @@ func TestUnauthorizedResubscribe_DoesNotRestartAgainWhenTheNewConnectionRefusesT
 	m.handleClientState(model.ClientStateConnected)
 	require.NoError(t, m.handleSubscription(chargerID))
 
-	assert.Equal(t, int32(1), client.closes.Load())
+	assert.Equal(t, int32(1), client.restarts.Load())
 }
 
 func TestUnauthorizedFirstSubscribe_DoesNotRestartTheClient(t *testing.T) {
@@ -1457,7 +1451,7 @@ func TestUnauthorizedFirstSubscribe_DoesNotRestartTheClient(t *testing.T) {
 
 	require.NoError(t, m.handleSubscription(chargerID))
 
-	assert.Zero(t, client.closes.Load())
+	assert.Zero(t, client.restarts.Load())
 }
 
 func TestResubscribeFailingWithAnotherError_DoesNotRestartTheClient(t *testing.T) {
@@ -1466,5 +1460,5 @@ func TestResubscribeFailingWithAnotherError_DoesNotRestartTheClient(t *testing.T
 
 	resubscribe(t, m)
 
-	assert.Zero(t, client.closes.Load())
+	assert.Zero(t, client.restarts.Load())
 }

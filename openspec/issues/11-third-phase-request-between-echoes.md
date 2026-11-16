@@ -10,10 +10,6 @@ single-phase echo lands, the charger stays in single phase even though three-pha
 request. The report then stops honouring that request (see 9), so energy guard may correct the mode
 on a later tick. Hitting this takes three requests inside the gap between two echoes.
 
-`handlePhaseMode` also drops the echo that matches the sent target before storing it, so its
-timestamp is not recorded. If the two echoes arrive in the wrong order, the older one is still
-accepted and replaces the newer target.
-
 Open question: can this be accepted, or does it need a pending target that is cleared by its
 matching echo? The design of `phase-set-before-echo` rejected that as a second source of the
 internal mode.
