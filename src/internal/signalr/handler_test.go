@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
@@ -1002,6 +1003,67 @@ func (t *meterThing) Services(name fimptype.ServiceNameT) []adapter.Service {
 
 func (t *meterThing) Update(...adapter.ThingUpdate) error    { return nil }
 func (t *meterThing) SendInclusionReport(bool) (bool, error) { return true, nil }
+
+// Easee's backplate is PE, N, L1, L2, L3 on TN and PE, L1, L2, L3 on IT/TT, so the lines sit on
+// terminals T3-T5 on TN but T2-T4 on IT/TT. An IT hub showed L1L2L3 at 17 A as i1/i2 only.
+func TestObservationsHandler_PhaseCurrentsFollowTheGridType(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		gridType types.GridType
+		ignored  model.ObservationID
+		want     [3]float64
+	}{
+		{"TN", types.GridTypeTN, model.InCurrentT2, [3]float64{3, 4, 5}},
+		{"unknown", "", model.InCurrentT2, [3]float64{3, 4, 5}},
+		{"IT", types.GridTypeIT, model.InCurrentT5, [3]float64{2, 3, 4}},
+		{"TT", types.GridTypeTT, model.InCurrentT5, [3]float64{2, 3, 4}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			now := time.Now()
+			phases := cache.NewCache(testChargerID)
+
+			cp := mockedchargepoint.NewService(t)
+			cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			cp.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+				chargepoint.PropertyGridType: tc.gridType,
+			}}).Maybe()
+
+			meter := mockednumericmeter.NewService(t)
+			meter.On("Name").Return(numericmeter.MeterElec).Maybe()
+			for _, v := range []numericmeter.Value{numericmeter.ValueCurrentPhase1, numericmeter.ValueCurrentPhase2, numericmeter.ValueCurrentPhase3} {
+				meter.On("SendMeterExtendedReport", numericmeter.Values{v}, false).Return(true, nil).Once()
+			}
+
+			handler, err := signalr.NewObservationsHandler(
+				&meterThing{cp: cp, meter: meter}, phases, nil, nil, testChargerID, nil)
+			require.NoError(t, err)
+
+			for i, id := range []model.ObservationID{model.InCurrentT2, model.InCurrentT3, model.InCurrentT4, model.InCurrentT5} {
+				value := strconv.Itoa(i + 2)
+				if id == tc.ignored {
+					value = "x"
+				}
+
+				assert.True(t, id.Supported(), "the receiver drops %s", id.Str())
+				assert.NoError(t, handler.HandleObservation(model.Observation{
+					ID: id, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+					Timestamp: now, Value: value,
+				}))
+			}
+
+			flushReports(t, handler)
+
+			i1, _ := phases.Phase1Current()
+			i2, _ := phases.Phase2Current()
+			i3, _ := phases.Phase3Current()
+			assert.Equal(t, tc.want, [3]float64{i1, i2, i3})
+		})
+	}
+}
 
 // #166: Close closed the report queue and waited for runSender, but never stopped the
 // lifetime-energy goroutine. Unregister calls Close, so after cmd.thing.delete that goroutine
