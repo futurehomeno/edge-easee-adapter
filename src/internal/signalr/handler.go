@@ -231,12 +231,7 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 
 	phaseMode, _ := h.cache.PhaseMode()
 
-	if val == phaseMode {
-		return nil
-	}
-
-	ok := h.cache.SetPhaseMode(val, observation.Timestamp)
-	if !ok {
+	if !h.cache.SetPhaseMode(val, observation.Timestamp) || val == phaseMode {
 		return nil
 	}
 
