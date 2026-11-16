@@ -171,12 +171,16 @@ observation.
 ### Requirement: Supported Observations
 The adapter SHALL handle these observation IDs: detected power grid type, phase mode, max charger
 current, dynamic charger current, charger operating state, output phase, total power, lifetime
-energy, energy session, cable rating, error code, in-current T3/T4/T5, cloud connected, cable locked,
-lock cable permanently, charging session start and charging session stop.
+energy, energy session, cable rating, error code, in-current T2/T3/T4/T5, cloud connected, cable
+locked, lock cable permanently, charging session start and charging session stop.
 
 #### Scenario: dispatch table coverage
 - **WHEN** an observation with any of these IDs arrives for a registered charger
 - **THEN** its dedicated handler runs
+
+#### Scenario: in-current T2 passes the receiver
+- **WHEN** Easee streams in-current T2 (observation 182)
+- **THEN** the receiver buffers it for the handler instead of dropping it as unsupported
 
 ### Requirement: Timestamp-Guarded Cache Writes
 Every cached value SHALL carry the timestamp of the observation that produced it, except
@@ -320,4 +324,34 @@ backoff.
 #### Scenario: login while the client waits
 - **WHEN** the user logs in and the login path calls `Start()` on the waiting client
 - **THEN** the client asks for a token again immediately, not after its backoff
+
+### Requirement: Unauthorized Re-subscribe Reconnects Once
+When a subscribe on an established connection is refused with the `HubException: Unauthorized` hub
+error for a charger already subscribed on that same connection, the manager SHALL restart the
+SignalR client once, so it reconnects with the current access token, through the same
+close-then-start path Unregister uses. The connection carries the token it was opened with, and
+nothing renews it while it lives. The manager SHALL restart at most once per connection, and SHALL
+NOT restart for a charger not yet subscribed on the connection or for any other error, so an
+Unauthorized that persists after the reconnect, such as a charger that left the account, cannot
+restart the client again and again.
+
+#### Scenario: re-sync refused as unauthorized
+- **WHEN** a re-sync of a charger subscribed on the current connection is refused as unauthorized
+- **THEN** the client is closed and started once
+
+#### Scenario: second refusal on the same connection
+- **WHEN** a second re-subscribe on the same connection is refused as unauthorized
+- **THEN** the client is not restarted again
+
+#### Scenario: refusal persists after the reconnect
+- **WHEN** the subscribe of that charger on the new connection is refused as unauthorized
+- **THEN** the client is not restarted
+
+#### Scenario: first subscribe refused after connect
+- **WHEN** the first subscribe of a charger on a connection is refused as unauthorized
+- **THEN** the client is not restarted and the subscribe is retried with backoff
+
+#### Scenario: other error
+- **WHEN** a re-subscribe of a subscribed charger fails with another error
+- **THEN** the client is not restarted
 

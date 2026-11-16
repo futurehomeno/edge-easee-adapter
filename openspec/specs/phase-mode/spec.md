@@ -7,10 +7,13 @@ modes a charger supports, apply a requested mode, and report the mode currently 
 ## Requirements
 ### Requirement: Phase Mode Matrix
 Supported FIMP phase modes SHALL be derived from a matrix keyed by grid type (TN, TT, IT), phase
-count (1 or 3) and Easee internal phase mode (1, 2 or 3). A TN grid uses neutral-referenced legs
-(`NL1`, `NL2`, `NL3`, `NL1L2L3`); TT and IT grids use line-to-line legs (`L1L2`, `L2L3`, `L3L1`,
-`L1L2L3`). A 1-phase installation SHALL yield exactly one mode — `NL1` on TN, `L1L2` on TT and IT —
-for internal modes 1 and 2; internal mode 3 is not defined for a 1-phase installation.
+count (1 or 3, and 2 on TN) and Easee internal phase mode (1, 2 or 3). A TN grid uses
+neutral-referenced legs (`NL1`, `NL2`, `NL3`, `NL1L2`, `NL1L2L3`); TT and IT grids use line-to-line
+legs (`L1L2`, `L2L3`, `L3L1`, `L1L2L3`). A 1-phase installation SHALL yield exactly one mode — `NL1`
+on TN, `L1L2` on TT and IT — for internal modes 1 and 2; internal mode 3 is not defined for a
+1-phase installation. A TN 2-phase installation SHALL use the legs of Easee's nominal 2-phase
+wiring (neutral on pin 2, L1 on pin 3, L2 on pin 4): `NL1` and `NL2` for internal mode 1, `NL1`,
+`NL2` and `NL1L2` for internal mode 2, and `NL1L2` for internal mode 3.
 An empty grid type, a zero internal mode or a zero phase count SHALL yield no modes.
 An unknown grid type, phase count or internal mode SHALL be logged as an error and yield no modes.
 
@@ -33,6 +36,14 @@ An unknown grid type, phase count or internal mode SHALL be logged as an error a
 #### Scenario: IT grid, one phase
 - **WHEN** modes are requested for grid IT, internal mode 1 or 2, 1 phase
 - **THEN** `L1L2` alone is returned
+
+#### Scenario: TN grid, two phases
+- **WHEN** modes are requested for grid TN, internal mode 2, 2 phases
+- **THEN** `NL1`, `NL2` and `NL1L2` are returned and nothing is logged as an error
+
+#### Scenario: TN grid, two phases, reported leg
+- **WHEN** a TN 2-phase charger reports `NL2` and `NL2` is requested
+- **THEN** Easee internal mode 1 is the target, and `NL1L2` maps to internal mode 2
 
 #### Scenario: grid type not yet detected
 - **WHEN** the grid type is empty, or the phase count or internal mode is zero
@@ -77,19 +88,31 @@ transition mid-session and would stall on a hard lock. A mode in neither set SHA
 ### Requirement: Applying A Phase Mode
 `cmd.phase_mode.set` SHALL map the requested mode to an Easee internal mode and, when that target
 differs from the cached internal mode, post it to `/api/chargers/{id}/commands/set_phase_mode`, then
-record the requested FIMP mode in the cache, then restart an in-progress session. The request SHALL
-be stamped one millisecond past the newer of the cached output-phase and internal-mode timestamps
-rather than with the hub clock, because those Easee timestamps are the only values it is ever
-compared against. A grid with fewer than two settable modes SHALL make the command a no-op:
-flipping the internal mode would bounce a session for a change nothing can observe. When the target
-equals the cached internal mode the command SHALL return successfully without calling Easee and
-without recording a requested mode, so that a fresh timestamp cannot outrank a live output-phase
-observation.
+cache the target as the internal mode, then record the requested FIMP mode in the cache, then
+restart an in-progress session. The target SHALL be cached with the timestamp of the internal-mode
+observation it replaces: the charger echoes the new mode only later, a request arriving before that
+echo must be compared with the mode just sent rather than dropped as a no-op, and every newer
+observation must still replace it. The request SHALL be stamped one millisecond past the newer of
+the cached output-phase and internal-mode timestamps rather than with the hub clock, because those
+Easee timestamps are the only values it is ever compared against. A grid with fewer than two
+settable modes SHALL make the command a no-op: flipping the internal mode would bounce a session for
+a change nothing can observe. When the target equals the cached internal mode the command SHALL
+return successfully without calling Easee.
 
 #### Scenario: mode changes
 - **WHEN** the target internal mode differs from the cached one
-- **THEN** Easee is called, the requested mode is cached ahead of the newest observation, and the
-  session restart runs
+- **THEN** Easee is called, the target is cached as the internal mode, the requested mode is cached
+  ahead of the newest observation, and the session restart runs
+
+#### Scenario: a second request before the echo
+- **WHEN** auto (2) was just sent for a charger cached in single phase (1), no phase-mode observation
+  has arrived since, and a single-phase leg is requested
+- **THEN** single phase (1) is sent to Easee
+
+#### Scenario: the charger reports after the send
+- **WHEN** a phase-mode observation newer than the one the sent target replaced arrives, even one
+  stamped behind the hub clock
+- **THEN** it replaces the sent target, and a request for the sent mode is sent again
 
 #### Scenario: hub clock behind Easee
 - **WHEN** the cached observations carry timestamps ahead of the hub clock
@@ -101,11 +124,11 @@ observation.
 
 #### Scenario: target already in effect
 - **WHEN** the target internal mode equals the cached internal mode
-- **THEN** no Easee call is made, no requested mode is recorded, and the command reports success
+- **THEN** no Easee call is made and the command reports success
 
 #### Scenario: Easee rejects the change
 - **WHEN** the set-phase-mode call fails
-- **THEN** the error is returned and no requested mode is cached
+- **THEN** the error is returned and neither the target nor the requested mode is cached
 
 ### Requirement: Session Restart To Apply A Mode
 Because the charger applies a new phase mode only at a session boundary, an in-progress session SHALL
@@ -188,7 +211,7 @@ maps onto, so reporting the first would answer a request the user just made with
 A persisted phase among the supported modes SHALL be preferred over the first.
 
 When the refetched internal mode is 0 (Easee leaves it unset on some models) the supported modes
-SHALL be the advertised `sup_phase_modes` for the grid type, phase count and persisted phase, so the
+SHALL be the settable modes for the grid type and phase count, whatever leg is persisted, so the
 report stays within what the inclusion report advertises instead of failing. An unset mode SHALL be
 read as auto and report the last advertised mode: a single leg would let energy guard load the other
 two phases while the charger may draw on all three.
@@ -329,14 +352,14 @@ properties reach consumers.
   inclusion report is sent
 
 ### Requirement: Output Phase Uses The Advertised Topology
-The output-phase handler SHALL derive `sup_phase_modes` from the grid type and phase count in the
-chargepoint specification, not from the cache, because a topology republish replaces the
-specification at once but commits the cache only after its inclusion report lands.
+The output-phase handler SHALL map the reported leg with the grid type in the chargepoint
+specification, not the cache, because a topology republish replaces the specification at once but
+commits the cache only after its inclusion report lands.
 
 #### Scenario: output phase while the topology republish is queued
 - **WHEN** a charger with no cached grid type reports a grid type and then an output phase before the
   topology inclusion report has been published
-- **THEN** `sup_phase_modes` advertises the reported leg for the new topology
+- **THEN** the leg is mapped for the new topology and `sup_phase_modes` is the settable set of that topology
 
 ### Requirement: Internal Phase Mode Naming
 Easee's internal phase modes SHALL have a human-readable name: internal mode 1 is `single phase`,
@@ -371,4 +394,44 @@ wrong quantity - the value is Easee's internal mode, not a count of connected ph
 #### Scenario: the observation is logged
 - **WHEN** a phase-mode observation carrying internal mode 2 arrives
 - **THEN** the line reads `Phase mode=auto (2)`, not `Connected phases=2`
+
+### Requirement: Faulty Grid Type Warning
+The adapter SHALL log a warning with the charger ID when a charger's detected-power-grid-type
+observation changes to a wiring warning, a wiring error or a value Easee has not documented, and
+SHALL NOT log it again while the value is unchanged. Mapping a grid type, including the REST charger
+config read on every idle phase-mode report, SHALL NOT log, because a lasting fault would otherwise
+be logged on every poll.
+
+#### Scenario: repeated faulty grid type
+- **WHEN** a charger reports the same faulty grid type several times
+- **THEN** one warning naming the charger and the grid type is logged
+
+#### Scenario: faulty grid type returns
+- **WHEN** a charger reports a faulty grid type, then a healthy one, then the faulty one again
+- **THEN** a warning is logged for each change to the faulty grid type and none for the healthy one
+
+#### Scenario: stale healthy grid type
+- **WHEN** a charger reports a faulty grid type, then a healthy one older than that report, then the
+  faulty one again
+- **THEN** one warning is logged
+
+#### Scenario: idle phase-mode report
+- **WHEN** the phase-mode report reads the charger config of an idle charger with a faulty grid type
+- **THEN** no grid type warning is logged
+
+### Requirement: Advertised Modes Do Not Follow The Observed Leg
+`sup_phase_modes` SHALL stay the settable set for the charger's grid type and phase count when the
+charger reports a single leg, because an Easee picks its leg per session and a list narrowed to the
+last leg makes cliffhanger reject a request for another one. The reported leg SHALL be persisted for
+the phase-mode report without republishing the inclusion report. The write SHALL go with the queued
+phase-mode report, not run on the observation drain, and a failed write SHALL NOT hold the report back.
+
+#### Scenario: an IT charger changes leg
+- **GIVEN** a charger on an IT grid with 3 phases advertising `L1L2`, `L2L3`, `L3L1` and `L1L2L3`, last seen on `L1L2`
+- **WHEN** it reports output phase `P1_T2_T4_IT` (`L3L1`)
+- **THEN** all four modes stay advertised, `L3L1` is persisted and no inclusion report is sent
+
+#### Scenario: the leg cannot be saved
+- **WHEN** a charger reports a new leg and writing it to the thing state blocks or fails
+- **THEN** the observation is handled without waiting for the write and the phase-mode report is still published
 
