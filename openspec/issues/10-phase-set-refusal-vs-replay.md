@@ -25,8 +25,28 @@ Left open:
   with a re-subscribe, and a replay that only beat a slow echo would flip the report twice.
 - A charging charger whose pause fails, or that has no current to resume at, arms no re-sync, as on
   3.3.0.
-- How long is the gap between a send and its echo, and how often does a charger refuse
-  `set_phase_mode` after Easee accepted it? `receiver.CommandResponse` only logs the charger's
-  answer at debug level. PR #219 review, finding 5: acting on a refused answer would replace the
-  timer and the re-subscribe after every accepted set. It needs the payload of a refused answer
-  and a way to match it to the charger and the command.
+- PR #219 review, finding 5: acting on the charger's `CommandResponse` instead of the timer.
+  Investigated 2026-11-17, see below: the answer cannot tell an applied mode from an ignored one.
+
+## Field data (2026-11-17)
+
+Debug logs of hubs `7a18325dc9eaa3b7` (EH496315) and `9c1edbb3d437c8f1` (EH152843), 5832 unique
+`CommandResponse` answers:
+
+- Payload: `serialNumber`, `id`, `ticks`, `timestamp`, `deliveredAt`, `wasAccepted`, `resultCode`,
+  `comment`. Easee documents it only for AMQP (https://developer.easee.com/docs/amqp-commands). `id` 38 is
+  the phase mode, 48 the dynamic current, 47 the max current, 30 the cable lock.
+- All 5832 answers say `wasAccepted: true`, `resultCode: null`. No refused answer was ever logged,
+  so its format is unknown. The 53 phase-mode answers arrived 0-2 s after the send.
+- `wasAccepted: true` does not mean the charger applied the value: in the 2026-09-20 customer log
+  17 of 17 resumes were ignored by the charger while each was answered as accepted
+  (`pace-offered-current-writes`). The answer is a delivery receipt.
+- The internal-mode echo (observation 38) arrived 1-2 s after the send in 25 of 25 sends where the
+  log could show it. No send without an echo was seen, so "accepted but never applied" has no field
+  evidence for the phase mode yet.
+
+Result: a handler for a refused answer would cover a case never seen and miss the one this issue is
+about. The echo is the signal that tells the two apart: a re-sync could be skipped when the echo
+arrived within the 15 s, which would leave the re-subscribe to the sends the charger did not echo.
+
+Open question: skip the re-sync when the echo has arrived?
