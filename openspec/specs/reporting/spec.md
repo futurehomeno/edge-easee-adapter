@@ -92,8 +92,10 @@ The in-current observations SHALL populate the phase 1, 2 and 3 currents from th
 carry the lines on the grid type held in the chargepoint props: T3, T4 and T5 on a TN grid and while
 the props carry no grid type, T2, T3 and T4 on an IT or TT grid. An in-current observation for a
 terminal that carries no line on that grid (T2 on TN, T5 on IT or TT) SHALL be ignored: no cache
-write, no report and no error. Each accepted observation SHALL publish its own unforced extended
-meter report on a successful cache update.
+write, no report and no error. The handler SHALL read the grid type from the props once and keep it
+until a grid-type observation replaces the props, so an ignored observation costs no service lookup.
+Each accepted observation SHALL publish its own unforced extended meter report on a successful cache
+update.
 
 #### Scenario: phase current observed
 - **WHEN** an in-current T3 observation arrives newer than the cached value on a TN charger
@@ -108,6 +110,10 @@ meter report on a successful cache update.
   with a value that does not parse
 - **THEN** no phase current is written, no report is published and the handler returns no error
 
+#### Scenario: repeated neutral current
+- **WHEN** a TN charger reports in-current T2 twice
+- **THEN** the props are read for the first reading only
+
 #### Scenario: grid type unknown
 - **WHEN** the props carry no grid type and in-current T2, T3, T4 and T5 arrive
 - **THEN** T3, T4 and T5 are cached as the phase 1, 2 and 3 currents and T2 is ignored
@@ -115,6 +121,11 @@ meter report on a successful cache update.
 #### Scenario: topology republish still pending
 - **WHEN** the props already carry IT while the cache holds no or another grid type, and in-current
   T2 arrives
+- **THEN** it is cached as the phase 1 current
+
+#### Scenario: grid type changes after a reading
+- **WHEN** in-current T2 was ignored under TN props, a grid-type observation then replaces them with
+  IT, and in-current T2 arrives again
 - **THEN** it is cached as the phase 1 current
 
 ### Requirement: Alarm Reports

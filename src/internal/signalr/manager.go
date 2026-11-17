@@ -210,19 +210,15 @@ func (m *manager) Unregister(chargerID string) error {
 	last := len(m.chargers) == 0
 	m.mu.Unlock()
 
-	if last {
-		errs = errors.Join(errs, m.restartClient())
+	if !last {
+		return errs
 	}
 
-	return errs
-}
-
-// restartClient closes the client and starts it again unless no charger is left. Close() blocks
-// on the network, so it runs off m.mu and a Register can land meanwhile: its Start() ran before
-// this Close(), so the client's own startRequested rescue had nothing to defer and the close
-// simply undid it. Unless its charger has since gone too: then its own Unregister closed it last.
-func (m *manager) restartClient() error {
-	err := m.client.Close()
+	// Close() blocks on the network, so it runs off m.mu and a Register can land meanwhile: its
+	// Start() ran before this Close(), so the client's own startRequested rescue had nothing to
+	// defer and the close simply undid it. Unless its charger has since gone too: then its own
+	// Unregister closed it last.
+	errs = errors.Join(errs, m.client.Close())
 
 	// Started under the lock: released first, the last Unregister could close the client in
 	// between and this Start would bring it back up for nobody.
@@ -233,7 +229,7 @@ func (m *manager) restartClient() error {
 		m.client.Start()
 	}
 
-	return err
+	return errs
 }
 
 // repairReplacedSubscription re-establishes the subscription of a charger that was registered
