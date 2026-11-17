@@ -154,7 +154,7 @@ func newMigrationConfigServiceFrom(t *testing.T, body string) (*config.Service, 
 	return svc, dir
 }
 
-func TestMigrateConfig_liftsThePre264PollingInterval(t *testing.T) {
+func TestMigrateConfig_liftsThePre26PollingInterval(t *testing.T) {
 	t.Parallel()
 
 	svc, dir := newMigrationConfigServiceFrom(t, `{"config_version":8,"pollingInterval":"30s"}`)

@@ -162,7 +162,7 @@ func (c *Config) MigrateOfferedCurrentWaitTime() error {
 	return nil
 }
 
-// MigratePollingInterval lifts installs still carrying the packaged default up to 2.6.3 ("30s"),
+// MigratePollingInterval lifts installs still carrying the 2.5 packaged default ("30s"),
 // which polls an idle charger's config and site info over REST twice a minute.
 func (c *Config) MigratePollingInterval() error {
 	if c.PollingInterval == "30s" {

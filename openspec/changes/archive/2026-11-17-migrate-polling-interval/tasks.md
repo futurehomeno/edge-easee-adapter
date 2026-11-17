@@ -1,3 +1,3 @@
 - [x] A stored `pollingInterval` of `30s` becomes `10m`, any other value is kept (test first)
-- [x] The migration runs as config version 8 → 9, also for a pre-2.6.4 config upgraded in one boot (test first)
+- [x] The migration runs as config version 8 → 9, also for a 2.5 config upgraded in one boot (test first)
 - [x] Version bumped to 3.3.2
