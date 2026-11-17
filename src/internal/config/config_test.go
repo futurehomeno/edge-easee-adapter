@@ -123,6 +123,28 @@ func TestConfig_MigrateSignalRFinalBackoff(t *testing.T) {
 	}
 }
 
+func TestConfig_MigratePollingInterval(t *testing.T) {
+	tests := []struct {
+		name     string
+		current  string
+		expected string
+	}{
+		{name: "the pre-2.6.4 packaged default is lifted", current: "30s", expected: "10m"},
+		{name: "tuned value is preserved", current: "5m", expected: "5m"},
+		{name: "unset value is left to the getter fallback", current: "", expected: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.PollingInterval = tt.current
+
+			require.NoError(t, cfg.MigratePollingInterval())
+			assert.Equal(t, tt.expected, cfg.PollingInterval)
+		})
+	}
+}
+
 func TestConfig_MigrateOfferedCurrentWaitTime(t *testing.T) {
 	tests := []struct {
 		name     string
