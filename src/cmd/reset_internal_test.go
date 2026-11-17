@@ -58,6 +58,7 @@ func TestUninstall_resetAndReMigrate(t *testing.T) {
 	assert.Equal(t, "https://api.easee.com", cfgSvc.EaseeBaseURL())
 	assert.Equal(t, 30*time.Second, cfgSvc.OfferedCurrentWaitTime())
 	assert.Equal(t, 10*time.Second, cfgSvc.EnergyLifetimeInterval())
+	assert.Equal(t, 20*time.Minute, cfgSvc.PollingInterval())
 	assert.True(t, credentials.Credentials().Empty())
 
 	// The next boot re-runs every migration. It only restores what the reset produced: the

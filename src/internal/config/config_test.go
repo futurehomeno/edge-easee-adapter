@@ -228,7 +228,7 @@ func TestService_SettingsRoundTrip(t *testing.T) {
 		get  func(*config.Service) time.Duration
 		set  func(*config.Service, time.Duration) error
 	}{
-		{"polling interval", 10 * time.Minute, (*config.Service).PollingInterval, (*config.Service).SetPollingInterval},
+		{"polling interval", 20 * time.Minute, (*config.Service).PollingInterval, (*config.Service).SetPollingInterval},
 		{"current wait", 3 * time.Second, (*config.Service).CurrentWaitDuration, (*config.Service).SetCurrentWaitDuration},
 		{"http timeout", 30 * time.Second, (*config.Service).HTTPTimeout, (*config.Service).SetHTTPTimeout},
 		{"signalr conn creation", 30 * time.Second, (*config.Service).SignalRConnCreationTimeout, (*config.Service).SetSignalRConnCreationTimeout},

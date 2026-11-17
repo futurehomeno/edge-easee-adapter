@@ -1,3 +1,4 @@
 - [x] A stored `pollingInterval` shorter than one minute becomes `20m`; one minute or longer, unset and unparsable values are kept (test first)
 - [x] The migration runs as config version 8 → 9, also for a 2.5 config upgraded in one boot (test first)
+- [x] Packaged default and getter fallback `20m` (test first)
 - [x] Version bumped to 3.3.2

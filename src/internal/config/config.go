@@ -237,7 +237,7 @@ func (cs *Service) SetSelectedDevices(devices selection.Selection) error {
 }
 
 func (cs *Service) PollingInterval() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.PollingInterval }, 10*time.Minute)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.PollingInterval }, 20*time.Minute)
 }
 
 func (cs *Service) SetPollingInterval(interval time.Duration) error {
