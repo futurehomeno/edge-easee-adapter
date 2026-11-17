@@ -2294,33 +2294,121 @@ func TestController_SetChargepointPhaseMode_RejectedSetCachesNothing(t *testing.
 	assert.Empty(t, requested)
 }
 
+// phaseResyncController drives the live cache of an idle TN charger in auto, on the mocked clock.
+// The manager expects no re-sync until the caller says so.
+func phaseResyncController(t *testing.T, clientMock *mockapi.Client) (easee.Controller, cache.Cache, *mockedsignalr.Manager) {
+	t.Helper()
+
+	observed := clock.Now().Add(-2 * time.Hour)
+
+	c := cache.NewCache("test-charger")
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(model.EaseePhaseModeAuto, observed)
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
+	ctrl := easee.NewController(managerMock, clientMock, "test-charger", c, config.NewService(storage),
+		mockeddb.NewChargingSessionStorage(t), func() types.PhaseMode { return "" })
+	t.Cleanup(ctrl.Teardown)
+
+	return ctrl, c, managerMock
+}
+
+func TestController_SetChargepointPhaseMode_RejectedSetArmsNoResync(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 17, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(errors.New("rejected")).Once()
+
+	ctrl, _, managerMock := phaseResyncController(t, clientMock)
+
+	require.Error(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	clk.Add(time.Minute)
+	managerMock.AssertNotCalled(t, "Resync", mock.Anything)
+}
+
+// A bounce re-syncs from its own stop and resume. A re-sync armed at the phase send would run
+// before a stop the window stored, and a replay beating the echo would put the old mode back.
+func TestController_SetChargepointPhaseMode_StoredBounceArmsNoResyncBeforeItsStop(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 17, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(16)).Return(nil).Once()
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+
+	ctrl, c, managerMock := phaseResyncController(t, clientMock)
+	c.SetTotalPower(3000.0, clk.Now())
+	c.SetOfferedCurrent(16, clk.Now())
+
+	// Opens the 30 s window, so the pause is stored until it closes.
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(16))
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+
+	clk.Add(24 * time.Second)
+	managerMock.AssertNotCalled(t, "Resync", mock.Anything)
+}
+
+// Phase sets are not paced: replacing the pending re-sync, a run of them would hold back the one a
+// start or a stop armed past energy guard's wait.
+func TestController_SetChargepointPhaseMode_KeepsAPendingResync(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 17, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+
+	ctrl, _, managerMock := phaseResyncController(t, clientMock)
+
+	resynced := make(chan struct{}, 1)
+	managerMock.On("Resync", "test-charger").Run(signal(resynced)).Once()
+
+	require.NoError(t, ctrl.StopChargepointCharging())
+	clk.Add(14 * time.Second)
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	clk.Add(time.Second)
+	awaitDeferred(t, resynced)
+}
+
+// cmd.thing.delete can arrive while the set is still waiting for Easee.
+func TestController_Teardown_APhaseModeAnsweredLaterArmsNoResync(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 17, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	var ctrl easee.Controller
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Run(func(mock.Arguments) { ctrl.Teardown() }).Return(nil).Once()
+
+	ctrl, _, managerMock := phaseResyncController(t, clientMock)
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	clk.Add(time.Minute)
+	managerMock.AssertNotCalled(t, "Resync", mock.Anything)
+}
+
 // Easee can accept a mode the charger never applies. No echo follows, so the cached target skips
 // every repeat until the re-sync replays the mode the charger is really in.
 func TestController_SetChargepointPhaseMode_ResyncsSoAnUnappliedModeIsSentAgain(t *testing.T) {
 	clk := clock.Mock(time.Date(2026, time.November, 17, 0, 0, 0, 0, time.UTC))
 	t.Cleanup(clock.Restore)
 
-	observed := clk.Now().Add(-2 * time.Hour)
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Twice()
 
-	c := cache.NewCache("test-charger")
-	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
-	c.SetPhaseMode(model.EaseePhaseModeAuto, observed)
+	ctrl, c, managerMock := phaseResyncController(t, clientMock)
+	_, observed := c.PhaseMode()
 
 	resynced := make(chan struct{}, 1)
-	managerMock := mockedsignalr.NewManager(t)
-	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
 	managerMock.On("Resync", "test-charger").Run(func(mock.Arguments) {
 		c.SetPhaseMode(model.EaseePhaseModeAuto, observed)
 		resynced <- struct{}{}
 	}).Once()
-
-	clientMock := mockapi.NewClient(t)
-	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Twice()
-
-	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	ctrl := easee.NewController(managerMock, clientMock, "test-charger", c, config.NewService(storage),
-		mockeddb.NewChargingSessionStorage(t), func() types.PhaseMode { return "" })
-	t.Cleanup(ctrl.Teardown)
 
 	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
 	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))

@@ -27,7 +27,7 @@ import (
 
 const maxCurrentValue = 32
 
-// resyncDelay gives the charger time to act on a start or stop, well inside energy-guard's 60s wait.
+// resyncDelay gives the charger time to act on a command, well inside energy-guard's 60s wait.
 const resyncDelay = 15 * time.Second
 
 var extendedReportMapping = map[numericmeter.Value]func(cache.Cache) (float64, time.Time){
@@ -105,8 +105,9 @@ type controller struct {
 	// is past the point clearing pending can stop it, so Teardown waits this out instead to keep
 	// its "nothing more will reach the charger" guarantee true for a send already in progress.
 	inFlight sync.WaitGroup
-	// stopResync cancels the re-sync armed by the last start or stop, guarded by pace.
+	// stopResync cancels the pending re-sync and resyncAt is when it runs, both guarded by pace.
 	stopResync func() bool
+	resyncAt   time.Time
 	// closed is set by Teardown. The router runs messages concurrently, so a command for the
 	// deleted charger can still arrive; it must not be sent, nor Add to inFlight under its Wait.
 	closed bool
@@ -209,6 +210,10 @@ func (c *controller) Teardown() {
 		c.stopTimer = nil
 	}
 
+	if c.stopResync != nil {
+		c.stopResync()
+	}
+
 	c.pending = nil
 	c.followUp = nil
 	c.closed = true
@@ -216,14 +221,6 @@ func (c *controller) Teardown() {
 	c.pace.Unlock()
 
 	c.inFlight.Wait()
-
-	// After the wait: an in-flight start or stop arms its re-sync only once Easee answers.
-	c.pace.Lock()
-	defer c.pace.Unlock()
-
-	if c.stopResync != nil {
-		c.stopResync()
-	}
 }
 
 // clearFollowUp drops a pair's second half when the first never reached Easee. Armed before the
@@ -299,22 +296,30 @@ func (c *controller) send(cmd chargerCommand) error {
 	}
 
 	if err == nil && (cmd.stop || cmd.start) {
-		c.scheduleResync()
+		c.scheduleResync(true)
 	}
 
 	return err
 }
 
-// scheduleResync re-reads the charger after a start or stop: Easee's stream can stop carrying
-// the state change the command causes (#178).
-func (c *controller) scheduleResync() {
+// scheduleResync re-reads the charger once it has had time to act on a command. Easee's stream can
+// stop carrying the state change a start or stop causes (#178), and Easee can accept a phase mode
+// the charger never applies: no echo follows, and only the replay puts the real mode back, without
+// which every repeat of that request is skipped. A phase mode does not postpone a pending re-sync:
+// phase sets are not paced, so a run of them would hold it back past energy guard's wait.
+func (c *controller) scheduleResync(postpone bool) {
 	c.pace.Lock()
 	defer c.pace.Unlock()
+
+	if c.closed || (!postpone && clock.Now().Before(c.resyncAt)) {
+		return
+	}
 
 	if c.stopResync != nil {
 		c.stopResync()
 	}
 
+	c.resyncAt = clock.Now().Add(resyncDelay)
 	c.stopResync = clock.AfterFunc(resyncDelay, func() { c.manager.Resync(c.chargerID) }).Stop
 }
 
@@ -587,15 +592,19 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 	// lets any newer observation still win, whatever the hub clock says.
 	c.cache.SetPhaseMode(target, internalAt)
 
-	// Easee can accept a mode the charger never applies: no echo follows, and only the replay
-	// puts the real mode back, without which every repeat of this request is skipped.
-	c.scheduleResync()
-
 	_, outputPhaseSet := c.cache.OutputPhaseType()
 
 	c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), c.recordAt(outputPhaseSet, internalAt))
 
-	return c.restartForPhaseMode(target)
+	if c.charging() {
+		return c.restartForPhaseMode(target)
+	}
+
+	// Not for a bounce: its stop and resume re-sync once sent, and a re-sync armed here would run
+	// before a stop the window stored.
+	c.scheduleResync(false)
+
+	return nil
 }
 
 // recordAt stamps a record in the observation clock rather than the hub's: the request is only
@@ -655,17 +664,6 @@ func (c *controller) legToRecord(mode types.PhaseMode, gridType types.GridType, 
 // the resume cannot be lost against its own pause and the bounce never ends with the charger
 // paused.
 func (c *controller) restartForPhaseMode(target int) error {
-	state, err := c.ChargepointStateReport()
-	if err != nil {
-		log.Warnf("[%s] Phase mode set, but the charger state is unknown: %v", c.chargerID, err)
-
-		return nil
-	}
-
-	if state != chargepoint.StateCharging {
-		return nil
-	}
-
 	// Read before the stop: the session-finished observation clears the cached value
 	// asynchronously, so afterwards it may no longer describe the session being bounced.
 	resume, _ := c.cache.RequestedOfferedCurrent()

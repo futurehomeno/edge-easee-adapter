@@ -88,14 +88,18 @@ transition mid-session and would stall on a hard lock. A mode in neither set SHA
 ### Requirement: Applying A Phase Mode
 `cmd.phase_mode.set` SHALL map the requested mode to an Easee internal mode and, when that target
 differs from the cached internal mode, post it to `/api/chargers/{id}/commands/set_phase_mode`, then
-cache the target as the internal mode, then arm a state re-sync, then record the requested FIMP mode
-in the cache, then restart an in-progress session. The target SHALL be cached with the timestamp of
-the internal-mode observation it replaces: the charger echoes the new mode only later, a request
-arriving before that echo must be compared with the mode just sent rather than dropped as a no-op,
-and every newer observation must still replace it. The re-sync SHALL be the pending one of `State
-Re-sync After Start Or Stop`, requested 15 s after the send: Easee can accept a mode the charger
+cache the target as the internal mode, then record the requested FIMP mode in the cache, then
+restart an in-progress session, or arm a state re-sync when there is none to restart. The target
+SHALL be cached with the timestamp of the internal-mode observation it replaces: the charger echoes
+the new mode only later, a request arriving before that echo must be compared with the mode just
+sent rather than dropped as a no-op, and every newer observation must still replace it. The re-sync
+SHALL be the pending one of `State Re-sync After Start Or Stop`: Easee can accept a mode the charger
 never applies, no observation follows then, and only the replay puts the charger's real mode back in
-the cache. The request SHALL be stamped one millisecond past the newer of
+the cache. It SHALL be requested 15 s after the send, unless one is already pending, which SHALL be
+kept as it is: phase sets are not paced, so replacing it could hold back the re-sync of a start or a
+stop for as long as they keep coming. A restarted session SHALL arm none at the phase send: its stop
+and its resume each arm one once sent, and one armed earlier would run before a stop the pacing
+window stored. The request SHALL be stamped one millisecond past the newer of
 the cached output-phase and internal-mode timestamps rather than with the hub clock, because those
 Easee timestamps are the only values it is ever compared against. A grid with fewer than two
 settable modes SHALL make the command a no-op: flipping the internal mode would bounce a session for
@@ -122,6 +126,14 @@ return successfully without calling Easee.
   phase-mode observation follows
 - **THEN** a re-sync is requested 15 s after the send, its replay puts auto (2) back in the cache,
   and the next single-phase request is sent to Easee again
+
+#### Scenario: the session restart is stored
+- **WHEN** a phase mode is sent for a charging charger and the pacing window stores the pause
+- **THEN** no re-sync is requested before that pause is sent
+
+#### Scenario: a re-sync is already pending
+- **WHEN** a phase mode is sent for an idle charger 14 s after an accepted stop
+- **THEN** the re-sync is requested 15 s after the stop
 
 #### Scenario: hub clock behind Easee
 - **WHEN** the cached observations carry timestamps ahead of the hub clock
