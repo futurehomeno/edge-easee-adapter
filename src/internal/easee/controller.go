@@ -587,6 +587,10 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 	// lets any newer observation still win, whatever the hub clock says.
 	c.cache.SetPhaseMode(target, internalAt)
 
+	// Easee can accept a mode the charger never applies: no echo follows, and only the replay
+	// puts the real mode back, without which every repeat of this request is skipped.
+	c.scheduleResync()
+
 	_, outputPhaseSet := c.cache.OutputPhaseType()
 
 	c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), c.recordAt(outputPhaseSet, internalAt))

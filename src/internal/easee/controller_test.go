@@ -2294,6 +2294,47 @@ func TestController_SetChargepointPhaseMode_RejectedSetCachesNothing(t *testing.
 	assert.Empty(t, requested)
 }
 
+// Easee can accept a mode the charger never applies. No echo follows, so the cached target skips
+// every repeat until the re-sync replays the mode the charger is really in.
+func TestController_SetChargepointPhaseMode_ResyncsSoAnUnappliedModeIsSentAgain(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 17, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	observed := clk.Now().Add(-2 * time.Hour)
+
+	c := cache.NewCache("test-charger")
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(model.EaseePhaseModeAuto, observed)
+
+	resynced := make(chan struct{}, 1)
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+	managerMock.On("Resync", "test-charger").Run(func(mock.Arguments) {
+		c.SetPhaseMode(model.EaseePhaseModeAuto, observed)
+		resynced <- struct{}{}
+	}).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Twice()
+
+	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
+	ctrl := easee.NewController(managerMock, clientMock, "test-charger", c, config.NewService(storage),
+		mockeddb.NewChargingSessionStorage(t), func() types.PhaseMode { return "" })
+	t.Cleanup(ctrl.Teardown)
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	clientMock.AssertNumberOfCalls(t, "SetPhaseMode", 1)
+
+	clk.Add(14 * time.Second)
+	managerMock.AssertNotCalled(t, "Resync", mock.Anything)
+	clk.Add(time.Second)
+	awaitDeferred(t, resynced)
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	clientMock.AssertNumberOfCalls(t, "SetPhaseMode", 2)
+}
+
 // The customer case: an energy-guard refresh landing inside the window after a stop. The write is
 // the hub's latest intent, so it takes the slot and the charger keeps charging at the new current.
 func TestController_OfferedCurrentChannel_DifferentCurrentDisplacesAPendingStop(t *testing.T) {
