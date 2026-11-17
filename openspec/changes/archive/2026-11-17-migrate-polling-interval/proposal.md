@@ -1,4 +1,4 @@
-# Lift the 2.5 polling interval to 10m
+# Lift sub-minute polling intervals to 20m
 
 ## Why
 - Up to 2.5.10 the packaged `pollingInterval` was `30s`; 2.6.1 shipped `10m`. The defaults are copied
@@ -8,11 +8,11 @@
   seen on a 3.3.1 hub with two chargers on 2026-11-17.
 
 ## What Changes
-- A config migration to version 9 rewrites a stored `pollingInterval` of exactly `30s` to `10m`,
-  as the earlier superseded-default migrations do.
+- A config migration to version 9 rewrites a stored `pollingInterval` shorter than one minute to
+  `20m`. One minute or longer, unset and unparsable values are kept.
 
 ## Impact
 - Affected specs: `configuration`
 - Affected code: `src/internal/config/config.go`, `src/cmd/factory.go`
-- A `30s` set on purpose over `cmd.config.set_polling_interval` is indistinguishable from the old
-  default and is rewritten too.
+- A sub-minute interval set on purpose over `cmd.config.set_polling_interval` is rewritten too.
+- Lifted hubs poll every 20 minutes, new installs keep the packaged `10m`.

@@ -129,9 +129,12 @@ func TestConfig_MigratePollingInterval(t *testing.T) {
 		current  string
 		expected string
 	}{
-		{name: "the 2.5 packaged default is lifted", current: "30s", expected: "10m"},
+		{name: "the 2.5 packaged default is lifted", current: "30s", expected: "20m"},
+		{name: "any sub-minute value is lifted", current: "59s", expected: "20m"},
+		{name: "one minute is preserved", current: "1m", expected: "1m"},
 		{name: "tuned value is preserved", current: "5m", expected: "5m"},
 		{name: "unset value is left to the getter fallback", current: "", expected: ""},
+		{name: "unparsable value is left to the getter fallback", current: "soon", expected: "soon"},
 	}
 
 	for _, tt := range tests {

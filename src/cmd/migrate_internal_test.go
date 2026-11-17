@@ -154,19 +154,19 @@ func newMigrationConfigServiceFrom(t *testing.T, body string) (*config.Service, 
 	return svc, dir
 }
 
-func TestMigrateConfig_liftsThePre26PollingInterval(t *testing.T) {
+func TestMigrateConfig_liftsASubMinutePollingInterval(t *testing.T) {
 	t.Parallel()
 
 	svc, dir := newMigrationConfigServiceFrom(t, `{"config_version":8,"pollingInterval":"30s"}`)
 
 	require.NoError(t, migrateConfig(svc, config.NewCredentialsStore(dir)))
 
-	assert.Equal(t, 10*time.Minute, svc.PollingInterval())
+	assert.Equal(t, 20*time.Minute, svc.PollingInterval())
 
 	reloaded := config.New(dir)
 	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load())
 	assert.Equal(t, 9, reloaded.ConfigVersion)
-	assert.Equal(t, "10m", reloaded.PollingInterval)
+	assert.Equal(t, "20m", reloaded.PollingInterval)
 }
 
 // The crash window: the v5->v6 step's Save renames the token-bearing config.json to a

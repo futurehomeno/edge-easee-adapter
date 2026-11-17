@@ -162,11 +162,12 @@ func (c *Config) MigrateOfferedCurrentWaitTime() error {
 	return nil
 }
 
-// MigratePollingInterval lifts installs still carrying the 2.5 packaged default ("30s"),
-// which polls an idle charger's config and site info over REST twice a minute.
+// MigratePollingInterval lifts sub-minute intervals such as the 2.5 packaged default ("30s"):
+// each poll fetches an idle charger's config and site info over REST. Unset or unparsable
+// values are left to the getter's fallback.
 func (c *Config) MigratePollingInterval() error {
-	if c.PollingInterval == "30s" {
-		c.PollingInterval = "10m"
+	if d, err := time.ParseDuration(c.PollingInterval); err == nil && d < time.Minute {
+		c.PollingInterval = "20m"
 	}
 
 	return nil
