@@ -1146,6 +1146,63 @@ func TestObservationsHandler_PhaseCurrentsFollowTheGridType(t *testing.T) {
 	}
 }
 
+// On TN the neutral current streams as often as the line currents, so dropping it must not cost a
+// service lookup per reading.
+func TestObservationsHandler_NeutralCurrentReadsTheGridTypeOnce(t *testing.T) {
+	t.Parallel()
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	cp.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType: types.GridTypeTN,
+	}}).Once()
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: cp}, mockedcache.NewCache(t), nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	for _, value := range []string{"1", "2"} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.InCurrentT2, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+			Timestamp: time.Now(), Value: value,
+		}))
+	}
+}
+
+// The grid type is kept after the first reading, so a topology change has to replace it.
+func TestObservationsHandler_PhaseCurrentsFollowATopologyChange(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	phases := cache.NewCache(testChargerID)
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	cp.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType: types.GridTypeTN,
+	}}).Maybe()
+
+	meter := mockednumericmeter.NewService(t)
+	meter.On("Name").Return(numericmeter.MeterElec).Maybe()
+	meter.On("SendMeterExtendedReport", numericmeter.Values{numericmeter.ValueCurrentPhase1}, false).Return(true, nil).Once()
+
+	handler, err := signalr.NewObservationsHandler(&meterThing{cp: cp, meter: meter}, phases, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	for _, o := range []model.Observation{
+		{ID: model.InCurrentT2, DataType: model.ObservationDataTypeDouble, Value: "7"},
+		{ID: model.DetectedPowerGridType, DataType: model.ObservationDataTypeInteger, Value: strconv.Itoa(int(model.GridTypeIT3Phase))},
+		{ID: model.InCurrentT2, DataType: model.ObservationDataTypeDouble, Value: "8"},
+	} {
+		o.ChargerID, o.Timestamp = testChargerID, now
+		require.NoError(t, handler.HandleObservation(o))
+	}
+
+	flushReports(t, handler)
+
+	i1, _ := phases.Phase1Current()
+	assert.InDelta(t, 8, i1, 0)
+}
+
 // #166: Close closed the report queue and waited for runSender, but never stopped the
 // lifetime-energy goroutine. Unregister calls Close, so after cmd.thing.delete that goroutine
 // still woke at EnergyLifetimeInterval and published a meter report on a torn-down thing.

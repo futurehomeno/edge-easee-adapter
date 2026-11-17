@@ -58,6 +58,9 @@ type observationsHandler struct {
 	// queued republish, so cachedAt lags it either way.
 	topologyAt time.Time
 
+	// The props' grid type, read once and dropped when the props are replaced. Drain only.
+	gridType *types.GridType
+
 	reports  chan func() error
 	senderWG sync.WaitGroup
 
@@ -524,14 +527,28 @@ var phaseCurrents = [...]struct {
 	{cache.Cache.SetPhase3Current, numericmeter.ValueCurrentPhase3},
 }
 
+// propsGridType reads the grid type from the props rather than the cache: a queued topology
+// republish has not written the cache yet. Kept, so a reading on no line of the grid - the neutral
+// current on TN - costs no service lookup.
+func (h *observationsHandler) propsGridType() (types.GridType, error) {
+	if h.gridType == nil {
+		chargepointSrv, err := getChargepointService(h.thing)
+		if err != nil {
+			return "", err
+		}
+
+		gridType, _ := chargepointSrv.Specification().Props[chargepoint.PropertyGridType].(types.GridType)
+		h.gridType = &gridType
+	}
+
+	return *h.gridType, nil
+}
+
 func (h *observationsHandler) handlePhaseCurrent(observation model.Observation) error {
-	chargepointSrv, err := getChargepointService(h.thing)
+	gridType, err := h.propsGridType()
 	if err != nil {
 		return err
 	}
-
-	// From the props: a queued topology republish has not written the cache yet.
-	gridType, _ := chargepointSrv.Specification().Props[chargepoint.PropertyGridType].(types.GridType)
 
 	line := observation.ID.Line(gridType)
 	if line == 0 {
@@ -575,8 +592,7 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 		return err
 	}
 
-	// From the props: a queued topology republish has not written the cache yet.
-	gridType, _ := chargepointSrv.Specification().Props[chargepoint.PropertyGridType].(types.GridType)
+	gridType, _ := h.propsGridType()
 	outPhaseType := model.OutputPhaseType(val).ToFimpState(gridType)
 
 	// Charger sets outPhaseType parameter to "" if charger not charging, even if it has ongoing charging session.
@@ -711,6 +727,7 @@ func (h *observationsHandler) republishChargepointProps(props map[string]any, on
 	// TestObservationsHandler_OutputPhaseUsesPendingTopology) - not worth it for a
 	// same-charger, back-to-back topology change this narrow.
 	service.Specification().Props = chargepointPropsUpdate(service, props)
+	h.gridType = nil
 
 	// The props assignment above stays on the drain - it is what every later report reads - but
 	// the republish waits on MQTT, and the drain is the only drainer of the observation channel.
