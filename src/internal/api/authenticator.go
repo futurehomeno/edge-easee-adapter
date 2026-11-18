@@ -381,7 +381,11 @@ func credentialsFromResponse(credentials *model.Credentials) config.Credentials 
 	return config.Credentials{
 		AccessToken:           credentials.AccessToken,
 		RefreshToken:          credentials.RefreshToken,
-		AccessTokenExpiresAt:  tokenExpiration(credentials.AccessToken, time.Now().Add(time.Duration(credentials.ExpiresIn)*time.Second)),
+		AccessTokenExpiresAt:  accessTokenExpiry(credentials),
 		RefreshTokenExpiresAt: tokenExpiration(credentials.RefreshToken, time.Time{}),
 	}
+}
+
+func accessTokenExpiry(credentials *model.Credentials) time.Time {
+	return tokenExpiration(credentials.AccessToken, time.Now().Add(time.Duration(credentials.ExpiresIn)*time.Second))
 }
