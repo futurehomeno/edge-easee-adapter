@@ -3,6 +3,7 @@ package api_test
 // TODO: refactor there test to use our internal HTTP testing package.
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/michalkurzeja/go-clock"
+	log "github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -177,6 +180,39 @@ func TestClient_RefreshToken(t *testing.T) {
 			} else {
 				assert.Equal(t, v.expectedCreds, *creds)
 			}
+		})
+	}
+}
+
+func TestClient_LogsAccessTokenLifetime(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	expiresAt := time.Now().Add(time.Hour)
+	body := fmt.Sprintf(`{"accessToken":%q,"expiresIn":3600,"refreshToken":"refresh"}`, jwtWithExpiry(expiresAt))
+	want := "[auth] Access token expiresIn=3600s expiresAt=" + expiresAt.Format(time.RFC3339)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(server.Close)
+
+	client := api.NewHTTPClient(server.Client(), server.URL)
+
+	for name, call := range map[string]func() (*model.Credentials, error){
+		"login":   func() (*model.Credentials, error) { return client.Login("user", "password") },
+		"refresh": func() (*model.Credentials, error) { return client.RefreshToken("access", "refresh") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			hook.Reset()
+
+			_, err := call()
+			require.NoError(t, err)
+
+			entry := hook.LastEntry()
+			require.NotNil(t, entry)
+			assert.Equal(t, log.InfoLevel, entry.Level)
+			assert.Equal(t, want, entry.Message)
 		})
 	}
 }

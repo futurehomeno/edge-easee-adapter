@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/httpclient"
@@ -122,6 +123,8 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 		return nil, errors.New("login response carries no access token")
 	}
 
+	logTokenLifetime(credentials)
+
 	return credentials, nil
 }
 
@@ -160,7 +163,14 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 		return nil, errors.New("token refresh response carries no access token")
 	}
 
+	logTokenLifetime(loginData)
+
 	return loginData, nil
+}
+
+func logTokenLifetime(credentials *model.Credentials) {
+	log.Infof("[auth] Access token expiresIn=%ds expiresAt=%s",
+		credentials.ExpiresIn, accessTokenExpiry(credentials).Local().Format(time.RFC3339))
 }
 
 func (c *httpClient) UpdateMaxCurrent(accessToken, chargerID string, current float64) error {
