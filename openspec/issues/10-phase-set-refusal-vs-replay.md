@@ -30,12 +30,13 @@ Left open:
 
 ## Field data (2026-11-17)
 
-Debug logs of hubs `7a18325dc9eaa3b7` (EH496315) and `9c1edbb3d437c8f1` (EH152843), 5832 unique
+Debug logs of two beta hubs, one charger each, 5832 unique
 `CommandResponse` answers:
 
 - Payload: `serialNumber`, `id`, `ticks`, `timestamp`, `deliveredAt`, `wasAccepted`, `resultCode`,
   `comment`. Easee documents it only for AMQP (https://developer.easee.com/docs/amqp-commands). `id` 38 is
-  the phase mode, 48 the dynamic current, 47 the max current, 30 the cable lock.
+  the phase mode, 48 the dynamic current, 47 the max current, 30 the permanent cable lock
+  (`LockCablePermanently`, not the cable-lock state, observation 103).
 - All 5832 answers say `wasAccepted: true`, `resultCode: null`. No refused answer was ever logged,
   so its format is unknown. The 53 phase-mode answers arrived 0-2 s after the send.
 - `wasAccepted: true` does not mean the charger applied the value: in the 2026-09-20 customer log
@@ -49,4 +50,8 @@ Result: a handler for a refused answer would cover a case never seen and miss th
 about. The echo is the signal that tells the two apart: a re-sync could be skipped when the echo
 arrived within the 15 s, which would leave the re-subscribe to the sends the charger did not echo.
 
-Open question: skip the re-sync when the echo has arrived?
+Open question: skip the re-sync when the echo has arrived? Observation 38 carries no command ID,
+and phase sends can interleave (issue 11), so only an echo of the sent mode newer than the
+observation the target replaced could count; a replayed or unmatched observation keeps the re-sync.
+That alone is not unique: with 2→1→2→1 sent before any echo, the echo of the second send passes for
+the fourth. A send made while an earlier send is still unechoed keeps the re-sync too.
