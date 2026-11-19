@@ -162,6 +162,17 @@ func (c *Config) MigrateOfferedCurrentWaitTime() error {
 	return nil
 }
 
+// MigratePollingInterval lifts sub-minute intervals such as the 2.5 packaged default ("30s"):
+// each poll fetches an idle charger's config and site info over REST. Unset or unparsable
+// values are left to the getter's fallback.
+func (c *Config) MigratePollingInterval() error {
+	if d, err := time.ParseDuration(c.PollingInterval); err == nil && d < time.Minute {
+		c.PollingInterval = "20m"
+	}
+
+	return nil
+}
+
 // MigrateSignalRFinalBackoff lifts installs still carrying the superseded packaged
 // default ("2m") onto the calmer ceiling. Any other value is left alone; a "2m" chosen
 // deliberately is indistinguishable from the old default and is rewritten too.
@@ -226,7 +237,7 @@ func (cs *Service) SetSelectedDevices(devices selection.Selection) error {
 }
 
 func (cs *Service) PollingInterval() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.PollingInterval }, 10*time.Minute)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.PollingInterval }, 20*time.Minute)
 }
 
 func (cs *Service) SetPollingInterval(interval time.Duration) error {
