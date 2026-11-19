@@ -53,3 +53,5 @@ arrived within the 15 s, which would leave the re-subscribe to the sends the cha
 Open question: skip the re-sync when the echo has arrived? Observation 38 carries no command ID,
 and phase sends can interleave (issue 11), so only an echo of the sent mode newer than the
 observation the target replaced could count; a replayed or unmatched observation keeps the re-sync.
+That alone is not unique: with 2→1→2→1 sent before any echo, the echo of the second send passes for
+the fourth. A send made while an earlier send is still unechoed keeps the re-sync too.
