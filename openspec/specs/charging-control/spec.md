@@ -89,9 +89,13 @@ on stop and ignores a dynamic-current write that follows it too closely.
 - **THEN** it is stored and sent at the deadline the stop opened
 
 ### Requirement: Offered Current
-`cmd.smart_charge.set` SHALL write the dynamic current through the per-charger command channel. The
-requested value SHALL be clamped to the cached max current, or to 32A when no max current is cached,
-logging the clamp. Unless forced, a value equal to the last requested value within
+`cmd.current_session.set_current` SHALL write the dynamic current through the per-charger command
+channel. The requested value SHALL be clamped to the cached max current, or to 32A when no max
+current is cached, logging the clamp when the requested value or the limit differs from the
+charger's previous clamp, and not on a repeat: Energy Guard resends its target current on every
+balancing tick. A `cmd.current_session.set_current` that is not clamped SHALL reset this, so the
+next clamp is logged; a start or a phase-mode restart SHALL clamp without logging and SHALL NOT
+reset it. Unless forced, a value equal to the last requested value within
 `offered_current_wait_time` SHALL be skipped. When the write goes out immediately, the requested
 value SHALL be cached with the current hub time and the adapter SHALL wait up to
 `current_wait_duration` (default 3s) for the charger to echo it back over SignalR; a deferred write
@@ -119,6 +123,23 @@ observation is gone from the cache, while a delivered value can itself be the st
 #### Scenario: rate limit hit
 - **WHEN** a different current is requested within `offered_current_wait_time` of the last send
 - **THEN** the write is stored rather than refused, and the command succeeds
+
+#### Scenario: repeated clamp
+- **WHEN** 20A is requested several times while the cached max current stays 13A
+- **THEN** the clamp is logged once and every request is clamped to 13A
+
+#### Scenario: start between repeated clamps
+- **WHEN** 20A is requested at a 13A max, charging is started at a cached 16A, and 20A is requested
+  again
+- **THEN** the start is clamped to 13A without a log line and the clamp is logged once
+
+#### Scenario: clamp changes
+- **WHEN** 20A is requested at a 13A max, then 22A at a 13A max, then 22A at a 16A max
+- **THEN** the clamp is logged for each of the three requests
+
+#### Scenario: clamp after an unclamped request
+- **WHEN** 22A is requested at a 16A max, then 16A, then 22A again
+- **THEN** the clamp is logged for both 22A requests
 
 ### Requirement: Max Current
 `cmd.max_current.set` SHALL write the charger's max current and then wait up to
@@ -386,7 +407,7 @@ After `cmd.charge.start` or `cmd.charge.stop` is sent to Easee and accepted, the
 - **THEN** the re-sync is scheduled 15 s after the stored stop is actually sent
 
 ### Requirement: Charging Watchdog
-The adapter SHALL check every minute each charger whose cached state is `charging`. When no `ChargerOPState` or `TotalPower` observation, the two the state report is built from, has arrived for that charger for 5 minutes, it SHALL request a state re-sync, and while the silence lasts it SHALL request at most one re-sync every 5 minutes. `DynamicChargerCurrent` observations SHALL NOT count as activity, because Easee echoes the adapter's own writes with them while the rest of the stream is silent.
+The adapter SHALL check every minute each charger whose cached state is `charging`. When no `ChargerOPState` observation and no `TotalPower` observation above zero, the two the state report is built from, has arrived for that charger for 5 minutes, it SHALL request a state re-sync, and while the silence lasts it SHALL request at most one re-sync every 5 minutes. `DynamicChargerCurrent` observations SHALL NOT count as activity, because Easee echoes the adapter's own writes with them while the rest of the stream is silent.
 
 #### Scenario: charging and silent
 - **WHEN** a charger is cached as `charging` and no state or power observation arrived for 5 minutes
@@ -394,6 +415,10 @@ The adapter SHALL check every minute each charger whose cached state is `chargin
 
 #### Scenario: only command echoes arrive
 - **WHEN** the only observations for a charger cached as `charging` are `DynamicChargerCurrent`
+- **THEN** the watchdog still requests a re-sync after 5 minutes
+
+#### Scenario: only zero power arrives
+- **WHEN** the only observations for a charger cached as `charging` are `TotalPower` of zero
 - **THEN** the watchdog still requests a re-sync after 5 minutes
 
 #### Scenario: not charging
@@ -406,11 +431,16 @@ The adapter SHALL check every minute each charger whose cached state is `chargin
 
 ### Requirement: Teardown Waits Out Immediate Sends
 Teardown SHALL wait for a start, stop or dynamic-current write that is being sent at once until it
-reaches Easee, and SHALL cancel the re-sync that send arms.
+reaches Easee, and SHALL cancel the pending re-sync. A command Easee answers after Teardown, a phase
+mode among them, SHALL arm no re-sync.
 
 #### Scenario: thing deleted during an immediate stop
 - **WHEN** the thing is deleted while a stop sent at once is still waiting for Easee
 - **THEN** Teardown returns only after the stop finished, and no re-sync fires afterwards
+
+#### Scenario: thing deleted during a phase mode set
+- **WHEN** the thing is deleted while a set-phase-mode call is still waiting for Easee
+- **THEN** no re-sync fires afterwards
 
 #### Scenario: command after Teardown
 - **WHEN** a start, stop or dynamic-current write for the charger arrives after Teardown

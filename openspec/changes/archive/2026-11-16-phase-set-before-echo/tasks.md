@@ -1,0 +1,4 @@
+- [x] A single-phase request right after single -> auto, with no observation in between, is sent (test first)
+- [x] A phase-mode observation newer than the replaced one, stamped behind the hub clock, still replaces the sent target (guard test)
+- [x] A rejected set caches neither the target nor the requested mode (guard test)
+- [x] `SetChargepointPhaseMode` caches the sent target with the replaced observation's timestamp
