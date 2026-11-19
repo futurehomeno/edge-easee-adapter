@@ -18,8 +18,7 @@ this happened at 17:21 and 17:22, 57-58 min after the 16:24 connect, and caused 
 middle of the session.
 
 Open:
-- How often does Easee stream `TotalPower` and `ChargerOPState` during steady charging? A debug capture of
-  one session would settle it.
+- How often does Easee stream `TotalPower` and `ChargerOPState` during steady charging? Answered below.
 - Should the window be longer, should other observations reset it (`DynamicChargerCurrent` echoes, phase
   currents, lifetime energy), or both? #178 is why those observations do not reset it now: they kept
   streaming while the state did not.
