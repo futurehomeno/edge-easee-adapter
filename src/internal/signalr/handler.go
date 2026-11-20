@@ -478,12 +478,21 @@ func (h *observationsHandler) handleTotalPower(observation model.Observation) er
 		return err
 	}
 
+	chargepointSrv, err := getChargepointService(h.thing)
+	if err != nil {
+		return err
+	}
+
 	h.enqueue("total power", func() error {
 		if _, err := meterElecSrv.SendMeterReport(numericmeter.UnitW, false); err != nil {
 			return err
 		}
 
-		_, err := meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValuePowerImport}, false)
+		if _, err := meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValuePowerImport}, false); err != nil {
+			return err
+		}
+
+		_, err := chargepointSrv.SendStateReport(false)
 
 		return err
 	})
