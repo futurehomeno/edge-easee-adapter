@@ -60,7 +60,7 @@ type manager struct {
 	done    chan struct{}
 	cfg     *config.Service
 
-	// Set when a refused re-subscribe restarts the client; cleared by the next connect.
+	// Set when a refused subscribe restarts the client; cleared by the next connect.
 	reconnecting bool
 
 	subscriptions chan string
@@ -341,7 +341,6 @@ func (m *manager) handleSubscription(chargerID string) error {
 	}
 
 	resync := charger.resync
-	subscribed := charger.isSubscribed
 
 	// A retry armed before a disconnect can fire after the reconnect sweep already
 	// re-subscribed this charger; don't subscribe twice on the same connection. Subscribes
@@ -378,7 +377,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 	defer func() {
 		if restart {
-			log.Warnf("signalR: re-subscribe of '%s' refused as unauthorized, reconnecting with the current token", chargerID)
+			log.Warnf("signalR: subscribe of '%s' refused as unauthorized, reconnecting with the current token", chargerID)
 			m.client.Restart()
 		}
 
@@ -448,10 +447,11 @@ func (m *manager) handleSubscription(chargerID string) error {
 			charger.subscribeFailed = true
 		}
 
-		// The connection keeps the access token it was opened with; a refusal on it after a
-		// successful subscribe means that token is no longer accepted.
-		if subscribed && !m.reconnecting && strings.Contains(err.Error(), "HubException: Unauthorized") {
+		// The connection keeps the access token it was opened with; a refusal on it means that
+		// token is no longer accepted.
+		if !m.reconnecting && !charger.unauthorizedRestarted && strings.Contains(err.Error(), "HubException: Unauthorized") {
 			m.reconnecting = true
+			charger.unauthorizedRestarted = true
 			restart = true
 		}
 
@@ -482,6 +482,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 	charger.backoff.Reset()
 	charger.isSubscribed = true
 	charger.subscribeFailed = false
+	charger.unauthorizedRestarted = false
 	// A re-sync asked for while this subscribe ran may postdate the state it replayed.
 	requeue = charger.resync
 
@@ -676,4 +677,9 @@ type charger struct {
 	// subscribe that was already in flight cannot report success for a subscription that is
 	// gone. The manager-wide epoch above covers a reconnect; this one covers a repair.
 	subscribeEpoch uint64
+
+	// Set when this charger's unauthorized refusal restarts the client, cleared only by its next
+	// successful subscribe. The reconnect sweep must keep it: a charger that left the account is
+	// refused on every connection and would otherwise restart the client on each one.
+	unauthorizedRestarted bool
 }
