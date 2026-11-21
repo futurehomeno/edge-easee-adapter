@@ -23,3 +23,6 @@ and is already on `main`, so it has to reach release_3.3 anyway.
 
 Open: leave it in this PR (PR body should then say so), or rebase the branch onto `release_3.3`
 (force-push) and bring #207 over separately?
+
+Closed 2026-11-21: left in. PR 209 merged into `release_3.3` on 2026-11-15 (21c57e8) with the #207
+spec change and `2026-10-22-pr180-start-echo-spec`, so no rebase is possible or needed.
