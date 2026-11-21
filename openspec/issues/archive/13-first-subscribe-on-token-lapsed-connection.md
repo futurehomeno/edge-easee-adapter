@@ -13,3 +13,5 @@ Open: restart for a first subscribe too? That needs a per-charger guard, because
 the account is refused on every new connection and would loop the reconnect for all chargers. The
 unexplained refusal right after connect would then cost an extra reconnect each time. Same gap as
 issue 5 for a refused Unsubscribe.
+
+Closed by `resync-first-subscribe-unauthorized` (2026-11-21): a first subscribe refused as unauthorized restarts the client too, at most once per charger until it next subscribes (the reconnect sweep keeps that guard).

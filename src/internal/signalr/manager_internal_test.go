@@ -1445,13 +1445,58 @@ func TestUnauthorizedResubscribe_DoesNotRestartAgainWhenTheNewConnectionRefusesT
 	assert.Equal(t, int32(1), client.restarts.Load())
 }
 
-func TestUnauthorizedFirstSubscribe_DoesNotRestartTheClient(t *testing.T) {
+func TestUnauthorizedFirstSubscribe_RestartsTheClient(t *testing.T) {
 	client := &scriptedSubscribeClient{errs: []error{errUnauthorized}}
 	m := newTestManagerWithClient(t, client)
 
 	require.NoError(t, m.handleSubscription(chargerID))
 
-	assert.Zero(t, client.restarts.Load())
+	assert.Equal(t, int32(1), client.restarts.Load())
+}
+
+func TestUnauthorizedFirstSubscribe_RefusedAgainAfterTheRestartRetriesWithBackoff(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	arms := &countingBackoff{Stateful: m.cfg.SignalRBackoffStateful()}
+	m.chargers[chargerID].backoff = arms
+
+	require.NoError(t, m.handleSubscription(chargerID))
+	m.handleClientState(model.ClientStateConnected)
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, int32(1), client.restarts.Load())
+	assert.Eventually(t, func() bool { return arms.count() == 1 }, time.Second, time.Millisecond)
+}
+
+func TestUnauthorizedFirstSubscribe_RestartsAgainAfterTheChargerSubscribed(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, nil, errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+	m.handleClientState(model.ClientStateConnected)
+	require.NoError(t, m.handleSubscription(chargerID))
+	m.handleClientState(model.ClientStateConnected)
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, int32(2), client.restarts.Load())
+}
+
+func TestReconnectKeepsTheUnauthorizedRestartGuard(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+	m.handleClientState(model.ClientStateDisconnected)
+	m.handleClientState(model.ClientStateConnected)
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assert.True(t, m.chargers[chargerID].unauthorizedRestarted)
 }
 
 func TestResubscribeFailingWithAnotherError_DoesNotRestartTheClient(t *testing.T) {

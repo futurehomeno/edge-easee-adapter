@@ -9,6 +9,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/db"
+	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -106,18 +107,23 @@ func (c *connector) Ping() *adapter.PingDetails {
 	}
 }
 
-// phaseStore reads and writes the observed phase in the persisted thing state.
+// phaseStore reads and writes the observed phase, and reads the raw grid type, in the persisted
+// thing state.
 type phaseStore struct {
 	state adapter.ThingState
 }
 
-func (p *phaseStore) OutputPhase() types.PhaseMode {
+func (p *phaseStore) OutputPhase() types.PhaseMode { return p.read().OutputPhase }
+
+func (p *phaseStore) DetectedGridType() model.GridType { return p.read().DetectedGridType }
+
+func (p *phaseStore) read() State {
 	state := State{}
 	if err := p.state.State(&state); err != nil {
 		log.WithError(err).Error("connector: failed to read state")
 	}
 
-	return state.OutputPhase
+	return state
 }
 
 func (p *phaseStore) SetOutputPhase(mode types.PhaseMode) error {
