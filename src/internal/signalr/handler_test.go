@@ -215,6 +215,7 @@ func TestObservationsHandler_OutputPhaseStoreWriteStaysOffTheDrain(t *testing.T)
 	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
 		chargepoint.PropertyGridType: types.GridTypeIT,
 	}})
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Once()
 
 	store := &fakePhaseStore{mode: types.PhaseModeL1L2, block: make(chan struct{}), err: assert.AnError}
@@ -263,6 +264,7 @@ func TestObservationsHandler_OutputPhaseReportDoesNotWaitForTheStoreWrite(t *tes
 	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
 		chargepoint.PropertyGridType: types.GridTypeIT,
 	}})
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
 	srv.On("SendPhaseModeReport", false).Run(func(mock.Arguments) { close(reported) }).Return(true, nil).Once()
 
 	store := &fakePhaseStore{mode: types.PhaseModeL1L2, block: make(chan struct{})}
@@ -308,6 +310,7 @@ func TestObservationsHandler_OutputPhaseKeepsEveryLegAdvertised(t *testing.T) {
 		chargepoint.PropertyPhases:              3,
 		chargepoint.PropertySupportedPhaseModes: all,
 	}})
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
 
 	thing := &phaseThing{srv: srv}
@@ -349,6 +352,7 @@ func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
 		chargepoint.PropertyGridType: types.GridTypeIT,
 		chargepoint.PropertyPhases:   1,
 	}})
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Once()
 
 	store := &fakePhaseStore{}
@@ -404,6 +408,55 @@ func TestObservationsHandler_PhaseModeRepeatKeepsItsTimestamp(t *testing.T) {
 	assert.Equal(t, 1, mode)
 	assert.Equal(t, t2, at)
 	srv.AssertNotCalled(t, "SendPhaseModeReport", false)
+}
+
+type chargepointThing struct {
+	adapter.Thing
+
+	srv chargepoint.Service
+}
+
+func (t chargepointThing) Services(fimptype.ServiceNameT) []adapter.Service {
+	return []adapter.Service{t.srv}
+}
+
+// Grid type 30, or one not yet detected, advertises no sup_phase_modes, and cliffhanger refuses
+// a phase-mode report on such a chargepoint, so sending one anyway warns on every change.
+func TestObservationsHandler_NoPhaseModesSendsNoPhaseModeReport(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	now := time.Now()
+
+	srv := chargepoint.NewService(nil, &chargepoint.Config{
+		Specification: &fimptype.Service{Props: map[string]interface{}{
+			chargepoint.PropertyGridType: types.GridTypeTN,
+			chargepoint.PropertyPhases:   2,
+		}},
+		Controller: mockedchargepoint.NewController(t),
+	})
+	store := &fakePhaseStore{}
+
+	handler, err := signalr.NewObservationsHandler(chargepointThing{srv: srv}, cache.NewCache(testChargerID), nil, nil, testChargerID, store)
+	require.NoError(t, err)
+
+	for _, obs := range []struct {
+		id  model.ObservationID
+		val int
+	}{{model.PhaseMode, 1}, {model.OutputPhase, int(model.P1T2T3TN)}} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: obs.id, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: now, Value: strconv.Itoa(obs.val),
+		}))
+	}
+
+	flushReports(t, handler)
+
+	for _, entry := range hook.AllEntries() {
+		assert.NotContains(t, entry.Message, "aware phase modes is not supported")
+	}
+
+	assert.Equal(t, types.PhaseModeNL1, store.mode)
 }
 
 // The offline state report is the one report that must survive the offline gate. The handler
@@ -1724,6 +1777,7 @@ func TestObservationsHandler_OutputPhaseUsesPendingTopology(t *testing.T) {
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{}})
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
 
 	block := make(chan struct{})

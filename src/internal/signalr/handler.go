@@ -258,13 +258,21 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 		return err
 	}
 
-	h.enqueue("phase mode", func() error {
-		_, err := chargepointSrv.SendPhaseModeReport(false)
-
-		return err
-	})
+	h.enqueue("phase mode", func() error { return sendPhaseModeReport(chargepointSrv) })
 
 	return nil
+}
+
+// sendPhaseModeReport skips a chargepoint advertising no sup_phase_modes, which cliffhanger refuses
+// the report for. Checked at send time: a topology republish queued ahead can change the props.
+func sendPhaseModeReport(chargepointSrv chargepoint.Service) error {
+	if !chargepointSrv.IsPhaseModeAware() {
+		return nil
+	}
+
+	_, err := chargepointSrv.SendPhaseModeReport(false)
+
+	return err
 }
 
 func (h *observationsHandler) handleMaxChargerCurrent(observation model.Observation) error {
@@ -633,9 +641,7 @@ func (h *observationsHandler) handleOutPhase(observation model.Observation) erro
 	// The store write is flash I/O, so it stays off the drain like the republish, and after the
 	// report: blocked or failed, it must not cost the hub the report.
 	h.enqueue("phase mode", func() error {
-		_, err := chargepointSrv.SendPhaseModeReport(false)
-
-		return errors.Join(err, h.persistOutputPhase(outPhaseType))
+		return errors.Join(sendPhaseModeReport(chargepointSrv), h.persistOutputPhase(outPhaseType))
 	})
 
 	return nil
