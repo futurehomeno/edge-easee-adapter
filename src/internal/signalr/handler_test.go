@@ -1623,3 +1623,65 @@ func TestObservationsHandler_OutputPhaseUsesPendingTopology(t *testing.T) {
 	assert.Equal(t, types.PhaseModeNL2, store.mode)
 	assert.Equal(t, 1, thing.inclusionCount(), "only the topology republishes")
 }
+
+// The 0 W reading after a stop is the one reading that publishes ready_to_charge, so a failed
+// meter report must not cost the hub the state report.
+func TestObservationsHandler_FailedMeterReportStillSendsTheStateReport(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	now := time.Now()
+	c := cache.NewCache(testChargerID)
+	c.SetChargerState(chargepoint.StateReadyToCharge, now)
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	cp.On("SendStateReport", false).Return(true, nil).Once()
+
+	meter := mockednumericmeter.NewService(t)
+	meter.On("Name").Return(numericmeter.MeterElec).Maybe()
+	meter.On("SendMeterReport", numericmeter.UnitW, false).Return(false, assert.AnError).Once()
+	meter.On("SendMeterExtendedReport", numericmeter.Values{numericmeter.ValuePowerImport}, false).Return(true, nil).Once()
+
+	handler, err := signalr.NewObservationsHandler(&meterThing{cp: cp, meter: meter}, c, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID: model.TotalPower, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+		Timestamp: now, Value: "0",
+	}))
+
+	flushReports(t, handler)
+
+	var logged bool
+
+	for _, entry := range hook.AllEntries() {
+		logged = logged || strings.Contains(entry.Message, assert.AnError.Error())
+	}
+
+	assert.True(t, logged, "the meter report error is still logged")
+}
+
+// After a restart no charger state is cached yet, so a 0 W reading would publish an empty state.
+func TestObservationsHandler_PowerBeforeAnyChargerStateSendsNoStateReport(t *testing.T) {
+	t.Parallel()
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+
+	meter := mockednumericmeter.NewService(t)
+	meter.On("Name").Return(numericmeter.MeterElec).Maybe()
+	meter.On("SendMeterReport", numericmeter.UnitW, false).Return(true, nil).Once()
+	meter.On("SendMeterExtendedReport", numericmeter.Values{numericmeter.ValuePowerImport}, false).Return(true, nil).Once()
+
+	handler, err := signalr.NewObservationsHandler(
+		&meterThing{cp: cp, meter: meter}, cache.NewCache(testChargerID), nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID: model.TotalPower, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+		Timestamp: time.Now(), Value: "0",
+	}))
+
+	flushReports(t, handler)
+}

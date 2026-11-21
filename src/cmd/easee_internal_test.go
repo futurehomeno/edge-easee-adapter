@@ -269,6 +269,48 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 				},
 			},
 			{
+				// Issue 18: await_start arrives while power is still above zero, so it reads as charging;
+				// the 0 W reading after it has to publish the state left behind.
+				Name: "Adapter reports the state a power drop to zero reveals",
+				Setup: serviceSetup(
+					testContainer,
+					"configured",
+					mqttAddr,
+					func(client *mockapi.Client) {
+						client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{}, nil)
+						client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{}, nil)
+						client.On("Ping").Return(nil)
+					},
+					signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+						start := time.Now()
+
+						s.MockObservations(0, []model.Observation{
+							{ChargerID: test.ChargerID, DataType: model.ObservationDataTypeInteger, Timestamp: start, ID: model.ChargerOPState, Value: strconv.Itoa(int(model.ChargerStateCharging))},
+							{ChargerID: test.ChargerID, DataType: model.ObservationDataTypeDouble, Timestamp: start, ID: model.TotalPower, Value: "7.2"},
+						})
+						s.MockObservations(300*time.Millisecond, []model.Observation{
+							{ChargerID: test.ChargerID, DataType: model.ObservationDataTypeDouble, Timestamp: start.Add(time.Second), ID: model.TotalPower, Value: "1.08"},
+						})
+						s.MockObservations(300*time.Millisecond, []model.Observation{
+							{ChargerID: test.ChargerID, DataType: model.ObservationDataTypeInteger, Timestamp: start.Add(time.Second), ID: model.ChargerOPState, Value: strconv.Itoa(int(model.ChargerStateAwaitingStart))},
+						})
+						s.MockObservations(300*time.Millisecond, []model.Observation{
+							{ChargerID: test.ChargerID, DataType: model.ObservationDataTypeDouble, Timestamp: start.Add(2 * time.Second), ID: model.TotalPower, Value: "0"},
+						})
+					})),
+				TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+				Nodes: []*suite.Node{
+					{
+						InitCallbacks: []suite.Callback{waitForRunning()},
+						Expectations: []*suite.Expectation{
+							suite.ExpectFloat(evtDeviceMeterElecTopic, "evt.meter.report", "meter_elec", 0).ExpectProperty("unit", "W"),
+							suite.ExpectString(evtDeviceChargepointTopic, "evt.state.report", "chargepoint", "charging").ExactlyOnce(),
+							suite.ExpectString(evtDeviceChargepointTopic, "evt.state.report", "chargepoint", "ready_to_charge").ExactlyOnce(),
+						},
+					},
+				},
+			},
+			{
 				Name: "Adapter should not report data if signalR connection is lost/not established",
 				Setup: serviceSetup(
 					testContainer,
