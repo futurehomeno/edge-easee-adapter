@@ -177,12 +177,14 @@ func waitFor(t *testing.T, cond func() bool) {
 }
 
 type fakePhaseStore struct {
-	mode  types.PhaseMode
-	block chan struct{}
-	err   error
+	mode     types.PhaseMode
+	gridType model.GridType
+	block    chan struct{}
+	err      error
 }
 
-func (s *fakePhaseStore) OutputPhase() types.PhaseMode { return s.mode }
+func (s *fakePhaseStore) OutputPhase() types.PhaseMode     { return s.mode }
+func (s *fakePhaseStore) DetectedGridType() model.GridType { return s.gridType }
 
 func (s *fakePhaseStore) SetOutputPhase(mode types.PhaseMode) error {
 	if s.block != nil {
@@ -1396,6 +1398,138 @@ func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
 	flushReports(t, handler)
 
 	assert.Equal(t, 2, thing.inclusionCount(), "the dropped topology republish was never retried")
+}
+
+// Raw grid types 2 and 30 share TN with 2 phases but not their modes: 30 drives L1 and L3 and
+// advertises none. A change between them must republish although the FIMP pair stays, and the
+// raw type the thing was created with must keep a start on an unchanged charger quiet.
+func TestObservationsHandler_TN2PhaseVariantRefreshesTheModes(t *testing.T) {
+	t.Parallel()
+
+	nominal := []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL1L2}
+	tn3 := []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL3, types.PhaseModeNL1L2L3}
+
+	tests := []struct {
+		name       string
+		created    model.GridType // raw type in the thing state; zero in one stored by an older adapter
+		phases     int
+		advertised []types.PhaseMode
+		observed   model.GridType
+		want       []types.PhaseMode
+		inclusions int
+	}{
+		{"pins 2, 3, 5 appear", model.GridTypeTN2PhasePin23, 2, nominal, model.GridTypeWarningTN2PhasePin235, nil, 1},
+		{"pins 2, 3, 5 cleared", model.GridTypeWarningTN2PhasePin235, 2, nil, model.GridTypeTN2PhasePin23, nominal, 1},
+		{"a new topology on pins 2, 3, 5", model.GridTypeTN3Phase, 3, tn3, model.GridTypeWarningTN2PhasePin235, nil, 1},
+		{"unchanged pins 2, 3, 5", model.GridTypeWarningTN2PhasePin235, 2, nil, model.GridTypeWarningTN2PhasePin235, nil, 0},
+		{"unchanged nominal", model.GridTypeTN2PhasePin23, 2, nominal, model.GridTypeTN2PhasePin23, nominal, 0},
+		{"warning on pins 2, 3, 4", model.GridTypeTN2PhasePin23, 2, nominal, model.GridTypeWarningTN2PhasePIN234, nominal, 0},
+		{"ground fault", model.GridTypeTN2PhasePin23, 2, nominal, model.GridTypeWarningTN2PhaseGNDFault, nominal, 0},
+		{"older adapter's state, pins 2, 3, 5", model.GridTypeNotYetDetected, 2, nominal, model.GridTypeWarningTN2PhasePin235, nil, 1},
+		{"older adapter's state, nominal", model.GridTypeNotYetDetected, 2, nominal, model.GridTypeTN2PhasePin23, nominal, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			now := time.Now()
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+			cacheMock.On("Phases").Return(tt.phases, time.Time{})
+			cacheMock.On("SetInstallationParameters", types.GridTypeTN, 2, now).Return(true).Maybe()
+
+			props := map[string]interface{}{
+				chargepoint.PropertyGridType: types.GridTypeTN,
+				chargepoint.PropertyPhases:   tt.phases,
+			}
+			if tt.advertised != nil {
+				props[chargepoint.PropertySupportedPhaseModes] = tt.advertised
+			}
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("Specification").Return(&fimptype.Service{Props: props}).Maybe()
+
+			thing := &phaseThing{srv: srv}
+
+			handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, &fakePhaseStore{gridType: tt.created})
+			require.NoError(t, err)
+
+			require.NoError(t, handler.HandleObservation(model.Observation{
+				ID:        model.DetectedPowerGridType,
+				ChargerID: testChargerID,
+				DataType:  model.ObservationDataTypeInteger,
+				Timestamp: now,
+				Value:     strconv.Itoa(int(tt.observed)),
+			}))
+
+			flushReports(t, handler)
+
+			got := srv.Specification().Props
+			if tt.want == nil {
+				assert.NotContains(t, got, chargepoint.PropertySupportedPhaseModes)
+			} else {
+				assert.Equal(t, tt.want, got[chargepoint.PropertySupportedPhaseModes])
+			}
+
+			assert.Equal(t, types.GridTypeTN, got[chargepoint.PropertyGridType])
+			assert.Equal(t, tt.inclusions, thing.inclusionCount())
+		})
+	}
+}
+
+// The raw type is committed with the cache only once the inclusion report is out, so a dropped
+// report is retried by the next observation and a landed one is not repeated.
+func TestObservationsHandler_DroppedPin235RepublishIsRetried(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	published := make(chan struct{}, 1)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(2, time.Time{})
+	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 2, now).
+		Run(func(mock.Arguments) { published <- struct{}{} }).Return(true).Once()
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType:            types.GridTypeTN,
+		chargepoint.PropertyPhases:              2,
+		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL1L2},
+	}}).Maybe()
+
+	thing := &phaseThing{srv: srv, fail: 1}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, &fakePhaseStore{gridType: model.GridTypeTN2PhasePin23})
+	require.NoError(t, err)
+
+	obs := model.Observation{
+		ID:        model.DetectedPowerGridType,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.GridTypeWarningTN2PhasePin235)),
+	}
+
+	require.NoError(t, handler.HandleObservation(obs))
+	waitFor(t, func() bool { return thing.inclusionCount() == 1 })
+
+	require.NoError(t, handler.HandleObservation(obs))
+
+	select {
+	case <-published:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the dropped republish was never retried")
+	}
+
+	require.NoError(t, handler.HandleObservation(obs))
+	flushReports(t, handler)
+
+	assert.Equal(t, 2, thing.inclusionCount(), "a landed republish must not be repeated")
 }
 
 func TestObservationsHandler_OutdatedTopologyKeepsProps(t *testing.T) {

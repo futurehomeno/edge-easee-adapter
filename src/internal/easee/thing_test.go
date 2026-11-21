@@ -216,6 +216,61 @@ func TestThingFactory_Create_RegistersPhaseModeSet(t *testing.T) {
 	})
 }
 
+// Grid type 30 drives L1 and L3, which FIMP cannot name as a two-phase mode, so it advertises no
+// phase modes; the other TN 2-phase types keep the nominal row. Creation keys on the raw type, so
+// the state persists it, and a state stored by an older adapter without it keeps its pair's row.
+func TestThingFactory_Create_TN2PhaseVariants(t *testing.T) {
+	nominal := []string{"NL1", "NL2", "NL1L2"}
+	stored := easee.State{GridType: types.GridTypeTN, Phases: 2, PhaseMode: 2, SupportedMaxCurrent: 32}
+	storedPin235 := stored
+	storedPin235.DetectedGridType = model.GridTypeWarningTN2PhasePin235
+
+	tests := []struct {
+		name     string
+		detected model.GridType // zero: the charger config cannot be read
+		stored   easee.State
+		want     []string
+	}{
+		{name: "pins 2, 3, 5", detected: model.GridTypeWarningTN2PhasePin235},
+		{name: "nominal pins 2, 3, 4", detected: model.GridTypeTN2PhasePin23, want: nominal},
+		{name: "warning on pins 2, 3, 4", detected: model.GridTypeWarningTN2PhasePIN234, want: nominal},
+		{name: "ground fault", detected: model.GridTypeWarningTN2PhaseGNDFault, want: nominal},
+		{name: "state stored by an older adapter", stored: stored, want: nominal},
+		{name: "stored state on pins 2, 3, 5", stored: storedPin235},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clientMock := mockapi.NewClient(t)
+			if tt.detected == model.GridTypeNotYetDetected {
+				clientMock.On("ChargerConfig", "test-charger").Return((*model.ChargerConfig)(nil), errors.New("internal server error"))
+			} else {
+				clientMock.On("ChargerConfig", "test-charger").Return(&model.ChargerConfig{DetectedPowerGridType: tt.detected, PhaseMode: 2}, nil)
+			}
+
+			clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
+
+			storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
+			factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+
+			ts := &fakeThingState{info: easee.Info{ChargerID: "test-charger", Product: "Home"}, state: tt.stored}
+
+			thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, ts)
+			require.NoError(t, err)
+
+			spec := thing.Services(chargepoint.Chargepoint)[0].Specification()
+
+			assert.Equal(t, tt.want, spec.PropertyStrings(chargepoint.PropertySupportedPhaseModes))
+			assert.Equal(t, types.GridTypeTN, spec.Props[chargepoint.PropertyGridType])
+			assert.Equal(t, 2, spec.Props[chargepoint.PropertyPhases])
+
+			if tt.detected != model.GridTypeNotYetDetected {
+				assert.Equal(t, tt.detected, ts.setStateArg.DetectedGridType, "the raw grid type must be persisted")
+			}
+		})
+	}
+}
+
 // A 1-phase grid has a single settable mode, but sup_phase_modes must stay advertised: the
 // property also gates evt.phase_mode.report, so dropping it would blind the hub to the leg
 // in use. Suppressing the pointless switch is the setter's job, not the specification's.

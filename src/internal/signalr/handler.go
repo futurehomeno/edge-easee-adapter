@@ -3,6 +3,7 @@ package signalr
 import (
 	"errors"
 	"math"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,10 +36,12 @@ type Handler interface {
 }
 
 // PhaseStore persists the phase the charger reported using, so the advertised phase mode
-// survives a restart. Implemented in the easee package, which owns the thing state.
+// survives a restart, and reads the raw grid type the thing was created with. Implemented in the
+// easee package, which owns the thing state.
 type PhaseStore interface {
 	OutputPhase() types.PhaseMode
 	SetOutputPhase(types.PhaseMode) error
+	DetectedGridType() model.GridType
 }
 
 type observationsHandler struct {
@@ -57,6 +60,10 @@ type observationsHandler struct {
 	// Newest observed topology: an unchanged one skips the cache write, and a changed one waits on the
 	// queued republish, so cachedAt lags it either way.
 	topologyAt time.Time
+
+	// The raw grid type sup_phase_modes was last published for: raw types sharing the cached FIMP
+	// pair can differ in their modes. Committed with the cache, on the sender.
+	advertised atomic.Int64
 
 	// The props' grid type, read once and dropped when the props are replaced. Drain only.
 	gridType *types.GridType
@@ -96,6 +103,12 @@ func NewObservationsHandler(
 
 	handler.isCloudOnline.Store(true)
 	handler.isStateOnline.Store(true)
+
+	// Thing creation built sup_phase_modes from this state, so an unchanged charger's first
+	// observation republishes nothing.
+	if phaseStore != nil {
+		handler.advertised.Store(int64(phaseStore.DetectedGridType()))
+	}
 
 	handler.senderWG.Add(1)
 
@@ -690,7 +703,10 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 
 	h.topologyAt = observation.Timestamp
 
-	if supportedGridType == gridType && supportedPhases == phases {
+	modes := model.SettablePhaseModesFor(detected, supportedGridType, supportedPhases)
+	advertised := model.SettablePhaseModesFor(model.GridType(h.advertised.Load()), gridType, phases)
+
+	if supportedGridType == gridType && supportedPhases == phases && slices.Equal(modes, advertised) {
 		return nil
 	}
 
@@ -703,8 +719,9 @@ func (h *observationsHandler) handleDetectedPowerGridType(observation model.Obse
 	return h.republishChargepointProps(map[string]any{
 		chargepoint.PropertyGridType:            supportedGridType,
 		chargepoint.PropertyPhases:              supportedPhases,
-		chargepoint.PropertySupportedPhaseModes: model.SettablePhaseModes(supportedGridType, supportedPhases),
+		chargepoint.PropertySupportedPhaseModes: modes,
 	}, func() error {
+		h.advertised.Store(int64(detected))
 		h.cache.SetInstallationParameters(supportedGridType, supportedPhases, observation.Timestamp)
 
 		return nil

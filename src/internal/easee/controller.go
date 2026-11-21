@@ -971,6 +971,7 @@ func (c *controller) updateChargerConfigState(chargerID string, state *State) er
 
 	state.GridType = gridType
 	state.Phases = phases
+	state.DetectedGridType = cfg.DetectedPowerGridType
 	state.PhaseMode = cfg.PhaseMode
 
 	return nil

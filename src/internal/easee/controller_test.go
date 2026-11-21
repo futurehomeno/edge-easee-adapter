@@ -1564,7 +1564,7 @@ func TestController_UpdateState(t *testing.T) {
 				}, nil)
 				c.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 20}, nil)
 			},
-			wantState: &easee.State{SupportedMaxCurrent: 20, Phases: 3, GridType: "TN", PhaseMode: 3},
+			wantState: &easee.State{SupportedMaxCurrent: 20, Phases: 3, GridType: "TN", PhaseMode: 3, DetectedGridType: model.GridTypeTN3Phase},
 		},
 	}
 

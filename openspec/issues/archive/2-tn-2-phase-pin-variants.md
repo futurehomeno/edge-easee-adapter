@@ -18,3 +18,5 @@ Doubts:
 - The adapter names grid type 2 `GridTypeTN2PhasePin23` / "TN 2-phase (pin 2, 3)"; Easee's
   enumeration is `TN2PhasePin234`. Renaming it collides with the name string of warning type 36,
   "TN 2-phase (pin 2, 3, 4)".
+
+Closed by `tn-2-phase-pin-235-no-modes` (2026-11-21): grid type 30 advertises no settable phase modes (no `sup_phase_modes`; FIMP TN with 2 phases and the grid-type-fault alarm stay), 36 and 38 keep the nominal TN 2-phase row, and the type 2 naming stays as it is.

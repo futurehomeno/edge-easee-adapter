@@ -41,6 +41,18 @@ func SettablePhaseModes(gridType types.GridType, phases int) []types.PhaseMode {
 	return slices.Clone(SupportedPhaseModes(gridType, EaseePhaseModeAuto, phases))
 }
 
+// SettablePhaseModesFor is what a charger advertises: SettablePhaseModes of the FIMP pair the raw
+// grid type detected maps to. WarningTN2PhasePin235 drives L1 and L3 (pins 3, 5), out of the TN
+// 2-phase row's NL2 and NL1L2, and FIMP has no NL1L3 to name its two-phase mode, so it advertises
+// none. An unknown raw type - a state stored by an older adapter - keeps the pair's row.
+func SettablePhaseModesFor(detected GridType, gridType types.GridType, phases int) []types.PhaseMode {
+	if detected == GridTypeWarningTN2PhasePin235 {
+		return nil
+	}
+
+	return SettablePhaseModes(gridType, phases)
+}
+
 // ToEaseePhaseMode maps a FIMP phase mode onto Easee's internal phase mode.
 func ToEaseePhaseMode(gridType types.GridType, phases int, mode types.PhaseMode) (int, error) {
 	if slices.Contains(SupportedPhaseModes(gridType, easeePhaseModeSingle, phases), mode) {
