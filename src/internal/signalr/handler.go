@@ -484,15 +484,14 @@ func (h *observationsHandler) handleTotalPower(observation model.Observation) er
 	}
 
 	h.enqueue("total power", func() error {
-		if _, err := meterElecSrv.SendMeterReport(numericmeter.UnitW, false); err != nil {
-			return err
-		}
+		_, err := meterElecSrv.SendMeterReport(numericmeter.UnitW, false)
+		_, extErr := meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValuePowerImport}, false)
+		err = errors.Join(err, extErr)
 
-		if _, err := meterElecSrv.SendMeterExtendedReport(numericmeter.Values{numericmeter.ValuePowerImport}, false); err != nil {
-			return err
+		if _, at := h.cache.ChargerState(); !at.IsZero() {
+			_, stateErr := chargepointSrv.SendStateReport(false)
+			err = errors.Join(err, stateErr)
 		}
-
-		_, err := chargepointSrv.SendStateReport(false)
 
 		return err
 	})

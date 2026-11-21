@@ -15,3 +15,5 @@ cliffhanger here and archive this issue.
 ## How to check
 
 `go list -m github.com/futurehomeno/cliffhanger` shows the release containing #287.
+
+Resolved: cliffhanger bumped to v1.5.3, which contains #287 (2026-11-20).

@@ -12,9 +12,13 @@ guard sends a second stop. The operator's rule (2026-11-20): `cmd.charge.start` 
 - A total-power observation that updates the cache also publishes an unforced chargepoint state
   report after the meter reports. The on-change filter keeps it to real changes, so the 0 W reading
   that ends the `charging` override publishes the cached state (`ready_to_charge` after a stop).
-- Error answers to start/stop (no state report from cliffhanger) are out of scope: that is a
-  shared-library change.
+- A failed meter report no longer suppresses the state report: all three reports are attempted and
+  their errors are joined.
+- No state report is sent from a power reading before any charger state was observed, so a restart
+  does not publish an empty state.
+- cliffhanger is bumped v1.5.0 -> v1.5.3, whose PR #287 sends the forced state report before a
+  failed `cmd.charge.start`/`cmd.charge.stop` returns its error (issue 19).
 
 ## Impact
 - Affected specs: `reporting`
-- Affected code: `src/internal/signalr/handler.go`
+- Affected code: `src/internal/signalr/handler.go`, `src/go.mod`

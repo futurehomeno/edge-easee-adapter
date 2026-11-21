@@ -1,4 +1,4 @@
-Resolved: 2026-11-20, change report-state-on-power: a power reading also publishes an unforced state report, so the 0 W reading after a stop reports ready_to_charge. The error-answer part (forced report before the error return) stays a cliffhanger question, not done here.
+Resolved: 2026-11-20, change report-state-on-power: a power reading also publishes an unforced state report, so the 0 W reading after a stop reports ready_to_charge. The error-answer part (forced report before the error return) is done in cliffhanger #287, taken with the v1.5.3 bump (issue 19).
 
 # Charge stop: the state leaving `charging` is not reported while power is still above zero
 

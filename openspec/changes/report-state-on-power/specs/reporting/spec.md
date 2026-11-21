@@ -4,7 +4,8 @@ A total-power observation SHALL be cached in watts, converting from the kilowatt
 multiplying by 1000. A successful cache update SHALL publish an unforced `W` meter report followed by
 an unforced extended report for `power_import`, and then an unforced chargepoint state report, so a
 state change that the power reading reveals is published without waiting for the next state
-observation.
+observation. The state report SHALL be attempted even when a meter report fails, and SHALL NOT be
+sent until a charger state has been observed.
 
 #### Scenario: power observation arrives
 - **WHEN** a total-power observation of 7.4 arrives
@@ -18,3 +19,12 @@ observation.
 #### Scenario: power reading without a state change
 - **WHEN** a power observation arrives and the reported state is unchanged
 - **THEN** no state report is published
+
+#### Scenario: meter report fails
+- **WHEN** `ready_to_charge` is cached, a 0 W power observation arrives and the `W` meter report
+  fails
+- **THEN** the unforced state report is still published and the meter report error is logged
+
+#### Scenario: power reading before any charger state
+- **WHEN** no charger state has been observed and a 0 W power observation arrives
+- **THEN** the two meter reports are published and no state report
