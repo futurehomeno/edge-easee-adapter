@@ -16,3 +16,7 @@ current), for as long as the refusal lasts (about 2 min, up to 12 min with the 1
 Would close it: either the follow-up reports after a successful command do not turn the reply into an error (log and
 skip them, the next observation sends them), or the adapter refuses the command before it calls Easee while the
 charger is unsubscribed, so the error is true. Which one is a cliffhanger question as well, since the routing is there.
+
+Since `resync-first-subscribe-unauthorized` (2026-11-21, issue 13 archived), the first refusal of such a
+charger restarts the connection once (a connectivity blip for every charger, issue 14), then it falls
+back to the backoff retry. A refusal that is not a lapsed token, as here, gains nothing from that restart.
