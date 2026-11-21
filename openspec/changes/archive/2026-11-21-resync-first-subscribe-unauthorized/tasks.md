@@ -1,0 +1,5 @@
+- [x] An unauthorized first subscribe restarts the client (test first)
+- [x] The same charger refused again on the new connection does not restart and retries with backoff (test first)
+- [x] After that charger subscribed, a later unauthorized first subscribe restarts again (test first)
+- [x] The reconnect sweep keeps the per-charger guard (test first)
+- [x] `handleSubscription` restarts on an unauthorized refusal once per charger until it next subscribes

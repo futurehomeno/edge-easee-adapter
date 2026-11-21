@@ -55,8 +55,16 @@ An unknown grid type, phase count or internal mode SHALL be logged as an error a
 
 ### Requirement: Settable Phase Modes
 The modes advertised as settable SHALL be the auto row of the matrix for the charger's grid type and
-phase count, which is the union of the other rows. They SHALL be published as `sup_phase_modes` on the
-chargepoint service, and only when the list is non-empty.
+phase count, which is the union of the other rows. Easee grid type 30 (`WarningTN2PhasePin235`)
+SHALL advertise none: it wires neutral on pin 2, L1 on pin 3 and L3 on pin 5, so the TN 2-phase
+row's `NL2` and `NL1L2` are out of its reach, and FIMP has no `NL1L3` to name its two-phase mode.
+Its FIMP grid type and phase count SHALL stay TN with 2 phases, and the grid-type-fault alarm is its
+report. The other TN 2-phase grid types - 2, 36 (`WarningTN2PhasePIN234`, the nominal pins 2, 3, 4)
+and 38 (`WarningTN2PhaseGNDFault`, a fault on the ground, not on the phase pins) - SHALL keep the
+row. The persisted charger state SHALL carry Easee's raw grid type next to the FIMP grid type and
+phase count; a state without it, stored by an older adapter, SHALL advertise the row of its FIMP
+grid type and phase count. The modes SHALL be published as `sup_phase_modes` on the chargepoint
+service, and only when the list is non-empty.
 
 #### Scenario: TN grid, three phases
 - **WHEN** the settable modes are computed for grid TN with 3 phases
@@ -65,6 +73,24 @@ chargepoint service, and only when the list is non-empty.
 #### Scenario: grid type unknown at thing creation
 - **WHEN** the charger state carries no grid type
 - **THEN** `sup_phase_modes` is not added to the chargepoint specification
+
+#### Scenario: TN 2-phase on pins 2, 3, 5 at thing creation
+- **WHEN** a charger whose config reports Easee grid type 30 is created
+- **THEN** `sup_phase_modes` is not added, grid type TN with 2 phases is advertised, and the state
+  is persisted with raw grid type 30
+
+#### Scenario: other TN 2-phase grid types at thing creation
+- **WHEN** a charger whose config reports Easee grid type 2, 36 or 38 is created
+- **THEN** `NL1`, `NL2` and `NL1L2` are advertised
+
+#### Scenario: state stored by an older adapter
+- **WHEN** the charger config cannot be read and the stored state carries grid TN with 2 phases but
+  no raw grid type
+- **THEN** `NL1`, `NL2` and `NL1L2` are advertised
+
+#### Scenario: stored state on pins 2, 3, 5
+- **WHEN** the charger config cannot be read and the stored state carries raw grid type 30
+- **THEN** `sup_phase_modes` is not added
 
 ### Requirement: FIMP To Easee Mode Mapping
 A requested FIMP phase mode SHALL map to Easee internal mode 1 when it appears in the single-phase
@@ -87,24 +113,30 @@ transition mid-session and would stall on a hard lock. A mode in neither set SHA
 
 ### Requirement: Applying A Phase Mode
 `cmd.phase_mode.set` SHALL map the requested mode to an Easee internal mode and, when that target
-differs from the cached internal mode, post it to `/api/chargers/{id}/commands/set_phase_mode`, then
-cache the target as the internal mode, then record the requested FIMP mode in the cache, then
-restart an in-progress session, or arm a state re-sync when there is none to restart. The target
-SHALL be cached with the timestamp of the internal-mode observation it replaces: the charger echoes
-the new mode only later, a request arriving before that echo must be compared with the mode just
-sent rather than dropped as a no-op, and every newer observation must still replace it. The re-sync
-SHALL be the pending one of `State Re-sync After Start Or Stop`: Easee can accept a mode the charger
-never applies, no observation follows then, and only the replay puts the charger's real mode back in
-the cache. It SHALL be requested 15 s after the send, unless one is already pending, which SHALL be
-kept as it is: phase sets are not paced, so replacing it could hold back the re-sync of a start or a
-stop for as long as they keep coming. A restarted session SHALL arm none at the phase send: its stop
-and its resume each arm one once sent, and one armed earlier would run before a stop the pacing
-window stored. The request SHALL be stamped one millisecond past the newer of
-the cached output-phase and internal-mode timestamps rather than with the hub clock, because those
-Easee timestamps are the only values it is ever compared against. A grid with fewer than two
-settable modes SHALL make the command a no-op: flipping the internal mode would bounce a session for
-a change nothing can observe. When the target equals the cached internal mode the command SHALL
-return successfully without calling Easee.
+differs from the cached internal mode or from a target sent less than 15 s before, post it to
+`/api/chargers/{id}/commands/set_phase_mode`, then cache the target as the internal mode, then record
+the requested FIMP mode in the cache, then restart an in-progress session, or arm a state re-sync
+when there is none to restart. The target SHALL be cached with the timestamp of the internal-mode
+observation it replaces: the charger echoes the new mode only later, a request arriving before that
+echo must be compared with the mode just sent rather than dropped as a no-op, and every newer
+observation must still replace it. The re-sync SHALL be the pending one of `State Re-sync After
+Start Or Stop`: Easee can accept a mode the charger never applies, no observation follows then, and
+only the replay puts the charger's real mode back in the cache. It SHALL be requested 15 s after the
+send, unless one is already pending, which SHALL be kept as it is: phase sets are not paced, so
+replacing it could hold back the re-sync of a start or a stop for as long as they keep coming. A
+restarted session SHALL arm none at the phase send: its stop and its resume each arm one once sent,
+and one armed earlier would run before a stop the pacing window stored. The request SHALL be stamped
+one millisecond past the newer of the cached output-phase and internal-mode timestamps rather than
+with the hub clock, because those Easee timestamps are the only values it is ever compared against.
+A grid with fewer than two settable modes SHALL make the command a no-op: flipping the internal mode
+would bounce a session for a change nothing can observe. When the target equals the cached internal
+mode the command SHALL return successfully without calling Easee, unless a different target was
+accepted by Easee less than 15 s before, measured on the hub clock: the cache has then moved off that
+send (an older echo, a replay, or a change made elsewhere) while the charger may still apply it, so
+the target SHALL be sent as if it differed. The last sent target SHALL only veto that skip, never
+stand in for the cached internal mode, and it SHALL lapse after 15 s, when the re-sync has replayed
+the charger's real mode. A mode changed elsewhere within 15 s of a send and then requested is
+therefore sent again, bouncing a charging session once more.
 
 #### Scenario: mode changes
 - **WHEN** the target internal mode differs from the cached one
@@ -116,6 +148,21 @@ return successfully without calling Easee.
   has arrived since, and a single-phase leg is requested
 - **THEN** single phase (1) is sent to Easee
 
+#### Scenario: a third request between two echoes
+- **WHEN** auto (2) and then single phase (1) were sent for a charger cached in single phase, the
+  auto echo lands newer than the observation the single-phase target replaced, and a three-phase
+  mode is requested within 15 s of the single-phase send
+- **THEN** auto (2) is sent to Easee
+
+#### Scenario: a replay before the echo
+- **WHEN** single phase (1) was sent for a charger cached in auto (2), a replay puts auto back in the
+  cache within 15 s of the send, and a three-phase mode is requested
+- **THEN** auto (2) is sent to Easee
+
+#### Scenario: the last sent mode is requested again
+- **WHEN** single phase (1) and then auto (2) were sent less than 15 s ago and the cache holds auto
+- **THEN** a three-phase request makes no Easee call: only the last send vetoes the skip
+
 #### Scenario: the charger reports after the send
 - **WHEN** a phase-mode observation newer than the one the sent target replaced arrives, even one
   stamped behind the hub clock
@@ -126,6 +173,11 @@ return successfully without calling Easee.
   phase-mode observation follows
 - **THEN** a re-sync is requested 15 s after the send, its replay puts auto (2) back in the cache,
   and the next single-phase request is sent to Easee again
+
+#### Scenario: the replay restored the mode after the window
+- **WHEN** single phase (1) was sent for an idle charger in auto (2), the charger never applied it,
+  and the re-sync 15 s after the send put auto (2) back in the cache
+- **THEN** a three-phase request makes no Easee call
 
 #### Scenario: the session restart is stored
 - **WHEN** a phase mode is sent for a charging charger and the pacing window stores the pause
@@ -144,7 +196,8 @@ return successfully without calling Easee.
 - **THEN** no Easee call is made, no requested mode is recorded, and the command reports success
 
 #### Scenario: target already in effect
-- **WHEN** the target internal mode equals the cached internal mode
+- **WHEN** the target internal mode equals the cached internal mode and no other mode was sent in
+  the last 15 s
 - **THEN** no Easee call is made and the command reports success
 
 #### Scenario: Easee rejects the change
@@ -299,7 +352,10 @@ older observation dispatched after it would replace the newer mode. An observati
 cached internal mode SHALL publish nothing. Otherwise an accepted observation SHALL publish an
 unforced `evt.phase_mode.report` on its own goroutine - the report takes the chargepoint service
 lock that `cmd.phase_mode.set` holds while it waits for an observation, and the dispatch loop
-publishing it is the only drainer of that observation.
+publishing it is the only drainer of that observation. The report SHALL be skipped, without an
+error, when the chargepoint service advertises no `sup_phase_modes` (it is not phase-mode aware,
+and cliffhanger refuses the report). The check SHALL run when the report is sent rather than when it
+is queued, because a topology republish queued in between can change the props.
 
 #### Scenario: internal mode changes
 - **WHEN** a phase-mode observation carries a value different from the cached one
@@ -314,6 +370,12 @@ publishing it is the only drainer of that observation.
   of mode 2 stamped t1, with t0 < t1 < t2
 - **THEN** the cache holds mode 1 stamped t2 and nothing is published
 
+#### Scenario: internal mode changes on a charger without phase modes
+- **WHEN** a charger whose chargepoint props carry no `sup_phase_modes` (grid type 30, or a grid
+  type not yet detected) reports an internal mode different from the cached one
+- **THEN** the cache is updated, no phase-mode report is sent and no
+  `aware phase modes is not supported` warning is logged
+
 ### Requirement: Output Phase Observation Handling
 The output-phase observation SHALL be translated to a FIMP phase mode and cached. The translation
 SHALL follow the FIMP grid type in the chargepoint props (replaced as soon as a topology republish is queued, ahead of the cache) rather than the TN/IT suffix of Easee's value, because a
@@ -323,7 +385,9 @@ and on a TN grid an IT-suffixed value SHALL map to the mode of its TN twin. A va
 or any value while the grid type is unknown, SHALL map on its suffix. A translation
 yielding an empty mode SHALL be dropped without updating the cache, because the charger reports an
 unassigned output phase whenever it is not charging, even during an ongoing session. A successful
-cache update SHALL publish an unforced `evt.phase_mode.report`.
+cache update SHALL publish an unforced `evt.phase_mode.report`, skipped as in Phase Mode Observation
+Handling when the chargepoint service advertises no `sup_phase_modes`; the reported leg SHALL be
+persisted either way.
 
 #### Scenario: charger not charging
 - **WHEN** the output-phase observation maps to an empty mode
@@ -349,14 +413,26 @@ cache update SHALL publish an unforced `evt.phase_mode.report`.
 - **WHEN** the props already carry an IT grid but the cache still holds TN, and the charger reports `P1_T2_T3_TN` (10)
 - **THEN** `L1L2` is cached and reported
 
+#### Scenario: charging on a charger without phase modes
+- **WHEN** a charger whose chargepoint props carry no `sup_phase_modes` reports a single leg newer
+  than the cached one
+- **THEN** the leg is cached and persisted, no phase-mode report is sent and no
+  `aware phase modes is not supported` warning is logged
+
 ### Requirement: Grid Type Observation Refreshes The Specification
 A detected-power-grid-type observation SHALL first publish grounding-fault and grid-type-fault alarm
 reports, before the equivalence check below, because several raw grid types map onto the same FIMP
 pair and a fault must be reported even when the topology is unchanged. An observation older than the
 cached grid type, or than the newest one already observed (changed, unchanged or still awaiting
 publication), SHALL then stop the handler, because the cache would reject it after the props took
-it. When the mapped grid type and phase count both equal the cached values the handler SHALL then
-stop. Otherwise the installation parameters SHALL be cached, the chargepoint service specification
+it. When the mapped grid type and phase count both equal the cached values, and the settable modes
+of the observed raw grid type equal those of the raw grid type last advertised, the handler SHALL
+then stop: raw grid types 2 and 30 share TN with 2 phases but not their settable modes. The raw grid
+type last advertised SHALL be seeded from the persisted state the thing was created from, so a
+normal start republishes nothing for an unchanged charger, and SHALL be committed with the cache
+once a republish has landed, so a dropped republish is retried by the next observation. A state
+without a raw grid type SHALL count as advertising the row of the cached grid type and phase count.
+Otherwise the installation parameters SHALL be cached, the chargepoint service specification
 refreshed and a thing inclusion report published, so that the new phase-mode and grid-type
 properties reach consumers.
 
@@ -380,6 +456,38 @@ properties reach consumers.
 - **WHEN** the mapped grid type or phase count differs from the cache
 - **THEN** the installation parameters are cached, the chargepoint specification is refreshed and an
   inclusion report is sent
+
+#### Scenario: a new topology on pins 2, 3, 5
+- **WHEN** a charger cached as TN with 3 phases reports Easee grid type 30
+- **THEN** grid type TN with 2 phases is advertised without `sup_phase_modes` and an inclusion
+  report is sent
+
+#### Scenario: pins 2, 3, 5 appear at runtime
+- **WHEN** a charger created on Easee grid type 2 reports grid type 30
+- **THEN** `sup_phase_modes` is removed, TN with 2 phases stays advertised and an inclusion report
+  is sent
+
+#### Scenario: pins 2, 3, 5 cleared at runtime
+- **WHEN** a charger created on Easee grid type 30 reports grid type 2
+- **THEN** `NL1`, `NL2` and `NL1L2` are advertised and an inclusion report is sent
+
+#### Scenario: unchanged raw grid type on start
+- **WHEN** a charger created on Easee grid type 30, or on 2, reports the same grid type
+- **THEN** no inclusion report is sent
+
+#### Scenario: another TN 2-phase grid type on the same row
+- **WHEN** a charger created on Easee grid type 2 reports grid type 36 or 38
+- **THEN** no inclusion report is sent
+
+#### Scenario: state stored by an older adapter on pins 2, 3, 5
+- **WHEN** a charger created from a state without a raw grid type, cached as TN with 2 phases,
+  reports Easee grid type 30
+- **THEN** `sup_phase_modes` is removed and an inclusion report is sent
+
+#### Scenario: dropped republish of pins 2, 3, 5
+- **WHEN** the inclusion report for a change from grid type 2 to 30 fails and grid type 30 is
+  reported again
+- **THEN** the inclusion report is sent again
 
 ### Requirement: Output Phase Uses The Advertised Topology
 The output-phase handler SHALL map the reported leg with the grid type in the chargepoint

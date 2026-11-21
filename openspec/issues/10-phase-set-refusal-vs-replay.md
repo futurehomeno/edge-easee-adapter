@@ -17,6 +17,8 @@ Left open:
 - That re-sync is itself a replay: an echo slower than 15 s opens the gap above until it lands. A
   phase mode sent while a re-sync is pending keeps that one, so its replay can come sooner than
   15 s after the send.
+  - Closed for 15 s after a send by `phase-set-newer-send` (2026-11-21): a request for the mode a
+    replay put back is sent; an echo slower than 15 s still opens the gap once that window lapses.
 - After the replay restored the real mode, the report still names the recorded request until a newer
   output-phase or phase-mode observation arrives, as it did up to 3.2.5. Energy guard asks again
   only once it sees another leg. PR #219 review, finding 2: a replay that replaces a sent target at

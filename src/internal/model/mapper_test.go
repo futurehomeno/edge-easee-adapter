@@ -69,6 +69,34 @@ func TestSettablePhaseModes(t *testing.T) {
 	}
 }
 
+// Grid type 30 drives L1 and L3: the nominal row's NL2 and NL1L2 are out of its reach and FIMP has
+// no NL1L3, so it advertises nothing. The other TN 2-phase types keep the row.
+func TestSettablePhaseModesFor(t *testing.T) {
+	t.Parallel()
+
+	nominal := []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL1L2}
+
+	tests := []struct {
+		name     string
+		detected model.GridType
+		want     []types.PhaseMode
+	}{
+		{"pins 2, 3, 5", model.GridTypeWarningTN2PhasePin235, nil},
+		{"nominal TN 2-phase", model.GridTypeTN2PhasePin23, nominal},
+		{"warning on pins 2, 3, 4", model.GridTypeWarningTN2PhasePIN234, nominal},
+		{"ground fault", model.GridTypeWarningTN2PhaseGNDFault, nominal},
+		{"raw type unknown, as in a state stored by an older adapter", model.GridTypeNotYetDetected, nominal},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tt.want, model.SettablePhaseModesFor(tt.detected, types.GridTypeTN, 2))
+		})
+	}
+}
+
 func TestToEaseePhaseMode(t *testing.T) {
 	t.Parallel()
 

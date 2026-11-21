@@ -36,6 +36,9 @@ type State struct {
 	PhaseMode           int             `json:"phaseMode"`
 	SupportedMaxCurrent int             `json:"supportedMaxCurrent"`
 	OutputPhase         types.PhaseMode `json:"outputPhase,omitempty"`
+	// Easee's raw type behind GridType and Phases: the TN 2-phase wirings share that pair but not
+	// their phase modes.
+	DetectedGridType model.GridType `json:"detectedGridType,omitempty"`
 }
 
 func (s *State) IsConfigUpdateNeeded() bool {
@@ -187,7 +190,7 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 		options = append(options, chargepoint.WithGridType(gridType))
 	}
 
-	if phaseModes := model.SettablePhaseModes(state.GridType, state.Phases); len(phaseModes) > 0 {
+	if phaseModes := model.SettablePhaseModesFor(state.DetectedGridType, state.GridType, state.Phases); len(phaseModes) > 0 {
 		options = append(options, chargepoint.WithSupportedPhaseModes(phaseModes...))
 	}
 

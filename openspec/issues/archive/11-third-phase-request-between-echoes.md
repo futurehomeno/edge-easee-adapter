@@ -13,3 +13,6 @@ on a later tick. Hitting this takes three requests inside the gap between two ec
 Open question: can this be accepted, or does it need a pending target that is cleared by its
 matching echo? The design of `phase-set-before-echo` rejected that as a second source of the
 internal mode.
+
+Closed by `phase-set-newer-send` (2026-11-21): a target equal to the cache is sent when a different
+one was sent less than 15 s before, so the third request goes out.
