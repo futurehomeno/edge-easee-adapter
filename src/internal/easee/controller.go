@@ -80,8 +80,13 @@ type controller struct {
 	chargerID      string
 	sessionStorage db.ChargingSessionStorage
 	persistedPhase func() types.PhaseMode
-	// Guarded by the chargepoint service lock, which every command that clamps holds.
+	// Guarded by the chargepoint service lock, which every command that clamps or sets a phase
+	// mode holds.
 	clamp [2]int
+	// The last phase mode Easee accepted and when. It only vetoes skipping a target the cache
+	// already holds; the cache stays the only record of the charger's mode.
+	sentPhase   int
+	sentPhaseAt time.Time
 
 	// Easee ignores a dynamic-current write that reaches the charger within ~20s of the
 	// previous one, or of a stop, although the cloud accepts it. Every such write goes through
@@ -557,7 +562,12 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 	}
 
 	current, internalAt := c.cache.PhaseMode()
-	if target == current {
+
+	// An older echo, a replay or a change made elsewhere can move the cache off the last send
+	// while the charger may still apply it. Until the re-sync has replayed the real mode, only a
+	// repeat of that send is a no-op.
+	unsettled := target != c.sentPhase && clock.Now().Sub(c.sentPhaseAt) < resyncDelay
+	if target == current && !unsettled {
 		// Nothing to send: Easee stores "one phase", not a chosen leg. Skip the record only
 		// while a live observation says which leg is actually in use - the charger picks
 		// it, so a request outranking that observation would report a leg it is not on.
@@ -587,6 +597,8 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 	if err := c.client.SetPhaseMode(c.chargerID, target); err != nil {
 		return err
 	}
+
+	c.sentPhase, c.sentPhaseAt = target, clock.Now()
 
 	// A request landing before the echo must see this target. The replaced observation's timestamp
 	// lets any newer observation still win, whatever the hub clock says.

@@ -2423,6 +2423,93 @@ func TestController_SetChargepointPhaseMode_ResyncsSoAnUnappliedModeIsSentAgain(
 	clientMock.AssertNumberOfCalls(t, "SetPhaseMode", 2)
 }
 
+// Issue 11: the auto echo lands after single phase went out, newer than the observation the
+// single-phase target replaced, so the cache is back on auto while the charger may still apply
+// single phase.
+func TestController_SetChargepointPhaseMode_SendsAModeAnOlderEchoPutBack(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 21, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", model.EaseePhaseModeAuto).Return(nil).Twice()
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+
+	ctrl, c, _ := phaseResyncController(t, clientMock)
+	_, observed := c.PhaseMode()
+	require.True(t, c.SetPhaseMode(1, observed))
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1L2L3))
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	clk.Add(2 * time.Second)
+	require.True(t, c.SetPhaseMode(model.EaseePhaseModeAuto, clk.Now()))
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1L2L3))
+	clientMock.AssertNumberOfCalls(t, "SetPhaseMode", 3)
+}
+
+// Issue 10: a replay beating the echo puts the pre-send mode back at the stamp the target took.
+func TestController_SetChargepointPhaseMode_SendsAModeAReplayPutBack(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 21, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("SetPhaseMode", "test-charger", model.EaseePhaseModeAuto).Return(nil).Once()
+
+	ctrl, c, _ := phaseResyncController(t, clientMock)
+	_, observed := c.PhaseMode()
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	clk.Add(14 * time.Second)
+	require.True(t, c.SetPhaseMode(model.EaseePhaseModeAuto, observed))
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1L2L3))
+	clientMock.AssertNumberOfCalls(t, "SetPhaseMode", 2)
+}
+
+// Only the last send vetoes a skip: an earlier, different one inside the window does not.
+func TestController_SetChargepointPhaseMode_SkipsARepeatOfTheLastSend(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 21, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("SetPhaseMode", "test-charger", model.EaseePhaseModeAuto).Return(nil).Once()
+
+	ctrl, _, _ := phaseResyncController(t, clientMock)
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1L2L3))
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1L2L3))
+	clientMock.AssertNumberOfCalls(t, "SetPhaseMode", 2)
+}
+
+// Once the re-sync has replayed the mode the charger is really in, a request for it is a no-op again.
+func TestController_SetChargepointPhaseMode_SkipsTheReplayedModeAfterTheWindow(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 21, 0, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+
+	ctrl, c, managerMock := phaseResyncController(t, clientMock)
+	_, observed := c.PhaseMode()
+
+	resynced := make(chan struct{}, 1)
+	managerMock.On("Resync", "test-charger").Run(func(mock.Arguments) {
+		c.SetPhaseMode(model.EaseePhaseModeAuto, observed)
+		resynced <- struct{}{}
+	}).Once()
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+	clk.Add(15 * time.Second)
+	awaitDeferred(t, resynced)
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1L2L3))
+	clientMock.AssertNumberOfCalls(t, "SetPhaseMode", 1)
+}
+
 // The customer case: an energy-guard refresh landing inside the window after a stop. The write is
 // the hub's latest intent, so it takes the slot and the charger keeps charging at the new current.
 func TestController_OfferedCurrentChannel_DifferentCurrentDisplacesAPendingStop(t *testing.T) {
