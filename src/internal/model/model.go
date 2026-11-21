@@ -155,6 +155,7 @@ const (
 	WiFiRSSI              ObservationID = 132
 	RadioRSSI             ObservationID = 136
 	ConnectionType        ObservationID = 141
+	InCurrentT2           ObservationID = 182
 	InCurrentT3           ObservationID = 183
 	InCurrentT4           ObservationID = 184
 	InCurrentT5           ObservationID = 185
@@ -177,6 +178,7 @@ var observationIDNames = map[ObservationID]string{
 	EnergySession:         "energy_session",
 	LifetimeEnergy:        "lifetime_energy",
 	ChargingSessionStop:   "charging_session_stop",
+	InCurrentT2:           "in_current_t2",
 	InCurrentT3:           "in_current_t3",
 	InCurrentT4:           "in_current_t4",
 	InCurrentT5:           "in_current_t5",
@@ -184,6 +186,21 @@ var observationIDNames = map[ObservationID]string{
 	CloudConnected:        "cloud_connected",
 	ErrorCode:             "error_code",
 	ErrorString:           "error_string",
+}
+
+// Line returns the line (1-3) an in-current observation measures on gridType, or 0. T2 carries the
+// neutral on TN but L1 on IT and TT.
+func (o ObservationID) Line(gridType types.GridType) int {
+	first := InCurrentT3
+	if gridType == types.GridTypeIT || gridType == types.GridTypeTT {
+		first = InCurrentT2
+	}
+
+	if o < first || o > first+2 {
+		return 0
+	}
+
+	return int(o-first) + 1
 }
 
 func (o ObservationID) Str() string {
@@ -215,6 +232,7 @@ func SupportedObservationIDs() []ObservationID {
 		EnergySession,
 		CableRating,
 		ErrorCode,
+		InCurrentT2,
 		InCurrentT3,
 		InCurrentT4,
 		InCurrentT5,

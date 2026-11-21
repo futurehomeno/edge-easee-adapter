@@ -1,0 +1,5 @@
+- [x] A phase mode whose session restart is stored by the pacing window arms no re-sync before the stop is sent (test first)
+- [x] A phase mode sent while a re-sync is pending keeps it (test first)
+- [x] A phase mode Easee answers after Teardown arms no re-sync (test first)
+- [x] A rejected phase mode arms no re-sync (test)
+- [x] The re-sync comments name the phase mode as well as the start and the stop

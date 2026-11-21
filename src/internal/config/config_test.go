@@ -123,6 +123,31 @@ func TestConfig_MigrateSignalRFinalBackoff(t *testing.T) {
 	}
 }
 
+func TestConfig_MigratePollingInterval(t *testing.T) {
+	tests := []struct {
+		name     string
+		current  string
+		expected string
+	}{
+		{name: "the 2.5 packaged default is lifted", current: "30s", expected: "20m"},
+		{name: "any sub-minute value is lifted", current: "59s", expected: "20m"},
+		{name: "one minute is preserved", current: "1m", expected: "1m"},
+		{name: "tuned value is preserved", current: "5m", expected: "5m"},
+		{name: "unset value is left to the getter fallback", current: "", expected: ""},
+		{name: "unparsable value is left to the getter fallback", current: "soon", expected: "soon"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.PollingInterval = tt.current
+
+			require.NoError(t, cfg.MigratePollingInterval())
+			assert.Equal(t, tt.expected, cfg.PollingInterval)
+		})
+	}
+}
+
 func TestConfig_MigrateOfferedCurrentWaitTime(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -203,7 +228,7 @@ func TestService_SettingsRoundTrip(t *testing.T) {
 		get  func(*config.Service) time.Duration
 		set  func(*config.Service, time.Duration) error
 	}{
-		{"polling interval", 10 * time.Minute, (*config.Service).PollingInterval, (*config.Service).SetPollingInterval},
+		{"polling interval", 20 * time.Minute, (*config.Service).PollingInterval, (*config.Service).SetPollingInterval},
 		{"current wait", 3 * time.Second, (*config.Service).CurrentWaitDuration, (*config.Service).SetCurrentWaitDuration},
 		{"http timeout", 30 * time.Second, (*config.Service).HTTPTimeout, (*config.Service).SetHTTPTimeout},
 		{"signalr conn creation", 30 * time.Second, (*config.Service).SignalRConnCreationTimeout, (*config.Service).SetSignalRConnCreationTimeout},

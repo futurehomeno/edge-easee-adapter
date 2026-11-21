@@ -1,0 +1,2 @@
+- [x] A mode Easee accepted and the charger never echoed is sent again once the re-sync, 15 s after the send, has replayed the real mode (test first)
+- [x] `SetChargepointPhaseMode` arms the re-sync after a successful send

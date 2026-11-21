@@ -29,6 +29,8 @@ type Client interface {
 	// On a running client it wakes a start attempt waiting for login.
 	Start()
 	Close() error
+	// Restart closes a running client and starts it again, unless a Close arrives first.
+	Restart()
 
 	SubscribeCharger(id string) error
 	UnsubscribeCharger(id string) error
@@ -154,16 +156,28 @@ func (c *client) launch() {
 }
 
 func (c *client) Close() error {
+	c.close(false)
+
+	return nil
+}
+
+func (c *client) Restart() { c.close(true) }
+
+// close with restart defers a Start of its own, so a Close during the drain cancels it like any other.
+func (c *client) close(restart bool) {
 	c.mu.Lock()
 
 	if !c.running || c.closing {
 		// A close arriving here is the newest shutdown intent, so it must outrank a Start
 		// this or an in-flight close already deferred - otherwise the drain re-arms the
 		// client after this caller was told it was closed.
-		c.startRequested = false
+		if !restart {
+			c.startRequested = false
+		}
+
 		c.mu.Unlock()
 
-		return nil
+		return
 	}
 
 	if c.cancel != nil {
@@ -174,6 +188,7 @@ func (c *client) Close() error {
 	c.backoff.Reset()
 	c.running = false
 	c.closing = true
+	c.startRequested = restart
 	c.mu.Unlock()
 
 	c.wg.Wait()
@@ -192,8 +207,6 @@ func (c *client) Close() error {
 
 	c.closing = false
 	c.mu.Unlock()
-
-	return nil
 }
 
 func (c *client) invoke(method string, args ...any) error {

@@ -6,7 +6,7 @@ older versions, and keep the Easee credentials in a store separate from the publ
 ## Requirements
 ### Requirement: Settings And Defaults
 The configuration SHALL expose these settings with the following defaults when unset or unparsable:
-`pollingInterval` 10m, `token_refresh_interval` 30m, `currentWaitDuration` 3s,
+`pollingInterval` 20m, `token_refresh_interval` 30m, `currentWaitDuration` 3s,
 `offered_current_wait_time` 30s, `energyLifetimeInterval` 10s, `httpTimeout` 30s,
 `initial_charging_current` 16A, `auth_max_unauthorized` 2h, SignalR `connCreationTimeout` 30s,
 `keepAliveInterval2` 30s, `timeoutInterval2` 1m and `invokeTimeout` 10s. Duration settings are stored
@@ -74,6 +74,24 @@ SHALL run again for installs already past it, so a 3.1.2 install is lifted on it
 #### Scenario: SignalR final backoff
 - **WHEN** the SignalR `finalBackoff` is `2m`
 - **THEN** it becomes `10m`
+
+### Requirement: Sub-Minute Polling Interval Migration
+The migration to config version 9 SHALL rewrite a stored `pollingInterval` shorter than one minute
+to `20m`, the `30s` packaged default up to 2.5.10 included. Each poll of an idle charger fetches its
+config and site info over REST. An interval of one minute or longer SHALL be left alone, and so SHALL
+an unset or unparsable one, which the getter already reads as its `20m` fallback.
+
+#### Scenario: 2.5 polling interval
+- **WHEN** a version 8 configuration carries `pollingInterval` `30s`
+- **THEN** it becomes `20m` and the configuration reaches version 9
+
+#### Scenario: one minute or longer
+- **WHEN** `pollingInterval` is `1m` or `5m`
+- **THEN** it is left unchanged
+
+#### Scenario: unset or unparsable
+- **WHEN** `pollingInterval` is empty or `soon`
+- **THEN** it is left unchanged
 
 ### Requirement: Credential Migration From Config
 A configuration at version 5 SHALL have its credentials moved out of `config.json` into the secrets

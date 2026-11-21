@@ -100,7 +100,7 @@ func TestMigrateConfig_upgradesFrom280(t *testing.T) {
 		AccessTokenExpiresAt: accessExp, RefreshTokenExpiresAt: refreshExp,
 	}
 
-	assert.Equal(t, 8, svc.Model().ConfigVersion)
+	assert.Equal(t, 9, svc.Model().ConfigVersion)
 	assert.Equal(t, 30*time.Second, svc.OfferedCurrentWaitTime())
 	assert.Equal(t, 10*time.Minute, svc.SignalRFinalBackoff())
 	assert.Equal(t, 2*time.Hour, svc.AuthenticatorMaxUnauthorized(), "untouched 2.8.0 settings survive")
@@ -110,7 +110,7 @@ func TestMigrateConfig_upgradesFrom280(t *testing.T) {
 	// What the next boot loads.
 	reloaded := config.New(dir)
 	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load())
-	assert.Equal(t, 8, reloaded.ConfigVersion)
+	assert.Equal(t, 9, reloaded.ConfigVersion)
 	assert.True(t, reloaded.Empty())
 
 	reloadedSecrets := config.NewCredentialsStore(dir)
@@ -152,6 +152,21 @@ func newMigrationConfigServiceFrom(t *testing.T, body string) (*config.Service, 
 	require.NoError(t, svc.Load())
 
 	return svc, dir
+}
+
+func TestMigrateConfig_liftsASubMinutePollingInterval(t *testing.T) {
+	t.Parallel()
+
+	svc, dir := newMigrationConfigServiceFrom(t, `{"config_version":8,"pollingInterval":"30s"}`)
+
+	require.NoError(t, migrateConfig(svc, config.NewCredentialsStore(dir)))
+
+	assert.Equal(t, 20*time.Minute, svc.PollingInterval())
+
+	reloaded := config.New(dir)
+	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load())
+	assert.Equal(t, 9, reloaded.ConfigVersion)
+	assert.Equal(t, "20m", reloaded.PollingInterval)
 }
 
 // The crash window: the v5->v6 step's Save renames the token-bearing config.json to a

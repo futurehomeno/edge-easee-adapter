@@ -49,12 +49,24 @@ func (s *sessionStorage) Reset() error {
 }
 
 func (s *sessionStorage) RegisterSessionStart(chargerID string, session model.StartChargingSession) error {
+	bucket := s.bucketName(chargerID)
+
+	// Easee replays the latest session's stop and then its start on every signalR connect;
+	// rewriting the stored session would drop its stop time and energy.
+	stored, err := s.db.Get(bucket, idString(session.ID), &ChargingSession{})
+	if err != nil {
+		return errors.Wrap(err, "register start session: can't check stored session")
+	}
+
+	if stored {
+		return nil
+	}
+
 	sessions, err := s.LatestSessionsByChargerID(chargerID)
 	if err != nil {
 		return errors.Wrap(err, "register start session: can't get last charging session")
 	}
 
-	bucket := s.bucketName(chargerID)
 	latest := sessions.Latest()
 
 	if latest != nil && latest.Stop.IsZero() {
