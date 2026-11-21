@@ -14,3 +14,9 @@ Doubts:
   one-phase car, so that reading does not change; a real three-phase car now loads all three.
 - A `TT` grid type in the props is mapped as IT. Easee detects TN or IT only, so `TT` can only come
   from stored state; a TT supply wired with a neutral would then be read from the wrong terminals.
+
+Field data (2026-11-17, hub 05faf6492e59367348, IT charger EH887794, `L3L1` sessions logged at debug on
+2.6.7, which uses the old T3/T4/T5 → i1/i2/i3 mapping): of 4577 readings, `i2` (T4) was above 1 A 572 times,
+up to 31.6 A at 32 A offered, while `i1` (T3) and `i3` (T5) never were. This fits T3 = L2 and T4 = L3 on
+IT, and T5 unused. T2 = L1 is still not seen, because 182 was dropped then. The charger has not charged on
+3.3.1 yet.
