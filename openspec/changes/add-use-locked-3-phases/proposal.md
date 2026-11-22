@@ -19,4 +19,4 @@
 - Affected code: `src/internal/config/config.go`, `src/internal/routing/router.go`,
   `src/internal/model/mapper.go`, `src/internal/easee/controller.go`,
   `src/internal/signalr/handler.go`, packaged `defaults/config.json`
-- Open points: issues 23, 24, 25.
+- Open points: issues 25, 26, 28.
