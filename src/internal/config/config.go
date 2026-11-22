@@ -187,7 +187,7 @@ func (c *Config) MigrateSignalRFinalBackoff() error {
 // MigrateSignalRBackoffSchedule overwrites every stored SignalR backoff value, tuned ones too:
 // older installs retry as often as every 5 s, more than Easee's server should take.
 func (c *Config) MigrateSignalRBackoffSchedule() error {
-	c.SignalR.backoffSettings = backoffSettings{"30s", "5m", "30m", 3, 3}
+	c.SignalR.backoffSettings = backoffSettings{InitialBackoff: "30s", RepeatedBackoff: "5m", FinalBackoff: "30m", InitialFailureCount: 3, RepeatedFailureCount: 3}
 
 	return nil
 }
