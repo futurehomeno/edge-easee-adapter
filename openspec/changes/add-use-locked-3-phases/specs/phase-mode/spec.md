@@ -56,7 +56,7 @@ mode SHALL count for nothing. A release that fails, is not queued, or is skipped
 two modes are advertised, SHALL be requested again at the next session start or end. A phase mode
 written to a
 `disconnected` charger SHALL NOT stop and resume it, whatever a power reading says. The request SHALL be queued after the state report, and SHALL be skipped when fewer than two
-modes are advertised. Internal mode 1, an unknown or offline state or an unchanged state SHALL
+modes are advertised or when the cached internal mode has changed by the time it goes out. Internal mode 1, an unknown or offline state or an unchanged state SHALL
 trigger nothing.
 
 #### Scenario: session starts on auto
@@ -80,6 +80,11 @@ trigger nothing.
 
 #### Scenario: single phase is left alone
 - **WHEN** the setting is on, the internal mode is 1 and a session starts or ends
+- **THEN** no phase mode is requested
+
+#### Scenario: single phase set while the request waits
+- **WHEN** the setting is on, a session starts on internal mode 2 or ends on internal mode 3, and
+  internal mode 1 is observed before the queued request goes out
 - **THEN** no phase mode is requested
 
 #### Scenario: unknown state

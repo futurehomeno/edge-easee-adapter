@@ -547,6 +547,11 @@ func (h *observationsHandler) moveThreePhaseLock(chargepointSrv chargepoint.Serv
 
 	// A release that did not go out is asked again at the next session start or end.
 	queued := h.enqueue("phase lock", func() error {
+		// A mode set while this waited in the queue is newer than the session start or end.
+		if internal, _ := h.cache.PhaseMode(); internal != from {
+			return nil
+		}
+
 		err := chargepointSrv.SetPhaseMode(multi)
 		if err != nil && !lock {
 			h.lockWasOn.Store(true)

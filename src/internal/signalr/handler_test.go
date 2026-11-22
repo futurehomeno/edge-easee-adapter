@@ -2155,6 +2155,63 @@ func TestObservationsHandler_ReleaseSkippedOnAOneModeTopologyIsAskedAgain(t *tes
 	flushReports(t, handler)
 }
 
+func TestObservationsHandler_SinglePhaseSetWhileTheLockWaitsIsLeftAlone(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		prev     chargepoint.State
+		next     model.ChargerState
+		internal int
+	}{
+		{name: "a session start on auto", prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingStart, internal: 2},
+		{name: "a disconnect on the lock", prev: chargepoint.StateCharging, next: model.ChargerStateDisconnected, internal: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observed := time.Now().Add(-time.Hour)
+
+			c := cache.NewCache(testChargerID)
+			c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+			c.SetPhaseMode(tt.internal, observed)
+			c.SetChargerState(tt.prev, observed)
+
+			release := make(chan struct{})
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("SendStateReport", false).Return(true, nil).Run(func(mock.Arguments) { <-release }).Once()
+			srv.On("IsPhaseModeAware").Return(true).Maybe()
+			srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+
+			cfg := &config.Config{}
+			cfg.UseLocked3Phases = true
+			confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+			require.NoError(t, err)
+
+			observe := func(id model.ObservationID, value int) {
+				require.NoError(t, handler.HandleObservation(model.Observation{
+					ID: id, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+					Timestamp: time.Now(), Value: strconv.Itoa(value),
+				}))
+			}
+
+			// The sender holds the queued set behind the state report while single phase is set.
+			observe(model.ChargerOPState, int(tt.next))
+			observe(model.PhaseMode, 1)
+			close(release)
+			flushReports(t, handler)
+
+			srv.AssertNotCalled(t, "SetPhaseMode", mock.Anything)
+		})
+	}
+}
+
 func TestObservationsHandler_OnlyAnAcceptedModeThreeIsTheAdapters(t *testing.T) {
 	t.Parallel()
 

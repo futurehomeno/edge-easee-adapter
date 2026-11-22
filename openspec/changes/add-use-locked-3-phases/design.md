@@ -17,7 +17,9 @@ chargepoint service when the session starts on auto or ends on mode 3; the contr
 or 2 from the new cached state. Going through the service takes the lock that guards the
 controller's `sentPhase` fields and validates the mode, and needs no new controller method. The call
 is queued after the state report, on the sender, so the report is not held behind it and the cached
-state is already the new one. An unknown or offline state triggers nothing.
+state is already the new one. The queued call checks the internal mode again, so a mode set while
+it waited, such as single phase, stays; a hub request that takes the service lock between that check
+and the call is still overwritten. An unknown or offline state triggers nothing.
 
 ## Why the lock is released at session end
 The user's requirement: a lock must never be left on an idle charger, so the next car - which may

@@ -10,4 +10,5 @@
 - [x] A mode 3 observed with the setting on is released at the session end; no stop/resume for a phase mode written to a disconnected charger (PR 230 review, round 2; test first)
 - [x] The release memory ends when the release goes out and stays after a failed one; a mode 3 older than the cached mode claims nothing (PR 230 review, round 3; test first)
 - [x] A release skipped because fewer than two modes are advertised keeps the release memory (PR 230 review, round 5; test first)
+- [x] The queued request checks the internal mode again, so a mode set while it waited stays (PR 230 review, round 6; test first)
 - [ ] Verify on a real charger and car (issue 25)
