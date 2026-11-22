@@ -2,7 +2,7 @@
 
 ### Requirement: Connection Retry With Backoff
 The client SHALL reconnect on its own after a dropped or failed connection, spacing attempts with the
-configured stateful backoff (`signalr` initial 30s, repeated 5m, final 30m by default). Two failure
+configured stateful backoff (`signalr` initial 60s, repeated 5m, final 30m by default). Two failure
 modes add a fixed sleep before the backoff is consulted: when the access token cannot be obtained the
 client SHALL sleep 1 minute, throttling the adapter's own reconnect loop; when the SignalR HTTP
 connection cannot be established it SHALL sleep 30 seconds, throttling the underlying library's tight

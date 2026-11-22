@@ -131,7 +131,7 @@ func TestConfig_MigrateSignalRBackoffSchedule(t *testing.T) {
 	require.NoError(t, cfg.MigrateSignalRBackoffSchedule())
 
 	s := cfg.SignalR
-	assert.Equal(t, []any{"30s", "5m", "30m", uint32(3), uint32(3)},
+	assert.Equal(t, []any{"60s", "5m", "30m", uint32(3), uint32(3)},
 		[]any{s.InitialBackoff, s.RepeatedBackoff, s.FinalBackoff, s.InitialFailureCount, s.RepeatedFailureCount})
 }
 
@@ -246,7 +246,7 @@ func TestService_SettingsRoundTrip(t *testing.T) {
 		{"signalr conn creation", 30 * time.Second, (*config.Service).SignalRConnCreationTimeout, (*config.Service).SetSignalRConnCreationTimeout},
 		{"signalr keepalive", 30 * time.Second, (*config.Service).SignalRKeepAliveInterval, (*config.Service).SetSignalRKeepAliveInterval},
 		{"signalr timeout", time.Minute, (*config.Service).SignalRTimeoutInterval, (*config.Service).SetSignalRTimeoutInterval},
-		{"signalr initial backoff", 30 * time.Second, (*config.Service).SignalRInitialBackoff, (*config.Service).SetSignalRInitialBackoff},
+		{"signalr initial backoff", time.Minute, (*config.Service).SignalRInitialBackoff, (*config.Service).SetSignalRInitialBackoff},
 		{"signalr repeated backoff", 5 * time.Minute, (*config.Service).SignalRRepeatedBackoff, (*config.Service).SetSignalRRepeatedBackoff},
 		{"signalr final backoff", 30 * time.Minute, (*config.Service).SignalRFinalBackoff, (*config.Service).SetSignalRFinalBackoff},
 		{"signalr invoke timeout", 10 * time.Second, (*config.Service).SignalRInvokeTimeout, (*config.Service).SetSignalRInvokeTimeout},

@@ -232,7 +232,7 @@ func TestMigrateConfig_setsTheSignalRBackoffSchedule(t *testing.T) {
 	assert.Equal(t, 10, reloaded.ConfigVersion)
 
 	s := reloaded.SignalR
-	assert.Equal(t, []any{"30s", "5m", "30m", uint32(3), uint32(3)},
+	assert.Equal(t, []any{"60s", "5m", "30m", uint32(3), uint32(3)},
 		[]any{s.InitialBackoff, s.RepeatedBackoff, s.FinalBackoff, s.InitialFailureCount, s.RepeatedFailureCount})
 }
 
@@ -250,7 +250,7 @@ func TestPackagedDefaults_signalRBackoffSchedule(t *testing.T) {
 
 	b := svc.SignalRBackoffStateful()
 	want := []time.Duration{
-		30 * time.Second, 30 * time.Second, 30 * time.Second,
+		time.Minute, time.Minute, time.Minute,
 		5 * time.Minute, 5 * time.Minute, 5 * time.Minute, 30 * time.Minute, 30 * time.Minute,
 	}
 

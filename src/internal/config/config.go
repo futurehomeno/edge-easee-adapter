@@ -187,7 +187,7 @@ func (c *Config) MigrateSignalRFinalBackoff() error {
 // MigrateSignalRBackoffSchedule overwrites every stored SignalR backoff value, tuned ones too:
 // older installs retry as often as every 5 s, more than Easee's server should take.
 func (c *Config) MigrateSignalRBackoffSchedule() error {
-	c.SignalR.backoffSettings = backoffSettings{InitialBackoff: "30s", RepeatedBackoff: "5m", FinalBackoff: "30m", InitialFailureCount: 3, RepeatedFailureCount: 3}
+	c.SignalR.backoffSettings = backoffSettings{InitialBackoff: "60s", RepeatedBackoff: "5m", FinalBackoff: "30m", InitialFailureCount: 3, RepeatedFailureCount: 3}
 
 	return nil
 }
@@ -317,7 +317,7 @@ func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
 }
 
 func (cs *Service) SignalRInitialBackoff() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.InitialBackoff }, 30*time.Second)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.InitialBackoff }, time.Minute)
 }
 
 func (cs *Service) SetSignalRInitialBackoff(interval time.Duration) error {
@@ -376,7 +376,7 @@ func (cs *Service) AuthenticatorBackoffStateful() backoff.Stateful {
 
 func (cs *Service) SignalRBackoffStateful() backoff.Stateful {
 	return config.Get(cs.Service, func(c *Config) backoff.Stateful {
-		return c.SignalR.stateful(30*time.Second, 5*time.Minute, 30*time.Minute)
+		return c.SignalR.stateful(time.Minute, 5*time.Minute, 30*time.Minute)
 	})
 }
 
