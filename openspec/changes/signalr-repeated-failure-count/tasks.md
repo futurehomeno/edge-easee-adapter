@@ -1,5 +1,0 @@
-- [x] A stored SignalR `repeatedFailureCount` below 8 becomes 8; 8 or more is kept (test first)
-- [x] The migration runs as config version 9 → 10, also for a 2.8.0 config upgraded in one boot (test first)
-- [x] Packaged default `repeatedFailureCount` 8: 30 s through the tenth failure, 10 min on the eleventh (test first)
-- [x] Version bumped to 3.4.1
-- [x] The remaining two-minute refusal recorded as issue 27

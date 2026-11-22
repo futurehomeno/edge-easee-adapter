@@ -4,9 +4,9 @@ Found in field logs of 3.3.1 on test sites, 2026-11-17 to 2026-11-22.
 
 After an unauthorized restart of the SignalR client (PR #212) the first subscribe on the fresh
 connection was refused as unauthorized too in 29 of 129 restarts on 8 sites. In every case Easee
-stopped refusing 110-135 s after the reconnect. The change `signalr-repeated-failure-count` (packaged
-`repeatedFailureCount` 8 plus a migration) only shortens the wait to the next attempt after that point,
-to about 140 s; it does not remove the refusal.
+stopped refusing 110-135 s after the reconnect. The change `calmer-signalr-backoff` (30 s ×3, 5 min
+×3, then 30 min) puts the first attempt after that point at 390 s; it does not remove the refusal, and
+a fix on the request side would bring the recovery back under two minutes without denser retries.
 
 The cause on Easee's side is unknown. One observation contradicts the token-lapse inference in issue
 4: on a two-charger site the other charger subscribed on the same fresh connection in the same second,

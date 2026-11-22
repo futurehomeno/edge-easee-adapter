@@ -57,7 +57,7 @@ func TestService_SignalRFinalBackoff_MatchesPackagedDefault(t *testing.T) {
 	st := &mockedstorage.Storage[*config.Config]{}
 	st.On("Model").Return(cfg)
 
-	assert.Equal(t, 10*time.Minute, config.NewService(st).SignalRFinalBackoff())
+	assert.Equal(t, 30*time.Minute, config.NewService(st).SignalRFinalBackoff())
 }
 
 // TestService_OfferedCurrentWaitTime_MatchesPackagedDefault ties the getter's unset-config
@@ -123,27 +123,16 @@ func TestConfig_MigrateSignalRFinalBackoff(t *testing.T) {
 	}
 }
 
-func TestConfig_MigrateSignalRRepeatedFailureCount(t *testing.T) {
-	tests := []struct {
-		name     string
-		current  uint32
-		expected uint32
-	}{
-		{name: "the 3.4.0 packaged default is lifted", current: 3, expected: 8},
-		{name: "unset count is lifted", current: 0, expected: 8},
-		{name: "eight is preserved", current: 8, expected: 8},
-		{name: "a higher count is preserved", current: 12, expected: 12},
-	}
+func TestConfig_MigrateSignalRBackoffSchedule(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.SignalR.InitialBackoff, cfg.SignalR.RepeatedBackoff, cfg.SignalR.FinalBackoff = "5s", "30s", "10m"
+	cfg.SignalR.InitialFailureCount, cfg.SignalR.RepeatedFailureCount = 2, 3
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &config.Config{}
-			cfg.SignalR.RepeatedFailureCount = tt.current
+	require.NoError(t, cfg.MigrateSignalRBackoffSchedule())
 
-			require.NoError(t, cfg.MigrateSignalRRepeatedFailureCount())
-			assert.Equal(t, tt.expected, cfg.SignalR.RepeatedFailureCount)
-		})
-	}
+	s := cfg.SignalR
+	assert.Equal(t, []any{"30s", "5m", "30m", uint32(3), uint32(3)},
+		[]any{s.InitialBackoff, s.RepeatedBackoff, s.FinalBackoff, s.InitialFailureCount, s.RepeatedFailureCount})
 }
 
 func TestConfig_MigratePollingInterval(t *testing.T) {
@@ -257,9 +246,9 @@ func TestService_SettingsRoundTrip(t *testing.T) {
 		{"signalr conn creation", 30 * time.Second, (*config.Service).SignalRConnCreationTimeout, (*config.Service).SetSignalRConnCreationTimeout},
 		{"signalr keepalive", 30 * time.Second, (*config.Service).SignalRKeepAliveInterval, (*config.Service).SetSignalRKeepAliveInterval},
 		{"signalr timeout", time.Minute, (*config.Service).SignalRTimeoutInterval, (*config.Service).SetSignalRTimeoutInterval},
-		{"signalr initial backoff", 5 * time.Second, (*config.Service).SignalRInitialBackoff, (*config.Service).SetSignalRInitialBackoff},
-		{"signalr repeated backoff", 30 * time.Second, (*config.Service).SignalRRepeatedBackoff, (*config.Service).SetSignalRRepeatedBackoff},
-		{"signalr final backoff", 10 * time.Minute, (*config.Service).SignalRFinalBackoff, (*config.Service).SetSignalRFinalBackoff},
+		{"signalr initial backoff", 30 * time.Second, (*config.Service).SignalRInitialBackoff, (*config.Service).SetSignalRInitialBackoff},
+		{"signalr repeated backoff", 5 * time.Minute, (*config.Service).SignalRRepeatedBackoff, (*config.Service).SetSignalRRepeatedBackoff},
+		{"signalr final backoff", 30 * time.Minute, (*config.Service).SignalRFinalBackoff, (*config.Service).SetSignalRFinalBackoff},
 		{"signalr invoke timeout", 10 * time.Second, (*config.Service).SignalRInvokeTimeout, (*config.Service).SetSignalRInvokeTimeout},
 	}
 

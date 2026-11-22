@@ -102,8 +102,7 @@ func TestMigrateConfig_upgradesFrom280(t *testing.T) {
 
 	assert.Equal(t, 10, svc.Model().ConfigVersion)
 	assert.Equal(t, 30*time.Second, svc.OfferedCurrentWaitTime())
-	assert.Equal(t, 10*time.Minute, svc.SignalRFinalBackoff())
-	assert.Equal(t, uint32(8), svc.SignalRRepeatedFailureCount())
+	assert.Equal(t, 30*time.Minute, svc.SignalRFinalBackoff())
 	assert.Equal(t, 2*time.Hour, svc.AuthenticatorMaxUnauthorized(), "untouched 2.8.0 settings survive")
 	assert.True(t, svc.Model().Empty(), "the config copy of the tokens is dropped")
 	assert.Equal(t, want, credentials.Credentials(), "expiries are backfilled from the JWT claims")
@@ -220,17 +219,21 @@ func TestMigrateConfig_restoresTheBackupOverACorruptConfig(t *testing.T) {
 	assert.Equal(t, recovered.Model().ConfigVersion, reloaded.ConfigVersion)
 }
 
-func TestMigrateConfig_liftsTheSignalRRepeatedFailureCount(t *testing.T) {
+func TestMigrateConfig_setsTheSignalRBackoffSchedule(t *testing.T) {
 	t.Parallel()
 
-	svc, dir := newMigrationConfigServiceFrom(t, `{"config_version":9,"signalR":{"repeatedFailureCount":3}}`)
+	svc, dir := newMigrationConfigServiceFrom(t, `{"config_version":9,"signalR":{"initialBackoff":"5s",`+
+		`"repeatedBackoff":"30s","finalBackoff":"10m","initialFailureCount":2,"repeatedFailureCount":3}}`)
 
 	require.NoError(t, migrateConfig(svc, config.NewCredentialsStore(dir)))
 
 	reloaded := config.New(dir)
 	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load())
 	assert.Equal(t, 10, reloaded.ConfigVersion)
-	assert.Equal(t, uint32(8), reloaded.SignalR.RepeatedFailureCount)
+
+	s := reloaded.SignalR
+	assert.Equal(t, []any{"30s", "5m", "30m", uint32(3), uint32(3)},
+		[]any{s.InitialBackoff, s.RepeatedBackoff, s.FinalBackoff, s.InitialFailureCount, s.RepeatedFailureCount})
 }
 
 func TestPackagedDefaults_signalRBackoffSchedule(t *testing.T) {
@@ -246,11 +249,10 @@ func TestPackagedDefaults_signalRBackoffSchedule(t *testing.T) {
 	require.NoError(t, svc.Load())
 
 	b := svc.SignalRBackoffStateful()
-	want := []time.Duration{10 * time.Second, 10 * time.Second}
-	for range 8 {
-		want = append(want, 30*time.Second)
+	want := []time.Duration{
+		30 * time.Second, 30 * time.Second, 30 * time.Second,
+		5 * time.Minute, 5 * time.Minute, 5 * time.Minute, 30 * time.Minute, 30 * time.Minute,
 	}
-	want = append(want, 10*time.Minute)
 
 	for i, w := range want {
 		assert.Equal(t, w, b.Next(), "failure %d", i+1)

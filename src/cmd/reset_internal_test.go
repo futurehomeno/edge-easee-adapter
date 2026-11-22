@@ -75,7 +75,7 @@ func TestUninstall_resetAndReMigrate(t *testing.T) {
 	assert.Equal(t, "10m", cfg.AuthBackoff.FinalBackoff)
 	assert.Equal(t, 2*time.Hour, cfgSvc.AuthenticatorMaxUnauthorized())
 	assert.Equal(t, 30*time.Second, cfgSvc.OfferedCurrentWaitTime())
-	assert.Equal(t, 10*time.Minute, cfgSvc.SignalRFinalBackoff())
+	assert.Equal(t, 30*time.Minute, cfgSvc.SignalRFinalBackoff())
 	assert.True(t, credentials.Credentials().Empty())
 	assert.Nil(t, cfgSvc.SelectedDevices())
 }

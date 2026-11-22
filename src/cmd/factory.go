@@ -137,7 +137,7 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		cliffCfg.Migration{From: 6, To: 7, Do: cfg.MigrateOfferedCurrentWaitTime},
 		cliffCfg.Migration{From: 7, To: 8, Do: cfg.MigrateTelemetryOn},
 		cliffCfg.Migration{From: 8, To: 9, Do: cfg.MigratePollingInterval},
-		cliffCfg.Migration{From: 9, To: 10, Do: cfg.MigrateSignalRRepeatedFailureCount},
+		cliffCfg.Migration{From: 9, To: 10, Do: cfg.MigrateSignalRBackoffSchedule},
 	)
 	if err != nil {
 		return fmt.Errorf("migrate config: %w", err)
