@@ -21,6 +21,13 @@ state is already the new one. An unknown or offline state triggers nothing.
 The user's requirement: a lock must never be left on an idle charger, so the next car - which may
 refuse three phases - starts on auto.
 
+## Turning the setting off
+The handler remembers the setting as of the previous state change. At the first change after it went
+off, a charger on mode 3 gets the three-phase request, which now maps to auto. Kept in the handler,
+at a state change, because the setter has no way to the chargers; the cost is that the lock lasts
+until that change (the disconnect at the latest), and that an adapter restart in between forgets it
+(issue 24). With the setting off all along nothing is sent, so a mode 3 set in the Easee app stays.
+
 ## Zaptec
 No change: Zaptec's API has no auto mode, only `maxChargePhases` 1/3 and the installation-wide
 `threeToOnePhaseSwitchCurrent`.

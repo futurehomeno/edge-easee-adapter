@@ -5,4 +5,5 @@
 - [x] Controller: setting on and a session in progress sends 3; disconnected sends 2; the echo of the lock keeps the request in the report (test first)
 - [x] Handler: session start on auto and session end on 3 queue the three-phase set on the chargepoint service; single phase, setting off, unknown state and unchanged state do not (test first)
 - [x] Issues 23, 24, 25 recorded
+- [x] Handler: the first state change after the setting went off releases mode 3, a later mode 3 is left alone (test first; PR 230 review)
 - [ ] Verify on a real charger and car (issue 25)

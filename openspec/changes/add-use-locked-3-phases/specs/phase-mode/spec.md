@@ -43,9 +43,12 @@ rejected with `phase modes mapper: mode <mode> unsupported on a <grid> grid with
 When `use_locked_3_phases` is on and a charger state observation changes the cached FIMP state to a
 known one, the adapter SHALL request the advertised multi-phase mode through the chargepoint service
 when a session started on cached internal mode 2, or a session ended on cached internal mode 3, so
-the mapping locks or releases three phases for the new state. The request SHALL be queued after the
-state report, and SHALL be skipped when fewer than two modes are advertised. Internal mode 1, an
-unknown or offline state, an unchanged state, or the setting off SHALL trigger nothing.
+the mapping locks or releases three phases for the new state. At the first such change after the
+setting went off, the same request SHALL be made on cached internal mode 3 whatever the state, so the
+lock does not outlive the setting; a mode 3 found after that was set elsewhere and SHALL be left
+alone. The request SHALL be queued after the state report, and SHALL be skipped when fewer than two
+modes are advertised. Internal mode 1, an unknown or offline state, an unchanged state, or the
+setting off since the previous change SHALL trigger nothing.
 
 #### Scenario: session starts on auto
 - **WHEN** the setting is on, the internal mode is 2 and the state changes from `disconnected` to
@@ -71,3 +74,9 @@ unknown or offline state, an unchanged state, or the setting off SHALL trigger n
 #### Scenario: setting off
 - **WHEN** the setting is off and a session starts on internal mode 2
 - **THEN** no phase mode is requested
+
+#### Scenario: setting turned off during a session
+- **WHEN** the setting goes off while the internal mode is 3, and the state then changes from
+  `charging` to `suspended_by_ev`
+- **THEN** the three-phase mode is requested and Easee internal mode 2 is sent
+- **AND** a later state change on internal mode 3 requests nothing

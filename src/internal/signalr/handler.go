@@ -54,6 +54,7 @@ type observationsHandler struct {
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
 	confSrv        *config.Service
+	lockWasOn      bool
 
 	detectedGridType   model.GridType
 	detectedGridTypeAt time.Time
@@ -480,22 +481,27 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		h.isStateOnline.Store(!goingOffline)
 	}
 
-	if changed && state.ToFimpState() != chargepoint.StateUnknown && h.confSrv != nil && h.confSrv.UseLocked3Phases() {
-		h.moveThreePhaseLock(chargepointSrv, state.ToFimpState())
+	if changed && state.ToFimpState() != chargepoint.StateUnknown && h.confSrv != nil {
+		lock := h.confSrv.UseLocked3Phases()
+		if lock || h.lockWasOn {
+			h.moveThreePhaseLock(chargepointSrv, lock && model.SessionInProgress(state.ToFimpState()))
+		}
+
+		h.lockWasOn = lock
 	}
 
 	return nil
 }
 
-// moveThreePhaseLock re-sends the three-phase mode when a session starts on auto or ends on the
-// lock, so the controller picks the mode for the new state: the hub does not repeat a request
-// for a mode the report already shows, and a lock must not be left on an idle charger.
-func (h *observationsHandler) moveThreePhaseLock(chargepointSrv chargepoint.Service, state chargepoint.State) {
+// moveThreePhaseLock re-sends the three-phase mode when a session starts on auto, or ends on the
+// lock, or the setting went off on the lock, so the controller picks the mode for the new state:
+// the hub does not repeat a request for a mode the report already shows, and a lock must not be
+// left on an idle charger.
+func (h *observationsHandler) moveThreePhaseLock(chargepointSrv chargepoint.Service, lock bool) {
 	internal, _ := h.cache.PhaseMode()
-	inSession := model.SessionInProgress(state)
 
 	from := model.EaseePhaseModeLock3
-	if inSession {
+	if lock {
 		from = model.EaseePhaseModeAuto
 	}
 
@@ -511,9 +517,10 @@ func (h *observationsHandler) moveThreePhaseLock(chargepointSrv chargepoint.Serv
 		return
 	}
 
+	// The auto row ends with the multi-phase mode.
 	multi := modes[len(modes)-1]
 
-	log.Infof("[%s] Three-phase lock: session in progress=%t on %s, re-sending %s", h.chargerID, inSession, model.PhaseModeName(internal), multi)
+	log.Infof("[%s] Three-phase lock: wanted=%t on %s, re-sending %s", h.chargerID, lock, model.PhaseModeName(internal), multi)
 
 	h.enqueue("phase lock", func() error { return chargepointSrv.SetPhaseMode(multi) })
 }

@@ -9,8 +9,8 @@ car that resumes from there goes to `charging` on auto, the start rule writes mo
 controller bounces the session (stop, mode write, resume, about 30 s) to apply it.
 
 How to observe: setting on, a three-phase car charging on mode 3; let it finish or pause from the car
-and resume. The log shows `Three-phase lock: session in progress=false on three phase` at
-`Completed`, then `session in progress=true on auto` and a pause/resume when it charges again.
+and resume. The log shows `Three-phase lock: wanted=false on three phase` at
+`Completed`, then `wanted=true on auto` and a pause/resume when it charges again.
 
 Alternative: only `disconnected` ends the lock (keep it through `completed`, `error`,
 `awaiting_authentication`).
