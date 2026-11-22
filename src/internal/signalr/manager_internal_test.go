@@ -1531,7 +1531,7 @@ func newRefusedUnsubscribeManager(t *testing.T, err error, others ...string) (*m
 	m.chargers[chargerID].isSubscribed = true
 
 	for _, id := range others {
-		m.chargers[id] = &charger{handler: &recordingHandler{handled: make(chan struct{})}, backoff: m.cfg.SignalRBackoffStateful()}
+		m.chargers[id] = &charger{handler: &recordingHandler{handled: make(chan struct{})}, backoff: m.cfg.SignalRBackoffStateful(), isSubscribed: true}
 	}
 
 	return m, client
