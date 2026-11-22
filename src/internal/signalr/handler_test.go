@@ -1893,6 +1893,8 @@ func TestObservationsHandler_ChargerStateMovesTheThreePhaseLock(t *testing.T) {
 		{name: "single phase is left alone at a start", lock: true, prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingStart, internal: 1},
 		{name: "single phase is left alone at a disconnect", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateDisconnected, internal: 1},
 		{name: "auto stays at a disconnect", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateDisconnected, internal: 2},
+		{name: "an idle change releases the lock", lock: true, prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingAuthentication, internal: 3, wantSet: true},
+		{name: "the first state after a restart releases an idle lock", lock: true, next: model.ChargerStateDisconnected, internal: 3, wantSet: true},
 		{name: "the lock stays while charging", lock: true, prev: chargepoint.StateReadyToCharge, next: model.ChargerStateCharging, internal: 3},
 		{name: "setting off", prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingStart, internal: 2},
 		{name: "offline triggers nothing", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateOffline, internal: 3},

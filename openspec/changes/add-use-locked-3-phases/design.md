@@ -23,11 +23,12 @@ and the call is still overwritten. An unknown or offline state triggers nothing.
 
 ## Why the lock is released at session end
 The user's requirement: a lock must never be left on an idle charger, so the next car - which may
-refuse three phases - starts on auto.
+refuse three phases - starts on auto. For the same reason a change between two idle states, and the
+first state after an adapter restart, release a mode 3 too.
 
 ## A setting changed during a session
 Forces nothing (the user, 2026-11-22, issue 24): the handler acts only when a session starts or the
-state leaves it, never on a change from one session state to another, and it keeps its own "in
+new state is outside a session, never on a change from one session state to another, and it keeps its own "in
 session" flag so that an offline charger's unknown state does not make the rest of the session look
 like a new one. The new value is used by the next request that takes the charger from single phase
 to three phases, and from the session end on. A session that started with the setting on is still

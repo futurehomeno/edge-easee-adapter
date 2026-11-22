@@ -13,6 +13,11 @@ Left: when that read fails, the mode from the stored thing state is used and can
   is charging.
 - Stored auto, charger idle on mode 3 (the session ended while the adapter was down): nothing is sent; with
   the setting on the next session is locked at plug-in anyway and released at its end.
+- Charger in a session on auto with the setting on (turned on during the session, or the lock at the start
+  failed, issue 28): the replayed state counts as a session start, so mode 3 is written with one stop/resume
+  if it is charging, although a setting changed during a session should force nothing. Not told apart on
+  purpose: the same first-state rule locks a session that started while the adapter was down and releases
+  a mode 3 left on an idle charger.
 
 Not triggered from the phase mode observation on purpose: Easee can accept a mode the charger never applies,
 the 15 s re-sync then replays the old mode, and a trigger there would re-send mode 3 every 15 s.
