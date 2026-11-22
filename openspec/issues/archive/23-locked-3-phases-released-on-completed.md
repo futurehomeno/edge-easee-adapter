@@ -1,3 +1,5 @@
+Resolved: 2026-11-22, the user: `finished` (Easee "Completed") counts as a session in progress, so the lock is kept and nothing is written there; `disconnected`, `error` and `requesting` end it. Change `add-use-locked-3-phases`, PR 230.
+
 # use_locked_3_phases: `completed` releases the lock
 
 Found while adding `use_locked_3_phases` (change `add-use-locked-3-phases`).

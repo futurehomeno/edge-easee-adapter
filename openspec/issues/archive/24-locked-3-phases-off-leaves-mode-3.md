@@ -1,3 +1,5 @@
+Resolved: 2026-11-22, the user: a setting changed during a session forces nothing; the new value is used by the next single-to-three-phase request and from the session end on. A session that started with the setting on is released at its end even when the setting is off by then. Known limits, in the design of `add-use-locked-3-phases`: the handler remembers the setting in memory, so an adapter restart between turning it off and the session end leaves mode 3; so does a lock placed by a hub request in a session that started with the setting off, when the setting is off again at its end. The text below is the issue as first narrowed in the PR 230 review, before that decision.
+
 # use_locked_3_phases: turning it off releases the lock only at the next state change
 
 Found while adding `use_locked_3_phases` (change `add-use-locked-3-phases`); narrowed in the PR 230 review.

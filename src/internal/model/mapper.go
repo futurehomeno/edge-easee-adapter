@@ -72,9 +72,11 @@ func ToEaseePhaseMode(gridType types.GridType, phases int, mode types.PhaseMode,
 	return 0, fmt.Errorf("phase modes mapper: mode %s unsupported on a %s grid with %d phases", mode, gridType, phases)
 }
 
-// SessionInProgress is the complement of ChargerState.IsSessionFinished on FIMP states.
+// SessionInProgress keeps finished in the session: Easee reports it for a car that paused or is
+// full while still plugged in, and that may charge again.
 func SessionInProgress(state chargepoint.State) bool {
-	return state == chargepoint.StateReadyToCharge || state == chargepoint.StateCharging || state == chargepoint.StateSuspendedByEV
+	return state == chargepoint.StateReadyToCharge || state == chargepoint.StateCharging ||
+		state == chargepoint.StateSuspendedByEV || state == chargepoint.StateFinished
 }
 
 func SupportedPhaseModes(gridType types.GridType, phaseMode, phases int) []types.PhaseMode {

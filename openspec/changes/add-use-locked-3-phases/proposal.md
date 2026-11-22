@@ -10,7 +10,7 @@
 - New boolean setting `use_locked_3_phases`, default `false`, with config get/set routes. With
   `false` nothing changes.
 - With `true`, a three-phase request maps to internal mode 3 while a session is in progress
-  (FIMP state `ready_to_charge`, `charging` or `suspended_by_ev`) and to auto otherwise.
+  (FIMP state `ready_to_charge`, `charging`, `suspended_by_ev` or `finished`) and to auto otherwise.
 - With `true`, a session start on auto re-sends the three-phase mode, which then locks; a session
   end or disconnect on mode 3 re-sends it, which then returns to auto. Single phase is never touched.
 

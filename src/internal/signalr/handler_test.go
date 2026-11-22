@@ -1887,7 +1887,9 @@ func TestObservationsHandler_ChargerStateMovesTheThreePhaseLock(t *testing.T) {
 	}{
 		{name: "a session start locks auto", lock: true, prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingStart, internal: 2, wantSet: true},
 		{name: "a disconnect releases the lock", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateDisconnected, internal: 3, wantSet: true},
-		{name: "a completed session releases the lock", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateCompleted, internal: 3, wantSet: true},
+		{name: "a completed session keeps the lock", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateCompleted, internal: 3},
+		{name: "a disconnect after completed releases the lock", lock: true, prev: chargepoint.StateFinished, next: model.ChargerStateDisconnected, internal: 3, wantSet: true},
+		{name: "a change inside a session leaves auto alone", lock: true, prev: chargepoint.StateReadyToCharge, next: model.ChargerStateCharging, internal: 2},
 		{name: "single phase is left alone at a start", lock: true, prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingStart, internal: 1},
 		{name: "single phase is left alone at a disconnect", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateDisconnected, internal: 1},
 		{name: "auto stays at a disconnect", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateDisconnected, internal: 2},
@@ -1939,7 +1941,7 @@ func TestObservationsHandler_ChargerStateMovesTheThreePhaseLock(t *testing.T) {
 	}
 }
 
-func TestObservationsHandler_TurningTheSettingOffReleasesTheLock(t *testing.T) {
+func TestObservationsHandler_SettingTurnedOffReleasesTheLockAtTheSessionEnd(t *testing.T) {
 	t.Parallel()
 
 	observed := time.Now().Add(-time.Hour)
@@ -1947,11 +1949,15 @@ func TestObservationsHandler_TurningTheSettingOffReleasesTheLock(t *testing.T) {
 	c := cache.NewCache(testChargerID)
 	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
 	c.SetPhaseMode(3, observed)
-	c.SetChargerState(chargepoint.StateReadyToCharge, observed)
+	c.SetChargerState(chargepoint.StateDisconnected, observed)
+
+	// One sender runs the reports in order, so the calls show which state change released the lock.
+	var calls []string
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
-	srv.On("SendStateReport", false).Return(true, nil).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil).Run(func(mock.Arguments) { calls = append(calls, "state") })
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Run(func(mock.Arguments) { calls = append(calls, "set") })
 
 	cfg := &config.Config{}
 	cfg.UseLocked3Phases = true
@@ -1967,23 +1973,18 @@ func TestObservationsHandler_TurningTheSettingOffReleasesTheLock(t *testing.T) {
 		}))
 	}
 
-	released := make(chan struct{})
-	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Run(func(mock.Arguments) { close(released) }).Once()
-
 	observe(model.ChargerStateCharging)
 	require.NoError(t, confSrv.SetUseLocked3Phases(false))
-
-	// Still in a session: the lock goes at the first state change, not at the disconnect.
 	observe(model.ChargerStateReadyToCharge)
-
-	select {
-	case <-released:
-	case <-time.After(time.Second):
-		t.Fatal("the lock was not released")
-	}
-
-	// A mode 3 that is still there afterwards was set elsewhere and is left alone.
+	// Offline and back is still the same session.
+	observe(model.ChargerStateOffline)
+	observe(model.ChargerStateCharging)
+	observe(model.ChargerStateDisconnected)
+	// The mock leaves the cache on mode 3: from here on it counts as set elsewhere.
+	observe(model.ChargerStateAwaitingStart)
 	observe(model.ChargerStateDisconnected)
 	flushReports(t, handler)
-	srv.AssertNumberOfCalls(t, "SetPhaseMode", 1)
+
+	assert.Equal(t, []string{"state", "state", "state", "state", "state", "set", "state", "state"}, calls,
+		"released once, after the state report of the first disconnect")
 }

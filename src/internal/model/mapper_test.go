@@ -277,7 +277,7 @@ func TestSessionInProgress(t *testing.T) {
 		chargepoint.StateSuspendedByEV:   true,
 		chargepoint.StateDisconnected:    false,
 		chargepoint.StateRequesting:      false,
-		chargepoint.StateFinished:        false,
+		chargepoint.StateFinished:        true,
 		chargepoint.StateError:           false,
 		chargepoint.StateUnknown:         false,
 		chargepoint.StateSuspendedByEVSE: false,

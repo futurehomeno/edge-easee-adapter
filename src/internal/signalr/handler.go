@@ -55,6 +55,7 @@ type observationsHandler struct {
 	phaseStore     PhaseStore
 	confSrv        *config.Service
 	lockWasOn      bool
+	inSession      bool
 
 	detectedGridType   model.GridType
 	detectedGridTypeAt time.Time
@@ -482,21 +483,31 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 	}
 
 	if changed && state.ToFimpState() != chargepoint.StateUnknown && h.confSrv != nil {
-		lock := h.confSrv.UseLocked3Phases()
-		if lock || h.lockWasOn {
-			h.moveThreePhaseLock(chargepointSrv, lock && model.SessionInProgress(state.ToFimpState()))
+		inSession := model.SessionInProgress(state.ToFimpState())
+
+		// The handler's own flag carries a session over an offline charger's unknown state.
+		wasInSession := h.inSession || model.SessionInProgress(prevState)
+
+		// A change inside a session moves nothing, so a setting changed meanwhile forces no switch.
+		if !inSession || !wasInSession {
+			lock := h.confSrv.UseLocked3Phases()
+			if lock || h.lockWasOn {
+				h.moveThreePhaseLock(chargepointSrv, lock && inSession)
+			}
+
+			h.lockWasOn = lock
 		}
 
-		h.lockWasOn = lock
+		h.inSession = inSession
 	}
 
 	return nil
 }
 
-// moveThreePhaseLock re-sends the three-phase mode when a session starts on auto, or ends on the
-// lock, or the setting went off on the lock, so the controller picks the mode for the new state:
-// the hub does not repeat a request for a mode the report already shows, and a lock must not be
-// left on an idle charger.
+// moveThreePhaseLock re-sends the three-phase mode when a session starts on auto or ends on the
+// lock, so the controller picks the mode for the new state: the hub does not repeat a request
+// for a mode the report already shows, and a lock must not be left on an idle charger. Only at
+// those two moments: a setting changed during a session moves nothing until the session ends.
 func (h *observationsHandler) moveThreePhaseLock(chargepointSrv chargepoint.Service, lock bool) {
 	internal, _ := h.cache.PhaseMode()
 
