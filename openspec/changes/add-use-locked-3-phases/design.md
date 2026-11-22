@@ -39,8 +39,8 @@ and is asked again at the next session start or end. That memory is in the handl
 adapter restart between turning the setting off and the session end leaves mode 3 on the charger
 until the next single-to-three-phase request.
 
-The lock at the session start is sent once (issue 28): a failed send, or a start while a topology
-update is pending, leaves that session on auto.
+The lock at the session start is sent once (issue 28, accepted by the user 2026-11-22): a failed
+send, or a start while a topology update is pending, leaves that session on auto.
 
 ## No stop and resume at the disconnect
 The release is written right after the `disconnected` observation. A power reading stamped at or

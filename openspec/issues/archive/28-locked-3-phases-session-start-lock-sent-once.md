@@ -1,3 +1,5 @@
+Resolved: 2026-11-22, the user: accepted. A lock lost at the session start leaves that one session on auto, as without the setting; the adapter does not ask again.
+
 # use_locked_3_phases: the lock at the session start is sent once
 
 Found in the PR 230 review (change `add-use-locked-3-phases`).
