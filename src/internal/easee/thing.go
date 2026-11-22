@@ -3,6 +3,7 @@ package easee
 import (
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter"
@@ -49,11 +50,12 @@ func (s *State) IsSiteUpdateNeeded() bool {
 	return s.SupportedMaxCurrent == 0
 }
 
-type thingFactory struct {
+type ThingFactory struct {
 	client         api.Client
 	cfgService     *config.Service
 	signalRManager signalr.Manager
 	sessionStorage db.ChargingSessionStorage
+	controllers    sync.Map
 }
 
 func NewThingFactory(
@@ -61,8 +63,8 @@ func NewThingFactory(
 	cfgService *config.Service,
 	signalRManager signalr.Manager,
 	sessionStorage db.ChargingSessionStorage,
-) adapter.ThingFactory {
-	return &thingFactory{
+) *ThingFactory {
+	return &ThingFactory{
 		client:         client,
 		cfgService:     cfgService,
 		signalRManager: signalRManager,
@@ -70,7 +72,7 @@ func NewThingFactory(
 	}
 }
 
-func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, thingState adapter.ThingState) (adapter.Thing, error) {
+func (t *ThingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, thingState adapter.ThingState) (adapter.Thing, error) {
 	info := &Info{}
 
 	if err := thingState.Info(info); err != nil {
@@ -79,6 +81,7 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 
 	thingCache := cache.NewCache(info.ChargerID)
 	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage, (&phaseStore{state: thingState}).OutputPhase)
+	t.controllers.Store(thingState.Address(), controller)
 
 	state := &State{}
 	if err := thingState.State(state); err != nil {
@@ -148,7 +151,15 @@ func (t *thingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}, services...), nil
 }
 
-func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState, groups []string) *fimptype.ThingInclusionReport {
+// ControllerByAddress serves the routing divert of offered currents under 6 A, which cliffhanger's service rejects.
+func (t *ThingFactory) ControllerByAddress(address string) chargepoint.AdjustableOfferedCurrentController {
+	c, _ := t.controllers.Load(address)
+	ctrl, _ := c.(Controller)
+
+	return ctrl
+}
+
+func (t *ThingFactory) inclusionReport(info *Info, thingState adapter.ThingState, groups []string) *fimptype.ThingInclusionReport {
 	return &fimptype.ThingInclusionReport{
 		Address:        thingState.Address(),
 		ProductHash:    "Easee - Easee - " + info.Product,
@@ -162,7 +173,7 @@ func (t *thingFactory) inclusionReport(info *Info, thingState adapter.ThingState
 	}
 }
 
-func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
+func (t *ThingFactory) chargepointSpecification(ad adapter.Adapter, thingState adapter.ThingState, groups []string, state *State) *fimptype.Service {
 	// sup_max_current must be *present* to keep the max-current interfaces: cliffhanger derives
 	// them from the property once, in NewService, so omitting it on a charger created without
 	// state drops cmd.max_current.set for the lifetime of the process. A present 0 is worse
@@ -204,7 +215,7 @@ func (t *thingFactory) chargepointSpecification(ad adapter.Adapter, thingState a
 	)
 }
 
-func (t *thingFactory) supportedStates() []chargepoint.State {
+func (t *ThingFactory) supportedStates() []chargepoint.State {
 	var supportedStates []chargepoint.State
 
 	for _, s := range model.SupportedChargingStates() {
@@ -216,7 +227,7 @@ func (t *thingFactory) supportedStates() []chargepoint.State {
 	return supportedStates
 }
 
-func (t *thingFactory) meterElecSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
+func (t *ThingFactory) meterElecSpecification(adapter adapter.Adapter, thingState adapter.ThingState, groups []string) *fimptype.Service {
 	return numericmeter.Specification(
 		numericmeter.MeterElec,
 		adapter.Name(),

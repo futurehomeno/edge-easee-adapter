@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
@@ -113,6 +114,9 @@ type controller struct {
 	// stopResync cancels the pending re-sync and resyncAt is when it runs, both guarded by pace.
 	stopResync func() bool
 	resyncAt   time.Time
+	// offeredPause marks a pause made for a sub-minimum offered current, which the next valid one resumes. Atomic: a
+	// value under 6 A arrives through the routing divert, outside the chargepoint service lock.
+	offeredPause atomic.Bool
 	// closed is set by Teardown. The router runs messages concurrently, so a command for the
 	// deleted charger can still arrive; it must not be sent, nor Add to inFlight under its Wait.
 	closed bool
@@ -742,10 +746,26 @@ func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 	return current, nil
 }
 
+// SetChargepointOfferedCurrent pauses below min_charging_current. Easee resumes on any dynamic-current write, so the
+// resume of the adapter's own pause only bypasses the dedup, which would otherwise skip the pre-pause value.
 func (c *controller) SetChargepointOfferedCurrent(current int) error {
-	_, err := c.setOfferedCurrent(current, false)
+	if current < c.cfgService.MinChargingCurrent() {
+		if _, err := c.dispatch(chargerCommand{stop: true}); err != nil {
+			return err
+		}
 
-	return err
+		c.offeredPause.Store(true)
+
+		return nil
+	}
+
+	if _, err := c.setOfferedCurrent(current, c.offeredPause.Load()); err != nil {
+		return err
+	}
+
+	c.offeredPause.Store(false)
+
+	return nil
 }
 
 // setOfferedCurrent is the shared implementation behind SetChargepointOfferedCurrent and the
@@ -837,6 +857,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 }
 
 func (c *controller) StopChargepointCharging() error {
+	c.offeredPause.Store(false)
 	_, err := c.dispatch(chargerCommand{stop: true})
 
 	return err

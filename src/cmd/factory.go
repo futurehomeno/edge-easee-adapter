@@ -48,7 +48,7 @@ type serviceContainer struct {
 	manifestLoader  manifest.Loader
 	eventManager    event.Manager
 	adapter         adapter.Adapter
-	thingFactory    adapter.ThingFactory
+	thingFactory    *easee.ThingFactory
 	adapterState    adapter.State
 	httpClient      *http.Client
 	easeeHTTPClient api.HTTPClient
@@ -277,7 +277,7 @@ func getAdapterState() adapter.State {
 	return services.adapterState
 }
 
-func getThingFactory(cfg *config.Config) adapter.ThingFactory {
+func getThingFactory(cfg *config.Config) *easee.ThingFactory {
 	if services.thingFactory == nil {
 		services.thingFactory = easee.NewThingFactory(
 			getEaseeAPIClient(cfg),
@@ -384,6 +384,7 @@ func newRouting(cfg *config.Config) []*cliffRouter.Routing {
 		getApplication(cfg),
 		getAdapter(cfg),
 		getTelemetry(cfg),
+		getThingFactory(cfg).ControllerByAddress,
 	)
 }
 

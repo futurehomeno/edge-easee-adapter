@@ -2,6 +2,7 @@ package routing
 
 import (
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
+	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
 	"github.com/futurehomeno/cliffhanger/app"
 	"github.com/futurehomeno/cliffhanger/bootstrap"
@@ -10,7 +11,9 @@ import (
 	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/selection"
 	"github.com/futurehomeno/cliffhanger/telemetry"
+	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
@@ -21,6 +24,7 @@ func New(
 	application app.App,
 	adapter cliffAdapter.Adapter,
 	tel telemetry.Telemetry,
+	controllerByAddress func(string) chargepoint.AdjustableOfferedCurrentController,
 ) []*router.Routing {
 	// Shared by the app and adapter routes so cmd.thing.delete cannot interleave with
 	// cmd.config.extended_set rewriting the selection it reads.
@@ -34,6 +38,11 @@ func New(
 	return router.Combine(
 		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.PublicConfig() }, tel),
 		[]*router.Routing{
+			routeOfferedPause(adapter, controllerByAddress),
+			cliffConfig.RouteCmdConfigGetInt(fimptype.EaseeService, "initial_charging_current", cfgSrv.InitialChargingCurrent),
+			cliffConfig.RouteCmdConfigSetInt(fimptype.EaseeService, "initial_charging_current", cfgSrv.SetInitialChargingCurrent),
+			cliffConfig.RouteCmdConfigGetInt(fimptype.EaseeService, "min_charging_current", cfgSrv.MinChargingCurrent),
+			cliffConfig.RouteCmdConfigSetInt(fimptype.EaseeService, "min_charging_current", cfgSrv.SetMinChargingCurrent),
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.PollingInterval),
 			cliffConfig.RouteCmdConfigSetDuration(fimptype.EaseeService, "polling_interval", cfgSrv.SetPollingInterval),
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "current_wait_duration", cfgSrv.CurrentWaitDuration),
@@ -71,4 +80,51 @@ func New(
 		cliffAdapter.RouteAdapter(adapter, cliffAdapter.WithSelection(devices, locker)),
 		thing.RouteCarCharger(adapter),
 	)
+}
+
+// routeOfferedPause hands offered currents under 6 A to the controller, which pauses below min_charging_current and
+// writes the rest: cliffhanger rejects current < 6 A in validation before the controller runs. On success the message
+// interface is renamed so the chargepoint handler skips the message instead of rejecting it.
+func routeOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) chargepoint.AdjustableOfferedCurrentController) *router.Routing {
+	return router.NewRouting(
+		router.MessageHandlerFn(func(message *fimpgo.Message) *fimpgo.Message {
+			divertOfferedPause(ad, controllerByAddress, message)
+
+			return nil
+		}),
+		router.ForService(chargepoint.Chargepoint),
+		router.ForType(chargepoint.CmdCurrentSessionSetCurrent),
+	)
+}
+
+func divertOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) chargepoint.AdjustableOfferedCurrentController, message *fimpgo.Message) {
+	current, err := message.Payload.GetIntValue()
+	if err != nil || current < 0 || current >= 6 {
+		return
+	}
+
+	t := ad.ThingByTopic(message.Topic)
+	if t == nil {
+		return
+	}
+
+	ctrl := controllerByAddress(t.Address())
+	if ctrl == nil {
+		return
+	}
+
+	if err := ctrl.SetChargepointOfferedCurrent(current); err != nil {
+		log.Errorf("[routing] Offered %dA on %s err: %v", current, message.Topic, err)
+
+		return
+	}
+
+	message.Payload.Interface += ".paused"
+
+	// The renamed message skips cliffhanger's handler and with it the confirmation report.
+	if s, ok := t.ServiceByTopic(message.Topic).(chargepoint.Service); ok {
+		if _, err := s.SendCurrentSessionReport(true); err != nil {
+			log.Warnf("[routing] Offered: session report on %s err: %v", message.Topic, err)
+		}
+	}
 }

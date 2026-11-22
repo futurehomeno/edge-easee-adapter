@@ -3,6 +3,7 @@ package easee_test
 import (
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -3544,4 +3545,64 @@ func TestController_ChargepointPhaseModeReport_EchoOfTheLockKeepsTheRequest(t *t
 	mode, err := ctrl.ChargepointPhaseModeReport()
 	require.NoError(t, err)
 	assert.Equal(t, types.PhaseModeNL1L2L3, mode)
+}
+
+func minCurrentConfig() *config.Config {
+	return &config.Config{PublicConfig: config.PublicConfig{OfferedCurrentWaitTime: "20s", MinChargingCurrent: 10}}
+}
+
+// The last write is always recent, so only a bypassed dedup puts 12 A back on the wire.
+func recentWriteCache(t *testing.T, current int) *mockedcache.Cache {
+	t.Helper()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(func() int { return current }, clock.Now).Maybe()
+
+	return cacheMock
+}
+
+func TestController_SetChargepointOfferedCurrent_BelowMinimumPausesAndNextValueResumes(t *testing.T) {
+	for _, below := range []int{0, 8} {
+		t.Run(strconv.Itoa(below), func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.November, 22, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
+
+			cacheMock := recentWriteCache(t, 12)
+			cacheMock.On("SetRequestedOfferedCurrent", 12, mock.AnythingOfType("time.Time")).Return(true).Once()
+			cacheMock.On("WaitForOfferedCurrent", 12, mock.Anything).Return(true).Once()
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+			clientMock.On("UpdateDynamicCurrent", "test-charger", float64(12)).Return(nil).Once()
+
+			ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), minCurrentConfig())
+
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(below))
+			clientMock.AssertCalled(t, "StopCharging", "test-charger")
+			clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
+
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
+			clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(12))
+		})
+	}
+}
+
+func TestController_SetChargepointOfferedCurrent_UserStopIsNotResumed(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 22, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("StopCharging", "test-charger").Return(nil).Twice()
+
+	ctrl := newTestController(t, nil, recentWriteCache(t, 12), clientMock, mockeddb.NewChargingSessionStorage(t), minCurrentConfig())
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(8))
+	clk.Add(20 * time.Second)
+	require.NoError(t, ctrl.StopChargepointCharging())
+	clk.Add(20 * time.Second)
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
+	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
 }
