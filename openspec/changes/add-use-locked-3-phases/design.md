@@ -33,13 +33,14 @@ released at its end when the setting is off by then: the handler remembers the s
 session start. With the setting off all along nothing is sent, so a mode 3 set in the Easee app
 stays. A mode 3 observed while the setting is on is remembered the same way, for a lock a hub
 request placed in a session that started with the setting off; an observation the cache turns away
-as older counts for nothing. The memory ends when the release goes out, so a mode 3 set elsewhere
-afterwards with the setting off stays; a release that fails or finds the report queue full keeps it,
-and is asked again at the next session start or end. A mode 3 observed after the release, before the
-charger shows auto, sets it again, and the observation of auto does not end it (issue 29, accepted
-by the user 2026-11-22). That memory is in the handler: an
-adapter restart between turning the setting off and the session end leaves mode 3 on the charger
-until the next single-to-three-phase request.
+as older counts for nothing, and so does one that arrives after the setting went off again. The
+memory ends when the release goes out, so a mode 3 set elsewhere afterwards with the setting off
+stays; a release that fails, finds the report queue full or is skipped because fewer than two modes
+are advertised keeps it, and is asked again at the next session start or end. A mode 3 observed
+after the release, before the charger shows auto, sets it again, and the observation of auto does
+not end it (issue 29, accepted by the user 2026-11-22). That memory is in the handler: an adapter
+restart between turning the setting off and the session end leaves mode 3 on the charger until the
+next single-to-three-phase request.
 
 The lock at the session start is sent once (issue 28, accepted by the user 2026-11-22): a failed
 send, or a start while a topology update is pending, leaves that session on auto.

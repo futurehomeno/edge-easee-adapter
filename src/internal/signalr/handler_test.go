@@ -2114,6 +2114,47 @@ func TestObservationsHandler_FailedReleaseIsAskedAgain(t *testing.T) {
 	flushReports(t, handler)
 }
 
+func TestObservationsHandler_ReleaseSkippedOnAOneModeTopologyIsAskedAgain(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-time.Hour)
+
+	c := cache.NewCache(testChargerID)
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(3, observed)
+	c.SetChargerState(chargepoint.StateDisconnected, observed)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil).Maybe()
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Once()
+
+	cfg := &config.Config{}
+	cfg.UseLocked3Phases = true
+	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	observe := func(state model.ChargerState) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: time.Now(), Value: strconv.Itoa(int(state)),
+		}))
+	}
+
+	observe(model.ChargerStateCharging)
+	require.NoError(t, confSrv.SetUseLocked3Phases(false))
+
+	c.SetInstallationParameters(types.GridTypeTN, 1, time.Now())
+	observe(model.ChargerStateDisconnected)
+	srv.AssertNotCalled(t, "SetPhaseMode", mock.Anything)
+
+	c.SetInstallationParameters(types.GridTypeTN, 3, time.Now())
+	observe(model.ChargerStateAwaitingStart)
+	flushReports(t, handler)
+}
+
 func TestObservationsHandler_OnlyAnAcceptedModeThreeIsTheAdapters(t *testing.T) {
 	t.Parallel()
 

@@ -533,6 +533,10 @@ func (h *observationsHandler) moveThreePhaseLock(chargepointSrv chargepoint.Serv
 
 	modes := model.SettablePhaseModesFor(model.GridType(h.advertised.Load()), gridType, phases)
 	if len(modes) < 2 {
+		if !lock {
+			h.lockWasOn.Store(true)
+		}
+
 		return
 	}
 

@@ -52,8 +52,9 @@ the session start, or internal mode 3 was observed while it was on, and it is of
 end, the release SHALL still be requested, so the lock does not outlive the session; with the
 setting off all along a mode 3 was set elsewhere and SHALL be left alone, as SHALL a mode 3 observed
 with the setting off after the release went out. A mode 3 observation older than the cached phase
-mode SHALL count for nothing. A release that fails, or is not queued, SHALL be requested again at
-the next session start or end. A phase mode written to a
+mode SHALL count for nothing. A release that fails, is not queued, or is skipped because fewer than
+two modes are advertised, SHALL be requested again at the next session start or end. A phase mode
+written to a
 `disconnected` charger SHALL NOT stop and resume it, whatever a power reading says. The request SHALL be queued after the state report, and SHALL be skipped when fewer than two
 modes are advertised. Internal mode 1, an unknown or offline state or an unchanged state SHALL
 trigger nothing.
@@ -110,6 +111,13 @@ trigger nothing.
 - **WHEN** a session started with the setting on, the setting goes off and the release requested at
   `disconnected` fails
 - **THEN** the next session start requests the three-phase mode again and Easee internal mode 2 is sent
+
+#### Scenario: release skipped on a one-mode topology
+- **WHEN** a session started with the setting on, the setting goes off and the state changes to
+  `disconnected` while fewer than two modes are advertised
+- **THEN** no phase mode is requested
+- **AND** the next session start, with two modes advertised again, requests the three-phase mode
+  and Easee internal mode 2 is sent
 
 #### Scenario: mode 3 observed older than the cached mode
 - **WHEN** the setting is on, a mode 3 observation older than the cached mode arrives, the setting
