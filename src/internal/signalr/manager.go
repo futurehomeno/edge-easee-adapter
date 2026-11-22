@@ -60,7 +60,7 @@ type manager struct {
 	done    chan struct{}
 	cfg     *config.Service
 
-	// Set when a refused subscribe restarts the client; cleared by the next connect.
+	// Set when a refused subscribe or unsubscribe restarts the client; cleared by the next connect.
 	reconnecting bool
 
 	subscriptions chan string
@@ -173,6 +173,7 @@ func (m *manager) Unregister(chargerID string) error {
 		return nil
 	}
 
+	epoch, subscribed := m.epoch, charger.isSubscribed
 	delete(m.chargers, chargerID)
 
 	m.mu.Unlock()
@@ -205,7 +206,7 @@ func (m *manager) Unregister(chargerID string) error {
 	m.mu.Lock()
 	last := len(m.chargers) == 0
 	// Easee keeps streaming a charger whose unsubscribe was refused, until the connection is replaced.
-	restart := !last && !m.reconnecting && isUnauthorized(errs)
+	restart := !last && subscribed && epoch == m.epoch && !m.reconnecting && isUnauthorized(errs)
 	m.reconnecting = m.reconnecting || restart
 	m.mu.Unlock()
 
