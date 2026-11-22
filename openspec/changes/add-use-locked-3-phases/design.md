@@ -43,7 +43,9 @@ update is pending, leaves that session on auto.
 The release is written right after the `disconnected` observation. A power reading stamped at or
 after it makes the reported state `charging`, and the controller would stop and resume a charger no
 car is on, with the resume landing on the next car. The controller skips the bounce for a
-`disconnected` charger.
+`disconnected` charger. Only for that state (the user, 2026-11-22): a release at `error` or
+`requesting` keeps the bounce, because a guard on every state outside a session would also drop
+it right after an adapter restart, when the cached state is still empty.
 
 ## Zaptec
 No change: Zaptec's API has no auto mode, only `maxChargePhases` 1/3 and the installation-wide
