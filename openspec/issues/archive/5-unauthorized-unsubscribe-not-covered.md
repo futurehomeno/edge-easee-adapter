@@ -10,3 +10,5 @@ the client.
 
 Open: restart on a refused unsubscribe as well, or handle the refusal once in `client.invoke` so all
 three invocations share it?
+
+Closed by `unsubscribe-unauthorized` (2026-11-22, PR #222 review): a refused unsubscribe restarts the client when other chargers remain, within the once-per-connection limit. The cleanup unsubscribe after an unregister race is left out: it runs on the connection that already refused, and restarted for, `Unregister`'s own unsubscribe.

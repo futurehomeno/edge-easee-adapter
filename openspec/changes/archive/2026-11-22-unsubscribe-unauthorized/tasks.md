@@ -1,0 +1,5 @@
+- [x] An unauthorized unsubscribe with other chargers registered restarts the client (test first)
+- [x] Two refused unsubscribes on one connection restart it once (test first)
+- [x] An unauthorized unsubscribe of the last charger does not restart (test first)
+- [x] An unsubscribe failing with another error does not restart (test first)
+- [x] `Unregister` restarts on an unauthorized refusal when chargers remain

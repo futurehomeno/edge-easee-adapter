@@ -1507,3 +1507,83 @@ func TestResubscribeFailingWithAnotherError_DoesNotRestartTheClient(t *testing.T
 
 	assert.Zero(t, client.restarts.Load())
 }
+
+type refusedUnsubscribeClient struct {
+	scriptedSubscribeClient
+
+	err    error
+	before func()
+}
+
+func (c *refusedUnsubscribeClient) UnsubscribeCharger(string) error {
+	if c.before != nil {
+		c.before()
+	}
+
+	return c.err
+}
+
+func newRefusedUnsubscribeManager(t *testing.T, err error, others ...string) (*manager, *refusedUnsubscribeClient) {
+	t.Helper()
+
+	client := &refusedUnsubscribeClient{err: err}
+	m := newTestManagerWithClient(t, client)
+	m.chargers[chargerID].isSubscribed = true
+
+	for _, id := range others {
+		m.chargers[id] = &charger{handler: &recordingHandler{handled: make(chan struct{})}, backoff: m.cfg.SignalRBackoffStateful(), isSubscribed: true}
+	}
+
+	return m, client
+}
+
+func TestUnauthorizedUnsubscribe_RestartsTheClientForTheChargersLeft(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errUnauthorized, "YY67890")
+
+	require.ErrorIs(t, m.Unregister(chargerID), errUnauthorized)
+
+	assert.Equal(t, int32(1), client.restarts.Load())
+}
+
+func TestUnauthorizedUnsubscribe_RestartsOncePerConnection(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errUnauthorized, "YY67890", "ZZ13579")
+
+	_ = m.Unregister(chargerID)
+	_ = m.Unregister("YY67890")
+
+	assert.Equal(t, int32(1), client.restarts.Load())
+}
+
+func TestUnauthorizedUnsubscribe_OfTheLastChargerDoesNotRestart(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errUnauthorized)
+
+	_ = m.Unregister(chargerID)
+
+	assert.Zero(t, client.restarts.Load())
+}
+
+func TestUnsubscribeFailingWithAnotherError_DoesNotRestartTheClient(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errors.New("timeout"), "YY67890")
+
+	_ = m.Unregister(chargerID)
+
+	assert.Zero(t, client.restarts.Load())
+}
+
+func TestUnauthorizedUnsubscribe_FromAReplacedConnectionDoesNotRestart(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errUnauthorized, "YY67890")
+	client.before = func() { m.handleClientState(model.ClientStateConnected) }
+
+	_ = m.Unregister(chargerID)
+
+	assert.Zero(t, client.restarts.Load())
+}
+
+func TestUnauthorizedUnsubscribe_OfAChargerNeverSubscribedDoesNotRestart(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errUnauthorized, "YY67890")
+	m.chargers[chargerID].isSubscribed = false
+
+	_ = m.Unregister(chargerID)
+
+	assert.Zero(t, client.restarts.Load())
+}
