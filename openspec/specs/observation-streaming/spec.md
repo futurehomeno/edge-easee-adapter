@@ -336,7 +336,10 @@ restart SHALL do nothing, and SHALL NOT cancel a start that close deferred. The 
 at most once per connection, and at most once per charger until that charger next subscribes
 successfully; a reconnect SHALL NOT reset that per-charger limit, so an Unauthorized that persists
 after the reconnect, such as a charger that left the account, cannot restart the client again and
-again. The manager SHALL NOT restart for any other error.
+again. The unsubscribe of a removed charger refused with that error SHALL restart the client too when
+other chargers remain registered, within the same once-per-connection limit, so Easee stops streaming
+the removed charger; the last charger's unsubscribe SHALL NOT restart, since the client is closed. The
+manager SHALL NOT restart for any other error.
 
 #### Scenario: re-sync refused as unauthorized
 - **WHEN** a re-sync of a charger subscribed on the current connection is refused as unauthorized
@@ -371,7 +374,21 @@ again. The manager SHALL NOT restart for any other error.
   later first subscribe of it is refused as unauthorized
 - **THEN** the client is restarted again
 
+#### Scenario: unsubscribe refused while other chargers remain
+- **WHEN** the unsubscribe of a removed charger is refused as unauthorized and another charger is
+  still registered
+- **THEN** the client is restarted once
+
+#### Scenario: second refused unsubscribe on the same connection
+- **WHEN** two chargers are removed on one connection and both unsubscribes are refused as unauthorized
+- **THEN** the client is restarted once
+
+#### Scenario: unsubscribe of the last charger refused
+- **WHEN** the unsubscribe of the last registered charger is refused as unauthorized
+- **THEN** the client is closed and not restarted
+
 #### Scenario: other error
-- **WHEN** a re-subscribe of a subscribed charger fails with another error
+- **WHEN** a re-subscribe of a subscribed charger, or the unsubscribe of a removed one, fails with
+  another error
 - **THEN** the client is not restarted
 

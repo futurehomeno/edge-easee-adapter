@@ -187,11 +187,7 @@ func (m *manager) Unregister(chargerID string) error {
 	// they run after the map write is published rather than under m.mu, which would stall
 	// Connected(), Register() and every observation lookup for the whole invocation. Stop()
 	// already takes this shape.
-	var errs error
-
-	if err := m.client.UnsubscribeCharger(chargerID); err != nil {
-		errs = errors.Join(errs, err)
-	}
+	errs := m.client.UnsubscribeCharger(chargerID)
 
 	// Re-tested under the lock rather than snapshotted before the invoke above: Register adds
 	// its charger and calls Start() while holding m.mu, so it can complete entirely while this
@@ -208,7 +204,15 @@ func (m *manager) Unregister(chargerID string) error {
 
 	m.mu.Lock()
 	last := len(m.chargers) == 0
+	// Easee keeps streaming a charger whose unsubscribe was refused, until the connection is replaced.
+	restart := !last && !m.reconnecting && isUnauthorized(errs)
+	m.reconnecting = m.reconnecting || restart
 	m.mu.Unlock()
+
+	if restart {
+		log.Warnf("signalR: unsubscribe of '%s' refused as unauthorized, reconnecting with the current token", chargerID)
+		m.client.Restart()
+	}
 
 	if !last {
 		return errs
@@ -449,7 +453,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 
 		// The connection keeps the access token it was opened with; a refusal on it means that
 		// token is no longer accepted.
-		if !m.reconnecting && !charger.unauthorizedRestarted && strings.Contains(err.Error(), "HubException: Unauthorized") {
+		if !m.reconnecting && !charger.unauthorizedRestarted && isUnauthorized(err) {
 			m.reconnecting = true
 			charger.unauthorizedRestarted = true
 			restart = true
@@ -682,4 +686,10 @@ type charger struct {
 	// successful subscribe. The reconnect sweep must keep it: a charger that left the account is
 	// refused on every connection and would otherwise restart the client on each one.
 	unauthorizedRestarted bool
+}
+
+// isUnauthorized tells a refusal of the token the connection was opened with: the library returns the
+// hub's error text, with no typed error.
+func isUnauthorized(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "HubException: Unauthorized")
 }
