@@ -1,11 +1,15 @@
 # Design
 
 ## The session rule
-"Session in progress" is the FIMP state `ready_to_charge`, `charging`, `suspended_by_ev` or
-`finished`, expressed on FIMP states because the cache stores the FIMP state. `finished` (Easee
+"Session in progress" is the FIMP state `ready_to_charge`, `charging`, `suspended_by_ev`,
+`finished`, `error` or `requesting`, expressed on FIMP states because the cache stores the FIMP state. `finished` (Easee
 "Completed") counts as in progress (the user, 2026-11-22, issue 23): Easee reports it for a
 plugged-in car that is full or paused, and releasing there made every top-up start on auto and pay
-a stop/resume to lock again. `disconnected`, `error` and `requesting` end the session. The mapper takes `lock3` and answers 3 where it answers auto; the controller passes
+a stop/resume to lock again. Only `disconnected` releases the lock (the user, 2026-11-22): `error`
+and `requesting` (awaiting authentication) keep it, since the car is still plugged in, and
+`requesting` after `disconnected` is the session start. The list stays positive so the empty state
+of an empty cache is no session; an unknown or offline state moves nothing. Easee may report `error`
+with no car plugged in (issue 30). The mapper takes `lock3` and answers 3 where it answers auto; the controller passes
 `use_locked_3_phases && session in progress` from the cached state, for the send and for
 `requestStillHolds`, so the echo of the lock keeps answering the report.
 
@@ -23,8 +27,8 @@ and the call is still overwritten. An unknown or offline state triggers nothing.
 
 ## Why the lock is released at session end
 The user's requirement: a lock must never be left on an idle charger, so the next car - which may
-refuse three phases - starts on auto. For the same reason a change between two idle states, and the
-first state after an adapter restart, release a mode 3 too.
+refuse three phases - starts on auto. For the same reason the first state after an adapter restart
+releases a mode 3 too, when it is `disconnected`.
 
 ## A setting changed during a session
 Forces nothing (the user, 2026-11-22, issue 24): the handler acts only when a session starts or the
@@ -52,9 +56,9 @@ send, or a start while a topology update is pending, leaves that session on auto
 The release is written right after the `disconnected` observation. A power reading stamped at or
 after it makes the reported state `charging`, and the controller would stop and resume a charger no
 car is on, with the resume landing on the next car. The controller skips the bounce for a
-`disconnected` charger. Only for that state (the user, 2026-11-22): a release at `error` or
-`requesting` keeps the bounce, because a guard on every state outside a session would also drop
-it right after an adapter restart, when the cached state is still empty.
+`disconnected` charger. Only for that state (the user, 2026-11-22): a guard on every state outside
+a session would also drop the bounce right after an adapter restart, when the cached state is
+still empty.
 
 ## Zaptec
 No change: Zaptec's API has no auto mode, only `maxChargePhases` 1/3 and the installation-wide

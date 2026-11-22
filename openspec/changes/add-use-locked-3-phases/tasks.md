@@ -12,4 +12,5 @@
 - [x] A release skipped because fewer than two modes are advertised keeps the release memory (PR 230 review, round 5; test first)
 - [x] The queued request checks the internal mode again, so a mode set while it waited stays (PR 230 review, round 6; test first)
 - [x] An idle change and the first state after a restart release a mode 3: spec aligned with the code, pinned by tests (PR 230 review, round 7)
+- [x] Only `disconnected` releases the lock: `error` and `requesting` are a session in progress (the user, 2026-11-22; issue 30; test first)
 - [ ] Verify on a real charger and car (issue 25)

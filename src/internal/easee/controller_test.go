@@ -3443,6 +3443,8 @@ func TestController_SetChargepointPhaseMode_UseLocked3Phases(t *testing.T) {
 		{name: "a session start moves auto to the lock", lock: true, state: chargepoint.StateReadyToCharge, internal: 2, mode: types.PhaseModeNL1L2L3, want: 3},
 		{name: "suspended by the EV is still a session", lock: true, state: chargepoint.StateSuspendedByEV, internal: 1, mode: types.PhaseModeNL1L2L3, want: 3},
 		{name: "a finished session keeps the lock", lock: true, state: chargepoint.StateFinished, internal: 1, mode: types.PhaseModeNL1L2L3, want: 3},
+		{name: "awaiting authentication is still a session", lock: true, state: chargepoint.StateRequesting, internal: 1, mode: types.PhaseModeNL1L2L3, want: 3},
+		{name: "an error is still a session", lock: true, state: chargepoint.StateError, internal: 1, mode: types.PhaseModeNL1L2L3, want: 3},
 		{name: "a disconnected charger goes back to auto", lock: true, state: chargepoint.StateDisconnected, internal: 3, mode: types.PhaseModeNL1L2L3, want: 2},
 		{name: "a single leg stays single phase", lock: true, state: chargepoint.StateReadyToCharge, internal: 2, mode: types.PhaseModeNL2, want: 1},
 		{name: "setting off keeps auto during a session", state: chargepoint.StateReadyToCharge, internal: 1, mode: types.PhaseModeNL1L2L3, want: 2},
