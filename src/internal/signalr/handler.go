@@ -53,6 +53,9 @@ type observationsHandler struct {
 	chargerID      string
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
+	confSrv        *config.Service
+	lockWasOn      atomic.Bool
+	inSession      bool
 
 	detectedGridType   model.GridType
 	detectedGridTypeAt time.Time
@@ -98,6 +101,7 @@ func NewObservationsHandler(
 		chargerID:      chargerID,
 		storedObs:      make(map[model.ObservationID]model.Observation),
 		phaseStore:     phaseStore,
+		confSrv:        confSrv,
 		reports:        make(chan func() error, reportQueueSize),
 	}
 
@@ -247,7 +251,17 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 
 	phaseMode, _ := h.cache.PhaseMode()
 
-	if !h.cache.SetPhaseMode(val, observation.Timestamp) || val == phaseMode {
+	if !h.cache.SetPhaseMode(val, observation.Timestamp) {
+		return nil
+	}
+
+	// A lock seen with the setting on is released at the session end, also when it was placed
+	// after the session start and the setting is off by then.
+	if val == model.EaseePhaseModeLock3 && h.confSrv != nil && h.confSrv.UseLocked3Phases() {
+		h.lockWasOn.Store(true)
+	}
+
+	if val == phaseMode {
 		return nil
 	}
 
@@ -478,7 +492,77 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		h.isStateOnline.Store(!goingOffline)
 	}
 
+	if changed && state.ToFimpState() != chargepoint.StateUnknown && h.confSrv != nil {
+		inSession := model.SessionInProgress(state.ToFimpState())
+
+		// The handler's own flag carries a session over an offline charger's unknown state.
+		wasInSession := h.inSession || model.SessionInProgress(prevState)
+
+		// A change inside a session moves nothing, so a setting changed meanwhile forces no switch.
+		if !inSession || !wasInSession {
+			lock := h.confSrv.UseLocked3Phases()
+			if owned := h.lockWasOn.Swap(lock && inSession); lock || owned {
+				h.moveThreePhaseLock(chargepointSrv, lock && inSession)
+			}
+		}
+
+		h.inSession = inSession
+	}
+
 	return nil
+}
+
+// moveThreePhaseLock re-sends the three-phase mode when a session starts on auto or ends on the
+// lock, so the controller picks the mode for the new state: the hub does not repeat a request
+// for a mode the report already shows, and a lock must not be left on an idle charger. Only at
+// those two moments: a setting changed during a session moves nothing until the session ends.
+func (h *observationsHandler) moveThreePhaseLock(chargepointSrv chargepoint.Service, lock bool) {
+	internal, _ := h.cache.PhaseMode()
+
+	from := model.EaseePhaseModeLock3
+	if lock {
+		from = model.EaseePhaseModeAuto
+	}
+
+	if internal != from {
+		return
+	}
+
+	gridType, _ := h.cache.GridType()
+	phases, _ := h.cache.Phases()
+
+	modes := model.SettablePhaseModesFor(model.GridType(h.advertised.Load()), gridType, phases)
+	if len(modes) < 2 {
+		if !lock {
+			h.lockWasOn.Store(true)
+		}
+
+		return
+	}
+
+	// The auto row ends with the multi-phase mode.
+	multi := modes[len(modes)-1]
+
+	log.Infof("[%s] Three-phase lock: wanted=%t on %s, re-sending %s", h.chargerID, lock, model.PhaseModeName(internal), multi)
+
+	// A release that did not go out is asked again at the next session start or end.
+	queued := h.enqueue("phase lock", func() error {
+		// A mode set while this waited in the queue is newer than the session start or end.
+		if internal, _ := h.cache.PhaseMode(); internal != from {
+			return nil
+		}
+
+		err := chargepointSrv.SetPhaseMode(multi)
+		if err != nil && !lock {
+			h.lockWasOn.Store(true)
+		}
+
+		return err
+	})
+
+	if !queued && !lock {
+		h.lockWasOn.Store(true)
+	}
 }
 
 func (h *observationsHandler) handleTotalPower(observation model.Observation) error {

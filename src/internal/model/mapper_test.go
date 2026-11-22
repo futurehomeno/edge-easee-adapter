@@ -3,6 +3,7 @@ package model_test
 import (
 	"testing"
 
+	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/types"
 	"github.com/stretchr/testify/assert"
 
@@ -105,6 +106,7 @@ func TestToEaseePhaseMode(t *testing.T) {
 		gridType types.GridType
 		phases   int
 		mode     types.PhaseMode
+		lock3    bool
 		want     int
 		wantErr  bool
 	}{
@@ -165,6 +167,62 @@ func TestToEaseePhaseMode(t *testing.T) {
 			want:     2,
 		},
 		{
+			name:     "lock: TN 3-phase, NL1L2L3 locks to three phases",
+			gridType: types.GridTypeTN,
+			phases:   3,
+			mode:     types.PhaseModeNL1L2L3,
+			lock3:    true,
+			want:     3,
+		},
+		{
+			name:     "lock: TN 2-phase, NL1L2 locks to three phases",
+			gridType: types.GridTypeTN,
+			phases:   2,
+			mode:     types.PhaseModeNL1L2,
+			lock3:    true,
+			want:     3,
+		},
+		{
+			name:     "lock: IT 3-phase, L1L2L3 locks to three phases",
+			gridType: types.GridTypeIT,
+			phases:   3,
+			mode:     types.PhaseModeL1L2L3,
+			lock3:    true,
+			want:     3,
+		},
+		{
+			name:     "lock: TT 3-phase, L1L2L3 locks to three phases",
+			gridType: types.GridTypeTT,
+			phases:   3,
+			mode:     types.PhaseModeL1L2L3,
+			lock3:    true,
+			want:     3,
+		},
+		{
+			name:     "lock: TN 3-phase, NL2 stays single phase",
+			gridType: types.GridTypeTN,
+			phases:   3,
+			mode:     types.PhaseModeNL2,
+			lock3:    true,
+			want:     1,
+		},
+		{
+			name:     "lock: IT 3-phase, L3L1 stays single phase",
+			gridType: types.GridTypeIT,
+			phases:   3,
+			mode:     types.PhaseModeL3L1,
+			lock3:    true,
+			want:     1,
+		},
+		{
+			name:     "lock: TN 1-phase, NL1 stays single phase",
+			gridType: types.GridTypeTN,
+			phases:   1,
+			mode:     types.PhaseModeNL1,
+			lock3:    true,
+			want:     1,
+		},
+		{
 			name:     "TN 1-phase cannot go three phase",
 			gridType: types.GridTypeTN,
 			phases:   1,
@@ -197,7 +255,7 @@ func TestToEaseePhaseMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := model.ToEaseePhaseMode(tt.gridType, tt.phases, tt.mode)
+			got, err := model.ToEaseePhaseMode(tt.gridType, tt.phases, tt.mode, tt.lock3)
 			if tt.wantErr {
 				assert.Error(t, err)
 
@@ -207,6 +265,24 @@ func TestToEaseePhaseMode(t *testing.T) {
 			assert.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
+	}
+}
+
+func TestSessionInProgress(t *testing.T) {
+	t.Parallel()
+
+	for state, want := range map[chargepoint.State]bool{
+		chargepoint.StateReadyToCharge:   true,
+		chargepoint.StateCharging:        true,
+		chargepoint.StateSuspendedByEV:   true,
+		chargepoint.StateDisconnected:    false,
+		chargepoint.StateRequesting:      false,
+		chargepoint.StateFinished:        true,
+		chargepoint.StateError:           false,
+		chargepoint.StateUnknown:         false,
+		chargepoint.StateSuspendedByEVSE: false,
+	} {
+		assert.Equal(t, want, model.SessionInProgress(state), state)
 	}
 }
 

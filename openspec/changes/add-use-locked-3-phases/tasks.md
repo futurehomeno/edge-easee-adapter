@@ -1,0 +1,15 @@
+- [x] `ToEaseePhaseMode` takes `lock3` and answers 3 instead of auto; single legs stay 1 (test first)
+- [x] `SessionInProgress` on FIMP states (test first)
+- [x] `use_locked_3_phases` setting, default false, getter and setter, packaged default (test first)
+- [x] Config get/set routes for `use_locked_3_phases`
+- [x] Controller: setting on and a session in progress sends 3; disconnected sends 2; the echo of the lock keeps the request in the report (test first)
+- [x] Handler: session start on auto and session end on 3 queue the three-phase set on the chargepoint service; single phase, setting off, unknown state and unchanged state do not (test first)
+- [x] Issues 23, 24, 25 recorded
+- [x] `finished` keeps the lock (issue 23, the user 2026-11-22; test first)
+- [x] Handler: only a session start or end moves the lock, not a change inside a session; a session started with the setting on is released at its end when the setting is off by then (issue 24, the user 2026-11-22; test first)
+- [x] A mode 3 observed with the setting on is released at the session end; no stop/resume for a phase mode written to a disconnected charger (PR 230 review, round 2; test first)
+- [x] The release memory ends when the release goes out and stays after a failed one; a mode 3 older than the cached mode claims nothing (PR 230 review, round 3; test first)
+- [x] A release skipped because fewer than two modes are advertised keeps the release memory (PR 230 review, round 5; test first)
+- [x] The queued request checks the internal mode again, so a mode set while it waited stays (PR 230 review, round 6; test first)
+- [x] An idle change and the first state after a restart release a mode 3: spec aligned with the code, pinned by tests (PR 230 review, round 7)
+- [ ] Verify on a real charger and car (issue 25)

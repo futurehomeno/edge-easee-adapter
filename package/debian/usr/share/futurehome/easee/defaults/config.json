@@ -17,6 +17,7 @@
   "offered_current_wait_time": "30s",
   "slowChargingCurrentInAmperes": 10,
   "initial_charging_current": 16,
+  "use_locked_3_phases": false,
   "httpTimeout": "30s",
   "signalR": {
     "baseURL": "https://streams.easee.com",
