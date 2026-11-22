@@ -35,7 +35,9 @@ stays. A mode 3 observed while the setting is on is remembered the same way, for
 request placed in a session that started with the setting off; an observation the cache turns away
 as older counts for nothing. The memory ends when the release goes out, so a mode 3 set elsewhere
 afterwards with the setting off stays; a release that fails or finds the report queue full keeps it,
-and is asked again at the next session start or end. That memory is in the handler: an
+and is asked again at the next session start or end. A mode 3 observed after the release, before the
+charger shows auto, sets it again, and the observation of auto does not end it (issue 29). That
+memory is in the handler: an
 adapter restart between turning the setting off and the session end leaves mode 3 on the charger
 until the next single-to-three-phase request.
 
