@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 )
@@ -11,18 +12,19 @@ import (
 // easeePhaseModeSingle and EaseePhaseModeAuto are Easee's internal phase modes:
 // 1 locks the charger to one phase, 2 lets it choose, 3 locks it to three phases.
 // Three-phase requests map to auto rather than 3, because most EVs refuse a
-// 1->3 phase transition mid-session and would stall on a hard lock.
+// 1->3 phase transition mid-session and would stall on a hard lock, unless
+// use_locked_3_phases asks for 3 during a session.
 const (
 	easeePhaseModeSingle = 1
 	// EaseePhaseModeAuto lets the charger pick, so it is not pinned to any single leg.
 	EaseePhaseModeAuto  = 2
-	easeePhaseModeLock3 = 3
+	EaseePhaseModeLock3 = 3
 )
 
 var phaseModeNames = map[int]string{
 	easeePhaseModeSingle: "single phase",
 	EaseePhaseModeAuto:   "auto",
-	easeePhaseModeLock3:  "three phase",
+	EaseePhaseModeLock3:  "three phase",
 }
 
 // PhaseModeName names an Easee internal phase mode for a log line. A value Easee adds later is
@@ -54,16 +56,25 @@ func SettablePhaseModesFor(detected GridType, gridType types.GridType, phases in
 }
 
 // ToEaseePhaseMode maps a FIMP phase mode onto Easee's internal phase mode.
-func ToEaseePhaseMode(gridType types.GridType, phases int, mode types.PhaseMode) (int, error) {
+func ToEaseePhaseMode(gridType types.GridType, phases int, mode types.PhaseMode, lock3 bool) (int, error) {
 	if slices.Contains(SupportedPhaseModes(gridType, easeePhaseModeSingle, phases), mode) {
 		return easeePhaseModeSingle, nil
 	}
 
 	if slices.Contains(SettablePhaseModes(gridType, phases), mode) {
+		if lock3 {
+			return EaseePhaseModeLock3, nil
+		}
+
 		return EaseePhaseModeAuto, nil
 	}
 
 	return 0, fmt.Errorf("phase modes mapper: mode %s unsupported on a %s grid with %d phases", mode, gridType, phases)
+}
+
+// SessionInProgress is the complement of ChargerState.IsSessionFinished on FIMP states.
+func SessionInProgress(state chargepoint.State) bool {
+	return state == chargepoint.StateReadyToCharge || state == chargepoint.StateCharging || state == chargepoint.StateSuspendedByEV
 }
 
 func SupportedPhaseModes(gridType types.GridType, phaseMode, phases int) []types.PhaseMode {

@@ -26,6 +26,7 @@ type PublicConfig struct {
 	SignalR                      SignalR `json:"signalR"`
 	OfferedCurrentWaitTime       string  `json:"offered_current_wait_time"`
 	EnergyLifetimeInterval       string  `json:"energyLifetimeInterval"`
+	UseLocked3Phases             bool    `json:"use_locked_3_phases"`
 
 	AuthBackoff         backoffSettings `json:"auth_backoff"`
 	AuthMaxUnauthorized string          `json:"auth_max_unauthorized,omitempty"`
@@ -258,6 +259,14 @@ func (cs *Service) SlowChargingCurrentInAmperes() float64 {
 
 func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 	return cs.Update(func(c *Config) { c.SlowChargingCurrentInAmperes = current })
+}
+
+func (cs *Service) UseLocked3Phases() bool {
+	return config.Get(cs.Service, func(c *Config) bool { return c.UseLocked3Phases })
+}
+
+func (cs *Service) SetUseLocked3Phases(lock bool) error {
+	return cs.Update(func(c *Config) { c.UseLocked3Phases = lock })
 }
 
 func (cs *Service) InitialChargingCurrent() int {

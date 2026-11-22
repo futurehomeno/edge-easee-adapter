@@ -53,6 +53,7 @@ type observationsHandler struct {
 	chargerID      string
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
+	confSrv        *config.Service
 
 	detectedGridType   model.GridType
 	detectedGridTypeAt time.Time
@@ -98,6 +99,7 @@ func NewObservationsHandler(
 		chargerID:      chargerID,
 		storedObs:      make(map[model.ObservationID]model.Observation),
 		phaseStore:     phaseStore,
+		confSrv:        confSrv,
 		reports:        make(chan func() error, reportQueueSize),
 	}
 
@@ -478,7 +480,42 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		h.isStateOnline.Store(!goingOffline)
 	}
 
+	if changed && state.ToFimpState() != chargepoint.StateUnknown && h.confSrv != nil && h.confSrv.UseLocked3Phases() {
+		h.moveThreePhaseLock(chargepointSrv, state.ToFimpState())
+	}
+
 	return nil
+}
+
+// moveThreePhaseLock re-sends the three-phase mode when a session starts on auto or ends on the
+// lock, so the controller picks the mode for the new state: the hub does not repeat a request
+// for a mode the report already shows, and a lock must not be left on an idle charger.
+func (h *observationsHandler) moveThreePhaseLock(chargepointSrv chargepoint.Service, state chargepoint.State) {
+	internal, _ := h.cache.PhaseMode()
+	inSession := model.SessionInProgress(state)
+
+	from := model.EaseePhaseModeLock3
+	if inSession {
+		from = model.EaseePhaseModeAuto
+	}
+
+	if internal != from {
+		return
+	}
+
+	gridType, _ := h.cache.GridType()
+	phases, _ := h.cache.Phases()
+
+	modes := model.SettablePhaseModesFor(model.GridType(h.advertised.Load()), gridType, phases)
+	if len(modes) < 2 {
+		return
+	}
+
+	multi := modes[len(modes)-1]
+
+	log.Infof("[%s] Three-phase lock: session in progress=%t on %s, re-sending %s", h.chargerID, inSession, model.PhaseModeName(internal), multi)
+
+	h.enqueue("phase lock", func() error { return chargepointSrv.SetPhaseMode(multi) })
 }
 
 func (h *observationsHandler) handleTotalPower(observation model.Observation) error {

@@ -3427,3 +3427,85 @@ func TestController_ChargepointStateReport_PowerOverridesOnlyANotNewerState(t *t
 		})
 	}
 }
+
+func TestController_SetChargepointPhaseMode_UseLocked3Phases(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		lock     bool
+		state    chargepoint.State
+		internal int
+		mode     types.PhaseMode
+		want     int
+	}{
+		{name: "charging locks three phases", lock: true, state: chargepoint.StateCharging, internal: 1, mode: types.PhaseModeNL1L2L3, want: 3},
+		{name: "a session start moves auto to the lock", lock: true, state: chargepoint.StateReadyToCharge, internal: 2, mode: types.PhaseModeNL1L2L3, want: 3},
+		{name: "suspended by the EV is still a session", lock: true, state: chargepoint.StateSuspendedByEV, internal: 1, mode: types.PhaseModeNL1L2L3, want: 3},
+		{name: "a disconnected charger goes back to auto", lock: true, state: chargepoint.StateDisconnected, internal: 3, mode: types.PhaseModeNL1L2L3, want: 2},
+		{name: "a single leg stays single phase", lock: true, state: chargepoint.StateReadyToCharge, internal: 2, mode: types.PhaseModeNL2, want: 1},
+		{name: "setting off keeps auto during a session", state: chargepoint.StateReadyToCharge, internal: 1, mode: types.PhaseModeNL1L2L3, want: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observed := time.Now().Add(-2 * time.Hour)
+
+			c := cache.NewCache("test-charger")
+			c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+			c.SetPhaseMode(tt.internal, observed)
+			c.SetChargerState(tt.state, observed)
+			c.SetMaxCurrent(16, observed)
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("SetPhaseMode", "test-charger", tt.want).Return(nil).Once()
+			clientMock.On("StopCharging", "test-charger").Return(nil).Maybe()
+
+			managerMock := mockedsignalr.NewManager(t)
+			managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+			managerMock.On("Resync", "test-charger").Maybe()
+
+			cfg := &config.Config{}
+			cfg.UseLocked3Phases = tt.lock
+
+			ctrl := easee.NewController(managerMock, clientMock, "test-charger", c,
+				config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory)),
+				mockeddb.NewChargingSessionStorage(t), func() types.PhaseMode { return "" })
+			t.Cleanup(ctrl.Teardown)
+
+			require.NoError(t, ctrl.SetChargepointPhaseMode(tt.mode))
+
+			got, _ := c.PhaseMode()
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// The echo of the lock is newer than the request, which has to keep answering the report: the
+// leg of the bounced session would otherwise stand in for the three phases just set.
+func TestController_ChargepointPhaseModeReport_EchoOfTheLockKeepsTheRequest(t *testing.T) {
+	t.Parallel()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("OutputPhaseType").Return(types.PhaseModeNL1, time.Now().Add(-time.Hour))
+	cacheMock.On("RequestedPhaseMode").Return(types.PhaseModeNL1L2L3, time.Now().Add(-30*time.Minute))
+	cacheMock.On("PhaseMode").Return(3, time.Now())
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(3, time.Time{})
+	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, time.Time{})
+	cacheMock.On("TotalPower").Return(3000.0, time.Time{}).Maybe()
+
+	cfg := &config.Config{}
+	cfg.UseLocked3Phases = true
+
+	ctrl := newTestController(t, managerMock, cacheMock, mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), cfg)
+
+	mode, err := ctrl.ChargepointPhaseModeReport()
+	require.NoError(t, err)
+	assert.Equal(t, types.PhaseModeNL1L2L3, mode)
+}

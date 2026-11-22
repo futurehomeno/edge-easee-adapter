@@ -1,0 +1,8 @@
+- [x] `ToEaseePhaseMode` takes `lock3` and answers 3 instead of auto; single legs stay 1 (test first)
+- [x] `SessionInProgress` on FIMP states (test first)
+- [x] `use_locked_3_phases` setting, default false, getter and setter, packaged default (test first)
+- [x] Config get/set routes for `use_locked_3_phases`
+- [x] Controller: setting on and a session in progress sends 3; disconnected sends 2; the echo of the lock keeps the request in the report (test first)
+- [x] Handler: session start on auto and session end on 3 queue the three-phase set on the chargepoint service; single phase, setting off, unknown state and unchanged state do not (test first)
+- [x] Issues 23, 24, 25 recorded
+- [ ] Verify on a real charger and car (issue 25)

@@ -42,6 +42,8 @@ func New(
 			cliffConfig.RouteCmdConfigSetString(fimptype.EaseeService, "easee_base_url", cfgSrv.SetEaseeBaseURL),
 			cliffConfig.RouteCmdConfigGetFloat(fimptype.EaseeService, "slow_charging_current_in_amperes", cfgSrv.SlowChargingCurrentInAmperes),
 			cliffConfig.RouteCmdConfigSetFloat(fimptype.EaseeService, "slow_charging_current_in_amperes", cfgSrv.SetSlowChargingCurrentInAmperes),
+			cliffConfig.RouteCmdConfigGetBool(fimptype.EaseeService, "use_locked_3_phases", cfgSrv.UseLocked3Phases),
+			cliffConfig.RouteCmdConfigSetBool(fimptype.EaseeService, "use_locked_3_phases", cfgSrv.SetUseLocked3Phases),
 			cliffConfig.RouteCmdConfigGetDuration(fimptype.EaseeService, "http_timeout", cfgSrv.HTTPTimeout),
 			cliffConfig.RouteCmdConfigSetDuration(fimptype.EaseeService, "http_timeout", cfgSrv.SetHTTPTimeout),
 			cliffConfig.RouteCmdConfigGetString(fimptype.EaseeService, "signalr_base_url", cfgSrv.SignalRBaseURL),

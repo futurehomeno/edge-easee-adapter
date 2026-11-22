@@ -510,7 +510,7 @@ func (c *controller) requestStillHolds(requested types.PhaseMode, requestedAt ti
 	gridType, _ := c.cache.GridType()
 	phases, _ := c.cache.Phases()
 
-	target, err := model.ToEaseePhaseMode(gridType, phases, requested)
+	target, err := model.ToEaseePhaseMode(gridType, phases, requested, c.lock3())
 
 	return err == nil && target == internal
 }
@@ -535,6 +535,16 @@ func (c *controller) outputPhaseStale(outputPhase types.PhaseMode, outputPhaseSe
 	return !c.charging()
 }
 
+func (c *controller) lock3() bool {
+	if !c.cfgService.UseLocked3Phases() {
+		return false
+	}
+
+	state, _ := c.cache.ChargerState()
+
+	return model.SessionInProgress(state)
+}
+
 func (c *controller) charging() bool {
 	state, _ := c.ChargepointStateReport()
 
@@ -549,7 +559,7 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 	gridType, _ := c.cache.GridType()
 	phases, _ := c.cache.Phases()
 
-	target, err := model.ToEaseePhaseMode(gridType, phases, mode)
+	target, err := model.ToEaseePhaseMode(gridType, phases, mode, c.lock3())
 	if err != nil {
 		return err
 	}
