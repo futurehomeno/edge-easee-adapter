@@ -184,6 +184,14 @@ func (c *Config) MigrateSignalRFinalBackoff() error {
 	return nil
 }
 
+// MigrateSignalRRepeatedFailureCount lifts counts below 8, the 3.4.0 packaged default 3 among
+// them: Easee was seen refusing the first subscribe after a reconnect for up to 135 s.
+func (c *Config) MigrateSignalRRepeatedFailureCount() error {
+	c.SignalR.RepeatedFailureCount = max(c.SignalR.RepeatedFailureCount, 8)
+
+	return nil
+}
+
 // MigrateTelemetryOn enables the disabled block older versions seeded; telemetry.New starts its
 // window. A block the cloud disabled also has a zero EnabledAt and is enabled too, until the
 // cloud's next config poll.

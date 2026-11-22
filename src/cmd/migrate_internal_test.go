@@ -100,9 +100,10 @@ func TestMigrateConfig_upgradesFrom280(t *testing.T) {
 		AccessTokenExpiresAt: accessExp, RefreshTokenExpiresAt: refreshExp,
 	}
 
-	assert.Equal(t, 9, svc.Model().ConfigVersion)
+	assert.Equal(t, 10, svc.Model().ConfigVersion)
 	assert.Equal(t, 30*time.Second, svc.OfferedCurrentWaitTime())
 	assert.Equal(t, 10*time.Minute, svc.SignalRFinalBackoff())
+	assert.Equal(t, uint32(8), svc.SignalRRepeatedFailureCount())
 	assert.Equal(t, 2*time.Hour, svc.AuthenticatorMaxUnauthorized(), "untouched 2.8.0 settings survive")
 	assert.True(t, svc.Model().Empty(), "the config copy of the tokens is dropped")
 	assert.Equal(t, want, credentials.Credentials(), "expiries are backfilled from the JWT claims")
@@ -110,7 +111,7 @@ func TestMigrateConfig_upgradesFrom280(t *testing.T) {
 	// What the next boot loads.
 	reloaded := config.New(dir)
 	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load())
-	assert.Equal(t, 9, reloaded.ConfigVersion)
+	assert.Equal(t, 10, reloaded.ConfigVersion)
 	assert.True(t, reloaded.Empty())
 
 	reloadedSecrets := config.NewCredentialsStore(dir)
@@ -165,7 +166,7 @@ func TestMigrateConfig_liftsASubMinutePollingInterval(t *testing.T) {
 
 	reloaded := config.New(dir)
 	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load())
-	assert.Equal(t, 9, reloaded.ConfigVersion)
+	assert.Equal(t, 10, reloaded.ConfigVersion)
 	assert.Equal(t, "20m", reloaded.PollingInterval)
 }
 
@@ -217,4 +218,41 @@ func TestMigrateConfig_restoresTheBackupOverACorruptConfig(t *testing.T) {
 	reloaded := config.New(dir)
 	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load(), "the next boot must still load the config")
 	assert.Equal(t, recovered.Model().ConfigVersion, reloaded.ConfigVersion)
+}
+
+func TestMigrateConfig_liftsTheSignalRRepeatedFailureCount(t *testing.T) {
+	t.Parallel()
+
+	svc, dir := newMigrationConfigServiceFrom(t, `{"config_version":9,"signalR":{"repeatedFailureCount":3}}`)
+
+	require.NoError(t, migrateConfig(svc, config.NewCredentialsStore(dir)))
+
+	reloaded := config.New(dir)
+	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load())
+	assert.Equal(t, 10, reloaded.ConfigVersion)
+	assert.Equal(t, uint32(8), reloaded.SignalR.RepeatedFailureCount)
+}
+
+func TestPackagedDefaults_signalRBackoffSchedule(t *testing.T) {
+	t.Parallel()
+
+	workDir := t.TempDir()
+	body, err := os.ReadFile("../../package/debian/usr/share/futurehome/easee/defaults/config.json")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(workDir, "defaults"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(workDir, "defaults", "config.json"), body, 0o600)) //nolint:gosec
+
+	svc := config.NewService(cliffStorage.New(config.New(workDir), workDir, "config.json"))
+	require.NoError(t, svc.Load())
+
+	b := svc.SignalRBackoffStateful()
+	want := []time.Duration{10 * time.Second, 10 * time.Second}
+	for range 8 {
+		want = append(want, 30*time.Second)
+	}
+	want = append(want, 10*time.Minute)
+
+	for i, w := range want {
+		assert.Equal(t, w, b.Next(), "failure %d", i+1)
+	}
 }

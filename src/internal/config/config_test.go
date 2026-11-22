@@ -123,6 +123,29 @@ func TestConfig_MigrateSignalRFinalBackoff(t *testing.T) {
 	}
 }
 
+func TestConfig_MigrateSignalRRepeatedFailureCount(t *testing.T) {
+	tests := []struct {
+		name     string
+		current  uint32
+		expected uint32
+	}{
+		{name: "the 3.4.0 packaged default is lifted", current: 3, expected: 8},
+		{name: "unset count is lifted", current: 0, expected: 8},
+		{name: "eight is preserved", current: 8, expected: 8},
+		{name: "a higher count is preserved", current: 12, expected: 12},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.SignalR.RepeatedFailureCount = tt.current
+
+			require.NoError(t, cfg.MigrateSignalRRepeatedFailureCount())
+			assert.Equal(t, tt.expected, cfg.SignalR.RepeatedFailureCount)
+		})
+	}
+}
+
 func TestConfig_MigratePollingInterval(t *testing.T) {
 	tests := []struct {
 		name     string
