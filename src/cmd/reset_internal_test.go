@@ -35,7 +35,7 @@ func TestUninstall_resetAndReMigrate(t *testing.T) {
 	require.NoError(t, credentials.Load())
 
 	require.NoError(t, migrateConfig(cfgSvc, credentials))
-	require.Equal(t, 9, cfg.ConfigVersion)
+	require.Equal(t, 10, cfg.ConfigVersion)
 
 	require.NoError(t, cfgSvc.SetSelectedDevices([]string{"charger-1"}))
 	require.NoError(t, cfgSvc.SetAuthenticatorBackoff(time.Second, 2*time.Second, 3*time.Second, 1, 2, time.Hour))
@@ -67,7 +67,7 @@ func TestUninstall_resetAndReMigrate(t *testing.T) {
 	// has nothing to move.
 	require.NoError(t, migrateConfig(cfgSvc, credentials))
 
-	assert.Equal(t, 9, cfg.ConfigVersion)
+	assert.Equal(t, 10, cfg.ConfigVersion)
 	assert.Equal(t, "info", cfg.LogLevel)
 	assert.Equal(t, "budzik", cfg.LogFormat)
 	assert.Equal(t, "1m", cfg.AuthBackoff.InitialBackoff)
@@ -75,7 +75,7 @@ func TestUninstall_resetAndReMigrate(t *testing.T) {
 	assert.Equal(t, "10m", cfg.AuthBackoff.FinalBackoff)
 	assert.Equal(t, 2*time.Hour, cfgSvc.AuthenticatorMaxUnauthorized())
 	assert.Equal(t, 30*time.Second, cfgSvc.OfferedCurrentWaitTime())
-	assert.Equal(t, 10*time.Minute, cfgSvc.SignalRFinalBackoff())
+	assert.Equal(t, 30*time.Minute, cfgSvc.SignalRFinalBackoff())
 	assert.True(t, credentials.Credentials().Empty())
 	assert.Nil(t, cfgSvc.SelectedDevices())
 }

@@ -45,7 +45,7 @@ func TestMigrateConfig_enablesTheOldDisabledTelemetrySeedOnce(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, tel.Enabled)
 	assert.Equal(t, time.Hour, tel.Validity)
-	assert.Equal(t, 9, svc.Model().ConfigVersion)
+	assert.Equal(t, 10, svc.Model().ConfigVersion)
 	assert.True(t, newTestTelemetry(t, svc.DefaultStore()).IsEnabled())
 
 	tel, err = svc.DefaultStore().Telemetry()
@@ -54,7 +54,7 @@ func TestMigrateConfig_enablesTheOldDisabledTelemetrySeedOnce(t *testing.T) {
 
 	reloaded := config.New(dir)
 	require.NoError(t, cliffStorage.New(reloaded, dir, "config.json").Load())
-	assert.Equal(t, 9, reloaded.ConfigVersion)
+	assert.Equal(t, 10, reloaded.ConfigVersion)
 	assert.True(t, reloaded.Telemetry.Enabled)
 }
 

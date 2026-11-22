@@ -1,0 +1,5 @@
+- [x] Migration 9 → 10 sets all five stored SignalR backoff values to 60s / 5m / 30m, 3 / 3, whatever they were (test first)
+- [x] Packaged schedule: 60 s for failures 1-3, 5 min for 4-6, 30 min from the 7th (test first)
+- [x] Getter and stateful fallbacks 60s / 5m / 30m, equal to the packaged values (test first)
+- [x] Version bumped to 3.4.1
+- [x] The remaining two-minute refusal recorded as issue 27

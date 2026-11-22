@@ -185,6 +185,14 @@ func (c *Config) MigrateSignalRFinalBackoff() error {
 	return nil
 }
 
+// MigrateSignalRBackoffSchedule overwrites every stored SignalR backoff value, tuned ones too:
+// older installs retry as often as every 5 s, more than Easee's server should take.
+func (c *Config) MigrateSignalRBackoffSchedule() error {
+	c.SignalR.backoffSettings = backoffSettings{InitialBackoff: "60s", RepeatedBackoff: "5m", FinalBackoff: "30m", InitialFailureCount: 3, RepeatedFailureCount: 3}
+
+	return nil
+}
+
 // MigrateTelemetryOn enables the disabled block older versions seeded; telemetry.New starts its
 // window. A block the cloud disabled also has a zero EnabledAt and is enabled too, until the
 // cloud's next config poll.
@@ -318,7 +326,7 @@ func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
 }
 
 func (cs *Service) SignalRInitialBackoff() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.InitialBackoff }, 5*time.Second)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.InitialBackoff }, time.Minute)
 }
 
 func (cs *Service) SetSignalRInitialBackoff(interval time.Duration) error {
@@ -326,7 +334,7 @@ func (cs *Service) SetSignalRInitialBackoff(interval time.Duration) error {
 }
 
 func (cs *Service) SignalRRepeatedBackoff() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.RepeatedBackoff }, 30*time.Second)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.RepeatedBackoff }, 5*time.Minute)
 }
 
 func (cs *Service) SetSignalRRepeatedBackoff(interval time.Duration) error {
@@ -334,7 +342,7 @@ func (cs *Service) SetSignalRRepeatedBackoff(interval time.Duration) error {
 }
 
 func (cs *Service) SignalRFinalBackoff() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.FinalBackoff }, 10*time.Minute)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.FinalBackoff }, 30*time.Minute)
 }
 
 func (cs *Service) SetSignalRFinalBackoff(interval time.Duration) error {
@@ -377,7 +385,7 @@ func (cs *Service) AuthenticatorBackoffStateful() backoff.Stateful {
 
 func (cs *Service) SignalRBackoffStateful() backoff.Stateful {
 	return config.Get(cs.Service, func(c *Config) backoff.Stateful {
-		return c.SignalR.stateful(5*time.Second, 30*time.Second, 10*time.Minute)
+		return c.SignalR.stateful(time.Minute, 5*time.Minute, 30*time.Minute)
 	})
 }
 
