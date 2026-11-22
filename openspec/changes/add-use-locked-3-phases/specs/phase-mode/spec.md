@@ -5,8 +5,9 @@ A requested FIMP phase mode SHALL map to Easee internal mode 1 when it appears i
 row, and to internal mode 2 otherwise, provided it appears in the settable set. Three-phase requests
 map to auto rather than the internal three-phase lock, because most EVs refuse a 1-to-3 phase
 transition mid-session and would stall on a hard lock. When `use_locked_3_phases` is on and the
-cached charger state is a session in progress (`ready_to_charge`, `charging`, `suspended_by_ev` or
-`finished`, which Easee also reports for a plugged-in car that paused and may charge again),
+cached charger state is a session in progress (`ready_to_charge`, `charging`, `suspended_by_ev`,
+`finished`, `error` or `requesting`: every state of a plugged-in car, so only `disconnected` ends a
+session; an empty or unknown state is no session),
 a request that would map to internal mode 2 SHALL map to internal mode 3 instead; every such request
 is the multi-phase mode, the only member of the internal mode 3 row. The same mapping SHALL decide
 whether a recorded request still holds against a newer internal mode. A mode in neither set SHALL be
@@ -44,7 +45,7 @@ rejected with `phase modes mapper: mode <mode> unsupported on a <grid> grid with
 When `use_locked_3_phases` is on and a charger state observation changes the cached FIMP state to a
 known one, the adapter SHALL request the advertised multi-phase mode through the chargepoint service
 when a session started on cached internal mode 2, or the new state is outside a session on cached
-internal mode 3 (also after another idle state, and as the first state after an adapter restart), so
+internal mode 3 (also as the first state after an adapter restart), so
 the mapping locks or releases three phases for the new state. A change from one session
 state to another SHALL request nothing, also when the charger was offline in between, so a setting
 changed during a session forces no switch: the new value applies to the next request that moves the
@@ -69,10 +70,25 @@ trigger nothing.
 - **WHEN** the setting is on, the internal mode is 3 and the state changes to `disconnected`
 - **THEN** the three-phase mode is requested and Easee internal mode 2 is sent
 
-#### Scenario: idle charger on the lock
-- **WHEN** the setting is on, the internal mode is 3 and the state changes from `disconnected` to
-  `requesting`, or `disconnected` is the first state observed after an adapter restart
+#### Scenario: idle charger on the lock after a restart
+- **WHEN** the setting is on, the internal mode is 3 and `disconnected` is the first state observed
+  after an adapter restart
 - **THEN** the three-phase mode is requested and Easee internal mode 2 is sent
+
+#### Scenario: plugged in awaiting authentication on auto
+- **WHEN** the setting is on, the internal mode is 2 and the state changes from `disconnected` to
+  `requesting`
+- **THEN** the three-phase mode is requested and Easee internal mode 3 is sent
+
+#### Scenario: error keeps the lock
+- **WHEN** the setting is on, the internal mode is 3 and the state changes from `charging` to `error`
+- **THEN** no phase mode is requested
+- **AND** at `disconnected` the three-phase mode is requested and Easee internal mode 2 is sent
+
+#### Scenario: awaiting authentication keeps the lock
+- **WHEN** the setting is on, the internal mode is 3 and the state changes from `charging` to
+  `requesting`
+- **THEN** no phase mode is requested
 
 #### Scenario: session completed on the lock
 - **WHEN** the setting is on, the internal mode is 3 and the state changes from `charging` to

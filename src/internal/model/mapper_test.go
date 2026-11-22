@@ -276,11 +276,12 @@ func TestSessionInProgress(t *testing.T) {
 		chargepoint.StateCharging:        true,
 		chargepoint.StateSuspendedByEV:   true,
 		chargepoint.StateDisconnected:    false,
-		chargepoint.StateRequesting:      false,
+		chargepoint.StateRequesting:      true,
 		chargepoint.StateFinished:        true,
-		chargepoint.StateError:           false,
+		chargepoint.StateError:           true,
 		chargepoint.StateUnknown:         false,
 		chargepoint.StateSuspendedByEVSE: false,
+		"":                               false,
 	} {
 		assert.Equal(t, want, model.SessionInProgress(state), state)
 	}
