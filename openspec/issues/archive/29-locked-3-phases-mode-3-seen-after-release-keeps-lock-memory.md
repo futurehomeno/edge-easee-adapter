@@ -1,3 +1,5 @@
+Resolved: 2026-11-22, the user: accepted. A mode 3 chosen in the Easee app can be overwritten once in this case; the lock memory is not changed.
+
 # use_locked_3_phases: a mode 3 observed after the release keeps the lock memory
 
 Found in the PR 230 review, round 4 (change `add-use-locked-3-phases`).
