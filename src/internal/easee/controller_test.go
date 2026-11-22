@@ -3484,6 +3484,39 @@ func TestController_SetChargepointPhaseMode_UseLocked3Phases(t *testing.T) {
 	}
 }
 
+// A power reading stamped at or after the disconnect reads as charging; the release must not
+// stop and resume a charger no car is on.
+func TestController_SetChargepointPhaseMode_ReleaseAfterASessionDoesNotBounce(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-2 * time.Hour)
+
+	c := cache.NewCache("test-charger")
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(3, observed)
+	c.SetChargerState(chargepoint.StateDisconnected, observed)
+	c.SetTotalPower(3000, observed)
+	c.SetMaxCurrent(16, observed)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 2).Return(nil).Once()
+
+	managerMock := mockedsignalr.NewManager(t)
+	managerMock.On("Connected", "test-charger").Return(true, signalr.DisconnectionReason(""))
+	managerMock.On("Resync", "test-charger").Maybe()
+
+	cfg := &config.Config{}
+	cfg.UseLocked3Phases = true
+
+	ctrl := easee.NewController(managerMock, clientMock, "test-charger", c,
+		config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory)),
+		mockeddb.NewChargingSessionStorage(t), func() types.PhaseMode { return "" })
+	t.Cleanup(ctrl.Teardown)
+
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1L2L3))
+	clientMock.AssertNotCalled(t, "StopCharging", mock.Anything)
+}
+
 // The echo of the lock is newer than the request, which has to keep answering the report: the
 // leg of the bounced session would otherwise stand in for the three phases just set.
 func TestController_ChargepointPhaseModeReport_EchoOfTheLockKeepsTheRequest(t *testing.T) {

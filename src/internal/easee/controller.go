@@ -618,7 +618,8 @@ func (c *controller) SetChargepointPhaseMode(mode types.PhaseMode) error {
 
 	c.cache.SetRequestedPhaseMode(c.legToRecord(mode, gridType, phases), c.recordAt(outputPhaseSet, internalAt))
 
-	if c.charging() {
+	// A power reading stamped at or after the disconnect still reads as charging.
+	if state, _ := c.cache.ChargerState(); c.charging() && state != chargepoint.StateDisconnected {
 		return c.restartForPhaseMode(target)
 	}
 

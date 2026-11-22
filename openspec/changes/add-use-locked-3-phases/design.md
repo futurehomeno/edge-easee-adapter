@@ -31,10 +31,19 @@ like a new one. The new value is used by the next request that takes the charger
 to three phases, and from the session end on. A session that started with the setting on is still
 released at its end when the setting is off by then: the handler remembers the setting as of the
 session start. With the setting off all along nothing is sent, so a mode 3 set in the Easee app
-stays. That memory is in the handler and taken at the session start: an adapter restart between
-turning the setting off and the session end leaves mode 3 on the charger until the next
-single-to-three-phase request, and so does a lock placed by a hub request in a session that started
-with the setting off, when the setting is off again at its end.
+stays. A mode 3 observed while the setting is on is remembered the same way, for a lock a hub
+request placed in a session that started with the setting off. That memory is in the handler: an
+adapter restart between turning the setting off and the session end leaves mode 3 on the charger
+until the next single-to-three-phase request.
+
+The lock at the session start is sent once (issue 27): a failed send, or a start while a topology
+update is pending, leaves that session on auto.
+
+## No stop and resume at the disconnect
+The release is written right after the `disconnected` observation. A power reading stamped at or
+after it makes the reported state `charging`, and the controller would stop and resume a charger no
+car is on, with the resume landing on the next car. The controller skips the bounce for a
+`disconnected` charger.
 
 ## Zaptec
 No change: Zaptec's API has no auto mode, only `maxChargePhases` 1/3 and the installation-wide

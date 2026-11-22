@@ -7,4 +7,5 @@
 - [x] Issues 23, 24, 25 recorded
 - [x] `finished` keeps the lock (issue 23, the user 2026-11-22; test first)
 - [x] Handler: only a session start or end moves the lock, not a change inside a session; a session started with the setting on is released at its end when the setting is off by then (issue 24, the user 2026-11-22; test first)
+- [x] A mode 3 observed with the setting on is released at the session end; no stop/resume for a phase mode written to a disconnected charger (PR 230 review, round 2; test first)
 - [ ] Verify on a real charger and car (issue 25)
