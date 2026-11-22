@@ -18,7 +18,8 @@
 - Packaged SignalR backoff: `initialBackoff` `60s` × `initialFailureCount` 3, `repeatedBackoff` `5m`
   × `repeatedFailureCount` 3, `finalBackoff` `30m`. Subscribe attempts after a reconnect: 0, 60, 120,
   180 s, then 480, 780, 1080 s, then every 30 min. Steps of 60 s rather than 30 s put the 180 s
-  attempt (and often the 120 s one) after the 110-135 s refusal, for the same number of calls.
+  attempt (and the 120 s one, when the refusal has ended by then) after the 110-135 s refusal, for
+  the same number of calls.
 - A config migration to version 10 sets all five stored SignalR backoff values to these, whatever
   they were: the packaged defaults only seed a fresh install and an installed hub's stored values
   override them. A value an operator set on purpose is overwritten too.
