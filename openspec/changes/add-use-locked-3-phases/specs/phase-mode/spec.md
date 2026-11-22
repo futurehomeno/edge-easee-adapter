@@ -50,7 +50,10 @@ changed during a session forces no switch: the new value applies to the next req
 charger from single phase to three phases, and from the session end on. When the setting was on at
 the session start, or internal mode 3 was observed while it was on, and it is off at the session
 end, the release SHALL still be requested, so the lock does not outlive the session; with the
-setting off all along a mode 3 was set elsewhere and SHALL be left alone. A phase mode written to a
+setting off all along a mode 3 was set elsewhere and SHALL be left alone, as SHALL a mode 3 observed
+with the setting off after the release went out. A mode 3 observation older than the cached phase
+mode SHALL count for nothing. A release that fails, or is not queued, SHALL be requested again at
+the next session start or end. A phase mode written to a
 `disconnected` charger SHALL NOT stop and resume it, whatever a power reading says. The request SHALL be queued after the state report, and SHALL be skipped when fewer than two
 modes are advertised. Internal mode 1, an unknown or offline state or an unchanged state SHALL
 trigger nothing.
@@ -97,6 +100,21 @@ trigger nothing.
 - **WHEN** a session started with the setting off, the setting goes on, internal mode 3 is observed,
   the setting goes off and the state changes to `disconnected`
 - **THEN** the three-phase mode is requested and Easee internal mode 2 is sent
+
+#### Scenario: mode 3 set elsewhere after the release
+- **WHEN** the setting is on, the state changes to `disconnected` on internal mode 3 and the release
+  goes out, the setting goes off, internal mode 3 is observed and a session starts
+- **THEN** no phase mode is requested
+
+#### Scenario: failed release
+- **WHEN** a session started with the setting on, the setting goes off and the release requested at
+  `disconnected` fails
+- **THEN** the next session start requests the three-phase mode again and Easee internal mode 2 is sent
+
+#### Scenario: mode 3 observed older than the cached mode
+- **WHEN** the setting is on, a mode 3 observation older than the cached mode arrives, the setting
+  goes off, internal mode 3 is observed and the state changes to `disconnected`
+- **THEN** no phase mode is requested
 
 #### Scenario: release with a power reading stamped at the disconnect
 - **WHEN** the release is sent to a `disconnected` charger whose cached power reading is above zero

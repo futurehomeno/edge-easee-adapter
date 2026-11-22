@@ -54,7 +54,7 @@ type observationsHandler struct {
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
 	confSrv        *config.Service
-	lockWasOn      bool
+	lockWasOn      atomic.Bool
 	inSession      bool
 
 	detectedGridType   model.GridType
@@ -249,15 +249,19 @@ func (h *observationsHandler) handlePhaseMode(observation model.Observation) err
 
 	log.Debugf("[%s] Phase mode=%s (%d)", h.chargerID, model.PhaseModeName(val), val)
 
+	phaseMode, _ := h.cache.PhaseMode()
+
+	if !h.cache.SetPhaseMode(val, observation.Timestamp) {
+		return nil
+	}
+
 	// A lock seen with the setting on is released at the session end, also when it was placed
 	// after the session start and the setting is off by then.
 	if val == model.EaseePhaseModeLock3 && h.confSrv != nil && h.confSrv.UseLocked3Phases() {
-		h.lockWasOn = true
+		h.lockWasOn.Store(true)
 	}
 
-	phaseMode, _ := h.cache.PhaseMode()
-
-	if !h.cache.SetPhaseMode(val, observation.Timestamp) || val == phaseMode {
+	if val == phaseMode {
 		return nil
 	}
 
@@ -497,11 +501,9 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		// A change inside a session moves nothing, so a setting changed meanwhile forces no switch.
 		if !inSession || !wasInSession {
 			lock := h.confSrv.UseLocked3Phases()
-			if lock || h.lockWasOn {
+			if owned := h.lockWasOn.Swap(lock && inSession); lock || owned {
 				h.moveThreePhaseLock(chargepointSrv, lock && inSession)
 			}
-
-			h.lockWasOn = lock
 		}
 
 		h.inSession = inSession
@@ -539,7 +541,19 @@ func (h *observationsHandler) moveThreePhaseLock(chargepointSrv chargepoint.Serv
 
 	log.Infof("[%s] Three-phase lock: wanted=%t on %s, re-sending %s", h.chargerID, lock, model.PhaseModeName(internal), multi)
 
-	h.enqueue("phase lock", func() error { return chargepointSrv.SetPhaseMode(multi) })
+	// A release that did not go out is asked again at the next session start or end.
+	queued := h.enqueue("phase lock", func() error {
+		err := chargepointSrv.SetPhaseMode(multi)
+		if err != nil && !lock {
+			h.lockWasOn.Store(true)
+		}
+
+		return err
+	})
+
+	if !queued && !lock {
+		h.lockWasOn.Store(true)
+	}
 }
 
 func (h *observationsHandler) handleTotalPower(observation model.Observation) error {

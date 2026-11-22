@@ -2026,3 +2026,147 @@ func TestObservationsHandler_LockPlacedAfterTheSessionStartIsReleasedAtItsEnd(t 
 	observe(model.ChargerOPState, int(model.ChargerStateDisconnected))
 	flushReports(t, handler)
 }
+
+func TestObservationsHandler_ModeThreeSetElsewhereAfterAReleaseIsLeftAlone(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-time.Hour)
+
+	c := cache.NewCache(testChargerID)
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(3, observed)
+	c.SetChargerState(chargepoint.StateCharging, observed)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil).Maybe()
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
+	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Maybe()
+
+	cfg := &config.Config{}
+	cfg.UseLocked3Phases = true
+	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	observe := func(id model.ObservationID, value int) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: id, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: time.Now(), Value: strconv.Itoa(value),
+		}))
+	}
+
+	observe(model.ChargerOPState, int(model.ChargerStateDisconnected))
+	observe(model.PhaseMode, model.EaseePhaseModeAuto)
+	require.NoError(t, confSrv.SetUseLocked3Phases(false))
+	observe(model.PhaseMode, model.EaseePhaseModeLock3)
+	observe(model.ChargerOPState, int(model.ChargerStateAwaitingStart))
+	flushReports(t, handler)
+
+	srv.AssertNumberOfCalls(t, "SetPhaseMode", 1)
+}
+
+func TestObservationsHandler_FailedReleaseIsAskedAgain(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-time.Hour)
+
+	c := cache.NewCache(testChargerID)
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(3, observed)
+	c.SetChargerState(chargepoint.StateDisconnected, observed)
+
+	reported := make(chan struct{}, 8)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil).Run(func(mock.Arguments) { reported <- struct{}{} })
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(assert.AnError).Once()
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Once()
+
+	cfg := &config.Config{}
+	cfg.UseLocked3Phases = true
+	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	observe := func(state model.ChargerState) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: time.Now(), Value: strconv.Itoa(int(state)),
+		}))
+	}
+
+	observe(model.ChargerStateCharging)
+	require.NoError(t, confSrv.SetUseLocked3Phases(false))
+	observe(model.ChargerStateDisconnected)
+	// One sender: the third state report goes out only after the failed release.
+	observe(model.ChargerStateDisconnected)
+
+	for range 3 {
+		<-reported
+	}
+
+	observe(model.ChargerStateAwaitingStart)
+	flushReports(t, handler)
+}
+
+func TestObservationsHandler_OnlyAnAcceptedModeThreeIsTheAdapters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cached  int
+		seenAt  time.Duration
+		wantSet int
+	}{
+		{name: "the echo of a lock the controller already cached", cached: 3, seenAt: time.Minute, wantSet: 1},
+		{name: "a mode 3 older than the cached mode", cached: 2, seenAt: -time.Minute},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observed := time.Now().Add(-time.Hour)
+
+			c := cache.NewCache(testChargerID)
+			c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+			c.SetPhaseMode(tt.cached, observed)
+			c.SetChargerState(chargepoint.StateCharging, observed)
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("SendStateReport", false).Return(true, nil).Maybe()
+			srv.On("IsPhaseModeAware").Return(true).Maybe()
+			srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+			srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Maybe()
+
+			cfg := &config.Config{}
+			cfg.UseLocked3Phases = true
+			confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+			require.NoError(t, err)
+
+			observe := func(id model.ObservationID, value int, at time.Time) {
+				require.NoError(t, handler.HandleObservation(model.Observation{
+					ID: id, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+					Timestamp: at, Value: strconv.Itoa(value),
+				}))
+			}
+
+			observe(model.PhaseMode, model.EaseePhaseModeLock3, observed.Add(tt.seenAt))
+			require.NoError(t, confSrv.SetUseLocked3Phases(false))
+			// Set in the Easee app with the setting off.
+			observe(model.PhaseMode, model.EaseePhaseModeLock3, time.Now())
+			observe(model.ChargerOPState, int(model.ChargerStateDisconnected), time.Now())
+			flushReports(t, handler)
+
+			srv.AssertNumberOfCalls(t, "SetPhaseMode", tt.wantSet)
+		})
+	}
+}

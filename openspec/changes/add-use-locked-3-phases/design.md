@@ -32,11 +32,14 @@ to three phases, and from the session end on. A session that started with the se
 released at its end when the setting is off by then: the handler remembers the setting as of the
 session start. With the setting off all along nothing is sent, so a mode 3 set in the Easee app
 stays. A mode 3 observed while the setting is on is remembered the same way, for a lock a hub
-request placed in a session that started with the setting off. That memory is in the handler: an
+request placed in a session that started with the setting off; an observation the cache turns away
+as older counts for nothing. The memory ends when the release goes out, so a mode 3 set elsewhere
+afterwards with the setting off stays; a release that fails or finds the report queue full keeps it,
+and is asked again at the next session start or end. That memory is in the handler: an
 adapter restart between turning the setting off and the session end leaves mode 3 on the charger
 until the next single-to-three-phase request.
 
-The lock at the session start is sent once (issue 27): a failed send, or a start while a topology
+The lock at the session start is sent once (issue 28): a failed send, or a start while a topology
 update is pending, leaves that session on auto.
 
 ## No stop and resume at the disconnect
