@@ -21,5 +21,5 @@ Closes when the operator decides: keep today's behaviour, or block offered-curre
 
 Resolved (the operator, 2026-11-23): after a user `cmd.charge.stop`, no `cmd.current_session.set_current` starts
 charging; only `cmd.charge.start` does. The stop is kept in the adapter's database with its time, so it survives a
-restart, and also ends on a finished session (not offline) or a change into charging observed after the stop
+restart, and also ends on disconnected (the car unplugged) or a change into charging observed after the stop
 (`configurable-minimum-current`, requirement "A User Stop Holds Until A Start").
