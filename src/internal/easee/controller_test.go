@@ -1955,6 +1955,52 @@ func TestController_StartChargepointCharging_UnconfirmedStartLogsTheClampedCurre
 	assert.Contains(t, hook.LastEntry().Message, "Start at 10A not echoed back")
 }
 
+// Issue 37: energy guard resumes a paused charger with a start without a mode, and the mode of
+// the running session is in no observation, so the controller remembers a slow start until the
+// cached current is cleared by the end of the session.
+func TestController_StartChargepointCharging_StartWithoutModeKeepsASlowSession(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 23, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	requested := 0
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(func() (int, time.Time) { return requested, time.Time{} })
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", mock.Anything, mock.Anything).Return(true)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil)
+
+	cfg := pacedConfig()
+	cfg.SlowChargingCurrentInAmperes = 8
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
+
+	for i, step := range []struct {
+		name      string
+		mode      string
+		requested int
+		want      float64
+	}{
+		{"slow start", model.ChargingModeSlow, 0, 8},
+		{"resume of the slow session after a cut to 6A", "", 6, 6},
+		{"first start of the next session", "", 0, 32},
+		{"resume of that session after a cut to 7A", "", 7, 16},
+		{"slow start with a known current", model.ChargingModeSlow, 16, 8},
+		{"normal start ends the slow session", model.ChargingModeNormal, 8, 16},
+		{"resume after a cut to 9A", "", 9, 16},
+	} {
+		requested = step.requested
+
+		require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: step.mode}), step.name)
+		clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", i+1)
+		assert.Equal(t, step.want, clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1), step.name)
+
+		clk.Add(time.Minute)
+	}
+}
+
 // A start the channel stores has to report success at once: the echo it would wait for
 // cannot arrive before the deadline, and failing cmd.charge.start would leave the user
 // re-pressing Start against a write that is already on its way.

@@ -21,3 +21,8 @@ mode included. Is a slow session resumed by energy guard meant to come back at 1
 - The operator confirms 16 A is fine here: archive this issue. Or
 - remember the last explicit start mode per charger and treat a bare start as that mode (a small
   piece of controller state, cleared when the session ends).
+
+## Decision (the operator, 2026-11-23)
+The adapter remembers the slow start. A start without a mode keeps the session's current until a
+start with a mode arrives or the session ends (`slowSession` in `controller.go`). Not kept across an
+adapter restart.

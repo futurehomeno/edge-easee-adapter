@@ -12,7 +12,8 @@
   (default 16 A) for every start that is not slow mode, with or without a mode. Until now only mode
   `normal` got this floor.
 - The charger's max current still caps the start current, as before.
-- Slow mode is unchanged.
+- Slow mode is unchanged. A start without a mode keeps the mode of the session it resumes, so a
+  session started slow is not raised when energy guard resumes it (issue 37).
 
 ## Impact
 - Affected specs: `charging-control`

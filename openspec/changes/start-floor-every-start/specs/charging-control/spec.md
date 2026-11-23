@@ -10,7 +10,10 @@ last restart — 32A, the same ceiling the offered-current write already falls b
 does not leave the charger unstartable until observation 47 arrives; otherwise, for every start that
 is not slow mode, with or without a mode, raised to at least `initial_charging_current` (default
 16A), because some cars need the higher current to start; the balancer adjusts it afterwards. The
-charger's max current SHALL cap the starting current.
+charger's max current SHALL cap the starting current. A start without a mode SHALL keep the mode
+of the session it resumes: after a slow start it is not raised, until a start with a mode arrives or
+the session ends and the cached requested offered current is cleared. This memory is not kept across
+an adapter restart.
 Slow mode SHALL be exempt from that floor and SHALL instead use `slowChargingCurrentInAmperes` when
 that is greater than zero, rounded to the nearest ampere. A resulting current of zero SHALL fail with
 `invalid start current`. A start Easee accepts SHALL succeed even when the charger does not echo it
@@ -39,6 +42,16 @@ that a stop or a lower current needs. The state report shows whether the charger
 - **WHEN** a start without a mode arrives, the cached requested offered current is 7A, the initial
   charging current is 16A and the charger's max current is 10A
 - **THEN** the charger is started at 10A
+
+#### Scenario: start without a mode in a slow session
+- **WHEN** the session was started in mode `slow`, the cached requested offered current is 6A and a
+  start without a mode arrives
+- **THEN** the charger is started at 6A
+
+#### Scenario: start without a mode after the slow session ended
+- **WHEN** the slow session ended, a new session was started without a mode, the cached requested
+  offered current is 7A and a start without a mode arrives
+- **THEN** the charger is started at 16A
 
 #### Scenario: slow start
 - **WHEN** the mode is `slow` and `slowChargingCurrentInAmperes` is 6

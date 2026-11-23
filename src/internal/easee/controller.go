@@ -81,8 +81,9 @@ type controller struct {
 	sessionStorage db.ChargingSessionStorage
 	persistedPhase func() types.PhaseMode
 	// Guarded by the chargepoint service lock, which every command that clamps or sets a phase
-	// mode holds.
-	clamp [2]int
+	// mode, or starts charging, holds.
+	clamp       [2]int
+	slowSession bool
 	// The last phase mode Easee accepted and when. It only vetoes skipping a target the cache
 	// already holds; the cache stays the only record of the charger's mode.
 	sentPhase   int
@@ -780,9 +781,16 @@ func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
-	slow := strings.ToLower(settings.Mode) == model.ChargingModeSlow
+	mode := strings.ToLower(settings.Mode)
+	slow := mode == model.ChargingModeSlow
 
 	startCurrent, _ := c.cache.RequestedOfferedCurrent()
+
+	// A start without a mode may be a load balancer resuming the session it paused, so it keeps
+	// the session's mode. The session's end clears the cached current, and with it this memory.
+	if mode != "" || startCurrent <= 0 {
+		c.slowSession = slow
+	}
 
 	switch {
 	case startCurrent <= 0:
@@ -795,7 +803,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		if startCurrent <= 0 {
 			startCurrent = maxCurrentValue
 		}
-	case !slow:
+	case !c.slowSession:
 		// Some cars need the higher current to start; the balancer adjusts it afterwards.
 		startCurrent = max(startCurrent, c.cfgService.InitialChargingCurrent())
 	}

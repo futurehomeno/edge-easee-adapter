@@ -3,3 +3,4 @@
 - [x] Slow mode keeps its current
 - [x] A start without a mode no longer keeps the cached current (the test that expected it is removed)
 - [x] README: the start current of a start without a mode
+- [x] A start without a mode keeps a slow session's current until the session ends (issue 37, test first)
