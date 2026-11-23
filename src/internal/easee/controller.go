@@ -265,6 +265,13 @@ func (c *controller) pendingDiffers(current int) bool {
 	return c.pending != nil && (c.pending.stop || c.pending.current != current)
 }
 
+func (c *controller) startPending() bool {
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	return c.pending != nil && c.pending.start
+}
+
 func (c *controller) clampToMax(current int, requested bool) int {
 	limit, _ := c.cache.MaxCurrent()
 	if limit == 0 {
@@ -712,7 +719,7 @@ func (c *controller) restartForPhaseMode(target int) error {
 
 	// Resumed at the session's own current rather than through StartChargepointCharging: a
 	// non-slow start floors the current to initial_charging_current, which would silently
-	// raise a slow session - the mode is not recorded anywhere, so it cannot be restored.
+	// raise a slow session - its mode is not known after an adapter restart.
 	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{start: true, current: c.clampToMax(resume, false)}); err != nil {
 		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
 
@@ -745,8 +752,9 @@ func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 
 func (c *controller) SetChargepointOfferedCurrent(current int) error {
 	// The first current of a session that began without a start: a remembered slow start
-	// belongs to the session that ended.
-	if requested, _ := c.cache.RequestedOfferedCurrent(); requested <= 0 {
+	// belongs to the session that ended. A start still waiting in the channel has not written
+	// the cached current yet and is not such an end.
+	if requested, _ := c.cache.RequestedOfferedCurrent(); requested <= 0 && !c.startPending() {
 		c.slowSession = false
 	}
 
@@ -794,8 +802,9 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 
 	// A start without a mode may be a load balancer resuming the session it paused, so it keeps
 	// the session's mode. The session's end clears the cached current, and with it this memory.
+	slowSession := c.slowSession
 	if mode != "" || startCurrent <= 0 {
-		c.slowSession = slow
+		slowSession = slow
 	}
 
 	switch {
@@ -809,7 +818,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		if startCurrent <= 0 {
 			startCurrent = maxCurrentValue
 		}
-	case !c.slowSession:
+	case !slowSession:
 		// Some cars need the higher current to start; the balancer adjusts it afterwards.
 		startCurrent = max(startCurrent, c.cfgService.InitialChargingCurrent())
 	}
@@ -835,6 +844,8 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	if err != nil {
 		return err
 	}
+
+	c.slowSession = slowSession
 
 	// A paused charger can take well over CurrentWaitDuration to act on the resume, and waiting
 	// longer here would hold the service lock a stop or a lower current needs. Easee accepted
