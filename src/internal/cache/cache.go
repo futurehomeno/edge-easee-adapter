@@ -20,6 +20,8 @@ type Cache interface {
 	MaxCurrent() (int, time.Time)
 	// RequestedOfferedCurrent is what the controller last asked for.
 	RequestedOfferedCurrent() (int, time.Time)
+	// StartMode is the mode of the last start that named one in this session.
+	StartMode() string
 	// OfferedCurrent is what the evse accepted.
 	OfferedCurrent() (int, time.Time)
 	TotalPower() (float64, time.Time)
@@ -43,6 +45,7 @@ type Cache interface {
 	SetChargerState(state chargepoint.State, timestamp time.Time) bool
 	SetMaxCurrent(current int, timestamp time.Time) bool
 	SetRequestedOfferedCurrent(current int, timestamp time.Time) bool
+	SetStartMode(mode string)
 	SetOfferedCurrent(current int, timestamp time.Time) bool
 	SetTotalPower(power float64, timestamp time.Time) bool
 	SetLifetimeEnergy(energy float64, timestamp time.Time) bool
@@ -72,6 +75,7 @@ type cache struct {
 	chargerID string
 
 	requestedOfferedCurrent model.TimestampedValue[int]
+	startMode               string
 	chargerState            model.TimestampedValue[chargepoint.State]
 	phaseMode               model.TimestampedValue[int]
 	maxCurrent              model.TimestampedValue[int]
@@ -269,6 +273,20 @@ func (c *cache) SetMaxCurrent(current int, timestamp time.Time) bool {
 
 func (c *cache) SetRequestedOfferedCurrent(current int, timestamp time.Time) bool {
 	return store(c, &c.requestedOfferedCurrent, "requested offered current", current, timestamp)
+}
+
+func (c *cache) StartMode() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.startMode
+}
+
+func (c *cache) SetStartMode(mode string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.startMode = mode
 }
 
 func (c *cache) SetOfferedCurrent(current int, timestamp time.Time) bool {

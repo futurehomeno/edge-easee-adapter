@@ -449,6 +449,7 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 
 	if state.IsSessionFinished() && (changed || observation.Timestamp.After(prevAt)) {
 		h.cache.SetRequestedOfferedCurrent(0, time.Now())
+		h.cache.SetStartMode("")
 	}
 
 	chargepointSrv, err := getChargepointService(h.thing)

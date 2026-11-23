@@ -61,6 +61,7 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.MatchedBy(func(ts time.Time) bool {
 		return ts.After(stale)
 	})).Return(true)
+	cacheMock.On("SetStartMode", "").Maybe()
 
 	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil)
 	require.NoError(t, err)
@@ -72,6 +73,25 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 		Timestamp: stale,
 		Value:     strconv.Itoa(int(model.ChargerStateDisconnected)),
 	}))
+}
+
+func TestObservationsHandler_SessionFinishedForgetsTheStartMode(t *testing.T) {
+	t.Parallel()
+
+	c := cache.NewCache(testChargerID)
+	c.SetStartMode(model.ChargingModeSlow)
+
+	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, c, nil, nil, testChargerID, nil)
+	require.NoError(t, err)
+
+	require.Error(t, handler.HandleObservation(model.Observation{
+		ID:        model.ChargerOPState,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: time.Now(),
+		Value:     strconv.Itoa(int(model.ChargerStateDisconnected)),
+	}))
+	assert.Empty(t, c.StartMode())
 }
 
 // A re-sync replays the snapshot with the timestamps already cached; that is no new end of a
@@ -473,6 +493,7 @@ func TestObservationsHandler_OfflineStateIsReportedBeforeTheFlagFlips(t *testing
 	cacheMock.On("SetChargerState", chargepoint.StateUnknown, now).Return(true)
 	// Offline counts as a finished session, so the requested current is cleared on the way.
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
+	cacheMock.On("SetStartMode", "").Maybe()
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
@@ -526,6 +547,7 @@ func TestObservationsHandler_RecoveryStateIsReportedWhileAlreadyOnline(t *testin
 	offline := make(chan struct{})
 	srv.On("SendStateReport", false).Run(func(mock.Arguments) { close(offline) }).Return(true, nil).Once()
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
+	cacheMock.On("SetStartMode", "").Maybe()
 	require.NoError(t, handler.HandleObservation(model.Observation{
 		ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
 		Timestamp: now, Value: strconv.Itoa(int(model.ChargerStateOffline)),
@@ -878,6 +900,7 @@ func TestObservationsHandler_CloseRacingADispatch(t *testing.T) {
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now).Maybe()
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true).Maybe()
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
+	cacheMock.On("SetStartMode", "").Maybe()
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
@@ -919,6 +942,7 @@ func TestObservationsHandler_DroppedStateTransitionStillMovesTheFlag(t *testing.
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
+	cacheMock.On("SetStartMode", "").Maybe()
 	cacheMock.On("SetCableLocked", true, now).Return(true)
 
 	srv := mockedchargepoint.NewService(t)
@@ -1734,6 +1758,7 @@ func TestObservationsHandler_StateOnlineFlipSendsConnectivityReport(t *testing.T
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
+	cacheMock.On("SetStartMode", "").Maybe()
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()

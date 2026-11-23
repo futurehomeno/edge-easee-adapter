@@ -54,6 +54,11 @@ func newTestController(
 		cfg = &config.Config{}
 	}
 
+	if cacheMock != nil {
+		cacheMock.On("StartMode").Return("").Maybe()
+		cacheMock.On("SetStartMode", mock.Anything).Maybe()
+	}
+
 	// Starts and stops re-sync 15s after the send, which the clock-driven tests reach.
 	if manager == nil {
 		manager = mockedsignalr.NewManager(t)
@@ -1953,6 +1958,75 @@ func TestController_StartChargepointCharging_UnconfirmedStartLogsTheClampedCurre
 
 	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
 	assert.Contains(t, hook.LastEntry().Message, "Start at 10A not echoed back")
+}
+
+// Energy guard pauses with a stop and resumes with a start that carries no mode, so that start
+// takes the mode the session was started in.
+func TestController_StartChargepointCharging_StartWithoutAModeKeepsTheSessionMode(t *testing.T) {
+	t.Parallel()
+
+	endSession := func(c cache.Cache) {
+		c.SetRequestedOfferedCurrent(0, time.Now())
+		c.SetStartMode("")
+		c.SetRequestedOfferedCurrent(7, time.Now())
+	}
+
+	tests := []struct {
+		name        string
+		slowCurrent float64
+		starts      []string
+		between     func(cache.Cache)
+		want        int
+	}{
+		{name: "slow session resumes at the slow current", slowCurrent: 6, starts: []string{model.ChargingModeSlow}, want: 6},
+		{name: "slow session with no slow current keeps the cached current", starts: []string{model.ChargingModeSlow}, want: 6},
+		{
+			name:    "normal session cut to 7A resumes at the start current",
+			starts:  []string{model.ChargingModeNormal},
+			between: func(c cache.Cache) { c.SetRequestedOfferedCurrent(7, time.Now()) },
+			want:    16,
+		},
+		{name: "the mode is forgotten when the session ends", slowCurrent: 6, starts: []string{model.ChargingModeSlow}, between: endSession, want: 16},
+		{name: "an explicit normal start replaces slow", slowCurrent: 6, starts: []string{model.ChargingModeSlow, model.ChargingModeNormal}, want: 16},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := cache.NewCache("test-charger")
+			c.SetMaxCurrent(32, time.Now())
+			c.SetRequestedOfferedCurrent(6, time.Now())
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil)
+			clientMock.On("StopCharging", "test-charger").Return(nil)
+
+			managerMock := mockedsignalr.NewManager(t)
+			managerMock.On("Resync", "test-charger").Maybe()
+
+			cfg := &config.Config{PublicConfig: config.PublicConfig{CurrentWaitDuration: "1ms", OfferedCurrentWaitTime: "1ns"}}
+			cfg.SlowChargingCurrentInAmperes = tt.slowCurrent
+			ctrl := easee.NewController(managerMock, clientMock, "test-charger", c,
+				config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory)), mockeddb.NewChargingSessionStorage(t),
+				func() types.PhaseMode { return types.PhaseModeNL3 })
+			t.Cleanup(ctrl.Teardown)
+
+			for _, mode := range tt.starts {
+				require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: mode}))
+				require.NoError(t, ctrl.StopChargepointCharging())
+			}
+
+			if tt.between != nil {
+				tt.between(c)
+			}
+
+			require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+
+			got, _ := c.RequestedOfferedCurrent()
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
 
 // A start the channel stores has to report success at once: the echo it would wait for

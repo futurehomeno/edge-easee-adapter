@@ -711,7 +711,7 @@ func (c *controller) restartForPhaseMode(target int) error {
 
 	// Resumed at the session's own current rather than through StartChargepointCharging: a
 	// non-slow start floors the current to initial_charging_current, which would silently
-	// raise a slow session - the mode is not recorded anywhere, so it cannot be restored.
+	// raise a session the balancer cut, and after a restart a slow session's mode is not known.
 	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{start: true, current: c.clampToMax(resume, false)}); err != nil {
 		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
 
@@ -780,7 +780,14 @@ func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
-	slow := strings.ToLower(settings.Mode) == model.ChargingModeSlow
+	mode := strings.ToLower(settings.Mode)
+	if mode == "" {
+		mode = c.cache.StartMode()
+	} else {
+		c.cache.SetStartMode(mode)
+	}
+
+	slow := mode == model.ChargingModeSlow
 
 	startCurrent, _ := c.cache.RequestedOfferedCurrent()
 

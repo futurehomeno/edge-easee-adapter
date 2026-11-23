@@ -1,3 +1,5 @@
+Resolved: 2026-11-23, the operator: a slow session that energy guard pauses and resumes comes back at its slow current. The cache remembers the session's last explicit start mode; a start without a mode takes it; the session-finished observation forgets it. Change `slow-session-resume`; the restart gap is issue 38.
+
 # A slow session resumed by a start without a mode comes back at 16 A
 
 ## What happened

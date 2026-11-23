@@ -36,8 +36,9 @@ Message:
 Topic: `pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:10`
 
 The optional `charging_mode` property selects the start current: `"slow"` starts at
-`slowChargingCurrentInAmperes` when set; every other start, with or without a mode, starts at no
-less than `initial_charging_current`, capped at the charger's max current.
+`slowChargingCurrentInAmperes` when set; every other start starts at no less than
+`initial_charging_current`, capped at the charger's max current. A start without a mode takes the
+mode of the session's last start that had one, until the session ends or the adapter restarts.
 ```json =
 {
 "corid": null,
