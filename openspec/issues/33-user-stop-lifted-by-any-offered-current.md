@@ -1,4 +1,4 @@
-# 31: a user stop is lifted by any later offered current
+# 33: a user stop is lifted by any later offered current
 
 Found while adding `min_charging_current` (`configurable-minimum-current`).
 

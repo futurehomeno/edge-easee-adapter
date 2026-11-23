@@ -1,6 +1,8 @@
 package routing
 
 import (
+	"fmt"
+
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/thing"
@@ -87,36 +89,35 @@ func New(
 // interface is renamed so the chargepoint handler skips the message instead of rejecting it.
 func routeOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) chargepoint.AdjustableOfferedCurrentController) *router.Routing {
 	return router.NewRouting(
-		router.MessageHandlerFn(func(message *fimpgo.Message) *fimpgo.Message {
-			divertOfferedPause(ad, controllerByAddress, message)
-
-			return nil
-		}),
+		router.NewMessageHandler(router.MessageProcessorFn(func(message *fimpgo.Message) (*fimpgo.FimpMessage, error) {
+			return nil, divertOfferedPause(ad, controllerByAddress, message)
+		})),
 		router.ForService(chargepoint.Chargepoint),
 		router.ForType(chargepoint.CmdCurrentSessionSetCurrent),
 	)
 }
 
-func divertOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) chargepoint.AdjustableOfferedCurrentController, message *fimpgo.Message) {
+// The returned error is answered to the caller, as cliffhanger's handler answers its own.
+func divertOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) chargepoint.AdjustableOfferedCurrentController, message *fimpgo.Message) error {
 	current, err := message.Payload.GetIntValue()
 	if err != nil || current < 0 || current >= 6 {
-		return
+		return nil //nolint:nilerr // A malformed value is cliffhanger's handler's to answer.
 	}
 
 	t := ad.ThingByTopic(message.Topic)
 	if t == nil {
-		return
+		return nil
 	}
 
 	ctrl := controllerByAddress(t.Address())
 	if ctrl == nil {
-		return
+		return nil
 	}
 
 	if err := ctrl.SetChargepointOfferedCurrent(current); err != nil {
 		log.Errorf("[routing] Offered %dA on %s err: %v", current, message.Topic, err)
 
-		return
+		return nil
 	}
 
 	message.Payload.Interface += ".paused"
@@ -124,7 +125,9 @@ func divertOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string
 	// The renamed message skips cliffhanger's handler and with it the confirmation report.
 	if s, ok := t.ServiceByTopic(message.Topic).(chargepoint.Service); ok {
 		if _, err := s.SendCurrentSessionReport(true); err != nil {
-			log.Warnf("[routing] Offered: session report on %s err: %v", message.Topic, err)
+			return fmt.Errorf("offered %d A set, session report failed: %w", current, err)
 		}
 	}
+
+	return nil
 }

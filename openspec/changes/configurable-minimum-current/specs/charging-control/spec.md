@@ -45,6 +45,10 @@ controller through the framework and pauses there. A max current is still checke
 - **WHEN** handing a value under 6 A to the controller returns an error
 - **THEN** the message is left unrenamed and the framework handles it normally
 
+#### Scenario: the pause is sent but the session report fails
+- **WHEN** the pause for 0 A succeeds and the current-session report cannot be sent
+- **THEN** the caller is answered with an error report
+
 #### Scenario: a negative value
 - **WHEN** the value is below zero
 - **THEN** the message is left untouched

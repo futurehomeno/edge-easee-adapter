@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -3552,12 +3553,12 @@ func minCurrentConfig() *config.Config {
 }
 
 // The last write is always recent, so only a bypassed dedup puts 12 A back on the wire.
-func recentWriteCache(t *testing.T, current int) *mockedcache.Cache {
+func recentWriteCache(t *testing.T) *mockedcache.Cache {
 	t.Helper()
 
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("MaxCurrent").Return(32, time.Time{})
-	cacheMock.On("RequestedOfferedCurrent").Return(func() int { return current }, clock.Now).Maybe()
+	cacheMock.On("RequestedOfferedCurrent").Return(12, clock.Now).Maybe()
 
 	return cacheMock
 }
@@ -3568,7 +3569,7 @@ func TestController_SetChargepointOfferedCurrent_BelowMinimumPausesAndNextValueR
 			clk := clock.Mock(time.Date(2026, time.November, 22, 1, 0, 0, 0, time.UTC))
 			t.Cleanup(clock.Restore)
 
-			cacheMock := recentWriteCache(t, 12)
+			cacheMock := recentWriteCache(t)
 			cacheMock.On("SetRequestedOfferedCurrent", 12, mock.AnythingOfType("time.Time")).Return(true).Once()
 			cacheMock.On("WaitForOfferedCurrent", 12, mock.Anything).Return(true).Once()
 
@@ -3596,7 +3597,7 @@ func TestController_SetChargepointOfferedCurrent_UserStopIsNotResumed(t *testing
 	clientMock := mockapi.NewClient(t)
 	clientMock.On("StopCharging", "test-charger").Return(nil).Twice()
 
-	ctrl := newTestController(t, nil, recentWriteCache(t, 12), clientMock, mockeddb.NewChargingSessionStorage(t), minCurrentConfig())
+	ctrl := newTestController(t, nil, recentWriteCache(t), clientMock, mockeddb.NewChargingSessionStorage(t), minCurrentConfig())
 
 	require.NoError(t, ctrl.SetChargepointOfferedCurrent(8))
 	clk.Add(20 * time.Second)
@@ -3609,13 +3610,30 @@ func TestController_SetChargepointOfferedCurrent_UserStopIsNotResumed(t *testing
 
 // A pause that arrives while a valid write is still on its way stays the adapter's own: the write returning must not
 // forget it, or the dedup skips the resume.
+// An offered current under 6 A arrives outside the chargepoint service lock. Fails only under -race.
+func TestController_SetChargepointOfferedCurrent_ConcurrentCallsDoNotRace(t *testing.T) {
+	ctrl := newTestController(t, nil, recentWriteCache(t), mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), minCurrentConfig())
+
+	var wg sync.WaitGroup
+
+	for range 2 {
+		wg.Go(func() {
+			for range 100 {
+				assert.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
+			}
+		})
+	}
+
+	wg.Wait()
+}
+
 func TestController_SetChargepointOfferedCurrent_PauseDuringWriteIsStillResumed(t *testing.T) {
 	clk := clock.Mock(time.Date(2026, time.November, 23, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(clock.Restore)
 
 	done := make(chan struct{}, 1)
 
-	cacheMock := recentWriteCache(t, 12)
+	cacheMock := recentWriteCache(t)
 	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true).Twice()
 	cacheMock.On("WaitForOfferedCurrent", mock.Anything, mock.Anything).Return(true).Twice()
 

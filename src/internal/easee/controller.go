@@ -81,8 +81,7 @@ type controller struct {
 	chargerID      string
 	sessionStorage db.ChargingSessionStorage
 	persistedPhase func() types.PhaseMode
-	// Guarded by the chargepoint service lock, which every command that clamps or sets a phase
-	// mode holds.
+	// Guarded by pace: a value under 6 A arrives through the routing divert, outside the chargepoint service lock.
 	clamp [2]int
 	// The last phase mode Easee accepted and when. It only vetoes skipping a target the cache
 	// already holds; the cache stays the only record of the charger's mode.
@@ -277,6 +276,9 @@ func (c *controller) clampToMax(current int, requested bool) int {
 	if !requested {
 		return min(current, limit)
 	}
+
+	c.pace.Lock()
+	defer c.pace.Unlock()
 
 	if current <= limit {
 		c.clamp = [2]int{}
