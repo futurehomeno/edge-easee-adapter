@@ -136,7 +136,7 @@ test:
 	rm -f test_coverage.out || true
 
 	@echo "Run tests"
-	cd src && go test -p 1 -count 1 -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
+	cd src && go test -race -p 1 -count 1 -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
 
 	@echo "Prepare coverage report"
 	cd src && cat profile_full.cov | grep -v .pb.go | grep -v mock | grep -v test > test_coverage.out
@@ -153,5 +153,6 @@ generate-mocks:
 	$(call generate_mocks,"internal/signalr","signalr","Client|Manager")
 	$(call generate_external_mocks,"github.com/futurehomeno/cliffhanger/storage","storage","Storage")
 	$(call generate_external_mocks,"github.com/futurehomeno/cliffhanger/manifest","manifest","Loader")
+	$(call generate_external_mocks,"github.com/futurehomeno/cliffhanger/adapter","adapter","^(Adapter|Thing)$$")
 
 .PHONY: clean test generate-mocks configure package-deb deb-arm deb-amd build-mac-amd64 build-linux-amd64 build-arm build-local upload deploy install

@@ -3,6 +3,7 @@ package config_test
 import (
 	"encoding/json"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -99,6 +100,96 @@ func TestService_InitialChargingCurrent_MatchesPackagedDefault(t *testing.T) {
 			assert.Equal(t, 16, config.NewService(st).InitialChargingCurrent())
 		})
 	}
+}
+
+func TestService_MinChargingCurrent_MatchesPackagedDefault(t *testing.T) {
+	body, err := os.ReadFile("../../../package/debian/usr/share/futurehome/easee/defaults/config.json")
+	require.NoError(t, err)
+
+	packaged := &config.Config{}
+	require.NoError(t, json.Unmarshal(body, packaged))
+
+	assert.Equal(t, 6, packaged.MinChargingCurrent, "packaged JSON key no longer binds to the config field")
+	assert.Equal(t, 6, config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)).MinChargingCurrent())
+}
+
+func TestService_SetMinChargingCurrent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		current int
+		wantErr bool
+	}{
+		{name: "1 A is accepted", current: 1},
+		{name: "a minimum under 6 A is accepted", current: 5},
+		{name: "a raised minimum is accepted", current: 10},
+		{name: "the supported maximum is accepted", current: 32},
+		{name: "zero is rejected", current: 0, wantErr: true},
+		{name: "above the supported maximum is rejected", current: 33, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &config.Config{}
+			cs := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+			err := cs.SetMinChargingCurrent(tt.current)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Zero(t, cfg.MinChargingCurrent)
+				assert.Equal(t, 6, cs.MinChargingCurrent())
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.current, cs.MinChargingCurrent())
+		})
+	}
+}
+
+func TestService_SetInitialChargingCurrent(t *testing.T) {
+	t.Parallel()
+
+	cs := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+
+	require.Error(t, cs.SetInitialChargingCurrent(5))
+	require.Error(t, cs.SetInitialChargingCurrent(33))
+	assert.Equal(t, 16, cs.InitialChargingCurrent())
+
+	require.NoError(t, cs.SetInitialChargingCurrent(6))
+	assert.Equal(t, 6, cs.InitialChargingCurrent())
+}
+
+func TestService_InitialChargingCurrentNotBelowMinimum(t *testing.T) {
+	t.Parallel()
+
+	cs := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	require.NoError(t, cs.SetMinChargingCurrent(10))
+
+	require.Error(t, cs.SetInitialChargingCurrent(8))
+	assert.Equal(t, 16, cs.InitialChargingCurrent())
+
+	require.NoError(t, cs.SetInitialChargingCurrent(10))
+	assert.Equal(t, 10, cs.InitialChargingCurrent())
+}
+
+func TestService_RaisingMinimumRaisesInitialChargingCurrent(t *testing.T) {
+	t.Parallel()
+
+	cs := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+
+	require.NoError(t, cs.SetMinChargingCurrent(20))
+	assert.Equal(t, 20, cs.InitialChargingCurrent(), "the 16 A default is raised")
+
+	require.NoError(t, cs.SetMinChargingCurrent(10))
+	assert.Equal(t, 20, cs.InitialChargingCurrent(), "lowering the minimum keeps the initial current")
+
+	require.NoError(t, cs.SetMinChargingCurrent(4))
+	assert.Equal(t, 20, cs.InitialChargingCurrent())
 }
 
 func TestConfig_MigrateSignalRFinalBackoff(t *testing.T) {
@@ -325,4 +416,31 @@ func TestCredentials_AccessTokenExpired(t *testing.T) {
 	assert.True(t, config.Credentials{AccessTokenExpiresAt: time.Now().Add(-time.Minute)}.AccessTokenExpired())
 	assert.False(t, config.Credentials{AccessTokenExpiresAt: time.Now().Add(time.Minute)}.AccessTokenExpired())
 	assert.True(t, config.Credentials{}.Empty())
+}
+
+// Both setters wait behind a running update, so they check the same old values and then write one after the other.
+func TestService_ConcurrentMinimumAndInitialKeepInitialNotBelowMinimum(t *testing.T) {
+	t.Parallel()
+
+	for range 50 {
+		cs := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+		held, release := make(chan struct{}), make(chan struct{})
+
+		var wg sync.WaitGroup
+
+		wg.Go(func() {
+			_ = cs.Update(func(*config.Config) {
+				close(held)
+				<-release
+			})
+		})
+		<-held
+		wg.Go(func() { _ = cs.SetInitialChargingCurrent(18) })
+		wg.Go(func() { _ = cs.SetMinChargingCurrent(20) })
+		time.Sleep(time.Millisecond)
+		close(release)
+		wg.Wait()
+
+		require.GreaterOrEqual(t, cs.InitialChargingCurrent(), cs.MinChargingCurrent())
+	}
 }

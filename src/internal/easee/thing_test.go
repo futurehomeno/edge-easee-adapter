@@ -368,7 +368,7 @@ func TestThingFactory_Create_SeedsMaxCurrentFromStoredState(t *testing.T) {
 	managerMock.On("Resync", "test-charger").Maybe()
 
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	factory := easee.NewThingFactory(clientMock, config.NewService(storage), managerMock, nil)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), managerMock, newSessionStorage(t))
 
 	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
 		info:  easee.Info{ChargerID: "test-charger", Product: "Home"},

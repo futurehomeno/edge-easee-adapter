@@ -451,6 +451,13 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		h.cache.SetRequestedOfferedCurrent(0, time.Now())
 	}
 
+	ended := state == model.ChargerStateDisconnected || (changed && state.ToFimpState() == chargepoint.StateCharging)
+	if ended && h.sessionStorage != nil {
+		if err := h.sessionStorage.EndUserStop(h.chargerID, observation.Timestamp); err != nil {
+			log.Errorf("[%s] Ending the user stop failed: %v", h.chargerID, err)
+		}
+	}
+
 	chargepointSrv, err := getChargepointService(h.thing)
 	if err != nil {
 		return err

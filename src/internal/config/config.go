@@ -3,6 +3,7 @@ package config
 import (
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
@@ -13,7 +14,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const defaultInitialChargingCurrent = 16
+const (
+	defaultInitialChargingCurrent = 16
+	defaultMinChargingCurrent     = 6
+	maxChargingCurrent            = 32
+)
 
 type PublicConfig struct {
 	EaseeBaseURL                 string  `json:"easeeBaseURL2"`
@@ -22,6 +27,7 @@ type PublicConfig struct {
 	CurrentWaitDuration          string  `json:"currentWaitDuration"`
 	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
 	InitialChargingCurrent       int     `json:"initial_charging_current"`
+	MinChargingCurrent           int     `json:"min_charging_current"`
 	HTTPTimeout                  string  `json:"httpTimeout"`
 	SignalR                      SignalR `json:"signalR"`
 	OfferedCurrentWaitTime       string  `json:"offered_current_wait_time"`
@@ -283,6 +289,46 @@ func (cs *Service) InitialChargingCurrent() int {
 	}
 
 	return defaultInitialChargingCurrent
+}
+
+func (cs *Service) SetInitialChargingCurrent(current int) error {
+	if err := checkChargingCurrent("initial", max(defaultMinChargingCurrent, cs.MinChargingCurrent()), current); err != nil {
+		return err
+	}
+
+	// max: SetMinChargingCurrent may have raised the minimum since the check.
+	return cs.Update(func(c *Config) { c.InitialChargingCurrent = max(current, c.MinChargingCurrent) })
+}
+
+func (cs *Service) MinChargingCurrent() int {
+	if current := config.Get(cs.Service, func(c *Config) int { return c.MinChargingCurrent }); current > 0 {
+		return current
+	}
+
+	return defaultMinChargingCurrent
+}
+
+// SetMinChargingCurrent accepts values under 6 A: the routing divert passes them past cliffhanger's validation.
+func (cs *Service) SetMinChargingCurrent(current int) error {
+	if err := checkChargingCurrent("minimum", 1, current); err != nil {
+		return err
+	}
+
+	return cs.Update(func(c *Config) {
+		c.MinChargingCurrent = current
+
+		if current > cmp.Or(c.InitialChargingCurrent, defaultInitialChargingCurrent) {
+			c.InitialChargingCurrent = current
+		}
+	})
+}
+
+func checkChargingCurrent(name string, lowest, current int) error {
+	if current < lowest || current > maxChargingCurrent {
+		return fmt.Errorf("config: %s charging current must be between %d and %d, got %d", name, lowest, maxChargingCurrent, current)
+	}
+
+	return nil
 }
 
 func (cs *Service) HTTPTimeout() time.Duration {

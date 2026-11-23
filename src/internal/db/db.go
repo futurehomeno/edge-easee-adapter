@@ -3,6 +3,7 @@ package db
 import (
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/database"
@@ -14,6 +15,7 @@ import (
 
 const (
 	bucketNamePrefix = "charging-sessions:"
+	userStopBucket   = "user-stop"
 )
 
 // ChargingSessionStorage stores charging sessions per charger.
@@ -26,14 +28,21 @@ type ChargingSessionStorage interface {
 	RegisterSessionStop(chargerID string, session model.StopChargingSession) error
 	// LatestSessionsByChargerID returns the latest and the previous session.
 	LatestSessionsByChargerID(chargerID string) (ChargingSessions, error)
+	// SetUserStop records when the user stopped the charger; a zero time clears it.
+	SetUserStop(chargerID string, at time.Time) error
+	UserStop(chargerID string) (time.Time, error)
+	// EndUserStop clears a user stop made before at: Easee had not acted on a later one yet.
+	EndUserStop(chargerID string, at time.Time) error
 }
 
 type sessionStorage struct {
 	db database.Database
+	// userStop makes EndUserStop's read and clear one step against a stop made meanwhile.
+	userStop sync.Mutex
 }
 
 func NewSessionStorage(db database.Database) ChargingSessionStorage {
-	return &sessionStorage{db}
+	return &sessionStorage{db: db}
 }
 
 func (s *sessionStorage) Start() error {
@@ -143,6 +152,33 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 	}
 
 	return sessions, nil
+}
+
+func (s *sessionStorage) SetUserStop(chargerID string, at time.Time) error {
+	s.userStop.Lock()
+	defer s.userStop.Unlock()
+
+	return s.db.Set(userStopBucket, chargerID, at)
+}
+
+func (s *sessionStorage) UserStop(chargerID string) (time.Time, error) {
+	var at time.Time
+
+	_, err := s.db.Get(userStopBucket, chargerID, &at)
+
+	return at, err
+}
+
+func (s *sessionStorage) EndUserStop(chargerID string, at time.Time) error {
+	s.userStop.Lock()
+	defer s.userStop.Unlock()
+
+	stoppedAt, err := s.UserStop(chargerID)
+	if err != nil || stoppedAt.IsZero() || !at.After(stoppedAt) {
+		return err
+	}
+
+	return s.db.Set(userStopBucket, chargerID, time.Time{})
 }
 
 func (s *sessionStorage) bucketName(chargerID string) string {
