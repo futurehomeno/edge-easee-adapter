@@ -13,6 +13,11 @@ Found while fixing the PR 235 review findings on the user stop (`configurable-mi
   authentication), like every requested current since #31, so the next start begins at the user's max or the initial
   current (the rule for a start with no known current, the user, 2026-11-23). Not changed: the session it was meant
   for has ended.
+- Not a user-stop race, but left from the same review: two values under the minimum sent at the same moment both
+  take the pause mark; when the first one's stop then fails, it puts back "no pause" although the second one's stop
+  went out. The next valid value is then not forced, so the dedup can skip it when it equals the value before the
+  pause, and the charger stays paused until a different value or the wait time passes. `CompareAndSwap` does not close
+  it (the mark is still set when the first one rolls back); it needs the mark and the send under one lock.
 
 Reproduce: only by interleaving the calls in a test; no hub has shown it.
 

@@ -3859,6 +3859,32 @@ func TestController_SetChargepointOfferedCurrent_ConcurrentCallsDoNotRace(t *tes
 	wg.Wait()
 }
 
+// With no known current every offered current checks the slow-start memory, the ones under 6 A outside the chargepoint
+// service lock. Fails only under -race.
+func TestController_SetChargepointOfferedCurrent_ConcurrentCallsAfterASessionEndDoNotRace(t *testing.T) {
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("RequestedOfferedCurrent").Return(0, clock.Now)
+	cacheMock.On("SetRequestedOfferedCurrent", 12, mock.AnythingOfType("time.Time")).Return(true)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), minCurrentConfig())
+	require.NoError(t, ctrl.StopChargepointCharging())
+
+	var wg sync.WaitGroup
+
+	for range 2 {
+		wg.Go(func() {
+			for range 100 {
+				assert.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
+			}
+		})
+	}
+
+	wg.Wait()
+}
+
 func TestController_SetChargepointOfferedCurrent_PauseDuringWriteIsStillResumed(t *testing.T) {
 	clk := clock.Mock(time.Date(2026, time.November, 23, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(clock.Restore)
