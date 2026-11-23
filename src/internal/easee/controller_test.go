@@ -1964,9 +1964,11 @@ func TestController_StartChargepointCharging_StartWithoutModeKeepsASlowSession(t
 
 	requested := 0
 
+	var requestedAt time.Time
+
 	cacheMock := mockedcache.NewCache(t)
 	cacheMock.On("MaxCurrent").Return(32, time.Time{})
-	cacheMock.On("RequestedOfferedCurrent").Return(func() (int, time.Time) { return requested, time.Time{} })
+	cacheMock.On("RequestedOfferedCurrent").Return(func() (int, time.Time) { return requested, requestedAt })
 	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true)
 	cacheMock.On("WaitForOfferedCurrent", mock.Anything, mock.Anything).Return(true)
 
@@ -1995,6 +1997,11 @@ func TestController_StartChargepointCharging_StartWithoutModeKeepsASlowSession(t
 		{"resume of that session", "", 7, 16},
 	} {
 		requested = step.requested
+
+		// The end of a session clears the cached current at that time.
+		if requested == 0 {
+			requestedAt = clk.Now()
+		}
 
 		if step.mode == "set" {
 			require.NoError(t, ctrl.SetChargepointOfferedCurrent(int(step.want)), step.name)
@@ -2049,6 +2056,54 @@ func TestController_SetOfferedCurrent_KeepsAPendingSlowStart(t *testing.T) {
 	clk.Add(time.Minute)
 	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
 	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 2)
+}
+
+// The same while the slow start is being sent: it has left the channel, and the cached current
+// is written only when Easee has answered.
+func TestController_SetOfferedCurrent_KeepsASlowStartBeingSent(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 23, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	requested := 0
+	sent := make(chan struct{}, 4)
+
+	var ctrl easee.Controller
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(32, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(func() (int, time.Time) { return requested, time.Time{} })
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", mock.Anything, mock.Anything).Return(true)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(8)).Return(nil).Once().
+		Run(func(mock.Arguments) {
+			assert.NoError(t, ctrl.SetChargepointOfferedCurrent(7))
+			sent <- struct{}{}
+		})
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(7)).Return(nil).Run(signal(sent))
+
+	cfg := pacedConfig()
+	cfg.SlowChargingCurrentInAmperes = 8
+	ctrl = newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
+
+	require.NoError(t, ctrl.StopChargepointCharging())
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeSlow}))
+
+	clk.Add(15 * time.Second)
+	<-sent
+
+	clk.Add(20 * time.Second)
+	<-sent
+
+	requested = 7
+
+	clk.Add(time.Minute)
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 3)
 }
 
 // A start Easee refused started nothing, so it does not change the mode of the running session.
