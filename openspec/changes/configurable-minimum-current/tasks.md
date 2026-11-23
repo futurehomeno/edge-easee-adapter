@@ -17,6 +17,13 @@
       `TestService_ConcurrentMinimumAndInitialKeepInitialNotBelowMinimum`
 - [x] 2b.2 The pause mark is taken before the write; both setters compare inside the config update
 
+## 2c. A user stop holds until a start (issue 33)
+- [x] 2c.1 Spec: A User Stop Holds Until A Start; MODIFIED Stop Charging and The Last Command Always Wins
+- [x] 2c.2 Failing tests: db round-trip, controller (value, sub-minimum, start, failed start, restart, phase bounce),
+      handler (unplugged, charging after the stop, older charging observation, offline); the four displacement tests
+      changed to the new rule
+- [x] 2c.3 `SetUserStop`/`UserStop` in the session storage, the controller and the handler
+
 ## 3. Gate
 - [x] 3.1 `go build ./...`, `go vet ./...`, `golangci-lint run ./...`, `go test ./...`
 - [x] 3.2 `openspec validate configurable-minimum-current --strict`

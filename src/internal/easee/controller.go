@@ -693,6 +693,13 @@ func (c *controller) legToRecord(mode types.PhaseMode, gridType types.GridType, 
 // the resume cannot be lost against its own pause and the bounce never ends with the charger
 // paused.
 func (c *controller) restartForPhaseMode(target int) error {
+	// The bounce's resume would lift a user stop Easee has not acted on yet.
+	if userStopped, err := c.userStopped(); err != nil || userStopped {
+		c.scheduleResync(false)
+
+		return err
+	}
+
 	// Read before the stop: the session-finished observation clears the cached value
 	// asynchronously, so afterwards it may no longer describe the session being bounced.
 	resume, _ := c.cache.RequestedOfferedCurrent()
@@ -749,8 +756,20 @@ func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 }
 
 // SetChargepointOfferedCurrent pauses below min_charging_current. Easee resumes on any dynamic-current write, so the
-// resume of the adapter's own pause only bypasses the dedup, which would otherwise skip the pre-pause value.
+// resume of the adapter's own pause only bypasses the dedup, which would otherwise skip the pre-pause value, and under
+// a user stop the value is only kept for the next start.
 func (c *controller) SetChargepointOfferedCurrent(current int) error {
+	userStopped, err := c.userStopped()
+	if err != nil {
+		return err
+	}
+
+	if userStopped {
+		c.cache.SetRequestedOfferedCurrent(current, clock.Now())
+
+		return nil
+	}
+
 	if current < c.cfgService.MinChargingCurrent() {
 		if _, err := c.dispatch(chargerCommand{stop: true}); err != nil {
 			return err
@@ -764,7 +783,7 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 	// Taken before the write: a pause arriving during it must stay set.
 	resume := c.offeredPause.Swap(false)
 
-	_, err := c.setOfferedCurrent(current, resume)
+	_, err = c.setOfferedCurrent(current, resume)
 	if err != nil && resume {
 		c.offeredPause.Store(true)
 	}
@@ -840,6 +859,15 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		return errors.New("invalid start current")
 	}
 
+	stoppedAt, err := c.sessionStorage.UserStop(c.chargerID)
+	if err != nil {
+		return err
+	}
+
+	if err := c.sessionStorage.SetUserStop(c.chargerID, time.Time{}); err != nil {
+		return err
+	}
+
 	// resume charging request is not used because it clears dynamic current value.
 	// update current will resume charging. Bypass the dedup - if the user pressed Start
 	// within OfferedCurrentWaitTime of a Stop the cached value still matches startCurrent
@@ -847,7 +875,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	// dedup-suppressing the call would leave the charger stopped.
 	confirmed, err := c.setOfferedCurrent(startCurrent, true)
 	if err != nil {
-		return err
+		return errors.Join(err, c.sessionStorage.SetUserStop(c.chargerID, stoppedAt))
 	}
 
 	// A paused charger can take well over CurrentWaitDuration to act on the resume, and waiting
@@ -862,9 +890,20 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 
 func (c *controller) StopChargepointCharging() error {
 	c.offeredPause.Store(false)
+
+	if err := c.sessionStorage.SetUserStop(c.chargerID, clock.Now()); err != nil {
+		return err
+	}
+
 	_, err := c.dispatch(chargerCommand{stop: true})
 
 	return err
+}
+
+func (c *controller) userStopped() (bool, error) {
+	at, err := c.sessionStorage.UserStop(c.chargerID)
+
+	return !at.IsZero(), err
 }
 
 func (c *controller) ChargepointCurrentSessionReport() (*chargepoint.SessionReport, error) {

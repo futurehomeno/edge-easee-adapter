@@ -57,6 +57,29 @@ func (suite *SessionStorageSuite) TestRegister_LargeSessionID() {
 	suite.Equal(largeID, got.Latest().ID)
 }
 
+func (suite *SessionStorageSuite) TestUserStop_RoundTrip() {
+	at, err := suite.storage.UserStop(suite.chargerID)
+	suite.Require().NoError(err)
+	suite.True(at.IsZero())
+
+	stop := time.Date(2026, time.November, 23, 1, 0, 0, 0, time.UTC)
+	suite.Require().NoError(suite.storage.SetUserStop(suite.chargerID, stop))
+
+	at, err = suite.storage.UserStop(suite.chargerID)
+	suite.Require().NoError(err)
+	suite.True(stop.Equal(at))
+
+	sessions, err := suite.storage.LatestSessionsByChargerID(suite.chargerID)
+	suite.Require().NoError(err)
+	suite.Empty(sessions)
+
+	suite.Require().NoError(suite.storage.SetUserStop(suite.chargerID, time.Time{}))
+
+	at, err = suite.storage.UserStop(suite.chargerID)
+	suite.Require().NoError(err)
+	suite.True(at.IsZero())
+}
+
 func (suite *SessionStorageSuite) TestRegister_StartAndStopSession() {
 	startTime := time.Date(1997, time.February, 17, 18, 0, 0, 0, time.UTC)
 	stopTime := startTime.Add(time.Hour)

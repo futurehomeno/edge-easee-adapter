@@ -14,6 +14,7 @@ import (
 
 const (
 	bucketNamePrefix = "charging-sessions:"
+	userStopBucket   = "user-stop"
 )
 
 // ChargingSessionStorage stores charging sessions per charger.
@@ -26,6 +27,9 @@ type ChargingSessionStorage interface {
 	RegisterSessionStop(chargerID string, session model.StopChargingSession) error
 	// LatestSessionsByChargerID returns the latest and the previous session.
 	LatestSessionsByChargerID(chargerID string) (ChargingSessions, error)
+	// SetUserStop records when the user stopped the charger; a zero time clears it.
+	SetUserStop(chargerID string, at time.Time) error
+	UserStop(chargerID string) (time.Time, error)
 }
 
 type sessionStorage struct {
@@ -143,6 +147,18 @@ func (s *sessionStorage) LatestSessionsByChargerID(chargerID string) (ChargingSe
 	}
 
 	return sessions, nil
+}
+
+func (s *sessionStorage) SetUserStop(chargerID string, at time.Time) error {
+	return s.db.Set(userStopBucket, chargerID, at)
+}
+
+func (s *sessionStorage) UserStop(chargerID string) (time.Time, error) {
+	var at time.Time
+
+	_, err := s.db.Get(userStopBucket, chargerID, &at)
+
+	return at, err
 }
 
 func (s *sessionStorage) bucketName(chargerID string) string {

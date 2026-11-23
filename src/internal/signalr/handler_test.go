@@ -12,6 +12,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	"github.com/futurehomeno/cliffhanger/database"
 	mockedalarm "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/alarm"
 	mockedchargepoint "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/chargepoint"
 	mockednumericmeter "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/numericmeter"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
@@ -2270,6 +2272,56 @@ func TestObservationsHandler_OnlyAnAcceptedModeThreeIsTheAdapters(t *testing.T) 
 			flushReports(t, handler)
 
 			srv.AssertNumberOfCalls(t, "SetPhaseMode", tt.wantSet)
+		})
+	}
+}
+
+func TestObservationsHandler_ChargerStateAfterTheStopEndsAUserStop(t *testing.T) {
+	t.Parallel()
+
+	stoppedAt := time.Now().Add(-time.Minute)
+
+	tests := []struct {
+		name  string
+		state model.ChargerState
+		at    time.Time
+		ends  bool
+	}{
+		{"unplugged", model.ChargerStateDisconnected, stoppedAt.Add(time.Second), true},
+		{"charging started elsewhere", model.ChargerStateCharging, stoppedAt.Add(time.Second), true},
+		{"charging observed before the stop", model.ChargerStateCharging, stoppedAt.Add(-time.Second), false},
+		{"offline", model.ChargerStateOffline, stoppedAt.Add(time.Second), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fileDB, err := database.NewDatabase(t.TempDir())
+			require.NoError(t, err)
+
+			storage := db.NewSessionStorage(fileDB)
+			require.NoError(t, storage.SetUserStop(testChargerID, stoppedAt))
+
+			c := cache.NewCache(testChargerID)
+			c.SetChargerState(chargepoint.StateReadyToCharge, stoppedAt.Add(-time.Hour))
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("SendStateReport", false).Return(true, nil).Maybe()
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, nil, storage, testChargerID, nil)
+			require.NoError(t, err)
+
+			require.NoError(t, handler.HandleObservation(model.Observation{
+				ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+				Timestamp: tt.at, Value: strconv.Itoa(int(tt.state)),
+			}))
+			flushReports(t, handler)
+
+			at, err := storage.UserStop(testChargerID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.ends, at.IsZero())
 		})
 	}
 }

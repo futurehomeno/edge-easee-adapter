@@ -15,3 +15,6 @@ Also changed alongside: `initial_charging_current` had no FIMP route on Easee; i
 
 Closes when measured on a charger (answer to a repeated `pause_charging`) and the operator decides whether repeats
 within the adapter's own pause should be skipped.
+
+Update (2026-11-23): under a user stop a sub-minimum value sends nothing (issue 33), so the repeat happens only within
+the adapter's own pause.
