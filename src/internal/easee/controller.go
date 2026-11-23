@@ -781,11 +781,13 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 	}
 
 	if current < c.cfgService.MinChargingCurrent() {
+		// Owned before the send: a value arriving during it must resume.
+		owned := c.offeredPause.Swap(true)
 		if _, err := c.dispatch(chargerCommand{stop: true}); err != nil {
+			c.offeredPause.Store(owned)
+
 			return err
 		}
-
-		c.offeredPause.Store(true)
 
 		return nil
 	}

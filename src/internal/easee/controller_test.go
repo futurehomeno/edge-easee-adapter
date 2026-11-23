@@ -3840,3 +3840,29 @@ func TestController_SetChargepointOfferedCurrent_StopAfterTheCheckHolds(t *testi
 		})
 	}
 }
+
+// A valid value that arrives while the pause is still on its way must already see the pause as the adapter's own, or
+// the dedup skips it and the charger stays paused.
+func TestController_SetChargepointOfferedCurrent_ValueDuringPauseResumes(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 23, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	written := make(chan struct{}, 1)
+
+	cacheMock := recentWriteCache(t)
+	cacheMock.On("SetRequestedOfferedCurrent", 12, mock.AnythingOfType("time.Time")).Return(true).Maybe()
+	cacheMock.On("WaitForOfferedCurrent", 12, mock.Anything).Return(true).Maybe()
+
+	var ctrl easee.Controller
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("StopCharging", "test-charger").
+		Run(func(mock.Arguments) { assert.NoError(t, ctrl.SetChargepointOfferedCurrent(12)) }).Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(12)).Run(signal(written)).Return(nil).Once()
+
+	ctrl = newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), minCurrentConfig())
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(0))
+	clk.Add(20 * time.Second)
+	awaitDeferred(t, written)
+}

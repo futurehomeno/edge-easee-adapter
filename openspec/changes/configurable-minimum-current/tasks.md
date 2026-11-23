@@ -28,6 +28,8 @@
 - [x] 2d.1 Failing tests: `TestEndUserStop_KeepsAStopMadeMeanwhile`,
       `TestController_SetChargepointOfferedCurrent_StopAfterTheCheckHolds`
 - [x] 2d.2 `EndUserStop` reads and clears under the storage lock; every write re-checks the user stop under `pace`
+- [x] 2d.3 Failing test `TestController_SetChargepointOfferedCurrent_ValueDuringPauseResumes`; the pause is owned
+      before its send
 
 ## 3. Gate
 - [x] 3.1 `go build ./...`, `go vet ./...`, `golangci-lint run ./...`, `go test ./...`

@@ -32,6 +32,11 @@ controller through the framework and pauses there. A max current is still checke
 - **WHEN** a value at or above the minimum is still on its way to Easee and a sub-minimum value arrives
 - **THEN** the pause stays the adapter's own once the write returns, and the next valid value resumes it
 
+#### Scenario: a valid value arrives while the pause is being sent
+- **WHEN** a sub-minimum value's pause is still on its way to Easee and a value at or above the
+  minimum arrives, equal to the last one written inside `offered_current_wait_time`
+- **THEN** the value is written anyway, resuming the charger
+
 #### Scenario: a user stop is not resumed by the adapter
 - **WHEN** the adapter paused the charger, then `cmd.charge.stop` arrives, then a value at or above
   the minimum equal to the last one written inside `offered_current_wait_time`
