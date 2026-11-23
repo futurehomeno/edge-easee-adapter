@@ -1,4 +1,4 @@
-# 40: races around a user stop left open after PR 235
+# 40: user-stop races and edges left open after PR 235
 
 Found while fixing the PR 235 review findings on the user stop (`configurable-minimum-current`).
 
@@ -9,6 +9,10 @@ Found while fixing the PR 235 review findings on the user stop (`configurable-mi
   that Easee refuses, while the car is unplugged or charging starts elsewhere.
 - A deferred start whose write fails later leaves the stop ended (now in the spec): the start was answered as
   accepted, so the next value resumes the charger.
+- A value kept under a user stop is dropped by a session-finished state (completed, error, offline, unknown,
+  authentication), like every requested current since #31, so the next start begins at the user's max or the initial
+  current (the rule for a start with no known current, the user, 2026-11-23). Not changed: the session it was meant
+  for has ended.
 
 Reproduce: only by interleaving the calls in a test; no hub has shown it.
 
