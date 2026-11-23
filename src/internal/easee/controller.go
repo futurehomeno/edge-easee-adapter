@@ -156,6 +156,16 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 		return false, errors.New("charger removed")
 	}
 
+	// Checked again in one step with taking the channel: a value under 6 A comes through the routing divert, outside
+	// the chargepoint service lock, so a user stop can land after the caller's check. A start clears it first.
+	if !cmd.stop {
+		if stopped, err := c.userStopped(); err != nil || stopped {
+			c.pace.Unlock()
+
+			return false, err
+		}
+	}
+
 	if c.pending != nil {
 		// Both halves of a stored pair go, so name the follow-up too: without it a discarded
 		// resume leaves no trace and "why did the resume never fire" is unanswerable from logs.

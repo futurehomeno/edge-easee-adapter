@@ -24,6 +24,11 @@
       changed to the new rule
 - [x] 2c.3 `SetUserStop`/`UserStop` in the session storage, the controller and the handler
 
+## 2d. PR 235 review, user stop races
+- [x] 2d.1 Failing tests: `TestEndUserStop_KeepsAStopMadeMeanwhile`,
+      `TestController_SetChargepointOfferedCurrent_StopAfterTheCheckHolds`
+- [x] 2d.2 `EndUserStop` reads and clears under the storage lock; every write re-checks the user stop under `pace`
+
 ## 3. Gate
 - [x] 3.1 `go build ./...`, `go vet ./...`, `golangci-lint run ./...`, `go test ./...`
 - [x] 3.2 `openspec validate configurable-minimum-current --strict`

@@ -62,7 +62,9 @@ adapter's own pause stays unmarked. A phase mode change SHALL NOT bounce the ses
 marked. Easee resumes a stopped charger on any dynamic-current write, so only `cmd.charge.start`
 may start charging after a user stop (the operator, 2026-11-23).
 
-The mark SHALL end on `cmd.charge.start`, and SHALL be put back when the start's write fails. It
+The mark SHALL end on `cmd.charge.start`, and SHALL be put back when the start's write fails. A
+start stored in the channel has already been answered as accepted: its later failure is only logged
+and the mark stays ended, so the next value resumes the charger as the start asked. It
 SHALL also end on a charger state observation timestamped after the stop that is either
 disconnected (the car unplugged) or a change into charging (started from the Easee app, for
 example). Every other state SHALL keep it. An observation timestamped before the stop describes the
@@ -105,6 +107,16 @@ charger before Easee acted on the stop and SHALL NOT end it.
 #### Scenario: an adapter restart keeps the stop
 - **WHEN** the adapter restarts after `cmd.charge.stop` and a value arrives
 - **THEN** nothing is sent
+
+#### Scenario: a stop between a value's check and its write
+- **WHEN** a value under 6 A, outside the chargepoint service lock, passes the user-stop check and
+  `cmd.charge.stop` lands before its write takes the channel
+- **THEN** the write is not sent and the stop stays the last command
+
+#### Scenario: a stop made while an observation ends an older one
+- **WHEN** a charger state that ends the user stop is being handled and `cmd.charge.stop` lands
+  meanwhile
+- **THEN** the new stop holds
 
 #### Scenario: a phase mode change under a user stop
 - **WHEN** the charger still reports charging after `cmd.charge.stop` and a new phase mode is set
