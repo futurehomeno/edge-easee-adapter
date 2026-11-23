@@ -136,7 +136,7 @@ test:
 	rm -f test_coverage.out || true
 
 	@echo "Run tests"
-	cd src && go test -p 1 -count 1 -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
+	cd src && go test -race -p 1 -count 1 -failfast -covermode=atomic -coverprofile=profile_full.cov -coverpkg=./... ./...
 
 	@echo "Prepare coverage report"
 	cd src && cat profile_full.cov | grep -v .pb.go | grep -v mock | grep -v test > test_coverage.out
