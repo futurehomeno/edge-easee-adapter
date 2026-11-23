@@ -744,6 +744,12 @@ func (c *controller) ChargepointMaxCurrentReport() (int, error) {
 }
 
 func (c *controller) SetChargepointOfferedCurrent(current int) error {
+	// The first current of a session that began without a start: a remembered slow start
+	// belongs to the session that ended.
+	if requested, _ := c.cache.RequestedOfferedCurrent(); requested <= 0 {
+		c.slowSession = false
+	}
+
 	_, err := c.setOfferedCurrent(current, false)
 
 	return err

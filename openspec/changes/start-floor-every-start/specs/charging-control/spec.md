@@ -53,6 +53,11 @@ that a stop or a lower current needs. The state report shows whether the charger
   offered current is 7A and a start without a mode arrives
 - **THEN** the charger is started at 16A
 
+#### Scenario: the session after a slow one begins with a current
+- **WHEN** the slow session ended, the next session's first command is a `set_current` of 7A, and
+  a start without a mode arrives
+- **THEN** the charger is started at 16A
+
 #### Scenario: slow start
 - **WHEN** the mode is `slow` and `slowChargingCurrentInAmperes` is 6
 - **THEN** the charger is started at 6A, without the initial-charging-current floor

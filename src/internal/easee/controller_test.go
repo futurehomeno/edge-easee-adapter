@@ -1990,10 +1990,18 @@ func TestController_StartChargepointCharging_StartWithoutModeKeepsASlowSession(t
 		{"slow start with a known current", model.ChargingModeSlow, 16, 8},
 		{"normal start ends the slow session", model.ChargingModeNormal, 8, 16},
 		{"resume after a cut to 9A", "", 9, 16},
+		{"slow start again", model.ChargingModeSlow, 16, 8},
+		{"the next session begins with a current, not a start", "set", 0, 7},
+		{"resume of that session", "", 7, 16},
 	} {
 		requested = step.requested
 
-		require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: step.mode}), step.name)
+		if step.mode == "set" {
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(int(step.want)), step.name)
+		} else {
+			require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: step.mode}), step.name)
+		}
+
 		clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", i+1)
 		assert.Equal(t, step.want, clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1), step.name)
 
