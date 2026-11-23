@@ -268,7 +268,8 @@ func (c *controller) pendingDiffers(current int) bool {
 
 // forgetEndedSlowSession drops the memory of a slow start once its session has ended: the end
 // clears the cached current, later than the start. A slow start still waiting in the channel or
-// being sent has not written the cached current, so its time is older than the start.
+// being sent has not written the cached current, so its time is older than the start, unless the
+// previous session's end lands meanwhile (issue 39).
 func (c *controller) forgetEndedSlowSession() {
 	if requested, at := c.cache.RequestedOfferedCurrent(); requested <= 0 && at.After(c.slowSince) {
 		c.slowSince = time.Time{}
