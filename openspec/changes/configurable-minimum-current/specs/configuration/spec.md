@@ -47,6 +47,10 @@ rejected value SHALL fail with a range error and leave the stored value unchange
 - **THEN** both are stored as 20 in one update
 - **AND** setting the minimum lower later leaves `initial_charging_current` at 20
 
+#### Scenario: the minimum and the initial charging current are written at the same time
+- **WHEN** `min_charging_current` 20 and `initial_charging_current` 18 are written concurrently
+- **THEN** `initial_charging_current` is stored no lower than the minimum, whichever write lands first
+
 ### Requirement: Configuration Routes
 The adapter SHALL expose get and set routes on the Easee service for `polling_interval`,
 `current_wait_duration`, `easee_base_url`, `slow_charging_current_in_amperes`, `use_locked_3_phases`,

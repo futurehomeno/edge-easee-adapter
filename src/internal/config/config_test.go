@@ -3,6 +3,7 @@ package config_test
 import (
 	"encoding/json"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -415,4 +416,31 @@ func TestCredentials_AccessTokenExpired(t *testing.T) {
 	assert.True(t, config.Credentials{AccessTokenExpiresAt: time.Now().Add(-time.Minute)}.AccessTokenExpired())
 	assert.False(t, config.Credentials{AccessTokenExpiresAt: time.Now().Add(time.Minute)}.AccessTokenExpired())
 	assert.True(t, config.Credentials{}.Empty())
+}
+
+// Both setters wait behind a running update, so they check the same old values and then write one after the other.
+func TestService_ConcurrentMinimumAndInitialKeepInitialNotBelowMinimum(t *testing.T) {
+	t.Parallel()
+
+	for range 50 {
+		cs := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+		held, release := make(chan struct{}), make(chan struct{})
+
+		var wg sync.WaitGroup
+
+		wg.Go(func() {
+			_ = cs.Update(func(*config.Config) {
+				close(held)
+				<-release
+			})
+		})
+		<-held
+		wg.Go(func() { _ = cs.SetInitialChargingCurrent(18) })
+		wg.Go(func() { _ = cs.SetMinChargingCurrent(20) })
+		time.Sleep(time.Millisecond)
+		close(release)
+		wg.Wait()
+
+		require.GreaterOrEqual(t, cs.InitialChargingCurrent(), cs.MinChargingCurrent())
+	}
 }

@@ -3606,3 +3606,34 @@ func TestController_SetChargepointOfferedCurrent_UserStopIsNotResumed(t *testing
 	require.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
 	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
 }
+
+// A pause that arrives while a valid write is still on its way stays the adapter's own: the write returning must not
+// forget it, or the dedup skips the resume.
+func TestController_SetChargepointOfferedCurrent_PauseDuringWriteIsStillResumed(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 23, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	done := make(chan struct{}, 1)
+
+	cacheMock := recentWriteCache(t, 12)
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true).Twice()
+	cacheMock.On("WaitForOfferedCurrent", mock.Anything, mock.Anything).Return(true).Twice()
+
+	var ctrl easee.Controller
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(14)).
+		Run(func(mock.Arguments) { assert.NoError(t, ctrl.SetChargepointOfferedCurrent(0)) }).Return(nil).Once()
+	clientMock.On("StopCharging", "test-charger").Run(signal(done)).Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(12)).Return(nil).Once()
+
+	ctrl = newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), minCurrentConfig())
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(14))
+	clk.Add(20 * time.Second)
+	awaitDeferred(t, done)
+	clk.Add(20 * time.Second)
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
+	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(12))
+}

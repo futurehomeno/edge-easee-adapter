@@ -296,7 +296,8 @@ func (cs *Service) SetInitialChargingCurrent(current int) error {
 		return err
 	}
 
-	return cs.Update(func(c *Config) { c.InitialChargingCurrent = current })
+	// max: SetMinChargingCurrent may have raised the minimum since the check.
+	return cs.Update(func(c *Config) { c.InitialChargingCurrent = max(current, c.MinChargingCurrent) })
 }
 
 func (cs *Service) MinChargingCurrent() int {
@@ -313,12 +314,10 @@ func (cs *Service) SetMinChargingCurrent(current int) error {
 		return err
 	}
 
-	raiseInitial := current > cs.InitialChargingCurrent()
-
 	return cs.Update(func(c *Config) {
 		c.MinChargingCurrent = current
 
-		if raiseInitial {
+		if current > cmp.Or(c.InitialChargingCurrent, defaultInitialChargingCurrent) {
 			c.InitialChargingCurrent = current
 		}
 	})

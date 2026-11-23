@@ -759,13 +759,15 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 		return nil
 	}
 
-	if _, err := c.setOfferedCurrent(current, c.offeredPause.Load()); err != nil {
-		return err
+	// Taken before the write: a pause arriving during it must stay set.
+	resume := c.offeredPause.Swap(false)
+
+	_, err := c.setOfferedCurrent(current, resume)
+	if err != nil && resume {
+		c.offeredPause.Store(true)
 	}
 
-	c.offeredPause.Store(false)
-
-	return nil
+	return err
 }
 
 // setOfferedCurrent is the shared implementation behind SetChargepointOfferedCurrent and the
