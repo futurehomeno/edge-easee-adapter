@@ -423,6 +423,14 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			expectedCurrent:  10,
 		},
 		{
+			name:             "no requested offered current starts at a configured start current",
+			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
+			maxCurrent:       32,
+			requestedCurrent: 0,
+			startCurrent:     20,
+			expectedCurrent:  20,
+		},
+		{
 			name:             "raises a low requested offered current to the start current",
 			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
 			maxCurrent:       32,

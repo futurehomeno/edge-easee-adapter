@@ -789,13 +789,8 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	case startCurrent <= 0:
 		// A cached offered current of 0 means "unknown" - either no load balancer ever set one, or
 		// the session-finished observation cleared it - so the charger starts at the initial
-		// current, capped at its max (32A while the cache is unseeded), until a balancer sets one.
-		maxCurrent, _ := c.cache.MaxCurrent()
-		if maxCurrent <= 0 {
-			maxCurrent = maxCurrentValue
-		}
-
-		startCurrent = min(c.cfgService.InitialChargingCurrent(), maxCurrent)
+		// current, which setOfferedCurrent caps at the charger's max, until a balancer sets one.
+		startCurrent = c.cfgService.InitialChargingCurrent()
 	case mode == model.ChargingModeNormal:
 		// Only an explicit normal-mode start gets the floor. The mode is optional, so a start
 		// without one may be a load balancer resuming a session it paused, and the cached value
