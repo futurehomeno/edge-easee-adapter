@@ -80,6 +80,42 @@ func (suite *SessionStorageSuite) TestUserStop_RoundTrip() {
 	suite.True(at.IsZero())
 }
 
+func (suite *SessionStorageSuite) TestEndUserStop_EndsOnlyAStopMadeBefore() {
+	stop := time.Date(2026, time.November, 23, 1, 0, 0, 0, time.UTC)
+	suite.Require().NoError(suite.storage.SetUserStop(suite.chargerID, stop))
+
+	suite.Require().NoError(suite.storage.EndUserStop(suite.chargerID, stop.Add(-time.Second)))
+	at, err := suite.storage.UserStop(suite.chargerID)
+	suite.Require().NoError(err)
+	suite.True(stop.Equal(at))
+
+	suite.Require().NoError(suite.storage.EndUserStop(suite.chargerID, stop.Add(time.Second)))
+	at, err = suite.storage.UserStop(suite.chargerID)
+	suite.Require().NoError(err)
+	suite.True(at.IsZero())
+}
+
+// A stop made while an older one is being ended must hold.
+func (suite *SessionStorageSuite) TestEndUserStop_KeepsAStopMadeMeanwhile() {
+	observed := time.Date(2026, time.November, 23, 1, 0, 0, 0, time.UTC)
+
+	for i := range 200 {
+		suite.Require().NoError(suite.storage.SetUserStop(suite.chargerID, observed.Add(-time.Second)))
+
+		newer := observed.Add(time.Duration(i+1) * time.Second)
+		done := make(chan error, 1)
+
+		go func() { done <- suite.storage.SetUserStop(suite.chargerID, newer) }()
+
+		suite.Require().NoError(suite.storage.EndUserStop(suite.chargerID, observed))
+		suite.Require().NoError(<-done)
+
+		at, err := suite.storage.UserStop(suite.chargerID)
+		suite.Require().NoError(err)
+		suite.Require().True(newer.Equal(at), "round %d: the stop at %s was lost", i, newer)
+	}
+}
+
 func (suite *SessionStorageSuite) TestRegister_StartAndStopSession() {
 	startTime := time.Date(1997, time.February, 17, 18, 0, 0, 0, time.UTC)
 	stopTime := startTime.Add(time.Hour)

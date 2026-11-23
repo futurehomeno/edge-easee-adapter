@@ -453,7 +453,9 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 
 	ended := state == model.ChargerStateDisconnected || (changed && state.ToFimpState() == chargepoint.StateCharging)
 	if ended && h.sessionStorage != nil {
-		h.endUserStop(observation.Timestamp)
+		if err := h.sessionStorage.EndUserStop(h.chargerID, observation.Timestamp); err != nil {
+			log.Errorf("[%s] Ending the user stop failed: %v", h.chargerID, err)
+		}
 	}
 
 	chargepointSrv, err := getChargepointService(h.thing)
@@ -515,18 +517,6 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 	}
 
 	return nil
-}
-
-// endUserStop ends a user stop made before the observation: one made after it, Easee had not acted on yet.
-func (h *observationsHandler) endUserStop(observedAt time.Time) {
-	stoppedAt, err := h.sessionStorage.UserStop(h.chargerID)
-	if err == nil && !stoppedAt.IsZero() && observedAt.After(stoppedAt) {
-		err = h.sessionStorage.SetUserStop(h.chargerID, time.Time{})
-	}
-
-	if err != nil {
-		log.Errorf("[%s] Ending the user stop failed: %v", h.chargerID, err)
-	}
 }
 
 // moveThreePhaseLock re-sends the three-phase mode when a session starts on auto or ends on the
