@@ -409,11 +409,18 @@ func TestController_StartChargepointCharging(t *testing.T) {
 		wantErr          bool
 	}{
 		{
-			name:             "uses maxCurrent when no requested offered current",
+			name:             "no requested offered current starts at the start current",
 			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
 			maxCurrent:       32,
 			requestedCurrent: 0,
-			expectedCurrent:  32,
+			expectedCurrent:  16,
+		},
+		{
+			name:             "no requested offered current starts at most at maxCurrent",
+			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
+			maxCurrent:       10,
+			requestedCurrent: 0,
+			expectedCurrent:  10,
 		},
 		{
 			name:             "raises a low requested offered current to the start current",
@@ -487,21 +494,21 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			expectedCurrent:  6,
 		},
 		{
-			name:             "bare start with no balanced current uses maxCurrent",
+			name:             "bare start with no balanced current uses the start current",
 			settings:         &chargepoint.ChargingSettings{},
 			maxCurrent:       32,
 			requestedCurrent: 0,
-			expectedCurrent:  32,
+			expectedCurrent:  16,
 		},
 		{
 			// #163: an unseeded cache after a restart is not a charger that cannot charge. Both
 			// reads are 0 until observation 47 arrives, and failing here left the user unable to
 			// start even while the REST API was reachable.
-			name:             "unseeded cache after a restart falls back to the 32A ceiling",
+			name:             "unseeded cache after a restart starts at the start current",
 			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
 			maxCurrent:       0,
 			requestedCurrent: 0,
-			expectedCurrent:  32,
+			expectedCurrent:  16,
 		},
 	}
 
@@ -2994,8 +3001,8 @@ func TestController_OfferedCurrentChannel_LastCommandWins(t *testing.T) {
 		{"start stop start stop", []string{"start", "stop", "start", "stop"}, true, 0},
 		{"set_current stop set_current stop", []string{"set", "stop", "set", "stop"}, true, 0},
 		{"stop set_current stop set_current", []string{"stop", "set", "stop", "set"}, false, 10},
-		{"start stop start", []string{"start", "stop", "start"}, false, 32},
-		{"stop start", []string{"stop", "start"}, false, 32},
+		{"start stop start", []string{"start", "stop", "start"}, false, 16},
+		{"stop start", []string{"stop", "start"}, false, 16},
 	}
 
 	for _, tt := range tests {

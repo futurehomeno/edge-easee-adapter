@@ -1,0 +1,2 @@
+- [x] Start with no known current: `min(initial_charging_current, max current or 32 A)` (test first)
+- [x] Issue 33 archived

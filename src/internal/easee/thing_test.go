@@ -362,7 +362,7 @@ func TestThingFactory_Create_SeedsMaxCurrentFromStoredState(t *testing.T) {
 	clientMock := mockapi.NewClient(t)
 	clientMock.On("ChargerConfig", "test-charger").Return((*model.ChargerConfig)(nil), errors.New("signalR and REST both cold"))
 	clientMock.On("ChargerSiteInfo", "test-charger").Return((*model.ChargerSiteInfo)(nil), errors.New("signalR and REST both cold"))
-	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(20)).Return(nil)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil)
 
 	managerMock := mockedsignalr.NewManager(t)
 	managerMock.On("Resync", "test-charger").Maybe()
@@ -372,7 +372,7 @@ func TestThingFactory_Create_SeedsMaxCurrentFromStoredState(t *testing.T) {
 
 	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
 		info:  easee.Info{ChargerID: "test-charger", Product: "Home"},
-		state: easee.State{SupportedMaxCurrent: 20},
+		state: easee.State{SupportedMaxCurrent: 10},
 	})
 	require.NoError(t, err)
 
@@ -384,8 +384,8 @@ func TestThingFactory_Create_SeedsMaxCurrentFromStoredState(t *testing.T) {
 
 	// No observation has arrived, so this is the cold-cache path the issue describes. The start
 	// fails on the echo - nothing feeds this cache over SignalR - but the current on the wire is
-	// what the seeding decides, and 32A here would be the blind fallback rather than the site's.
+	// what the seeding decides, and 16A here would be the blind fallback rather than the site's.
 	_ = cp.StartCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal})
 
-	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(20))
+	clientMock.AssertCalled(t, "UpdateDynamicCurrent", "test-charger", float64(10))
 }
