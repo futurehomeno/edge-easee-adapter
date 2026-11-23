@@ -1,0 +1,4 @@
+- [x] A start without a mode after a cut to 7 A starts at 16 A (test first)
+- [x] The charger's max current caps that start: 10 A maximum gives 10 A (test first)
+- [x] Slow mode keeps its current
+- [x] A start without a mode no longer keeps the cached current (existing test changed to the floor)

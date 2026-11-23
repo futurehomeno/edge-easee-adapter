@@ -710,7 +710,7 @@ func (c *controller) restartForPhaseMode(target int) error {
 	}
 
 	// Resumed at the session's own current rather than through StartChargepointCharging: a
-	// normal-mode start floors the current to initial_charging_current, which would silently
+	// non-slow start floors the current to initial_charging_current, which would silently
 	// raise a slow session - the mode is not recorded anywhere, so it cannot be restored.
 	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{start: true, current: c.clampToMax(resume, false)}); err != nil {
 		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
@@ -780,8 +780,7 @@ func (c *controller) setOfferedCurrent(current int, force bool) (bool, error) {
 }
 
 func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSettings) error {
-	mode := strings.ToLower(settings.Mode)
-	slow := mode == model.ChargingModeSlow
+	slow := strings.ToLower(settings.Mode) == model.ChargingModeSlow
 
 	startCurrent, _ := c.cache.RequestedOfferedCurrent()
 
@@ -796,13 +795,8 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		if startCurrent <= 0 {
 			startCurrent = maxCurrentValue
 		}
-	case mode == model.ChargingModeNormal:
-		// Only an explicit normal-mode start gets the floor. The mode is optional, so a start
-		// without one may be a load balancer resuming a session it paused, and the cached value
-		// the budget it balanced us to; raising that offers more than it allowed for a whole
-		// throttle window. Kept, it costs a user's bare start at most one balancer tick, or a
-		// set_current. Slow mode is exempt too: with no slow current configured the throttled
-		// cached value is the closest thing to what the user asked for.
+	case !slow:
+		// Some cars need the higher current to start; the balancer adjusts it afterwards.
 		startCurrent = max(startCurrent, c.cfgService.InitialChargingCurrent())
 	}
 
