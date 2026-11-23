@@ -810,6 +810,8 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		return errors.New("invalid start current")
 	}
 
+	startCurrent = c.clampToMax(startCurrent, false)
+
 	// resume charging request is not used because it clears dynamic current value.
 	// update current will resume charging. Bypass the dedup - if the user pressed Start
 	// within OfferedCurrentWaitTime of a Stop the cached value still matches startCurrent

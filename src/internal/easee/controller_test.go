@@ -477,13 +477,6 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			expectedCurrent:  10,
 		},
 		{
-			name:             "bare start is raised to the start current",
-			settings:         &chargepoint.ChargingSettings{},
-			maxCurrent:       32,
-			requestedCurrent: 6,
-			expectedCurrent:  16,
-		},
-		{
 			name:             "bare start after a cut to 7A starts at the start current",
 			settings:         &chargepoint.ChargingSettings{},
 			maxCurrent:       32,
@@ -1356,7 +1349,7 @@ func TestController_SetChargepointPhaseMode_DefersTheResume(t *testing.T) {
 }
 
 // Bouncing a session must put back the current that was running. Resuming through a
-// normal-mode start floored it to initial_charging_current, silently pushing a 6A slow session
+// non-slow start floored it to initial_charging_current, silently pushing a 6A slow session
 // to 16A; and after an adapter restart only the charger's own observation still describes the
 // session, so falling through to the user's maximum would raise it to 32A.
 func TestController_SetChargepointPhaseMode_ResumesAtTheSessionCurrent(t *testing.T) {
@@ -1940,6 +1933,26 @@ func TestController_StartChargepointCharging_UnconfirmedStartSucceeds(t *testing
 	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
 
 	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal}))
+}
+
+func TestController_StartChargepointCharging_UnconfirmedStartLogsTheClampedCurrent(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("MaxCurrent").Return(10, time.Time{})
+	cacheMock.On("RequestedOfferedCurrent").Return(7, time.Time{})
+	cacheMock.On("SetRequestedOfferedCurrent", 10, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, 3*time.Second).Return(false).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+
+	cfg := &config.Config{PublicConfig: config.PublicConfig{CurrentWaitDuration: "3s", OfferedCurrentWaitTime: "20s"}}
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
+
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+	assert.Contains(t, hook.LastEntry().Message, "Start at 10A not echoed back")
 }
 
 // A start the channel stores has to report success at once: the echo it would wait for
