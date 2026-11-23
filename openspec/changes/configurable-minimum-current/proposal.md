@@ -23,7 +23,7 @@ with every value below it pausing the charger.
 - A user `cmd.charge.stop` holds until `cmd.charge.start` (the operator, 2026-11-23; issue 33): a later
   `cmd.current_session.set_current` sends nothing and only keeps its value for the next start, and a phase mode change
   does not bounce the session. The mark is kept in the adapter's database with the stop time, so it survives a
-  restart, and also ends on a finished session (not offline) or a change into charging observed after the stop.
+  restart, and also ends on disconnected (the car unplugged) or a change into charging observed after the stop.
   "The Last Command Always Wins" and "Stop Charging" change with it.
 - Cliffhanger is not changed.
 

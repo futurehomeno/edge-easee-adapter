@@ -2291,6 +2291,11 @@ func TestObservationsHandler_ChargerStateAfterTheStopEndsAUserStop(t *testing.T)
 		{"charging started elsewhere", model.ChargerStateCharging, stoppedAt.Add(time.Second), true},
 		{"charging observed before the stop", model.ChargerStateCharging, stoppedAt.Add(-time.Second), false},
 		{"offline", model.ChargerStateOffline, stoppedAt.Add(time.Second), false},
+		{"error", model.ChargerStateError, stoppedAt.Add(time.Second), false},
+		{"completed", model.ChargerStateCompleted, stoppedAt.Add(time.Second), false},
+		{"awaiting authentication", model.ChargerStateAwaitingAuthentication, stoppedAt.Add(time.Second), false},
+		{"de-authenticating", model.ChargerStateDeAuthenticating, stoppedAt.Add(time.Second), false},
+		{"unknown", model.ChargerStateUnknown, stoppedAt.Add(time.Second), false},
 	}
 
 	for _, tt := range tests {

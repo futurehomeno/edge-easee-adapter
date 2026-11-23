@@ -63,10 +63,10 @@ marked. Easee resumes a stopped charger on any dynamic-current write, so only `c
 may start charging after a user stop (the operator, 2026-11-23).
 
 The mark SHALL end on `cmd.charge.start`, and SHALL be put back when the start's write fails. It
-SHALL also end on a charger state observation timestamped after the stop that is either a finished
-session other than offline (the car unplugged, among others) or a change into charging (started from
-the Easee app, for example). An observation timestamped before the stop describes the charger before
-Easee acted on the stop and SHALL NOT end it; an offline charger has not ended its session.
+SHALL also end on a charger state observation timestamped after the stop that is either
+disconnected (the car unplugged) or a change into charging (started from the Easee app, for
+example). Every other state SHALL keep it. An observation timestamped before the stop describes the
+charger before Easee acted on the stop and SHALL NOT end it.
 
 #### Scenario: a value after a user stop
 - **WHEN** `cmd.charge.stop` was sent and `cmd.current_session.set_current` arrives with a value at
@@ -97,8 +97,9 @@ Easee acted on the stop and SHALL NOT end it; an offline charger has not ended i
 - **WHEN** a charging observation timestamped before the stop arrives after it
 - **THEN** the mark holds
 
-#### Scenario: the charger goes offline
-- **WHEN** the charger reports offline after the stop
+#### Scenario: Other states keep a user stop
+- **WHEN** the charger reports error, completed, await_auth, de_auth, unknown or offline after the
+  stop
 - **THEN** the mark holds
 
 #### Scenario: an adapter restart keeps the stop

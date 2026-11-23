@@ -451,8 +451,7 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		h.cache.SetRequestedOfferedCurrent(0, time.Now())
 	}
 
-	// An offline charger has not ended its session.
-	ended := (state.IsSessionFinished() && state != model.ChargerStateOffline) || (changed && state.ToFimpState() == chargepoint.StateCharging)
+	ended := state == model.ChargerStateDisconnected || (changed && state.ToFimpState() == chargepoint.StateCharging)
 	if ended && h.sessionStorage != nil {
 		h.endUserStop(observation.Timestamp)
 	}
