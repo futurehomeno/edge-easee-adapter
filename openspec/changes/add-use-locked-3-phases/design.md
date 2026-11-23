@@ -47,7 +47,7 @@ are advertised keeps it, and is asked again at the next session start or end. A 
 after the release, before the charger shows auto, sets it again, and the observation of auto does
 not end it (issue 29, accepted by the user 2026-11-22). That memory is in the handler: an adapter
 restart between turning the setting off and the session end leaves mode 3 on the charger until the
-next single-to-three-phase request.
+next single-to-three-phase request (issue 31, accepted by the user 2026-11-22).
 
 The lock at the session start is sent once (issue 28, accepted by the user 2026-11-22): a failed
 send, or a start while a topology update is pending, leaves that session on auto.
