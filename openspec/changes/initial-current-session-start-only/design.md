@@ -32,15 +32,16 @@ above the minimum or on a stop.
 ## A session end resets the session values
 
 The operator, 2026-11-24: "Unplugging is session finished so session specific values should be reset to default". The
-handler's session-finished branch, where it clears the cached requested current and `sessionCharged`, now also calls
-`EndSession(unplugged)` on the controller (wired by the connector). Audit of what the adapter keeps per session:
+handler's session-finished branch now calls `EndSession(unplugged)` on the controller (wired by the connector) before it
+clears the cached requested current and `sessionCharged`; a write is stamped with the time it left, so one being sent
+cannot refill the cleared current. Audit of what the adapter keeps per session:
 
 | Value | Reset |
 |---|---|
 | Cached requested offered current | already, at every session end |
 | `sessionCharged` | this change, at every session end |
 | The adapter's own pause (`offeredPause`) | now, at every session end. The requested current is cleared there too, so the dedup cannot swallow the next value |
-| Slow-session memory (`slowSince`) | already, on the next command once the cached current was cleared after it (issues 37, 39) |
+| Slow-session memory (`slowSince`) | now, at every session end, even when a waiting write refills the cached current afterwards (issue 39) |
 | User stop (database) | already, when the car is disconnected; completed, error and offline keep it (issue 33) |
 | `use_locked_3_phases` lock | already, when the car is disconnected (PR 233) |
 | A write or phase bounce waiting in the command channel | now, dropped when the car is disconnected. Sent later, it would write the finished session's current back into the cache |
