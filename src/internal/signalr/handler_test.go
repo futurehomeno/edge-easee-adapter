@@ -58,6 +58,7 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 	stale := time.Now().Add(-time.Hour)
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, stale)
 	cacheMock.On("SetChargerState", chargepoint.StateDisconnected, stale).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.MatchedBy(func(ts time.Time) bool {
@@ -471,6 +472,7 @@ func TestObservationsHandler_OfflineStateIsReportedBeforeTheFlagFlips(t *testing
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", chargepoint.StateUnknown, now).Return(true)
 	// Offline counts as a finished session, so the requested current is cleared on the way.
@@ -513,6 +515,7 @@ func TestObservationsHandler_RecoveryStateIsReportedWhileAlreadyOnline(t *testin
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", chargepoint.StateUnknown, now).Return(true)
 	cacheMock.On("SetChargerState", chargepoint.StateSuspendedByEV, now).Return(true)
@@ -774,6 +777,7 @@ func TestObservationsHandler_ReportsDoNotBlockTheDrain(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now)
 	cacheMock.On("SetChargerState", chargepoint.StateCharging, now).Return(true)
 	cacheMock.On("OfferedCurrent").Return(0, now)
@@ -830,6 +834,7 @@ func TestObservationsHandler_CloseWaitsForTheSender(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now)
 	cacheMock.On("SetChargerState", chargepoint.StateCharging, now).Return(true)
 
@@ -877,6 +882,7 @@ func TestObservationsHandler_CloseRacingADispatch(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now).Maybe()
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true).Maybe()
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
@@ -918,6 +924,7 @@ func TestObservationsHandler_DroppedStateTransitionStillMovesTheFlag(t *testing.
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
@@ -1010,6 +1017,7 @@ func TestObservationsHandler_AlarmReportsDoNotBlockTheDrain(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("AlarmActive", alarm.EventOtherChargeErr).Return(false).Maybe()
 	cacheMock.On("SetAlarm", alarm.EventOtherChargeErr, true, now).Return(true)
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now).Maybe()
@@ -1069,6 +1077,7 @@ func TestObservationsHandler_InclusionReportsDoNotBlockTheDrain(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("GridType").Return(types.GridTypeTN, now).Maybe()
 	cacheMock.On("Phases").Return(1, now).Maybe()
 	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 3, now).Return(true)
@@ -1733,6 +1742,7 @@ func TestObservationsHandler_StateOnlineFlipSendsConnectivityReport(t *testing.T
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
@@ -2327,6 +2337,52 @@ func TestObservationsHandler_ChargerStateAfterTheStopEndsAUserStop(t *testing.T)
 			at, err := storage.UserStop(testChargerID)
 			require.NoError(t, err)
 			assert.Equal(t, tt.ends, at.IsZero())
+		})
+	}
+}
+
+func TestObservationsHandler_ChargerStateTellsWhetherTheSessionCharged(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		charged bool
+		state   model.ChargerState
+		want    bool
+	}{
+		{"charging", false, model.ChargerStateCharging, true},
+		{"waiting for the first start", false, model.ChargerStateAwaitingStart, false},
+		{"paused", true, model.ChargerStateAwaitingStart, true},
+		{"paused by the car", true, model.ChargerStateReadyToCharge, true},
+		{"unplugged", true, model.ChargerStateDisconnected, false},
+		{"completed", true, model.ChargerStateCompleted, false},
+		{"offline", true, model.ChargerStateOffline, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observed := time.Now().Add(-time.Hour)
+
+			c := cache.NewCache(testChargerID)
+			c.SetChargerState(chargepoint.StateReadyToCharge, observed)
+			c.SetSessionCharged(tt.charged, observed)
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("SendStateReport", false).Return(true, nil).Maybe()
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, nil, nil, testChargerID, nil)
+			require.NoError(t, err)
+
+			require.NoError(t, handler.HandleObservation(model.Observation{
+				ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+				Timestamp: time.Now(), Value: strconv.Itoa(int(tt.state)),
+			}))
+			flushReports(t, handler)
+
+			assert.Equal(t, tt.want, c.SessionCharged())
 		})
 	}
 }

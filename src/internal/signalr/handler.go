@@ -449,6 +449,11 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 
 	if state.IsSessionFinished() && (changed || observation.Timestamp.After(prevAt)) {
 		h.cache.SetRequestedOfferedCurrent(0, time.Now())
+		h.cache.SetSessionCharged(false, observation.Timestamp)
+	}
+
+	if state == model.ChargerStateCharging {
+		h.cache.SetSessionCharged(true, observation.Timestamp)
 	}
 
 	ended := state == model.ChargerStateDisconnected || (changed && state.ToFimpState() == chargepoint.StateCharging)

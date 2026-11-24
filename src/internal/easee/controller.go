@@ -749,9 +749,8 @@ func (c *controller) restartForPhaseMode(target int) error {
 		return fmt.Errorf("phase mode set to %d, but no current is known to resume at", target)
 	}
 
-	// Resumed at the session's own current rather than through StartChargepointCharging: a
-	// non-slow start floors the current to initial_charging_current, which would silently
-	// raise a slow session - its mode is not known after an adapter restart.
+	// Resumed at the session's own current rather than through StartChargepointCharging, which
+	// knows no cached current after an adapter restart and would start at the max current.
 	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{start: true, current: c.clampToMax(resume, false)}); err != nil {
 		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
 
@@ -872,6 +871,8 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	}
 
 	switch {
+	case slowSince.IsZero() && c.offeredPause.Load():
+		startCurrent = max(c.cfgService.InitialChargingCurrent(), c.cfgService.MinChargingCurrent())
 	case startCurrent <= 0:
 		// A cached offered current of 0 means "unknown" - either no load balancer ever set one, or
 		// the session-finished observation cleared it - so the charger starts at the user's max.
@@ -882,8 +883,9 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		if startCurrent <= 0 {
 			startCurrent = maxCurrentValue
 		}
-	case slowSince.IsZero():
-		// Some cars need the higher current to start; the balancer adjusts it afterwards.
+	case slowSince.IsZero() && !c.cache.SessionCharged():
+		// Some cars need the higher current to start; the balancer adjusts it afterwards. A resume keeps the current
+		// in force, so a balancer's resume does not start above its budget (issue 42).
 		startCurrent = max(startCurrent, c.cfgService.InitialChargingCurrent())
 	}
 

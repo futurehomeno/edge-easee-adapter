@@ -16,6 +16,8 @@ import (
 type Cache interface {
 	PhaseMode() (int, time.Time)
 	ChargerState() (chargepoint.State, time.Time)
+	// SessionCharged tells whether the charger was seen charging since the session began.
+	SessionCharged() bool
 	// MaxCurrent is the ceiling set by the user.
 	MaxCurrent() (int, time.Time)
 	// RequestedOfferedCurrent is what the controller last asked for.
@@ -41,6 +43,7 @@ type Cache interface {
 
 	SetPhaseMode(mode int, timestamp time.Time) bool
 	SetChargerState(state chargepoint.State, timestamp time.Time) bool
+	SetSessionCharged(charged bool, timestamp time.Time) bool
 	SetMaxCurrent(current int, timestamp time.Time) bool
 	SetRequestedOfferedCurrent(current int, timestamp time.Time) bool
 	SetOfferedCurrent(current int, timestamp time.Time) bool
@@ -73,6 +76,7 @@ type cache struct {
 
 	requestedOfferedCurrent model.TimestampedValue[int]
 	chargerState            model.TimestampedValue[chargepoint.State]
+	sessionCharged          model.TimestampedValue[bool]
 	phaseMode               model.TimestampedValue[int]
 	maxCurrent              model.TimestampedValue[int]
 	offeredCurrent          model.TimestampedValue[int]
@@ -148,6 +152,12 @@ func (c *cache) RequestedPhaseMode() (types.PhaseMode, time.Time) {
 }
 
 func (c *cache) ChargerState() (chargepoint.State, time.Time) { return value(c, &c.chargerState) }
+
+func (c *cache) SessionCharged() bool {
+	charged, _ := value(c, &c.sessionCharged)
+
+	return charged
+}
 
 func (c *cache) MaxCurrent() (int, time.Time) { return value(c, &c.maxCurrent) }
 
@@ -233,6 +243,10 @@ func (c *cache) SetOutputPhaseType(mode types.PhaseMode, timestamp time.Time) bo
 
 func (c *cache) SetRequestedPhaseMode(mode types.PhaseMode, timestamp time.Time) bool {
 	return store(c, &c.requestedPhaseMode, "requested phase mode", mode, timestamp)
+}
+
+func (c *cache) SetSessionCharged(charged bool, timestamp time.Time) bool {
+	return store(c, &c.sessionCharged, "session charged", charged, timestamp)
 }
 
 func (c *cache) SetEnergySession(energy float64, timestamp time.Time) bool {

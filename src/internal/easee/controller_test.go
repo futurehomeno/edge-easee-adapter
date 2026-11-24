@@ -242,6 +242,7 @@ func TestController_StopChargepointCharging_StampsTheChannel(t *testing.T) {
 	done := make(chan struct{}, 1)
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SessionCharged").Return(false).Maybe()
 	cacheMock.On("MaxCurrent").Return(32, time.Time{})
 	cacheMock.On("RequestedOfferedCurrent").Return(20, time.Time{})
 	cacheMock.On("SetRequestedOfferedCurrent", 20, mock.AnythingOfType("time.Time")).Return(true)
@@ -383,6 +384,7 @@ func TestController_SetChargepointOfferedCurrent_WarnsClampOnChange(t *testing.T
 	limit := 13
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SessionCharged").Return(false).Maybe()
 	cacheMock.On("MaxCurrent").Return(func() int { return limit }, time.Time{})
 	cacheMock.On("RequestedOfferedCurrent").Return(16, time.Time{})
 	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.Anything).Return(true).Maybe()
@@ -431,6 +433,7 @@ func TestController_StartChargepointCharging(t *testing.T) {
 		settings         *chargepoint.ChargingSettings
 		maxCurrent       int
 		requestedCurrent int
+		charged          bool
 		slowCurrent      float64
 		startCurrent     int
 		expectedCurrent  float64
@@ -505,7 +508,7 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			expectedCurrent:  10,
 		},
 		{
-			name:             "bare start after a cut to 7A starts at the start current",
+			name:             "bare session start with 7A cached starts at the start current",
 			settings:         &chargepoint.ChargingSettings{},
 			maxCurrent:       32,
 			requestedCurrent: 7,
@@ -535,6 +538,37 @@ func TestController_StartChargepointCharging(t *testing.T) {
 			requestedCurrent: 0,
 			expectedCurrent:  32,
 		},
+		{
+			name:             "session start with nothing cached uses maxCurrent",
+			settings:         &chargepoint.ChargingSettings{},
+			maxCurrent:       20,
+			requestedCurrent: 0,
+			expectedCurrent:  20,
+		},
+		{
+			name:             "resume in mode normal keeps the session current",
+			settings:         &chargepoint.ChargingSettings{Mode: model.ChargingModeNormal},
+			maxCurrent:       32,
+			requestedCurrent: 10,
+			charged:          true,
+			expectedCurrent:  10,
+		},
+		{
+			name:             "resume current is capped by maxCurrent",
+			settings:         &chargepoint.ChargingSettings{},
+			maxCurrent:       10,
+			requestedCurrent: 20,
+			charged:          true,
+			expectedCurrent:  10,
+		},
+		{
+			name:             "resume with nothing cached uses maxCurrent",
+			settings:         &chargepoint.ChargingSettings{},
+			maxCurrent:       20,
+			requestedCurrent: 0,
+			charged:          true,
+			expectedCurrent:  20,
+		},
 	}
 
 	for _, tt := range tests {
@@ -547,6 +581,7 @@ func TestController_StartChargepointCharging(t *testing.T) {
 
 			cacheMock.On("MaxCurrent").Return(tt.maxCurrent, time.Time{})
 			cacheMock.On("RequestedOfferedCurrent").Return(tt.requestedCurrent, time.Time{})
+			cacheMock.On("SessionCharged").Return(tt.charged).Maybe()
 
 			if !tt.wantErr {
 				clientMock.On("UpdateDynamicCurrent", "test-charger", tt.expectedCurrent).Return(nil)
@@ -581,6 +616,7 @@ func TestController_StartChargepointCharging_BypassesOfferedCurrentDedup(t *test
 	t.Parallel()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SessionCharged").Return(false).Maybe()
 	clientMock := mockapi.NewClient(t)
 
 	// Cache reports a recent identical offered-current request - exactly the state where
@@ -1966,6 +2002,7 @@ func TestController_StartChargepointCharging_UnconfirmedStartLogsTheClampedCurre
 	t.Cleanup(hook.Reset)
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SessionCharged").Return(false).Maybe()
 	cacheMock.On("MaxCurrent").Return(10, time.Time{})
 	cacheMock.On("RequestedOfferedCurrent").Return(7, time.Time{})
 	cacheMock.On("SetRequestedOfferedCurrent", 10, mock.AnythingOfType("time.Time")).Return(true)
@@ -1993,6 +2030,7 @@ func TestController_StartChargepointCharging_StartWithoutModeKeepsASlowSession(t
 	var requestedAt time.Time
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SessionCharged").Return(false).Maybe()
 	cacheMock.On("MaxCurrent").Return(32, time.Time{})
 	cacheMock.On("RequestedOfferedCurrent").Return(func() (int, time.Time) { return requested, requestedAt })
 	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true)
@@ -2014,13 +2052,13 @@ func TestController_StartChargepointCharging_StartWithoutModeKeepsASlowSession(t
 		{"slow start", model.ChargingModeSlow, 0, 8},
 		{"resume of the slow session after a cut to 6A", "", 6, 6},
 		{"first start of the next session", "", 0, 32},
-		{"resume of that session after a cut to 7A", "", 7, 16},
+		{"start without a mode before that session charged, 7A cached", "", 7, 16},
 		{"slow start with a known current", model.ChargingModeSlow, 16, 8},
 		{"normal start ends the slow session", model.ChargingModeNormal, 8, 16},
-		{"resume after a cut to 9A", "", 9, 16},
+		{"start without a mode before the session charged, 9A cached", "", 9, 16},
 		{"slow start again", model.ChargingModeSlow, 16, 8},
 		{"the next session begins with a current, not a start", "set", 0, 7},
-		{"resume of that session", "", 7, 16},
+		{"start without a mode before that session charged", "", 7, 16},
 	} {
 		requested = step.requested
 
@@ -2140,6 +2178,7 @@ func TestController_StartChargepointCharging_FailedStartKeepsTheSessionMode(t *t
 	requested := 0
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SessionCharged").Return(false).Maybe()
 	cacheMock.On("MaxCurrent").Return(32, time.Time{})
 	cacheMock.On("RequestedOfferedCurrent").Return(func() (int, time.Time) { return requested, time.Time{} })
 	cacheMock.On("SetRequestedOfferedCurrent", 8, mock.AnythingOfType("time.Time")).Return(true)
@@ -3007,6 +3046,7 @@ func TestController_DeferredSend_WaitsTheWindowForTheEcho(t *testing.T) {
 	waited := make(chan any, 1)
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SessionCharged").Return(false).Maybe()
 	cacheMock.On("MaxCurrent").Return(32, time.Time{})
 	cacheMock.On("RequestedOfferedCurrent").Return(20, time.Time{})
 	cacheMock.On("SetRequestedOfferedCurrent", 20, mock.AnythingOfType("time.Time")).Return(true)
@@ -3043,6 +3083,7 @@ func TestController_Teardown_DoesNotWaitForTheEcho(t *testing.T) {
 	defer close(release)
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SessionCharged").Return(false).Maybe()
 	cacheMock.On("MaxCurrent").Return(32, time.Time{})
 	cacheMock.On("RequestedOfferedCurrent").Return(20, time.Time{})
 	cacheMock.On("SetRequestedOfferedCurrent", 20, mock.AnythingOfType("time.Time")).Return(true)
@@ -3918,10 +3959,17 @@ func TestController_SetChargepointOfferedCurrent_PauseDuringWriteIsStillResumed(
 func requestedCache(t *testing.T) *mockedcache.Cache {
 	t.Helper()
 
+	return sessionCache(t, 32, false)
+}
+
+func sessionCache(t *testing.T, maxCurrent int, charged bool) *mockedcache.Cache {
+	t.Helper()
+
 	requested, requestedAt := 0, time.Time{}
 
 	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("MaxCurrent").Return(32, time.Time{}).Maybe()
+	cacheMock.On("MaxCurrent").Return(maxCurrent, time.Time{}).Maybe()
+	cacheMock.On("SessionCharged").Return(charged).Maybe()
 	cacheMock.On("RequestedOfferedCurrent").Return(func() int { return requested }, func() time.Time { return requestedAt }).Maybe()
 	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).
 		Run(func(a mock.Arguments) { requested, requestedAt = a.Int(0), clock.Now() }).Return(true).Maybe()
@@ -4099,4 +4147,70 @@ func TestController_SetChargepointOfferedCurrent_ValueDuringPauseResumes(t *test
 	require.NoError(t, ctrl.SetChargepointOfferedCurrent(0))
 	clk.Add(20 * time.Second)
 	awaitDeferred(t, written)
+}
+
+// Issue 42, reversed by the operator on 2026-11-24: the initial charging current is for a session start, not a resume.
+func TestController_StartChargepointCharging_ResumeAfterAPauseKeepsTheBalancedCurrent(t *testing.T) {
+	for _, mode := range []string{"", model.ChargingModeNormal} {
+		t.Run("mode "+mode, func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil)
+			clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+
+			ctrl := newTestController(t, nil, sessionCache(t, 32, true), clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(7))
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.StopChargepointCharging())
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: mode}))
+
+			clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 2)
+			assert.Equal(t, float64(7), clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1))
+		})
+	}
+}
+
+// The operator, 2026-11-24, to match Zaptec: whether or not the session charged.
+func TestController_StartChargepointCharging_AfterTheAdapterPauseStartsAtTheInitialCurrent(t *testing.T) {
+	tests := []struct {
+		name       string
+		minimum    int
+		maxCurrent int
+		before     int
+		charged    bool
+		want       float64
+	}{
+		{name: "10A before the pause", maxCurrent: 32, before: 10, want: 16},
+		{name: "10A before the pause in a session that charged", maxCurrent: 32, before: 10, charged: true, want: 16},
+		{name: "20A before the pause", maxCurrent: 32, before: 20, charged: true, want: 16},
+		{name: "a minimum above the charger maximum", minimum: 10, maxCurrent: 8, before: 12, charged: true, want: 8},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil)
+			clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+
+			cfg := pacedConfig()
+			cfg.MinChargingCurrent = tt.minimum
+			ctrl := newTestController(t, nil, sessionCache(t, tt.maxCurrent, tt.charged), clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
+
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(tt.before))
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(3))
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+
+			clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 2)
+			assert.Equal(t, tt.want, clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1))
+		})
+	}
 }
