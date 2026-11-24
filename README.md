@@ -46,8 +46,8 @@ session:
 - A start after the adapter paused the charger for a current below `min_charging_current`, in the
   same session, starts at `initial_charging_current`, and not below `min_charging_current`.
 
-A session ends when the charger reports disconnected, completed, error or offline; the next start
-is a session start again.
+A session ends when the charger reports disconnected, completed, error, offline, unknown, awaiting
+authentication or de-authenticating; the next start is a session start again.
 
 The charger's max current caps every start. A start without a mode keeps the current of a session
 that was started slow.
