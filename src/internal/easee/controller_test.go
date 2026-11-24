@@ -4395,6 +4395,36 @@ func TestController_EndSession_BeatsAFailedCommand(t *testing.T) {
 	}
 }
 
+func TestController_EndSession_BeatsASlowStartBeingSent(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	cacheMock := requestedCache(t)
+
+	var ctrl easee.Controller
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(8)).Return(nil).Once().Run(func(mock.Arguments) {
+		clk.Add(time.Second)
+		ctrl.EndSession(false)
+		cacheMock.SetRequestedOfferedCurrent(0, clk.Now())
+	})
+	clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil).Once()
+
+	cfg := pacedConfig()
+	cfg.SlowChargingCurrentInAmperes = 8
+	ctrl = newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
+
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeSlow}))
+
+	clk.Add(time.Second)
+	cacheMock.SetRequestedOfferedCurrent(7, clk.Now())
+
+	clk.Add(time.Minute)
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+	assert.Equal(t, float64(16), clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1))
+}
+
 func TestController_EndSession_KeepsTheClearAgainstAWriteInFlight(t *testing.T) {
 	clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(clock.Restore)

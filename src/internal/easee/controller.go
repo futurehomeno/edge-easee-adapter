@@ -119,7 +119,7 @@ type controller struct {
 	// offeredPause marks a pause made for a sub-minimum offered current, which the next valid one resumes. Atomic: a
 	// value under 6 A arrives through the routing divert, outside the chargepoint service lock.
 	offeredPause atomic.Bool
-	// sessionEnds counts session ends, so a command failing across one does not put back the pause the end forgot.
+	// sessionEnds counts session ends, so a command running across one does not put back what the end forgot.
 	sessionEnds atomic.Uint64
 	// closed is set by Teardown. The router runs messages concurrently, so a command for the
 	// deleted charger can still arrive; it must not be sent, nor Add to inFlight under its Wait.
@@ -890,6 +890,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 
 	// A start without a mode may be a load balancer resuming the session it paused, so it keeps
 	// the session's mode.
+	ends := c.sessionEnds.Load()
 	slowSince := c.forgetEndedSlowSession()
 
 	startCurrent, _ := c.cache.RequestedOfferedCurrent()
@@ -953,7 +954,9 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	}
 
 	c.pace.Lock()
-	c.slowSince = slowSince
+	if c.sessionEnds.Load() == ends {
+		c.slowSince = slowSince
+	}
 	c.pace.Unlock()
 
 	// A paused charger can take well over CurrentWaitDuration to act on the resume, and waiting

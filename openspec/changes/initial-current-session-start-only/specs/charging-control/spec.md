@@ -145,7 +145,8 @@ its current back into the cache: it is stamped with the time it left, older than
 The slow-session memory SHALL be forgotten at the session end itself, even when a write still waiting
 puts a current back into the cache afterwards.
 A pause or a resume whose command fails while the session ends SHALL NOT put back the adapter's own
-pause the session end forgot.
+pause the session end forgot, and a start being sent while it ends SHALL NOT put back the slow-start
+memory.
 
 #### Scenario: a session end resets the session values
 - **WHEN** the session charged at 10A, the adapter paused the charger for a value below the minimum,
@@ -178,6 +179,11 @@ pause the session end forgot.
 - **WHEN** the adapter paused the charger, a resume or another sub-minimum value is being sent, the car
   is unplugged and the command fails, and a start without a mode arrives for the next car
 - **THEN** the charger is started at its max current, not at the initial charging current
+
+#### Scenario: a session end during a slow start being sent
+- **WHEN** a start in mode `slow` is being sent, the charger reports completed before Easee answers, a
+  waiting write puts 7A into the cache, and a start without a mode arrives before the session charges
+- **THEN** the start is a session start: the charger is started at 16A
 
 #### Scenario: a session end forgets the slow start
 - **WHEN** the session was started in mode `slow`, a write of 7A waits in the command channel, the

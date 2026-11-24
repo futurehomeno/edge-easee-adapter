@@ -28,6 +28,8 @@
       across a session end does not put the forgotten pause back
 - [x] 3.7 Issue 44 decided: failing test `TestController_UserStop_SubMinimumValueStartsAtTheInitialCurrent`; a kept
       value below the minimum starts like the adapter's own pause. Issue 45 decided: no change
+- [x] 3.8 Review of PR 240: failing test `TestController_EndSession_BeatsASlowStartBeingSent`; a start being sent
+      across a session end does not put the slow-start memory back
 
 ## 4. Docs and release
 - [x] 4.1 README: the start current
