@@ -48,7 +48,7 @@ func NewConnector(
 }
 
 func (c *connector) Connect(thing adapter.Thing) {
-	handler, err := signalr.NewObservationsHandler(thing, c.cache, c.confSrv, c.sessionStorage, c.chargerID, &phaseStore{state: c.thingState})
+	handler, err := signalr.NewObservationsHandler(thing, c.cache, c.confSrv, c.sessionStorage, c.chargerID, &phaseStore{state: c.thingState}, c.controller.EndSession)
 	if err != nil {
 		log.WithError(err).Error("failed to create signalRManager callbacks")
 

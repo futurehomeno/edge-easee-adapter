@@ -29,9 +29,14 @@
   session-finished observation that clears the cached requested current clears it. It is not kept across an adapter
   restart: the replayed charger state sets it again when the charger is charging.
 
+- A session end resets what the adapter keeps for the session (the operator, 2026-11-24: "Unplugging is session
+  finished so session specific values should be reset to default"): the adapter's own pause ends at every session end,
+  and an unplugged car drops a write or phase bounce still waiting in the command channel.
+
 ## Impact
-- Affected specs: `charging-control` (Start Charging)
+- Affected specs: `charging-control` (Start Charging; A Session End Resets The Session Values)
 - Affected code: `src/internal/cache` (the session-charged value), `src/internal/signalr/handler.go`
-  (`handleChargerState`), `src/internal/easee/controller.go` (`StartChargepointCharging`), README
+  (`handleChargerState`, the session-end hook), `src/internal/easee/controller.go` (`StartChargepointCharging`,
+  `EndSession`), `src/internal/easee/connector.go`, README
 - After this change energy guard's resume no longer starts above the current it had balanced the charger to; a car
   that only starts at 16 A gets it at the session start, not on a resume.

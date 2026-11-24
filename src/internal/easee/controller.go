@@ -50,6 +50,7 @@ type Controller interface {
 	numericmeter.ExtendedReporter
 	alarm.Reporter
 	UpdateState(chargerID string, state *State) error
+	EndSession(unplugged bool)
 	Teardown()
 }
 
@@ -225,22 +226,48 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 func (c *controller) Teardown() {
 	c.pace.Lock()
 
-	if c.stopTimer != nil {
-		c.stopTimer()
-		c.stopTimer = nil
-	}
+	c.dropPending()
 
 	if c.stopResync != nil {
 		c.stopResync()
 	}
 
-	c.pending = nil
-	c.followUp = nil
 	c.closed = true
 
 	c.pace.Unlock()
 
 	c.inFlight.Wait()
+}
+
+// EndSession forgets the adapter's own pause at every session end. An unplugged car also drops a write or phase bounce
+// still waiting in the channel: sent later, it would put the finished session's current back into the cache. A charger
+// that is only offline or completed keeps the car, so the hub's last command, a cut or a bounce's resume, still goes out.
+func (c *controller) EndSession(unplugged bool) {
+	c.offeredPause.Store(false)
+
+	if !unplugged {
+		return
+	}
+
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	if c.pending != nil {
+		log.Infof("[%s] Car unplugged, %s dropped", c.chargerID, c.pending)
+	}
+
+	c.dropPending()
+}
+
+// dropPending empties the channel's slot; the caller holds pace.
+func (c *controller) dropPending() {
+	if c.stopTimer != nil {
+		c.stopTimer()
+		c.stopTimer = nil
+	}
+
+	c.pending = nil
+	c.followUp = nil
 }
 
 // clearFollowUp drops a pair's second half when the first never reached Easee. Armed before the
@@ -251,17 +278,9 @@ func (c *controller) clearFollowUp(follow *chargerCommand) {
 	c.pace.Lock()
 	defer c.pace.Unlock()
 
-	if c.pending != follow {
-		return
+	if c.pending == follow {
+		c.dropPending()
 	}
-
-	if c.stopTimer != nil {
-		c.stopTimer()
-		c.stopTimer = nil
-	}
-
-	c.pending = nil
-	c.followUp = nil
 }
 
 // pendingDiffers reports whether the slot holds a current this write would supersede.

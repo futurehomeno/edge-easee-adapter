@@ -43,8 +43,11 @@ session:
   than `initial_charging_current`; with no current set yet, at the charger's max current.
 - A resume, any later start in the session (after a stop or an energy manager's pause), starts at
   the current in force before the pause, never raised to `initial_charging_current`.
-- A start after the adapter paused the charger for a current below `min_charging_current` starts at
-  `initial_charging_current`, and not below `min_charging_current`.
+- A start after the adapter paused the charger for a current below `min_charging_current`, in the
+  same session, starts at `initial_charging_current`, and not below `min_charging_current`.
+
+A session ends when the charger reports disconnected, completed, error or offline; the next start
+is a session start again.
 
 The charger's max current caps every start. A start without a mode keeps the current of a session
 that was started slow.

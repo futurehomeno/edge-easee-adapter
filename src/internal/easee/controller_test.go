@@ -4214,3 +4214,97 @@ func TestController_StartChargepointCharging_AfterTheAdapterPauseStartsAtTheInit
 		})
 	}
 }
+
+// "Unplugging is session finished so session specific values should be reset to default" (the operator, 2026-11-24).
+func TestController_EndSession_ForgetsTheAdapterPause(t *testing.T) {
+	for _, unplugged := range []bool{true, false} {
+		t.Run(strconv.FormatBool(unplugged), func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
+
+			cacheMock := requestedCache(t)
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil)
+			clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+
+			ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(3))
+
+			// The handler's clear at the session end.
+			cacheMock.SetRequestedOfferedCurrent(0, clk.Now())
+			ctrl.EndSession(unplugged)
+
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+			assert.Equal(t, float64(32), clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1))
+		})
+	}
+}
+
+// A write still waiting would put the finished session's current back into the cache. A charger that is only offline
+// or completed keeps the car, so it still gets the hub's last command.
+func TestController_EndSession_UnpluggedDropsAWaitingWrite(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		unplugged bool
+		sent      int
+	}{
+		{"unplugged", true, 1},
+		{"offline", false, 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
+
+			written := make(chan struct{}, 2)
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil).Run(signal(written))
+
+			ctrl := newTestController(t, nil, requestedCache(t), clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+			clk.Add(5 * time.Second)
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(7))
+
+			ctrl.EndSession(tt.unplugged)
+			clk.Add(20 * time.Second)
+
+			if !tt.unplugged {
+				awaitDeferred(t, written)
+			}
+
+			clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", tt.sent)
+		})
+	}
+}
+
+func TestController_EndSession_UnpluggedDropsAWaitingPhaseBounce(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	managerMock, cacheMock := chargingCharger(t, 16, 0, 32)
+	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).Return(true)
+	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true).Once()
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("SetPhaseMode", "test-charger", 1).Return(nil).Once()
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+
+	ctrl := newTestController(t, managerMock, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1))
+
+	ctrl.EndSession(true)
+	clk.Add(15 * time.Second)
+	clk.Add(20 * time.Second)
+
+	clientMock.AssertNotCalled(t, "StopCharging", "test-charger")
+	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 1)
+}

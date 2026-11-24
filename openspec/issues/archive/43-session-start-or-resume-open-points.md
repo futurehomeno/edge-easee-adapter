@@ -39,3 +39,11 @@ current (16 A) instead of the charger maximum.
 Reproduce: `set_current 3` (pause), unplug, plug in a car, `cmd.charge.start`: 16 A, not the charger maximum.
 
 Would close it: a decision whether the session end also ends the adapter's pause (Zaptec drops it on a disconnect).
+
+Decided 2026-11-24 (the operator): "Unplugging is session finished so session specific values should be reset to
+default." Fixed in PR 240: the session-finished observation ends the adapter's pause, and an unplugged car also drops a
+write or phase bounce still waiting in the command channel (requirement "A Session End Resets The Session Values").
+
+## Closed
+
+All three points decided 2026-11-24 and done in PR 240.

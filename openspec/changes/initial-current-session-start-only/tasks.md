@@ -13,6 +13,14 @@
 - [x] 2.2 `StartChargepointCharging`
 - [x] 2.3 The existing start tests: the start floor applies to a session start only
 
-## 3. Docs and release
-- [x] 3.1 README: the start current
-- [x] 3.2 Version 3.4.3
+## 3. A session end resets the session values (issue 43 point 3)
+- [x] 3.1 Audit of the values the adapter keeps per session (design.md)
+- [x] 3.2 Failing tests: `TestController_EndSession_ForgetsTheAdapterPause`,
+      `TestController_EndSession_UnpluggedDropsAWaitingWrite`, `TestController_EndSession_UnpluggedDropsAWaitingPhaseBounce`,
+      the session-end calls in `TestObservationsHandler_ChargerStateTellsWhetherTheSessionCharged`
+- [x] 3.3 `EndSession` on the controller, called from the handler's session-finished branch
+- [x] 3.4 Issue 43 decided and archived
+
+## 4. Docs and release
+- [x] 4.1 README: the start current
+- [x] 4.2 Version 3.4.3

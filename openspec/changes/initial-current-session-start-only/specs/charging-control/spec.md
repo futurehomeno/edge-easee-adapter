@@ -118,3 +118,41 @@ shows whether the charger resumed.
 - **WHEN** both the cached requested offered current and the cached max current are zero
 - **THEN** the charger is started at 32A rather than failing with `invalid start current`, because
   an unseeded cache after a restart is not the same as a charger that cannot charge
+
+## ADDED Requirements
+
+### Requirement: A Session End Resets The Session Values
+A charger state observation that ends the session — the one that clears the cached requested offered
+current: disconnected, completed, error, offline, unknown, awaiting authentication or
+de-authenticating — SHALL return every value the adapter keeps for that session to its default (the
+operator, 2026-11-24: "Unplugging is session finished so session specific values should be reset to
+default"): the cached requested offered current, whether the session charged, the adapter's own
+pause (Sub-Minimum Current Pauses) and the slow-session memory (Start Charging). The user stop (A
+User Stop Holds Until A Start) and the `use_locked_3_phases` lock end when the car is disconnected.
+
+When the car is disconnected, a write or a phase bounce still waiting in the command channel SHALL be
+dropped: sent later, it would put the finished session's current back into the cache for the next
+car. A charger that reports any other session end keeps the car, so a waiting command, a cut or a
+bounce's resume, SHALL still be sent. A command already being sent cannot be called back.
+
+#### Scenario: a session end resets the session values
+- **WHEN** the session charged at 10A, the adapter paused the charger for a value below the minimum,
+  the car is unplugged, and a start without a mode arrives for the next car
+- **THEN** the start is a session start with nothing cached: the charger is started at its max
+  current, not at the initial charging current
+
+#### Scenario: the adapter's pause ends with an offline session end
+- **WHEN** the adapter paused the charger and the charger reports offline
+- **THEN** the pause is forgotten, and a later start with nothing cached starts at the max current
+
+#### Scenario: an unplugged car drops a waiting write
+- **WHEN** a write of 7A waits in the command channel and the car is unplugged
+- **THEN** the write is not sent
+
+#### Scenario: an unplugged car drops a waiting phase bounce
+- **WHEN** a phase bounce's stop and resume wait in the command channel and the car is unplugged
+- **THEN** neither is sent
+
+#### Scenario: an offline charger still gets the waiting write
+- **WHEN** a write of 7A waits in the command channel and the charger reports offline
+- **THEN** the write is sent at its deadline
