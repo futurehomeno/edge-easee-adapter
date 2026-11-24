@@ -119,6 +119,8 @@ type controller struct {
 	// offeredPause marks a pause made for a sub-minimum offered current, which the next valid one resumes. Atomic: a
 	// value under 6 A arrives through the routing divert, outside the chargepoint service lock.
 	offeredPause atomic.Bool
+	// sessionEnds counts session ends, so a command failing across one does not put back the pause the end forgot.
+	sessionEnds atomic.Uint64
 	// closed is set by Teardown. The router runs messages concurrently, so a command for the
 	// deleted charger can still arrive; it must not be sent, nor Add to inFlight under its Wait.
 	closed bool
@@ -244,6 +246,7 @@ func (c *controller) Teardown() {
 // channel: sent later, it would put the finished session's current back into the cache. A charger that is only offline
 // or completed keeps the car, so the hub's last command, a cut or a bounce's resume, still goes out.
 func (c *controller) EndSession(unplugged bool) {
+	c.sessionEnds.Add(1)
 	c.offeredPause.Store(false)
 
 	c.pace.Lock()
@@ -823,11 +826,15 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 		return nil
 	}
 
+	ends := c.sessionEnds.Load()
+
 	if current < c.cfgService.MinChargingCurrent() {
 		// Owned before the send: a value arriving during it must resume.
 		owned := c.offeredPause.Swap(true)
 		if _, err := c.dispatch(chargerCommand{stop: true}); err != nil {
-			c.offeredPause.Store(owned)
+			if c.sessionEnds.Load() == ends {
+				c.offeredPause.Store(owned)
+			}
 
 			return err
 		}
@@ -839,7 +846,7 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 	resume := c.offeredPause.Swap(false)
 
 	_, err = c.setOfferedCurrent(current, resume)
-	if err != nil && resume {
+	if err != nil && resume && c.sessionEnds.Load() == ends {
 		c.offeredPause.Store(true)
 	}
 

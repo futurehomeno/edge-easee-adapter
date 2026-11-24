@@ -137,6 +137,8 @@ bounce's resume, SHALL still be sent. A write already being sent cannot be calle
 its current back into the cache: it is stamped with the time it left, older than the session end.
 The slow-session memory SHALL be forgotten at the session end itself, even when a write still waiting
 puts a current back into the cache afterwards.
+A pause or a resume whose command fails while the session ends SHALL NOT put back the adapter's own
+pause the session end forgot.
 
 #### Scenario: a session end resets the session values
 - **WHEN** the session charged at 10A, the adapter paused the charger for a value below the minimum,
@@ -164,6 +166,11 @@ puts a current back into the cache afterwards.
 - **WHEN** a write of 7A is being sent, the car is unplugged before Easee answers, and a start without a
   mode arrives for the next car
 - **THEN** the cached requested current stays cleared and the charger is started at its max current
+
+#### Scenario: a command failing across the unplug
+- **WHEN** the adapter paused the charger, a resume or another sub-minimum value is being sent, the car
+  is unplugged and the command fails, and a start without a mode arrives for the next car
+- **THEN** the charger is started at its max current, not at the initial charging current
 
 #### Scenario: a session end forgets the slow start
 - **WHEN** the session was started in mode `slow`, a write of 7A waits in the command channel, the

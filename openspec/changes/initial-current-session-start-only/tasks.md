@@ -24,6 +24,8 @@
       `TestController_EndSession_ForgetsTheSlowStart`, the call order in
       `TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow`; a write stamps the cache with the time it
       left, `EndSession` runs before the clear and forgets the slow start
+- [x] 3.6 Review of PR 240: failing test `TestController_EndSession_BeatsAFailedCommand`; a pause or resume failing
+      across a session end does not put the forgotten pause back
 
 ## 4. Docs and release
 - [x] 4.1 README: the start current

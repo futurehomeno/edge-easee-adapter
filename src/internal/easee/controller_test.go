@@ -4313,6 +4313,54 @@ func TestController_EndSession_UnpluggedDropsAWaitingPhaseBounce(t *testing.T) {
 	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 1)
 }
 
+func TestController_EndSession_BeatsAFailedCommand(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		current int
+	}{
+		{"resume", 10},
+		{"repeated pause", 2},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
+
+			cacheMock := requestedCache(t)
+
+			var ctrl easee.Controller
+
+			unplug := func(mock.Arguments) {
+				ctrl.EndSession(true)
+				cacheMock.SetRequestedOfferedCurrent(0, clk.Now())
+			}
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+			clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+
+			if tt.current < 6 {
+				clientMock.On("StopCharging", "test-charger").Return(assert.AnError).Once().Run(unplug)
+			} else {
+				clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(assert.AnError).Once().Run(unplug)
+			}
+
+			clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil).Once()
+
+			ctrl = newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(3))
+			clk.Add(20 * time.Second)
+			require.Error(t, ctrl.SetChargepointOfferedCurrent(tt.current))
+
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+			assert.Equal(t, float64(32), clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1))
+		})
+	}
+}
+
 func TestController_EndSession_KeepsTheClearAgainstAWriteInFlight(t *testing.T) {
 	clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(clock.Restore)
