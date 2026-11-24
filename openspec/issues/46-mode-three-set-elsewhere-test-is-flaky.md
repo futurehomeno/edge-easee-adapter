@@ -11,5 +11,8 @@ on the test goroutine at once, so the release sometimes finds the mode already c
 
 Reproduce: `cd src && go test -race -count 200 ./internal/signalr/ -run 'TestObservationsHandler_ModeThreeSetElsewhereAfterAReleaseIsLeftAlone$'`.
 
-Would close it: the test waits for the queued release (e.g. `flushReports` after the disconnect observation) before the
-next observations, and the loop above passes.
+Would close it: the test waits for the queued release (a signal from the `SetPhaseMode` mock; `flushReports` closes
+the handler, so it cannot be used mid-test) before the next observations, and the loop above passes.
+
+Seen again on PR 240 run 45419346856 (commit 9c1a7c8) and in two of five local `make test` runs that day: it now fails
+about every other CI run of the PR, so it is worth closing before the next release.
