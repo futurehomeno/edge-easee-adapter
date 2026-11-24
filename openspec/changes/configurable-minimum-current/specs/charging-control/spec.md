@@ -62,7 +62,8 @@ controller through the framework and pauses there. A max current is still checke
 `cmd.charge.stop` SHALL mark the charger user-stopped, with the hub time of the stop, in the
 adapter's database, so the mark survives an adapter restart. While it is marked,
 `cmd.current_session.set_current` SHALL send nothing to Easee, a sub-minimum value included, and
-SHALL only keep the value as the requested current, so the next `cmd.charge.start` starts at it; the
+SHALL only keep the value as the requested current, so the next `cmd.charge.start` starts at it (a
+sub-minimum one at the initial charging current, Start Charging); the
 adapter's own pause stays unmarked. A phase mode change SHALL NOT bounce the session while it is
 marked. Easee resumes a stopped charger on any dynamic-current write, so only `cmd.charge.start`
 may start charging after a user stop (the operator, 2026-11-23).

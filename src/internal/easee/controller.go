@@ -903,7 +903,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	}
 
 	switch {
-	case slowSince.IsZero() && c.offeredPause.Load():
+	case slowSince.IsZero() && (c.offeredPause.Load() || startCurrent > 0 && startCurrent < c.cfgService.MinChargingCurrent()):
 		startCurrent = max(c.cfgService.InitialChargingCurrent(), c.cfgService.MinChargingCurrent())
 	case startCurrent <= 0:
 		// A cached offered current of 0 means "unknown" - either no load balancer ever set one, or

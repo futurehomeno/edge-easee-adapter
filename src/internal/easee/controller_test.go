@@ -4026,6 +4026,40 @@ func TestController_UserStop_SubMinimumValueSendsNothing(t *testing.T) {
 	clientMock.AssertNotCalled(t, "UpdateDynamicCurrent", mock.Anything, mock.Anything)
 }
 
+// Issue 44, the operator on 2026-11-24: "when below minimum, charging should start with initial_charging".
+func TestController_UserStop_SubMinimumValueStartsAtTheInitialCurrent(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		minCurrent int
+		kept       int
+		want       float64
+	}{
+		{"under 6 A", 0, 3, 16},
+		{"under a minimum above the initial current", 20, 12, 20},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("StopCharging", "test-charger").Return(nil).Once()
+			clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil).Once()
+
+			cfg := pacedConfig()
+			cfg.MinChargingCurrent = tt.minCurrent
+			ctrl := newTestController(t, nil, sessionCache(t, 32, true), clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
+
+			require.NoError(t, ctrl.StopChargepointCharging())
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(tt.kept))
+			clk.Add(20 * time.Second)
+			require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeNormal}))
+
+			assert.Equal(t, tt.want, clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1))
+		})
+	}
+}
+
 func TestController_UserStop_FailedStartKeepsIt(t *testing.T) {
 	clk := clock.Mock(time.Date(2026, time.November, 23, 1, 0, 0, 0, time.UTC))
 	t.Cleanup(clock.Restore)

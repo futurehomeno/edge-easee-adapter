@@ -19,3 +19,6 @@ awaiting start, energy guard starts: the start writes the max current (32 A).
 Would close it: the operator deciding which states end a session for these values. Disconnected for certain; completed
 probably (the car is still plugged but the session's energy is done); offline, unknown and error are what is in
 question. Narrowing it means a `trackSession` change in `signalr/handler.go` and the spec's state list.
+
+Decided 2026-11-24 (the operator): no change, all seven states keep ending the session: "session is reported by the
+charger".

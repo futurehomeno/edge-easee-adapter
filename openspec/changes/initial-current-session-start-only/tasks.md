@@ -26,6 +26,8 @@
       left, `EndSession` runs before the clear and forgets the slow start
 - [x] 3.6 Review of PR 240: failing test `TestController_EndSession_BeatsAFailedCommand`; a pause or resume failing
       across a session end does not put the forgotten pause back
+- [x] 3.7 Issue 44 decided: failing test `TestController_UserStop_SubMinimumValueStartsAtTheInitialCurrent`; a kept
+      value below the minimum starts like the adapter's own pause. Issue 45 decided: no change
 
 ## 4. Docs and release
 - [x] 4.1 README: the start current

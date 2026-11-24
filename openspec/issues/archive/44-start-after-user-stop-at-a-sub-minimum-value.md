@@ -19,3 +19,7 @@ Would close it: the operator deciding either
 - a start writes the kept value as it is (current behaviour; the energy manager's budget is respected, the car waits), or
 - a kept value below `min_charging_current` counts as the adapter's own pause, so the start writes
   `max(initial_charging_current, min_charging_current)` (one condition in `StartChargepointCharging` plus a scenario).
+
+Decided 2026-11-24 (the operator): "when below minimum, chargins hould start with initial_charging". A kept value
+below `min_charging_current` now starts like the adapter's own pause, at `max(initial_charging_current,
+min_charging_current)`; slow sessions stay exempt, as there. Done in PR 240.

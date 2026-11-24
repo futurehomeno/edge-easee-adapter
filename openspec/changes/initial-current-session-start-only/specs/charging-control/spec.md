@@ -9,9 +9,11 @@ start in the same session SHALL be a resume. Whether the session has charged is 
 an adapter restart the replayed charger state sets it again when the charger is charging.
 
 The starting current SHALL be chosen as follows. While the adapter's own pause for a sub-minimum
-offered current is remembered (Sub-Minimum Current Pauses), a start that is not slow SHALL start at
+offered current is remembered (Sub-Minimum Current Pauses), or when the cached requested current is
+below `min_charging_current` (a value kept under a user stop), a start that is not slow SHALL start at
 the greater of `initial_charging_current` and `min_charging_current`, whether or not the session has
-charged, as the Zaptec adapter does. Otherwise: the cached requested offered current; if that is zero
+charged, as the Zaptec adapter does (issue 44, the operator, 2026-11-24: "when below minimum, chargins
+hould start with initial_charging"). Otherwise: the cached requested offered current; if that is zero
 or less — meaning unknown, either because no load balancer ever set one or because the
 session-finished observation cleared it — the cached max current instead, so installs without a power
 manager start at full current; if that is also zero — meaning the cache has not been seeded by an
@@ -24,7 +26,7 @@ pause, and SHALL NOT raise it to `initial_charging_current` (the operator, 2026-
 current is for session start, not resume"), so a load balancer's resume does not start above the
 current it had balanced the charger to. This reverses the decision of 2026-11-23 that every start
 that is not slow starts at the initial charging current (issue 42). The charger's max current SHALL
-cap the starting current, 32A when it is not known. A start SHALL NOT check `min_charging_current`.
+cap the starting current, 32A when it is not known. A start SHALL NOT otherwise check `min_charging_current`.
 
 A start without a mode SHALL keep the mode of the session it resumes: after a slow start it is not
 raised, until a start with a mode arrives or the session ends and the cached requested offered
@@ -85,6 +87,11 @@ shows whether the charger resumed.
   before the pause was 10A or 20A, the initial charging current is 16A and the charger's max current
   is 32A
 - **THEN** the start writes 16A, whether or not the session had charged
+
+#### Scenario: start after a user stop that kept a sub-minimum value
+- **WHEN** the session charged, the user stopped it, a `set_current` of 3A was kept and a start in
+  mode `normal` arrives
+- **THEN** the charger is started at 16A; with `min_charging_current` 20A and 12A kept, at 20A
 
 #### Scenario: start after the adapter's own pause with a raised minimum
 - **WHEN** `min_charging_current` is 10A, the initial charging current is 16A, the charger's max
