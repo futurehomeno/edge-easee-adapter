@@ -17,6 +17,8 @@ the charger starts at 16 A.
 Would close it: a decision that this is acceptable, or the session-charged value kept in the adapter's database like
 the user stop.
 
+Decided 2026-11-24 (the operator): accepted. An adapter restart is very rare; the value stays in memory.
+
 ## 2. A `set_current` that starts the charger makes the next start a resume
 
 Easee resumes a waiting charger on any dynamic-current write. A `set_current` of 8 A made before the first
@@ -25,6 +27,8 @@ resume at 8 A, not a session start at 16 A. The rule says the `set_current` does
 session start as "the charger has not charged". The change follows the second: the charging decides.
 
 Would close it: the operator confirming that a charger which already charged at 8 A resumes at 8 A.
+
+Decided 2026-11-24 (the operator): right, the charging decides. A charger that already charged at 8 A resumes at 8 A.
 
 ## 3. The adapter's own pause outlives the session
 
