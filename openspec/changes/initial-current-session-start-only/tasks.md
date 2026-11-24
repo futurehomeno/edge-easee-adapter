@@ -20,6 +20,10 @@
       the session-end calls in `TestObservationsHandler_ChargerStateTellsWhetherTheSessionCharged`
 - [x] 3.3 `EndSession` on the controller, called from the handler's session-finished branch
 - [x] 3.4 Issue 43 decided and archived
+- [x] 3.5 Review of PR 240: failing tests `TestController_EndSession_KeepsTheClearAgainstAWriteInFlight`,
+      `TestController_EndSession_ForgetsTheSlowStart`, the call order in
+      `TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow`; a write stamps the cache with the time it
+      left, `EndSession` runs before the clear and forgets the slow start
 
 ## 4. Docs and release
 - [x] 4.1 README: the start current

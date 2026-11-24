@@ -3972,7 +3972,11 @@ func sessionCache(t *testing.T, maxCurrent int, charged bool) *mockedcache.Cache
 	cacheMock.On("SessionCharged").Return(charged).Maybe()
 	cacheMock.On("RequestedOfferedCurrent").Return(func() int { return requested }, func() time.Time { return requestedAt }).Maybe()
 	cacheMock.On("SetRequestedOfferedCurrent", mock.Anything, mock.AnythingOfType("time.Time")).
-		Run(func(a mock.Arguments) { requested, requestedAt = a.Int(0), clock.Now() }).Return(true).Maybe()
+		Run(func(a mock.Arguments) {
+			if at, _ := a.Get(1).(time.Time); !at.Before(requestedAt) {
+				requested, requestedAt = a.Int(0), at
+			}
+		}).Return(true).Maybe()
 	cacheMock.On("WaitForOfferedCurrent", mock.Anything, mock.Anything).Return(true).Maybe()
 
 	return cacheMock
@@ -4307,4 +4311,56 @@ func TestController_EndSession_UnpluggedDropsAWaitingPhaseBounce(t *testing.T) {
 
 	clientMock.AssertNotCalled(t, "StopCharging", "test-charger")
 	clientMock.AssertNumberOfCalls(t, "UpdateDynamicCurrent", 1)
+}
+
+func TestController_EndSession_KeepsTheClearAgainstAWriteInFlight(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	cacheMock := requestedCache(t)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(7)).Return(nil).Once().Run(func(mock.Arguments) {
+		clk.Add(time.Second)
+		cacheMock.SetRequestedOfferedCurrent(0, clk.Now())
+	})
+	clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil).Once()
+
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), pacedConfig())
+
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(7))
+
+	clk.Add(time.Minute)
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+	assert.Equal(t, float64(32), clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1))
+}
+
+func TestController_EndSession_ForgetsTheSlowStart(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	written := make(chan struct{}, 3)
+	cacheMock := requestedCache(t)
+
+	clientMock := mockapi.NewClient(t)
+	clientMock.On("UpdateDynamicCurrent", "test-charger", mock.Anything).Return(nil).Run(signal(written))
+
+	cfg := pacedConfig()
+	cfg.SlowChargingCurrentInAmperes = 8
+	ctrl := newTestController(t, nil, cacheMock, clientMock, mockeddb.NewChargingSessionStorage(t), cfg)
+
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{Mode: model.ChargingModeSlow}))
+	<-written
+
+	clk.Add(5 * time.Second)
+	require.NoError(t, ctrl.SetChargepointOfferedCurrent(7))
+
+	cacheMock.SetRequestedOfferedCurrent(0, clk.Now())
+	ctrl.EndSession(false)
+	clk.Add(20 * time.Second)
+	awaitDeferred(t, written)
+
+	clk.Add(time.Minute)
+	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
+	assert.Equal(t, float64(16), clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1))
 }

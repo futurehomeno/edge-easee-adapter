@@ -133,7 +133,10 @@ User Stop Holds Until A Start) and the `use_locked_3_phases` lock end when the c
 When the car is disconnected, a write or a phase bounce still waiting in the command channel SHALL be
 dropped: sent later, it would put the finished session's current back into the cache for the next
 car. A charger that reports any other session end keeps the car, so a waiting command, a cut or a
-bounce's resume, SHALL still be sent. A command already being sent cannot be called back.
+bounce's resume, SHALL still be sent. A write already being sent cannot be called back, but it SHALL NOT put
+its current back into the cache: it is stamped with the time it left, older than the session end.
+The slow-session memory SHALL be forgotten at the session end itself, even when a write still waiting
+puts a current back into the cache afterwards.
 
 #### Scenario: a session end resets the session values
 - **WHEN** the session charged at 10A, the adapter paused the charger for a value below the minimum,
@@ -156,3 +159,14 @@ bounce's resume, SHALL still be sent. A command already being sent cannot be cal
 #### Scenario: an offline charger still gets the waiting write
 - **WHEN** a write of 7A waits in the command channel and the charger reports offline
 - **THEN** the write is sent at its deadline
+
+#### Scenario: an unplugged car during a write being sent
+- **WHEN** a write of 7A is being sent, the car is unplugged before Easee answers, and a start without a
+  mode arrives for the next car
+- **THEN** the cached requested current stays cleared and the charger is started at its max current
+
+#### Scenario: a session end forgets the slow start
+- **WHEN** the session was started in mode `slow`, a write of 7A waits in the command channel, the
+  charger reports completed, the write is sent, and a start without a mode arrives before the
+  session charges again
+- **THEN** the start is a session start: the charger is started at 16A

@@ -65,7 +65,13 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 		return ts.After(stale)
 	})).Return(true)
 
-	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil, nil)
+	unplugged := false
+	endSession := func(u bool) {
+		unplugged = u
+		cacheMock.AssertNotCalled(t, "SetRequestedOfferedCurrent", 0, mock.Anything)
+	}
+
+	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil, endSession)
 	require.NoError(t, err)
 
 	require.Error(t, handler.HandleObservation(model.Observation{
@@ -75,6 +81,7 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 		Timestamp: stale,
 		Value:     strconv.Itoa(int(model.ChargerStateDisconnected)),
 	}))
+	assert.True(t, unplugged)
 }
 
 // A re-sync replays the snapshot with the timestamps already cached; that is no new end of a

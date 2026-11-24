@@ -24,3 +24,10 @@ keeps the memory. Neither closes it without knowing which session the charger is
 ## What would close it
 The memory is tied to a session id or start observed from the charger rather than to the cached
 current, or the operator accepts the race: archive this issue.
+
+## Since PR 240
+A write is stamped with the time it left, so a session end handled while Easee answers keeps the cache cleared (an
+unplug no longer leaves the finished session's current behind). The same holds for a late end of the previous session
+landing while the new session's first write is being sent: its current is not cached, and a start before the next
+write starts at the max current. `EndSession` also forgets the slow start at the end itself, so the memory no longer
+depends on a `set_current` arriving first.

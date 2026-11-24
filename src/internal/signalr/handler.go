@@ -430,12 +430,12 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 
 func (h *observationsHandler) trackSession(state model.ChargerState, fresh bool, at time.Time) {
 	if state.IsSessionFinished() && fresh {
-		h.cache.SetRequestedOfferedCurrent(0, time.Now())
-		h.cache.SetSessionCharged(false, at)
-
 		if h.endSession != nil {
 			h.endSession(state == model.ChargerStateDisconnected)
 		}
+
+		h.cache.SetRequestedOfferedCurrent(0, time.Now())
+		h.cache.SetSessionCharged(false, at)
 	}
 
 	if state == model.ChargerStateCharging {

@@ -239,18 +239,21 @@ func (c *controller) Teardown() {
 	c.inFlight.Wait()
 }
 
-// EndSession forgets the adapter's own pause at every session end. An unplugged car also drops a write or phase bounce
-// still waiting in the channel: sent later, it would put the finished session's current back into the cache. A charger
-// that is only offline or completed keeps the car, so the hub's last command, a cut or a bounce's resume, still goes out.
+// EndSession forgets the adapter's own pause and the slow start at every session end, even when a waiting write puts a
+// current back into the cache afterwards. An unplugged car also drops a write or phase bounce still waiting in the
+// channel: sent later, it would put the finished session's current back into the cache. A charger that is only offline
+// or completed keeps the car, so the hub's last command, a cut or a bounce's resume, still goes out.
 func (c *controller) EndSession(unplugged bool) {
 	c.offeredPause.Store(false)
+
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	c.slowSince = time.Time{}
 
 	if !unplugged {
 		return
 	}
-
-	c.pace.Lock()
-	defer c.pace.Unlock()
 
 	if c.pending != nil {
 		log.Infof("[%s] Car unplugged, %s dropped", c.chargerID, c.pending)
@@ -346,10 +349,13 @@ func (c *controller) send(cmd chargerCommand) error {
 
 	var err error
 
+	// Stamped when the write leaves, so a session end cleared while Easee answers stays the newer value.
+	at := clock.Now()
+
 	if cmd.stop {
 		err = c.client.StopCharging(c.chargerID)
 	} else if err = c.client.UpdateDynamicCurrent(c.chargerID, float64(cmd.current)); err == nil {
-		c.cache.SetRequestedOfferedCurrent(cmd.current, clock.Now())
+		c.cache.SetRequestedOfferedCurrent(cmd.current, at)
 	}
 
 	if err == nil && (cmd.stop || cmd.start) {
