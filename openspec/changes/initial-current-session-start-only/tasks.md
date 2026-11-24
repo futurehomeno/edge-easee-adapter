@@ -30,6 +30,8 @@
       value below the minimum starts like the adapter's own pause. Issue 45 decided: no change
 - [x] 3.8 Review of PR 240: failing test `TestController_EndSession_BeatsASlowStartBeingSent`; a start being sent
       across a session end does not put the slow-start memory back
+- [x] 3.9 Review of PR 240: the session end is counted after the values it forgets are cleared, and a failed pause
+      across it leaves no pause marked (an interleaving of adjacent instructions: no deterministic test)
 
 ## 4. Docs and release
 - [x] 4.1 README: the start current

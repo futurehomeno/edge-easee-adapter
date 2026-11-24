@@ -16,3 +16,6 @@ the handler, so it cannot be used mid-test) before the next observations, and th
 
 Seen again on PR 240 run 45419346856 (commit 9c1a7c8) and in two of five local `make test` runs that day: it now fails
 about every other CI run of the PR, so it is worth closing before the next release.
+
+Closed in PR 240: the test waits for the release (a flag set by the `SetPhaseMode` mock) before the next observations;
+300 runs of the loop above pass.

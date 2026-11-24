@@ -2066,7 +2066,9 @@ func TestObservationsHandler_ModeThreeSetElsewhereAfterAReleaseIsLeftAlone(t *te
 	srv.On("SendStateReport", false).Return(true, nil).Maybe()
 	srv.On("IsPhaseModeAware").Return(true).Maybe()
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
-	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Maybe()
+	var released atomic.Bool
+
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Run(func(mock.Arguments) { released.Store(true) }).Maybe()
 
 	cfg := &config.Config{}
 	cfg.UseLocked3Phases = true
@@ -2083,6 +2085,7 @@ func TestObservationsHandler_ModeThreeSetElsewhereAfterAReleaseIsLeftAlone(t *te
 	}
 
 	observe(model.ChargerOPState, int(model.ChargerStateDisconnected))
+	waitFor(t, released.Load)
 	observe(model.PhaseMode, model.EaseePhaseModeAuto)
 	require.NoError(t, confSrv.SetUseLocked3Phases(false))
 	observe(model.PhaseMode, model.EaseePhaseModeLock3)

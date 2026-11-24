@@ -246,13 +246,14 @@ func (c *controller) Teardown() {
 // channel: sent later, it would put the finished session's current back into the cache. A charger that is only offline
 // or completed keeps the car, so the hub's last command, a cut or a bounce's resume, still goes out.
 func (c *controller) EndSession(unplugged bool) {
-	c.sessionEnds.Add(1)
 	c.offeredPause.Store(false)
 
 	c.pace.Lock()
 	defer c.pace.Unlock()
 
 	c.slowSince = time.Time{}
+	// Counted after the clears: a command that reads the new count has seen them.
+	c.sessionEnds.Add(1)
 
 	if !unplugged {
 		return
@@ -832,9 +833,7 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 		// Owned before the send: a value arriving during it must resume.
 		owned := c.offeredPause.Swap(true)
 		if _, err := c.dispatch(chargerCommand{stop: true}); err != nil {
-			if c.sessionEnds.Load() == ends {
-				c.offeredPause.Store(owned)
-			}
+			c.offeredPause.Store(owned && c.sessionEnds.Load() == ends)
 
 			return err
 		}
