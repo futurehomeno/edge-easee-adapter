@@ -156,7 +156,7 @@ func (t *ThingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}, services...), nil
 }
 
-// ControllerByAddress serves the routing: the divert of offered currents under 6 A and the binding of commands.
+// ControllerByAddress serves the routing, which binds commands to their charger.
 func (t *ThingFactory) ControllerByAddress(address string) routing.Controller {
 	c, _ := t.controllers.Load(address)
 	if ctrl, ok := c.(Controller); ok {

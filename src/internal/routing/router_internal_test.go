@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
-	mockedchargepoint "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/chargepoint"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/stretchr/testify/assert"
@@ -16,22 +15,14 @@ import (
 
 const pauseTopic = "pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1"
 
-type offeredCurrentFn func(int) error
-
-func (f offeredCurrentFn) SetChargepointOfferedCurrent(current int) error { return f(current) }
-func (f offeredCurrentFn) Bind(*fimpgo.Message)                           {}
-func (f offeredCurrentFn) Unbind(*fimpgo.Message)                         {}
-
 type bindings struct {
-	offeredCurrentFn
 	calls []string
 }
 
 func (b *bindings) Bind(*fimpgo.Message)   { b.calls = append(b.calls, "bind") }
 func (b *bindings) Unbind(*fimpgo.Message) { b.calls = append(b.calls, "unbind") }
 
-// The divert renames the interface between the two, so the unbinding must still find the message.
-func TestBindCommand_BindsThenUnbindsARenamedMessage(t *testing.T) {
+func TestBindCommand_BindsThenUnbinds(t *testing.T) {
 	t.Parallel()
 
 	thing := mockedadapter.NewThing(t)
@@ -45,14 +36,12 @@ func TestBindCommand_BindsThenUnbindsARenamedMessage(t *testing.T) {
 	msg := newSetCurrentMessage(0)
 
 	bindCommand(ad, lookup, true)(msg)
-	msg.Payload.Interface += ".paused"
 	bindCommand(ad, lookup, false)(msg)
 
 	assert.Equal(t, []string{"bind", "unbind"}, ctrl.calls)
 }
 
 type heldBinding struct {
-	offeredCurrentFn
 	sync.Mutex
 }
 
@@ -100,86 +89,4 @@ func newSetCurrentMessage(current int) *fimpgo.Message {
 			Value:     current,
 		},
 	}
-}
-
-func TestDivertOfferedPause_UnderSixAmpsReachesTheControllerAndRenames(t *testing.T) {
-	t.Parallel()
-
-	for _, current := range []int{0, 3, 5} {
-		thing := mockedadapter.NewThing(t)
-		thing.On("Address").Return("1")
-		thing.On("ServiceByTopic", pauseTopic).Return(nil)
-
-		ad := mockedadapter.NewAdapter(t)
-		ad.On("ThingByTopic", pauseTopic).Return(thing)
-
-		got := -1
-		msg := newSetCurrentMessage(current)
-
-		assert.NoError(t, divertOfferedPause(ad, func(address string) Controller {
-			assert.Equal(t, "1", address)
-
-			return offeredCurrentFn(func(c int) error { got = c; return nil })
-		}, msg))
-
-		assert.Equal(t, current, got)
-		assert.Equal(t, chargepoint.CmdCurrentSessionSetCurrent+".paused", msg.Payload.Interface)
-	}
-}
-
-func TestDivertOfferedPause_LeavesOtherValuesToTheFramework(t *testing.T) {
-	t.Parallel()
-
-	for _, current := range []int{-1, 6, 16} {
-		msg := newSetCurrentMessage(current)
-
-		assert.NoError(t, divertOfferedPause(mockedadapter.NewAdapter(t), func(string) Controller {
-			t.Fatalf("lookup must not run for %d A", current)
-
-			return nil
-		}, msg))
-
-		assert.Equal(t, chargepoint.CmdCurrentSessionSetCurrent, msg.Payload.Interface)
-	}
-}
-
-func TestDivertOfferedPause_FailedPauseKeepsTheMessage(t *testing.T) {
-	t.Parallel()
-
-	thing := mockedadapter.NewThing(t)
-	thing.On("Address").Return("1")
-
-	ad := mockedadapter.NewAdapter(t)
-	ad.On("ThingByTopic", pauseTopic).Return(thing)
-
-	msg := newSetCurrentMessage(0)
-
-	assert.NoError(t, divertOfferedPause(ad, func(string) Controller {
-		return offeredCurrentFn(func(int) error { return assert.AnError })
-	}, msg))
-
-	assert.Equal(t, chargepoint.CmdCurrentSessionSetCurrent, msg.Payload.Interface)
-}
-
-func TestDivertOfferedPause_FailedReportIsReturned(t *testing.T) {
-	t.Parallel()
-
-	service := mockedchargepoint.NewService(t)
-	service.On("SendCurrentSessionReport", true).Return(false, assert.AnError)
-
-	thing := mockedadapter.NewThing(t)
-	thing.On("Address").Return("1")
-	thing.On("ServiceByTopic", pauseTopic).Return(service)
-
-	ad := mockedadapter.NewAdapter(t)
-	ad.On("ThingByTopic", pauseTopic).Return(thing)
-
-	msg := newSetCurrentMessage(0)
-
-	err := divertOfferedPause(ad, func(string) Controller {
-		return offeredCurrentFn(func(int) error { return nil })
-	}, msg)
-
-	assert.ErrorIs(t, err, assert.AnError)
-	assert.Equal(t, chargepoint.CmdCurrentSessionSetCurrent+".paused", msg.Payload.Interface)
 }

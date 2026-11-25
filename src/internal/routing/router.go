@@ -1,7 +1,6 @@
 package routing
 
 import (
-	"fmt"
 	"strings"
 
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
@@ -16,14 +15,12 @@ import (
 	"github.com/futurehomeno/cliffhanger/telemetry"
 	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
 // Controller is the part of a charger's controller the routing drives.
 type Controller interface {
-	chargepoint.AdjustableOfferedCurrentController
 	Bind(request *fimpgo.Message)
 	Unbind(request *fimpgo.Message)
 }
@@ -49,7 +46,6 @@ func New(
 		[]*router.Routing{router.NewRouting(bindCommand(adapter, controllerByAddress, true), router.ForService(chargepoint.Chargepoint))},
 		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.PublicConfig() }, tel),
 		[]*router.Routing{
-			routeOfferedPause(adapter, controllerByAddress),
 			cliffConfig.RouteCmdConfigGetInt(fimptype.EaseeService, "initial_charging_current", cfgSrv.InitialChargingCurrent),
 			cliffConfig.RouteCmdConfigSetInt(fimptype.EaseeService, "initial_charging_current", cfgSrv.SetInitialChargingCurrent),
 			cliffConfig.RouteCmdConfigGetInt(fimptype.EaseeService, "min_charging_current", cfgSrv.MinChargingCurrent),
@@ -95,7 +91,7 @@ func New(
 }
 
 // bindCommand runs first and last on every chargepoint message, so a write the controller defers knows the command
-// to answer if Easee refuses it later. Both match on the service only: the divert may rename the interface between.
+// to answer if Easee refuses it later.
 // Report requests are not bound, so they never wait for a command of the same charger.
 func bindCommand(ad cliffAdapter.Adapter, controllerByAddress func(string) Controller, bind bool) router.MessageHandlerFn {
 	return func(message *fimpgo.Message) *fimpgo.Message {
@@ -112,53 +108,4 @@ func bindCommand(ad cliffAdapter.Adapter, controllerByAddress func(string) Contr
 
 		return nil
 	}
-}
-
-// routeOfferedPause hands offered currents under 6 A to the controller, which pauses below min_charging_current and
-// writes the rest. Cliffhanger checks an offered current only against 0 and sup_max_current, so these values would
-// reach the controller through it as well (issue 56). On success the message interface is renamed so the chargepoint
-// handler skips the message.
-func routeOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) Controller) *router.Routing {
-	return router.NewRouting(
-		router.NewMessageHandler(router.MessageProcessorFn(func(message *fimpgo.Message) (*fimpgo.FimpMessage, error) {
-			return nil, divertOfferedPause(ad, controllerByAddress, message)
-		})),
-		router.ForService(chargepoint.Chargepoint),
-		router.ForType(chargepoint.CmdCurrentSessionSetCurrent),
-	)
-}
-
-// The returned error is answered to the caller, as cliffhanger's handler answers its own.
-func divertOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) Controller, message *fimpgo.Message) error {
-	current, err := message.Payload.GetIntValue()
-	if err != nil || current < 0 || current >= 6 {
-		return nil //nolint:nilerr // A malformed value is cliffhanger's handler's to answer.
-	}
-
-	t := ad.ThingByTopic(message.Topic)
-	if t == nil {
-		return nil
-	}
-
-	ctrl := controllerByAddress(t.Address())
-	if ctrl == nil {
-		return nil
-	}
-
-	if err := ctrl.SetChargepointOfferedCurrent(current); err != nil {
-		log.Errorf("[routing] Offered %dA on %s err: %v", current, message.Topic, err)
-
-		return nil
-	}
-
-	message.Payload.Interface += ".paused"
-
-	// The renamed message skips cliffhanger's handler and with it the confirmation report.
-	if s, ok := t.ServiceByTopic(message.Topic).(chargepoint.Service); ok {
-		if _, err := s.SendCurrentSessionReport(true); err != nil {
-			return fmt.Errorf("offered %d A set, session report failed: %w", current, err)
-		}
-	}
-
-	return nil
 }

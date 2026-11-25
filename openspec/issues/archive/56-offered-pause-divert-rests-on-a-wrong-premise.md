@@ -22,3 +22,12 @@ Send `cmd.current_session.set_current` 0 with the Easee pause answered 500: two
 Remove the divert and let cliffhanger's handler call the controller for every value (it already
 sends the session report), then drop the guards that exist only for calls outside the service lock.
 Needs a decision: the change is behaviour-neutral in theory but touches the pacing code.
+
+## Outcome (2026-11-25)
+Decided by the user: the divert is deleted (change `offered-current-normal-path`). Every value goes
+through cliffhanger's handler: same pause, the report or the error from the handler. A failed pause
+is now tried once and answered with one error report; before, the second call fell inside the pacing
+window, was deferred and the command was answered with a success session report. No other difference
+a user could see: the handler sends the same forced session report. The controller guards (`clamp`,
+`offeredPause` atomic, the user-stop recheck in `dispatchPair`) stay, since session ends, observations
+and the pacing timers reach the same state outside the service lock; only their comments changed.
