@@ -1003,7 +1003,7 @@ func TestClient_FailureIsCodedAndNotLogged(t *testing.T) { //nolint:paralleltest
 		http.StatusUnauthorized:        fimptype.ErrorCodeUnauthorized,
 		http.StatusNotFound:            fimptype.ErrorCodeNotFound,
 		http.StatusBadRequest:          fimptype.ErrorCodeDeviceRefused,
-		http.StatusTooManyRequests:     fimptype.ErrorCodeUnavailable,
+		http.StatusTooManyRequests:     fimptype.ErrorCodeRateLimited,
 		http.StatusInternalServerError: fimptype.ErrorCodeUnavailable,
 		0:                              fimptype.ErrorCodeUnavailable,
 	} {

@@ -1,5 +1,5 @@
 ## 1. Upgrade
-- [x] 1.1 Pin cliffhanger `v1.5.6-0.20261125074354-8512d99cf9ba`; build, vet and tests pass
+- [x] 1.1 Pin cliffhanger `v1.5.6-0.20261125115807-4a5e15820840`; build, vet and tests pass
 - [ ] 1.2 Re-pin to the cliffhanger release before merge
 
 ## 2. Codes and logging

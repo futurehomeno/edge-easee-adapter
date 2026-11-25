@@ -277,7 +277,9 @@ func (c *httpClient) handleFailedResponse(resp *http.Response, message string) e
 		return router.NewError(fimptype.ErrorCodeUnauthorized, "Easee refused the credentials", cause)
 	case resp.StatusCode == http.StatusNotFound:
 		return router.NewError(fimptype.ErrorCodeNotFound, "Easee does not know the charger", cause)
-	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError:
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return router.NewError(fimptype.ErrorCodeRateLimited, "the Easee cloud limits requests for now", cause)
+	case resp.StatusCode >= http.StatusInternalServerError:
 		return router.NewError(fimptype.ErrorCodeUnavailable, "Easee cloud is not available", cause)
 	default:
 		return router.NewError(fimptype.ErrorCodeDeviceRefused, "Easee refused the request", cause)

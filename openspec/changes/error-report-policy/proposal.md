@@ -10,9 +10,9 @@ carried URLs and response bodies, and a comment and the spec said cliffhanger re
 current under 6 A, which it does not.
 
 ## What Changes
-- cliffhanger pinned to `v1.5.6-0.20261125074354-8512d99cf9ba` (to be re-pinned to the release).
+- cliffhanger pinned to `v1.5.6-0.20261125115807-4a5e15820840` (to be re-pinned to the release).
 - HTTP failures are classified once in the HTTP client into `unauthorized`, `not_found`,
-  `unavailable` and `device_refused`, with the URL and body kept in the cause for the log; the
+  `unavailable`, `rate_limited` (429) and `device_refused`, with the URL and body kept in the cause for the log; the
   client's own log line goes.
 - A lost stream answers report requests with `unavailable`.
 - Every chargepoint message binds its charger's controller from the first route to the last, so a
