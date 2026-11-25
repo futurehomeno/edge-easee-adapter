@@ -52,10 +52,16 @@ shows whether the charger resumed.
   and a start arrives, with or without a mode, with an initial charging current of 16A
 - **THEN** the charger is started at 16A, a session start
 
-#### Scenario: session start floor capped by the charger maximum
+#### Scenario: start floor capped by the charger maximum
 - **WHEN** the session has not charged, a start without a mode arrives, the cached requested offered
   current is 7A, the initial charging current is 16A and the charger's max current is 10A
 - **THEN** the charger is started at 10A
+
+#### Scenario: start without a mode after a cut
+- **WHEN** a start without a mode arrives, the cached requested offered current is 7A and the initial
+  charging current is 16A
+- **THEN** the charger is started at 16A when the session has not charged, a session start, and at
+  7A when it has, a resume
 
 #### Scenario: no cached current
 - **WHEN** the cached requested offered current is zero or negative and the charger's max current is

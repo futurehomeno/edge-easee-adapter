@@ -164,8 +164,9 @@ log shows which command was dropped and what replaced it rather than only what w
 displaced command is a pair, both halves SHALL be named, or a discarded resume would leave no trace.
 
 The charger acts on whatever it last heard, so the hub's latest intent is the only one worth
-sending. This supersedes the rule that a balancing refresh inside `offered_current_wait_time` after
-a user's pause cancels that pause (issue 33).
+sending; holding an older command in the slot makes the adapter answer a command it did not carry
+out. This supersedes the rule that a balancing refresh inside `offered_current_wait_time` after a
+user's pause cancels that pause (issue 33).
 
 #### Scenario: a different current arrives after a stop
 - **WHEN** `cmd.charge.stop` is stored in the slot and a `cmd.current_session.set_current` for a

@@ -8,10 +8,15 @@ older versions, and keep the Easee credentials in a store separate from the publ
 The configuration SHALL expose these settings with the following defaults when unset or unparsable:
 `pollingInterval` 20m, `token_refresh_interval` 30m, `currentWaitDuration` 3s,
 `offered_current_wait_time` 30s, `energyLifetimeInterval` 10s, `httpTimeout` 30s,
-`initial_charging_current` 16A, `use_locked_3_phases` false, `auth_max_unauthorized` 2h, SignalR
-`connCreationTimeout` 30s, `keepAliveInterval2` 30s, `timeoutInterval2` 1m and `invokeTimeout` 10s.
+`initial_charging_current` 16A, `min_charging_current` 6A, `use_locked_3_phases` false,
+`auth_max_unauthorized` 2h, SignalR `connCreationTimeout` 30s, `keepAliveInterval2` 30s,
+`timeoutInterval2` 1m and `invokeTimeout` 10s.
 Duration settings are stored as strings and SHALL fall back to their default when they cannot be
-parsed.
+parsed. The `min_charging_current` setter SHALL accept 1–32 A. The `initial_charging_current` setter
+SHALL accept 6–32 A and never a value below `min_charging_current`. Setting `min_charging_current`
+above the effective `initial_charging_current` (stored or default) SHALL raise the initial current to
+the new minimum in the same update; lowering the minimum SHALL NOT change the initial current. A
+rejected value SHALL fail with a range error and leave the stored value unchanged.
 
 #### Scenario: unset duration
 - **WHEN** a duration setting is absent from the stored configuration
@@ -28,6 +33,27 @@ parsed.
 #### Scenario: three-phase lock unset
 - **WHEN** `use_locked_3_phases` is absent from the stored configuration
 - **THEN** it reads false
+
+#### Scenario: minimum charging current not positive
+- **WHEN** `min_charging_current` is zero or negative
+- **THEN** 6 is used
+
+#### Scenario: out-of-range minimum charging current
+- **WHEN** 0 or 33 is written through the `min_charging_current` setter
+- **THEN** the write is rejected with a range error and the stored value is left unchanged
+
+#### Scenario: initial charging current below the minimum
+- **WHEN** `min_charging_current` is 10 and an `initial_charging_current` of 8 is written
+- **THEN** the write is rejected with a range error and the stored value is left unchanged
+
+#### Scenario: the minimum is raised above the initial charging current
+- **WHEN** `min_charging_current` is set to 20 while `initial_charging_current` is 16, stored or by default
+- **THEN** both are stored as 20 in one update
+- **AND** setting the minimum lower later leaves `initial_charging_current` at 20
+
+#### Scenario: the minimum and the initial charging current are written at the same time
+- **WHEN** `min_charging_current` 20 and `initial_charging_current` 18 are written concurrently
+- **THEN** `initial_charging_current` is stored no lower than the minimum, whichever write lands first
 
 ### Requirement: Backoff Settings
 Both the authenticator and the SignalR client SHALL be driven by a stateful backoff configured from
@@ -125,6 +151,7 @@ so the version does not advance and the next startup retries with the tokens sti
 ### Requirement: Configuration Routes
 The adapter SHALL expose get and set routes on the Easee service for `polling_interval`,
 `current_wait_duration`, `easee_base_url`, `slow_charging_current_in_amperes`, `use_locked_3_phases`,
+`initial_charging_current`, `min_charging_current`,
 `http_timeout`, `signalr_base_url`, `signalr_conn_creation_timeout`, `signalr_keep_alive_interval`,
 `signalr_timeout_interval`, `signalr_initial_backoff`, `signalr_repeated_backoff`,
 `signalr_final_backoff`, `signalr_initial_failure_count`, `signalr_repeated_failure_count` and

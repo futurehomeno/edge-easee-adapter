@@ -26,3 +26,12 @@ Reproduce: only by interleaving the calls in a test; no hub has shown it.
 
 Closes when a hub log shows one of them, or the user stop moves behind one lock shared by the controller and the
 handler.
+
+## Status 2026-11-25
+
+Checked against the code after PR #240: all six points are still as described. #240 added the
+session-end guard on the pause restore (`sessionEnds`, `src/internal/easee/controller.go:836,848`),
+but the restore does not count a `cmd.charge.stop`; `dispatchPair` still drops a value that meets a
+user stop without keeping it (`controller.go:167`); the start still clears and puts back the stop in
+separate storage calls (`controller.go:934-952`); the pause mark and the send are still not under one
+lock. The third and fifth points are recorded behaviour, not races. Stays open.
