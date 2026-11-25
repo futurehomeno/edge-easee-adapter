@@ -28,3 +28,5 @@ harmless.
 What would close it: decide which messages the manifest must list. Then remove or correct the
 two full-state entries, add the routed ones, extend the `app-manifest` spec with them and the
 manifest test in `src/cmd/manifest_internal_test.go`.
+
+Status 2026-11-25: proposed in OpenSpec change `manifest-matches-routes` (branch `fix/manifest-matches-routes`); not implemented yet.
