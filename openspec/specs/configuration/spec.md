@@ -300,8 +300,9 @@ credentials, because a file that fails to decode partway leaves the fields alrea
 on disk, and SHALL log an error that omits the load error, because that error carries the file body with the
 tokens. The start SHALL continue, so a corrupt file does not cause a restart loop and a new login rewrites it.
 
-When `data/secrets.json` cannot be loaded but its backup can, the storage loads the backup and the adapter starts
-with those credentials.
+When `data/secrets.json` cannot be loaded but its backup can, the storage decodes the backup over the fields the
+primary already filled, without clearing them, and the adapter starts with that mix: the backup's credentials plus any
+field only the primary set.
 
 One start differs: when the configuration is still at version 5 and carries credentials, the migration to version 6
 finds the emptied store and saves those credentials as a new secrets file, the unreadable one becoming its backup,
