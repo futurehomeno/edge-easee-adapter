@@ -51,7 +51,7 @@ func TestPackagedManifest_DeclaresExactlyTheRoutedInterfaces(t *testing.T) {
 		cliffApp.EvtAppStateReport:          "out object",
 		cliffApp.CmdConfigGetExtendedReport: "in null",
 		cliffApp.EvtConfigExtendedReport:    "out object",
-		cliffApp.CmdAppGetManifest:          "in null",
+		cliffApp.CmdAppGetManifest:          "in string",
 		cliffApp.EvtAppManifestReport:       "out object",
 		cliffApp.CmdConfigExtendedSet:       "in object",
 		cliffApp.EvtAppConfigReport:         "out object",

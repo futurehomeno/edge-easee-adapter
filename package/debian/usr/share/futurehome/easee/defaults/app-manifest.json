@@ -165,7 +165,7 @@
         {
           "intf_t": "in",
           "msg_t": "cmd.app.get_manifest",
-          "val_t": "null",
+          "val_t": "string",
           "ver": "1"
         },
         {

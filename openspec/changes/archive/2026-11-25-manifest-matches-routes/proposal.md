@@ -27,7 +27,7 @@ Routed by: D = `bootstrap.DefaultRoute` (config report + `debug.Route`), A = `ap
 
 | Interface (type, msg_t, val_t) | In manifest | Routed | Action |
 |---|---|---|---|
-| in `cmd.app.get_manifest` null | yes | A (also takes a string mode, `manifest_state` or `full`) | keep as null |
+| in `cmd.app.get_manifest` null | yes | A (takes null or a string mode, `manifest_state` or `full`; the mobile app sends the string `manifest_state`) | fix value type: string (user, 2026-11-25) |
 | out `evt.app.manifest_report` object | yes | A reply | keep |
 | out `cmd.app.get_full_state` string | yes | no | remove |
 | out `cmd.app.full_state_report` object | yes | no | remove |
