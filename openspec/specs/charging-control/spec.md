@@ -27,8 +27,8 @@ The starting current SHALL be chosen as follows. While the adapter's own pause f
 offered current is remembered (Sub-Minimum Current Pauses), or when the cached requested current is
 below `min_charging_current` (a value kept under a user stop), a start that is not slow SHALL start at
 the greater of `initial_charging_current` and `min_charging_current`, whether or not the session has
-charged, as the Zaptec adapter does (issue 44, the operator, 2026-11-24: "when below minimum, chargins
-hould start with initial_charging"). Otherwise: the cached requested offered current; if that is zero
+charged, as the Zaptec adapter does (issue 44, the operator, 2026-11-24: "when below minimum, charging
+should start with initial_charging"). Otherwise: the cached requested offered current; if that is zero
 or less — meaning unknown, either because no load balancer ever set one or because the
 session-finished observation cleared it — the cached max current instead, so installs without a power
 manager start at full current; if that is also zero — meaning the cache has not been seeded by an
@@ -389,7 +389,7 @@ only by `cmd.charge.start`; the stops a value displaces are the adapter's own su
 the first half of a restart. The displaced command SHALL NOT reach Easee, its own command having
 already reported success, and the deadline SHALL NOT move. The dedup that suppresses a repeated
 current SHALL NOT apply while a stop is stored, so a write carrying the last-sent value displaces
-that stop like any other.
+the adapter's own pause or a restart's stop like any other value.
 
 Displacing a stored command SHALL be logged as `[<id>] <new> preempts <old>`, naming both, so the
 log shows which command was dropped and what replaced it rather than only what was stored. When the
@@ -407,7 +407,8 @@ user's pause cancels that pause (issue 33).
   `cmd.charge.start`
 
 #### Scenario: a same current arrives after a stop
-- **WHEN** `cmd.charge.stop` is stored in the slot and a write for the last-sent current arrives
+- **WHEN** `cmd.charge.stop` is stored in the slot and a `cmd.current_session.set_current` for the
+  last-sent current arrives
 - **THEN** the stop stays stored and is sent at the deadline, and nothing else is sent
 
 #### Scenario: a stop replaces a stored current
@@ -544,6 +545,8 @@ like `cmd.charge.stop`, and the adapter SHALL remember that pause as its own. Th
 above the minimum SHALL be written as the dynamic current with the recent-value dedup bypassed, which
 resumes the charger, and SHALL clear that memory. A `cmd.charge.stop` SHALL
 clear it too: under a user stop no value resumes the charger (A User Stop Holds Until A Start).
+Not met yet: two sub-minimum values handled at the same moment can leave the pause unremembered
+when the first one's pause command fails (issue 40, open).
 
 The framework rejects a current under 6 A before the controller runs, so a value from 0 to 5 A SHALL
 be handed to the controller in routing before the framework's handler: on success the message
@@ -603,7 +606,8 @@ SHALL only keep the value as the requested current, so the next `cmd.charge.star
 sub-minimum one at the initial charging current, Start Charging); the
 adapter's own pause stays unmarked. A phase mode change SHALL NOT bounce the session while it is
 marked. Easee resumes a stopped charger on any dynamic-current write, so only `cmd.charge.start`
-may start charging after a user stop (the operator, 2026-11-23).
+may start charging after a user stop (the operator, 2026-11-23). Not met yet: a value under 6 A
+that arrives at the same moment as the stop can be dropped instead of kept (issue 40, open).
 
 The mark SHALL end on `cmd.charge.start`, and SHALL be put back when the start's write fails. A
 start stored in the channel has already been answered as accepted: its later failure is only logged

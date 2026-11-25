@@ -613,10 +613,10 @@ setting off all along a mode 3 was set elsewhere and SHALL be left alone, as SHA
 with the setting off after the release went out. A mode 3 observation older than the cached phase
 mode SHALL count for nothing. A release that fails, is not queued, or is skipped because fewer than
 two modes are advertised, SHALL be requested again at the next session start or end. A phase mode
-written to a
-`disconnected` charger SHALL NOT stop and resume it, whatever a power reading says. The request SHALL be queued after the state report, and SHALL be skipped when fewer than two
-modes are advertised or when the cached internal mode has changed by the time it goes out. Internal mode 1, an unknown or offline state or an unchanged state SHALL
-trigger nothing.
+written to a `disconnected` charger SHALL NOT stop and resume it, whatever a power reading says.
+The request SHALL be queued after the state report. It SHALL be skipped when fewer than two modes
+are advertised or when the cached internal mode has changed by the time it goes out. Internal mode
+1, an unknown or offline state or an unchanged state SHALL trigger nothing.
 
 #### Scenario: session starts on auto
 - **WHEN** the setting is on, the internal mode is 2 and the state changes from `disconnected` to
