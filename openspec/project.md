@@ -33,8 +33,8 @@ a SignalR websocket.
 ## Conventions
 
 - Log lines are mostly prefixed with a bracketed component (`[app]`, `[auth]`, `[db]`) or the
-  charger ID; older lines in `signalr/` (some start with `signalR:` instead) and one in `tasks/`
-  are still unprefixed.
+  charger ID; some older lines (`signalr/`, where some start with `signalR:`, and a few in
+  `cache/`, `api/`, `easee/connector.go`, `db/`, `tasks/` and `cmd/`) are still unprefixed.
 - Errors are wrapped with `fmt.Errorf("...: %w", err)` and logged once at the boundary;
   `api/http.go` and `db/db.go` still wrap with `github.com/pkg/errors`.
 - Every value the cache holds carries a timestamp: for observations the time the value was observed,

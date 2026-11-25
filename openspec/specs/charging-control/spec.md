@@ -389,7 +389,7 @@ only by `cmd.charge.start`; the stops a value displaces are the adapter's own su
 the first half of a restart. The displaced command SHALL NOT reach Easee, its own command having
 already reported success, and the deadline SHALL NOT move. The dedup that suppresses a repeated
 current SHALL NOT apply while a stop is stored, so a write carrying the last-sent value displaces
-that stop like any other.
+the adapter's own pause or a restart's stop like any other value.
 
 Displacing a stored command SHALL be logged as `[<id>] <new> preempts <old>`, naming both, so the
 log shows which command was dropped and what replaced it rather than only what was stored. When the
@@ -407,7 +407,8 @@ user's pause cancels that pause (issue 33).
   `cmd.charge.start`
 
 #### Scenario: a same current arrives after a stop
-- **WHEN** `cmd.charge.stop` is stored in the slot and a write for the last-sent current arrives
+- **WHEN** `cmd.charge.stop` is stored in the slot and a `cmd.current_session.set_current` for the
+  last-sent current arrives
 - **THEN** the stop stays stored and is sent at the deadline, and nothing else is sent
 
 #### Scenario: a stop replaces a stored current
