@@ -294,10 +294,14 @@ warning and SHALL NOT stop the start.
   to the backup is removed
 
 ### Requirement: Unreadable Secrets File Starts Logged Out
-When the secrets file cannot be loaded at start, the adapter SHALL start logged out: it SHALL empty the in-memory
+When neither the secrets file nor its backup `data/secrets.json.bak` can be loaded at start, the adapter SHALL start
+logged out: it SHALL empty the in-memory
 credentials, because a file that fails to decode partway leaves the fields already read behind, SHALL keep the file
 on disk, and SHALL log an error that omits the load error, because that error carries the file body with the
 tokens. The start SHALL continue, so a corrupt file does not cause a restart loop and a new login rewrites it.
+
+When `data/secrets.json` cannot be loaded but its backup can, the storage loads the backup and the adapter starts
+with those credentials.
 
 One start differs: when the configuration is still at version 5 and carries credentials, the migration to version 6
 finds the emptied store and saves those credentials as a new secrets file, the unreadable one becoming its backup,

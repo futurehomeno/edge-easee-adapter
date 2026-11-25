@@ -6,8 +6,9 @@ The SignalR client SHALL connect to `<signalr_base_url>/hubs/chargers` with the 
 and SHALL run it with the keep-alive interval `signalr_keep_alive_interval` and the server timeout
 `signalr_timeout_interval`. A charger SHALL be subscribed with the hub method `SubscribeWithCurrentState(<id>, true)`,
 so Easee sends its current state first, and unsubscribed with `Unsubscribe(<id>)`. A hub call SHALL fail with
-`timeout` when no result arrives within `signalr_invoke_timeout`, and with `client is not running` when no
-connection is up.
+`timeout` when no result arrives within `signalr_invoke_timeout`, and with `client is not running` when the client
+is stopped or has no connection object; a running client whose connection is down sends the call and fails with
+`timeout` or the connection's error.
 
 #### Scenario: charger subscribed
 - **WHEN** a charger is subscribed on a live connection
