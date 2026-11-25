@@ -20,13 +20,20 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 )
 
+// Controller is the part of a charger's controller the routing drives.
+type Controller interface {
+	chargepoint.AdjustableOfferedCurrentController
+	Bind(request *fimpgo.Message)
+	Unbind(request *fimpgo.Message)
+}
+
 func New(
 	cfgSrv *config.Service,
 	appLifecycle *lifecycle.Lifecycle,
 	application app.App,
 	adapter cliffAdapter.Adapter,
 	tel telemetry.Telemetry,
-	controllerByAddress func(string) chargepoint.AdjustableOfferedCurrentController,
+	controllerByAddress func(string) Controller,
 ) []*router.Routing {
 	// Shared by the app and adapter routes so cmd.thing.delete cannot interleave with
 	// cmd.config.extended_set rewriting the selection it reads.
@@ -38,6 +45,7 @@ func New(
 	)
 
 	return router.Combine(
+		[]*router.Routing{router.NewRouting(bindCommand(adapter, controllerByAddress, true), router.ForService(chargepoint.Chargepoint))},
 		bootstrap.DefaultRoute(fimptype.EaseeService, func() any { return cfgSrv.PublicConfig() }, tel),
 		[]*router.Routing{
 			routeOfferedPause(adapter, controllerByAddress),
@@ -81,13 +89,34 @@ func New(
 		app.RouteApp(fimptype.EaseeService, appLifecycle, cfgSrv, config.Factory, locker, application, nil),
 		cliffAdapter.RouteAdapter(adapter, cliffAdapter.WithSelection(devices, locker)),
 		thing.RouteCarCharger(adapter),
+		[]*router.Routing{router.NewRouting(bindCommand(adapter, controllerByAddress, false), router.ForService(chargepoint.Chargepoint))},
 	)
 }
 
+// bindCommand runs first and last on every chargepoint message, so a write the controller defers knows the command
+// to answer if Easee refuses it later. Both match on the service only: the divert may rename the interface between.
+func bindCommand(ad cliffAdapter.Adapter, controllerByAddress func(string) Controller, bind bool) router.MessageHandlerFn {
+	return func(message *fimpgo.Message) *fimpgo.Message {
+		t := ad.ThingByTopic(message.Topic)
+		if t == nil {
+			return nil
+		}
+
+		if ctrl := controllerByAddress(t.Address()); ctrl != nil && bind {
+			ctrl.Bind(message)
+		} else if ctrl != nil {
+			ctrl.Unbind(message)
+		}
+
+		return nil
+	}
+}
+
 // routeOfferedPause hands offered currents under 6 A to the controller, which pauses below min_charging_current and
-// writes the rest: cliffhanger rejects current < 6 A in validation before the controller runs. On success the message
-// interface is renamed so the chargepoint handler skips the message instead of rejecting it.
-func routeOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) chargepoint.AdjustableOfferedCurrentController) *router.Routing {
+// writes the rest. Cliffhanger checks an offered current only against 0 and sup_max_current, so these values would
+// reach the controller through it as well (issue 56). On success the message interface is renamed so the chargepoint
+// handler skips the message.
+func routeOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) Controller) *router.Routing {
 	return router.NewRouting(
 		router.NewMessageHandler(router.MessageProcessorFn(func(message *fimpgo.Message) (*fimpgo.FimpMessage, error) {
 			return nil, divertOfferedPause(ad, controllerByAddress, message)
@@ -98,7 +127,7 @@ func routeOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string)
 }
 
 // The returned error is answered to the caller, as cliffhanger's handler answers its own.
-func divertOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) chargepoint.AdjustableOfferedCurrentController, message *fimpgo.Message) error {
+func divertOfferedPause(ad cliffAdapter.Adapter, controllerByAddress func(string) Controller, message *fimpgo.Message) error {
 	current, err := message.Payload.GetIntValue()
 	if err != nil || current < 0 || current >= 6 {
 		return nil //nolint:nilerr // A malformed value is cliffhanger's handler's to answer.

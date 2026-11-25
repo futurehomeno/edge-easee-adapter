@@ -17,6 +17,37 @@ const pauseTopic = "pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1"
 type offeredCurrentFn func(int) error
 
 func (f offeredCurrentFn) SetChargepointOfferedCurrent(current int) error { return f(current) }
+func (f offeredCurrentFn) Bind(*fimpgo.Message)                           {}
+func (f offeredCurrentFn) Unbind(*fimpgo.Message)                         {}
+
+type bindings struct {
+	offeredCurrentFn
+	calls []string
+}
+
+func (b *bindings) Bind(*fimpgo.Message)   { b.calls = append(b.calls, "bind") }
+func (b *bindings) Unbind(*fimpgo.Message) { b.calls = append(b.calls, "unbind") }
+
+// The divert renames the interface between the two, so the unbinding must still find the message.
+func TestBindCommand_BindsThenUnbindsARenamedMessage(t *testing.T) {
+	t.Parallel()
+
+	thing := mockedadapter.NewThing(t)
+	thing.On("Address").Return("1")
+
+	ad := mockedadapter.NewAdapter(t)
+	ad.On("ThingByTopic", pauseTopic).Return(thing)
+
+	ctrl := &bindings{}
+	lookup := func(string) Controller { return ctrl }
+	msg := newSetCurrentMessage(0)
+
+	bindCommand(ad, lookup, true)(msg)
+	msg.Payload.Interface += ".paused"
+	bindCommand(ad, lookup, false)(msg)
+
+	assert.Equal(t, []string{"bind", "unbind"}, ctrl.calls)
+}
 
 func newSetCurrentMessage(current int) *fimpgo.Message {
 	return &fimpgo.Message{
@@ -44,7 +75,7 @@ func TestDivertOfferedPause_UnderSixAmpsReachesTheControllerAndRenames(t *testin
 		got := -1
 		msg := newSetCurrentMessage(current)
 
-		assert.NoError(t, divertOfferedPause(ad, func(address string) chargepoint.AdjustableOfferedCurrentController {
+		assert.NoError(t, divertOfferedPause(ad, func(address string) Controller {
 			assert.Equal(t, "1", address)
 
 			return offeredCurrentFn(func(c int) error { got = c; return nil })
@@ -61,7 +92,7 @@ func TestDivertOfferedPause_LeavesOtherValuesToTheFramework(t *testing.T) {
 	for _, current := range []int{-1, 6, 16} {
 		msg := newSetCurrentMessage(current)
 
-		assert.NoError(t, divertOfferedPause(mockedadapter.NewAdapter(t), func(string) chargepoint.AdjustableOfferedCurrentController {
+		assert.NoError(t, divertOfferedPause(mockedadapter.NewAdapter(t), func(string) Controller {
 			t.Fatalf("lookup must not run for %d A", current)
 
 			return nil
@@ -82,7 +113,7 @@ func TestDivertOfferedPause_FailedPauseKeepsTheMessage(t *testing.T) {
 
 	msg := newSetCurrentMessage(0)
 
-	assert.NoError(t, divertOfferedPause(ad, func(string) chargepoint.AdjustableOfferedCurrentController {
+	assert.NoError(t, divertOfferedPause(ad, func(string) Controller {
 		return offeredCurrentFn(func(int) error { return assert.AnError })
 	}, msg))
 
@@ -104,7 +135,7 @@ func TestDivertOfferedPause_FailedReportIsReturned(t *testing.T) {
 
 	msg := newSetCurrentMessage(0)
 
-	err := divertOfferedPause(ad, func(string) chargepoint.AdjustableOfferedCurrentController {
+	err := divertOfferedPause(ad, func(string) Controller {
 		return offeredCurrentFn(func(int) error { return nil })
 	}, msg)
 

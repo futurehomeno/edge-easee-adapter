@@ -337,6 +337,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 							suite.ExpectError(evtDeviceAlarmTopic, "alarm_system"),
 						},
 					},
+					{
+						Command: suite.NullMessage(cmdDeviceChargepointTopic, "cmd.state.get_report", "chargepoint"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectCodedError(evtDeviceChargepointTopic, "chargepoint", fimptype.ErrorCodeUnavailable),
+						},
+					},
 				},
 			},
 			{

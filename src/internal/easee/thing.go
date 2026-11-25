@@ -13,6 +13,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/types"
+	"github.com/futurehomeno/fimpgo"
 	"github.com/futurehomeno/fimpgo/fimptype"
 	log "github.com/sirupsen/logrus"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
 	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
+	"github.com/futurehomeno/edge-easee-adapter/internal/routing"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 )
 
@@ -55,6 +57,7 @@ type ThingFactory struct {
 	cfgService     *config.Service
 	signalRManager signalr.Manager
 	sessionStorage db.ChargingSessionStorage
+	publish        func(*fimpgo.Address, *fimpgo.FimpMessage) error
 	controllers    sync.Map
 }
 
@@ -63,12 +66,14 @@ func NewThingFactory(
 	cfgService *config.Service,
 	signalRManager signalr.Manager,
 	sessionStorage db.ChargingSessionStorage,
+	publish func(*fimpgo.Address, *fimpgo.FimpMessage) error,
 ) *ThingFactory {
 	return &ThingFactory{
 		client:         client,
 		cfgService:     cfgService,
 		signalRManager: signalRManager,
 		sessionStorage: sessionStorage,
+		publish:        publish,
 	}
 }
 
@@ -80,7 +85,7 @@ func (t *ThingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}
 
 	thingCache := cache.NewCache(info.ChargerID)
-	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage, (&phaseStore{state: thingState}).OutputPhase)
+	controller := NewController(t.signalRManager, t.client, info.ChargerID, thingCache, t.cfgService, t.sessionStorage, (&phaseStore{state: thingState}).OutputPhase, t.publish)
 	t.controllers.Store(thingState.Address(), controller)
 
 	state := &State{}
@@ -151,12 +156,14 @@ func (t *ThingFactory) Create(ad adapter.Adapter, publisher adapter.Publisher, t
 	}, services...), nil
 }
 
-// ControllerByAddress serves the routing divert of offered currents under 6 A, which cliffhanger's service rejects.
-func (t *ThingFactory) ControllerByAddress(address string) chargepoint.AdjustableOfferedCurrentController {
+// ControllerByAddress serves the routing: the divert of offered currents under 6 A and the binding of commands.
+func (t *ThingFactory) ControllerByAddress(address string) routing.Controller {
 	c, _ := t.controllers.Load(address)
-	ctrl, _ := c.(Controller)
+	if ctrl, ok := c.(Controller); ok {
+		return ctrl
+	}
 
-	return ctrl
+	return nil
 }
 
 func (t *ThingFactory) inclusionReport(info *Info, thingState adapter.ThingState, groups []string) *fimptype.ThingInclusionReport {

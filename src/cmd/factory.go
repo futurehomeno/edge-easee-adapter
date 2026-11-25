@@ -284,6 +284,7 @@ func getThingFactory(cfg *config.Config) *easee.ThingFactory {
 			getConfigService(),
 			getSignalRManager(cfg),
 			getSessionStorage(cfg),
+			getMQTT(cfg).Publish,
 		)
 	}
 

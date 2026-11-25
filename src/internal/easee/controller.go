@@ -14,7 +14,10 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
+	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/types"
+	"github.com/futurehomeno/fimpgo"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/michalkurzeja/go-clock"
 	log "github.com/sirupsen/logrus"
 
@@ -52,6 +55,9 @@ type Controller interface {
 	UpdateState(chargerID string, state *State) error
 	EndSession(unplugged bool)
 	Teardown()
+	// Bind makes request the command a deferred write answers when Easee refuses it later; Unbind ends it.
+	Bind(request *fimpgo.Message)
+	Unbind(request *fimpgo.Message)
 }
 
 func NewController(
@@ -62,6 +68,7 @@ func NewController(
 	cfgService *config.Service,
 	sessionStorage db.ChargingSessionStorage,
 	persistedPhase func() types.PhaseMode,
+	publish func(*fimpgo.Address, *fimpgo.FimpMessage) error,
 ) Controller {
 	return &controller{
 		client:         client,
@@ -71,6 +78,7 @@ func NewController(
 		chargerID:      chargerID,
 		sessionStorage: sessionStorage,
 		persistedPhase: persistedPhase,
+		publish:        publish,
 	}
 }
 
@@ -82,6 +90,10 @@ type controller struct {
 	chargerID      string
 	sessionStorage db.ChargingSessionStorage
 	persistedPhase func() types.PhaseMode
+	publish        func(*fimpgo.Address, *fimpgo.FimpMessage) error
+	// bound serialises the commands of one charger from Bind to Unbind; request is guarded by pace.
+	bound   sync.Mutex
+	request *fimpgo.Message
 	// Guarded by pace: a value under 6 A arrives through the routing divert, outside the chargepoint service lock.
 	clamp [2]int
 	// When the running session was started in slow mode; zero when it was not. Guarded by pace, like clamp.
@@ -130,6 +142,7 @@ type chargerCommand struct {
 	stop    bool
 	start   bool
 	current int
+	request *fimpgo.Message
 }
 
 func (c chargerCommand) String() string {
@@ -169,6 +182,11 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 
 			return false, err
 		}
+	}
+
+	cmd.request = c.request
+	if follow != nil {
+		follow.request = c.request
 	}
 
 	if c.pending != nil {
@@ -420,7 +438,7 @@ func (c *controller) sendPending() {
 
 	err := c.send(*cmd)
 	if err != nil {
-		log.Errorf("[%s] Deferred %s failed: %v", c.chargerID, cmd, err)
+		c.answer(cmd, err)
 
 		// The pair's first half never reached Easee, so its promoted second half must not go
 		// out alone - the same cleanup the immediate-send path does.
@@ -434,6 +452,37 @@ func (c *controller) sendPending() {
 	// The echo often lands past CurrentWaitDuration; the next send cannot leave within the window anyway.
 	if !cmd.stop && !c.cache.WaitForOfferedCurrent(cmd.current, c.cfgService.OfferedCurrentWaitTime()) {
 		log.Warnf("[%s] Deferred %s was not echoed back by the charger", c.chargerID, cmd)
+	}
+}
+
+// answer sends the late error report to the command the deferred write came from; the report logs it.
+func (c *controller) answer(cmd *chargerCommand, err error) {
+	if cmd.request == nil {
+		log.Errorf("[%s] Deferred %s failed: %v", c.chargerID, cmd, err)
+
+		return
+	}
+
+	report := router.NewErrorReport(cmd.request, fmt.Errorf("deferred %s on %s: %w", cmd, c.chargerID, err))
+	if pubErr := c.publish(report.Addr, report.Payload); pubErr != nil {
+		log.Errorf("[%s] Publish error report err: %v", c.chargerID, pubErr)
+	}
+}
+
+func (c *controller) Bind(request *fimpgo.Message) {
+	c.bound.Lock()
+	c.pace.Lock()
+	c.request = request
+	c.pace.Unlock()
+}
+
+func (c *controller) Unbind(request *fimpgo.Message) {
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	if c.request == request {
+		c.request = nil
+		c.bound.Unlock()
 	}
 }
 
@@ -549,15 +598,8 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		return modes[0], nil
 	}
 
-	errMsg := "unable to map phase modes"
-
-	log.WithField("charger_id", c.chargerID).
-		WithField("grid_type", state.GridType).
-		WithField("phases", state.Phases).
-		WithField("internal_phase_mode", state.PhaseMode).
-		Error(errMsg)
-
-	return "", errors.New(errMsg)
+	return "", fmt.Errorf("unable to map phase modes: charger_id=%s grid_type=%s phases=%d internal_phase_mode=%d",
+		c.chargerID, state.GridType, state.Phases, state.PhaseMode)
 }
 
 // requestStillHolds reports whether the charger is still set to the mode we asked for. A
@@ -1150,7 +1192,8 @@ func (c *controller) updateChargerSiteState(chargerID string, state *State) erro
 func (c *controller) checkConnection() error {
 	connected, reason := c.manager.Connected(c.chargerID)
 	if !connected {
-		return fmt.Errorf("charger %s is not connected: %s", c.chargerID, reason)
+		return router.NewError(fimptype.ErrorCodeUnavailable, "charger is not connected to Easee",
+			fmt.Errorf("charger %s: %s", c.chargerID, reason))
 	}
 
 	return nil
