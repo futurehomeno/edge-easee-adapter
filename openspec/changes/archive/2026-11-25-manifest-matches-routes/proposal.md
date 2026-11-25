@@ -17,7 +17,7 @@
   `cmd.config.get_<setting>` / `set_<setting>` routes left out.
 - The existing test in `src/cmd/manifest_internal_test.go` is replaced by one table-driven test that
   compares the manifest's interface list with the table of routed messages, both ways.
-- The packaged manifest's `services[0].interfaces` is rewritten to that table: 41 entries instead of 18.
+- The packaged manifest's `services[0].interfaces` is rewritten to that table: 42 entries instead of 18.
 - No runtime code changes. No route is added or removed.
 
 ## The table (cliffhanger v1.5.5, `src/internal/routing/router.go`)
@@ -53,6 +53,7 @@ Routed by: D = `bootstrap.DefaultRoute` (config report + `debug.Route`), A = `ap
 | in `cmd.config.get_report` null / out `evt.config.report` object | no | D | add |
 | in `cmd.network.reset` null / out `evt.network.reset_done` null | no | N | add |
 | in `cmd.ping.send` string / out `evt.ping.report` object | no | N | add |
+| out `evt.error.report` string | no | D, A, N: the reply of `router.NewMessageHandler` when a handler returns an error (no route uses `WithSilentErrors`) | add (PR 244 review) |
 | in `cmd.log.get_format`, `get_file`, `get_revert_timeout` null; in `set_format`, `set_file`, `set_revert_timeout` string; out `evt.log.format_report`, `file_report`, `revert_timeout_report` string | no | D | add (decision 2) |
 | `cmd.config.get_<setting>` / `set_<setting>` / `evt.config.<setting>_report` for the 18 settings of `router.go` and the 3 telemetry settings (63 messages) | no | yes | leave out (decision 1) |
 

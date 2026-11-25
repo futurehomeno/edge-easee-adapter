@@ -29,4 +29,4 @@ What would close it: decide which messages the manifest must list. Then remove o
 two full-state entries, add the routed ones, extend the `app-manifest` spec with them and the
 manifest test in `src/cmd/manifest_internal_test.go`.
 
-Resolved: 2026-11-25, OpenSpec change `manifest-matches-routes` (archived as `2026-11-25-manifest-matches-routes`): the manifest declares the 41 messages routed on the app service, and `TestPackagedManifest_DeclaresExactlyTheRoutedInterfaces` compares the list with the routes both ways.
+Resolved: 2026-11-25, OpenSpec change `manifest-matches-routes` (archived as `2026-11-25-manifest-matches-routes`): the manifest declares the 42 messages routed on the app service, and `TestPackagedManifest_DeclaresExactlyTheRoutedInterfaces` compares the list with the routes both ways.

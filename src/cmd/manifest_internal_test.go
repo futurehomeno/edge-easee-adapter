@@ -10,6 +10,7 @@ import (
 	cliffConfig "github.com/futurehomeno/cliffhanger/config"
 	"github.com/futurehomeno/cliffhanger/debug"
 	"github.com/futurehomeno/cliffhanger/manifest"
+	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,5 +76,7 @@ func TestPackagedManifest_DeclaresExactlyTheRoutedInterfaces(t *testing.T) {
 		cliffAdapter.EvtNetworkAllNodesReport:   "out object",
 		cliffAdapter.CmdPingSend:                "in string",
 		cliffAdapter.EvtPingReport:              "out object",
+		// router.NewMessageHandler: the reply of every route above whose processor returns an error
+		router.EvtErrorReport: "out string",
 	}, declared)
 }

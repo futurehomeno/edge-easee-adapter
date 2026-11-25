@@ -28,7 +28,7 @@ one checks the same five among the rest, so replacing it follows from the modifi
             cliffConfig.CmdConfigGetReport: "in null",
             cliffConfig.EvtConfigReport:    "out object",
             debug.CmdLogGetLevel:           "in null",
-            // ... the 41 rows of the proposal's table, grouped per route bundle
+            // ... the 42 rows of the proposal's table, grouped per route bundle
         }, declared)
     }
 

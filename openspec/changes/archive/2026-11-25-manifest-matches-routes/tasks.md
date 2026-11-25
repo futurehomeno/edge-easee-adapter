@@ -1,7 +1,7 @@
 # Tasks
 
 ## 1. Test first
-- [x] 1.1 In `src/cmd/manifest_internal_test.go`, replace `TestPackagedManifest_DeclaresRoutedLogAndNodeInterfaces` with `TestPackagedManifest_DeclaresExactlyTheRoutedInterfaces`: the table of the proposal (41 messages, names from cliffhanger constants), compared with `services[0].interfaces` of the packaged manifest, plus the check that no message is declared twice
+- [x] 1.1 In `src/cmd/manifest_internal_test.go`, replace `TestPackagedManifest_DeclaresRoutedLogAndNodeInterfaces` with `TestPackagedManifest_DeclaresExactlyTheRoutedInterfaces`: the table of the proposal (42 messages, names from cliffhanger constants), compared with `services[0].interfaces` of the packaged manifest, plus the check that no message is declared twice
 - [x] 1.2 Run `cd src && go test ./cmd -run TestPackagedManifest_DeclaresExactlyTheRoutedInterfaces`; it fails for the expected reason: the diff shows `cmd.app.get_full_state`, `cmd.app.full_state_report`, `cmd.auth.set_tokens`, `cmd.thing.inclusion` and `evt.auth.login_report` only in the manifest, `cmd.thing.delete` with value type `string`, and the 28 routed messages missing
 
 ## 2. Manifest

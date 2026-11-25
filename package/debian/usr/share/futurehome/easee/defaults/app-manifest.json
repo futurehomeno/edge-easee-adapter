@@ -299,6 +299,12 @@
           "msg_t": "evt.ping.report",
           "val_t": "object",
           "ver": "1"
+        },
+        {
+          "intf_t": "out",
+          "msg_t": "evt.error.report",
+          "val_t": "string",
+          "ver": "1"
         }
       ]
     }
