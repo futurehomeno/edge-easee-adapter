@@ -252,7 +252,9 @@ other failure is left to the backoff. An exchange SHALL log in at most once.
 ### Requirement: Stored Password Encrypted
 The credential store SHALL write the username and password to the secrets file encrypted with
 AES-256-GCM under a key built into the adapter, and SHALL read back a plain-text value written by an
-earlier version. A value that does not decrypt SHALL read as empty without failing the load.
+earlier version. A value that does not decrypt SHALL read as empty without failing the load. A load that leaves the
+username empty SHALL drop the password too, so a username that did not decrypt never sends a re-login with an empty
+one.
 
 #### Scenario: Secrets file holds no plain password
 - **WHEN** credentials with a username and password are saved
@@ -265,6 +267,10 @@ earlier version. A value that does not decrypt SHALL read as empty without faili
 #### Scenario: Password that does not decrypt
 - **WHEN** the stored password cannot be decrypted
 - **THEN** loading keeps the tokens and reads the password as empty
+
+#### Scenario: Username that does not decrypt
+- **WHEN** the stored username cannot be decrypted and the password can
+- **THEN** loading keeps the tokens and reads both the username and the password as empty
 
 #### Scenario: Plain-text secrets sealed at startup
 - **WHEN** the adapter starts with a secrets file, or its backup, holding a plain-text username or password

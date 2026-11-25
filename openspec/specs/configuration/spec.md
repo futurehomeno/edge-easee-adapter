@@ -302,7 +302,8 @@ tokens. The start SHALL continue, so a corrupt file does not cause a restart loo
 
 When `data/secrets.json` cannot be loaded but its backup can, the storage decodes the backup over the fields the
 primary already filled, without clearing them, and the adapter starts with that mix: the backup's credentials plus any
-field only the primary set.
+field only the primary set, except a password left without a username, which every load drops (cloud-authentication,
+Stored Password Encrypted).
 
 One start differs: when the configuration is still at version 5 and carries credentials, the migration to version 6
 finds the emptied store and saves those credentials as a new secrets file, the unreadable one becoming its backup,
