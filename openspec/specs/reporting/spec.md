@@ -241,7 +241,7 @@ Observations that pass SHALL be enqueued, and the manager SHALL emit at most one
 - **THEN** it is enqueued and reported subject to the configured interval
 
 ### Requirement: Periodic Reporting Task
-A car-charger reporting task SHALL run on `polling_interval` (default 10m) and SHALL be gated on the
+A car-charger reporting task SHALL run on `polling_interval` (default 20m) and SHALL be gated on the
 app being connected, so that polling stops while the app reports a disconnected state.
 
 #### Scenario: app connected

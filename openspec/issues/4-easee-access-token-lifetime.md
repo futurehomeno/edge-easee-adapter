@@ -13,3 +13,20 @@ Open:
   settle it from field logs.
 - Does Easee check the token on each hub invocation (the inferred cause), or something else?
 - Correct the `reloginLead` comment once the lifetime is known.
+
+3.3.1 beta (rollo logs 2026-11-19), hub ac369a68: during charging, the first refusal came 51-68 min after the
+previous one. Once it came only 27 min after a network reconnect (03:12:44 -> 03:39:33). That fits a ~1 h
+token that was already ~30 min old when the reconnect picked it up, not the age of the connection. Hub
+8ee88ca8 16:47:55-16:50:10: on one connection with one token, EH152843 was accepted at once. EUFLF683 was
+refused for 2 min and then accepted, with no login, refresh or reconnect in between. So the refusal of
+that one charger on the fresh connection is Easee's doing, not a missing login.
+
+## Status 2026-11-25
+
+Done: since PR #223 (change `log-access-token-lifetime`) every login and refresh logs
+`[auth] Access token expiresIn=<n>s expiresAt=<time>` at info level (`src/internal/api/http.go:172`),
+so field logs can answer the first open point.
+
+Still open: no lifetime read from that line is recorded here yet, so the real lifetime is unknown; the
+cause of the refusal is still inferred; the `reloginLead` comment still calls it a 24h token
+(`src/internal/api/authenticator.go:29`).

@@ -1,4 +1,4 @@
-# 37: auto charging on plug-in could be a FIMP parameter, as on the FH charger
+# 47: auto charging on plug-in could be a FIMP parameter, as on the FH charger
 
 ## What happened
 

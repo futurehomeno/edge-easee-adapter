@@ -1,3 +1,9 @@
+## Archived with one task open
+
+Archived on 2026-11-25 with the last task open: the check on a real charger and car needs hardware,
+and the code and its tests are merged. That check now lives in issue 25
+(`openspec/issues/25-locked-3-phases-unverified-on-hardware.md`).
+
 - [x] `ToEaseePhaseMode` takes `lock3` and answers 3 instead of auto; single legs stay 1 (test first)
 - [x] `SessionInProgress` on FIMP states (test first)
 - [x] `use_locked_3_phases` setting, default false, getter and setter, packaged default (test first)
