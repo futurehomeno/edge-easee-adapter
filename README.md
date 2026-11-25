@@ -36,9 +36,22 @@ Message:
 Topic: `pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:10`
 
 The optional `charging_mode` property selects the start current: `"slow"` starts at
-`slowChargingCurrentInAmperes` when set; every other start, with or without a mode, starts at no
-less than `initial_charging_current`, capped at the charger's max current. A start without a mode
-keeps the current of a session that was started slow.
+`slowChargingCurrentInAmperes` when set. Every other start, with or without a mode, depends on the
+session:
+
+- The session start, before the charger has charged since the car was connected, starts at no less
+  than `initial_charging_current`; with no current set yet, at the charger's max current.
+- A resume, any later start in the session (after a stop or an energy manager's pause), starts at
+  the current in force before the pause, never raised to `initial_charging_current`.
+- A start after the adapter paused the charger for a current below `min_charging_current`, in the
+  same session, or after a user stop that kept such a current, starts at `initial_charging_current`,
+  and not below `min_charging_current`.
+
+A session ends when the charger reports disconnected, completed, error, offline, unknown, awaiting
+authentication or de-authenticating; the next start is a session start again.
+
+The charger's max current caps every start. A start without a mode keeps the current of a session
+that was started slow.
 ```json =
 {
 "corid": null,

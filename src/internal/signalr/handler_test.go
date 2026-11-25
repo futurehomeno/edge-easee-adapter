@@ -58,13 +58,20 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 	stale := time.Now().Add(-time.Hour)
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, stale)
 	cacheMock.On("SetChargerState", chargepoint.StateDisconnected, stale).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.MatchedBy(func(ts time.Time) bool {
 		return ts.After(stale)
 	})).Return(true)
 
-	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil)
+	unplugged := false
+	endSession := func(u bool) {
+		unplugged = u
+		cacheMock.AssertNotCalled(t, "SetRequestedOfferedCurrent", 0, mock.Anything)
+	}
+
+	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil, endSession)
 	require.NoError(t, err)
 
 	require.Error(t, handler.HandleObservation(model.Observation{
@@ -74,6 +81,7 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 		Timestamp: stale,
 		Value:     strconv.Itoa(int(model.ChargerStateDisconnected)),
 	}))
+	assert.True(t, unplugged)
 }
 
 // A re-sync replays the snapshot with the timestamps already cached; that is no new end of a
@@ -87,7 +95,7 @@ func TestObservationsHandler_ReplayedSessionFinishedKeepsRequestedCurrent(t *tes
 	cacheMock.On("ChargerState").Return(chargepoint.StateFinished, at)
 	cacheMock.On("SetChargerState", chargepoint.StateFinished, at).Return(true)
 
-	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	require.Error(t, handler.HandleObservation(model.Observation{
@@ -222,7 +230,7 @@ func TestObservationsHandler_OutputPhaseStoreWriteStaysOffTheDrain(t *testing.T)
 
 	store := &fakePhaseStore{mode: types.PhaseModeL1L2, block: make(chan struct{}), err: assert.AnError}
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store, nil)
 	require.NoError(t, err)
 
 	handled := make(chan error, 1)
@@ -271,7 +279,7 @@ func TestObservationsHandler_OutputPhaseReportDoesNotWaitForTheStoreWrite(t *tes
 
 	store := &fakePhaseStore{mode: types.PhaseModeL1L2, block: make(chan struct{})}
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -318,7 +326,7 @@ func TestObservationsHandler_OutputPhaseKeepsEveryLegAdvertised(t *testing.T) {
 	thing := &phaseThing{srv: srv}
 	store := &fakePhaseStore{mode: types.PhaseModeL1L2}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -359,7 +367,7 @@ func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
 
 	store := &fakePhaseStore{}
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -391,7 +399,7 @@ func TestObservationsHandler_PhaseModeRepeatKeepsItsTimestamp(t *testing.T) {
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, phases, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, phases, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	for _, obs := range []struct {
@@ -439,7 +447,7 @@ func TestObservationsHandler_NoPhaseModesSendsNoPhaseModeReport(t *testing.T) {
 	})
 	store := &fakePhaseStore{}
 
-	handler, err := signalr.NewObservationsHandler(chargepointThing{srv: srv}, cache.NewCache(testChargerID), nil, nil, testChargerID, store)
+	handler, err := signalr.NewObservationsHandler(chargepointThing{srv: srv}, cache.NewCache(testChargerID), nil, nil, testChargerID, store, nil)
 	require.NoError(t, err)
 
 	for _, obs := range []struct {
@@ -471,6 +479,7 @@ func TestObservationsHandler_OfflineStateIsReportedBeforeTheFlagFlips(t *testing
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", chargepoint.StateUnknown, now).Return(true)
 	// Offline counts as a finished session, so the requested current is cleared on the way.
@@ -479,7 +488,7 @@ func TestObservationsHandler_OfflineStateIsReportedBeforeTheFlagFlips(t *testing
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	// isCloudOnline starts true, so the handler is online until this observation lands.
@@ -513,6 +522,7 @@ func TestObservationsHandler_RecoveryStateIsReportedWhileAlreadyOnline(t *testin
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", chargepoint.StateUnknown, now).Return(true)
 	cacheMock.On("SetChargerState", chargepoint.StateSuspendedByEV, now).Return(true)
@@ -520,7 +530,7 @@ func TestObservationsHandler_RecoveryStateIsReportedWhileAlreadyOnline(t *testin
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	// Drive it offline first, so the recovery below is a real transition. The sender publishes
@@ -589,7 +599,7 @@ func TestObservationsHandler_ZeroPhaseFaultKeepsTheChargepointProps(t *testing.T
 
 			thing := &phaseThing{srv: srv}
 
-			handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+			handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 			require.NoError(t, err)
 
 			require.NoError(t, handler.HandleObservation(model.Observation{
@@ -630,7 +640,7 @@ func TestObservationsHandler_TopologyAfterZeroPhaseFaultStillRepublishes(t *test
 
 	thing := &phaseThing{srv: srv}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	for _, gridType := range []model.GridType{model.GridTypeErrorTN400VNeutralOnWrongPin, model.GridTypeIT1Phase} {
@@ -674,7 +684,7 @@ func TestObservationsHandler_FaultGridTypeKeepsTheChargepointProps(t *testing.T)
 
 	thing := &phaseThing{srv: srv}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -730,7 +740,7 @@ func TestObservationsHandler_FaultyGridTypeWarnsOnChange(t *testing.T) {
 			cacheMock.On("GridType").Return(types.GridTypeTN, now)
 			cacheMock.On("Phases").Return(1, now)
 
-			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: mockedchargepoint.NewService(t)}, cacheMock, nil, nil, testChargerID, nil)
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: mockedchargepoint.NewService(t)}, cacheMock, nil, nil, testChargerID, nil, nil)
 			require.NoError(t, err)
 
 			for _, o := range tt.obs {
@@ -774,6 +784,7 @@ func TestObservationsHandler_ReportsDoNotBlockTheDrain(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now)
 	cacheMock.On("SetChargerState", chargepoint.StateCharging, now).Return(true)
 	cacheMock.On("OfferedCurrent").Return(0, now)
@@ -790,7 +801,7 @@ func TestObservationsHandler_ReportsDoNotBlockTheDrain(t *testing.T) {
 	srv.On("SendStateReport", false).Run(func(mock.Arguments) { <-commandDone }).Return(true, nil).Maybe()
 	srv.On("SendCurrentSessionReport", false).Return(true, nil).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	defer func() {
@@ -830,6 +841,7 @@ func TestObservationsHandler_CloseWaitsForTheSender(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now)
 	cacheMock.On("SetChargerState", chargepoint.StateCharging, now).Return(true)
 
@@ -839,7 +851,7 @@ func TestObservationsHandler_CloseWaitsForTheSender(t *testing.T) {
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 	srv.On("SendStateReport", false).Run(func(mock.Arguments) { <-release }).Return(true, nil).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -877,6 +889,7 @@ func TestObservationsHandler_CloseRacingADispatch(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now).Maybe()
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true).Maybe()
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
@@ -885,7 +898,7 @@ func TestObservationsHandler_CloseRacingADispatch(t *testing.T) {
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 	srv.On("SendStateReport", false).Return(true, nil).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -918,6 +931,7 @@ func TestObservationsHandler_DroppedStateTransitionStillMovesTheFlag(t *testing.
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
@@ -926,7 +940,7 @@ func TestObservationsHandler_DroppedStateTransitionStillMovesTheFlag(t *testing.
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	observe := func(id model.ObservationID, dataType model.ObservationDataType, value string) {
@@ -1010,6 +1024,7 @@ func TestObservationsHandler_AlarmReportsDoNotBlockTheDrain(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("AlarmActive", alarm.EventOtherChargeErr).Return(false).Maybe()
 	cacheMock.On("SetAlarm", alarm.EventOtherChargeErr, true, now).Return(true)
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now).Maybe()
@@ -1031,7 +1046,7 @@ func TestObservationsHandler_AlarmReportsDoNotBlockTheDrain(t *testing.T) {
 	cp.On("SendStateReport", false).Return(true, nil).Maybe()
 
 	handler, err := signalr.NewObservationsHandler(
-		&alarmThing{cp: cp, alarm: alarmSrv}, cacheMock, nil, nil, testChargerID, nil)
+		&alarmThing{cp: cp, alarm: alarmSrv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	defer func() {
@@ -1069,6 +1084,7 @@ func TestObservationsHandler_InclusionReportsDoNotBlockTheDrain(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("GridType").Return(types.GridTypeTN, now).Maybe()
 	cacheMock.On("Phases").Return(1, now).Maybe()
 	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 3, now).Return(true)
@@ -1092,7 +1108,7 @@ func TestObservationsHandler_InclusionReportsDoNotBlockTheDrain(t *testing.T) {
 
 	thing := &alarmThing{cp: cp, alarm: alarmSrv, inclusionBlock: release}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	defer func() {
@@ -1177,7 +1193,7 @@ func TestObservationsHandler_PhaseCurrentsFollowTheGridType(t *testing.T) {
 			}
 
 			handler, err := signalr.NewObservationsHandler(
-				&meterThing{cp: cp, meter: meter}, phases, nil, nil, testChargerID, nil)
+				&meterThing{cp: cp, meter: meter}, phases, nil, nil, testChargerID, nil, nil)
 			require.NoError(t, err)
 
 			for i, id := range []model.ObservationID{model.InCurrentT2, model.InCurrentT3, model.InCurrentT4, model.InCurrentT5} {
@@ -1214,7 +1230,7 @@ func TestObservationsHandler_NeutralCurrentReadsTheGridTypeOnce(t *testing.T) {
 		chargepoint.PropertyGridType: types.GridTypeTN,
 	}}).Once()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: cp}, mockedcache.NewCache(t), nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: cp}, mockedcache.NewCache(t), nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	for _, value := range []string{"1", "2"} {
@@ -1242,7 +1258,7 @@ func TestObservationsHandler_PhaseCurrentsFollowATopologyChange(t *testing.T) {
 	meter.On("Name").Return(numericmeter.MeterElec).Maybe()
 	meter.On("SendMeterExtendedReport", numericmeter.Values{numericmeter.ValueCurrentPhase1}, false).Return(true, nil).Once()
 
-	handler, err := signalr.NewObservationsHandler(&meterThing{cp: cp, meter: meter}, phases, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&meterThing{cp: cp, meter: meter}, phases, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	for _, o := range []model.Observation{
@@ -1290,7 +1306,7 @@ func TestObservationsHandler_CloseStopsTheEnergyGoroutine(t *testing.T) {
 	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
 
 	handler, err := signalr.NewObservationsHandler(
-		&meterThing{cp: cp, meter: meter}, cacheMock, cfgSrv, nil, testChargerID, nil)
+		&meterThing{cp: cp, meter: meter}, cacheMock, cfgSrv, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	// Starts the energy goroutine and its timer.
@@ -1344,7 +1360,7 @@ func TestObservationsHandler_CloseStopsTheEnergyGoroutineBeforeDrainingReports(t
 		Run(func(mock.Arguments) { <-release }).Return(true, nil).Maybe()
 
 	handler, err := signalr.NewObservationsHandler(
-		&meterThing{cp: cp, meter: meter}, cacheMock, cfgSrv, nil, testChargerID, nil)
+		&meterThing{cp: cp, meter: meter}, cacheMock, cfgSrv, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	// Starts the energy goroutine and its timer.
@@ -1432,7 +1448,7 @@ func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
 	// The first inclusion report fails; the second must still be attempted.
 	thing := &phaseThing{srv: srv, fail: 1}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	obs := model.Observation{
@@ -1509,7 +1525,7 @@ func TestObservationsHandler_TN2PhaseVariantRefreshesTheModes(t *testing.T) {
 
 			thing := &phaseThing{srv: srv}
 
-			handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, &fakePhaseStore{gridType: tt.created})
+			handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, &fakePhaseStore{gridType: tt.created}, nil)
 			require.NoError(t, err)
 
 			require.NoError(t, handler.HandleObservation(model.Observation{
@@ -1559,7 +1575,7 @@ func TestObservationsHandler_DroppedPin235RepublishIsRetried(t *testing.T) {
 
 	thing := &phaseThing{srv: srv, fail: 1}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, &fakePhaseStore{gridType: model.GridTypeTN2PhasePin23})
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, &fakePhaseStore{gridType: model.GridTypeTN2PhasePin23}, nil)
 	require.NoError(t, err)
 
 	obs := model.Observation{
@@ -1608,7 +1624,7 @@ func TestObservationsHandler_OutdatedTopologyKeepsProps(t *testing.T) {
 
 	thing := &phaseThing{srv: srv}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -1642,7 +1658,7 @@ func TestObservationsHandler_TopologyOlderThanPendingKeepsProps(t *testing.T) {
 	block := make(chan struct{})
 	thing := &phaseThing{srv: srv, block: block}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	for _, obs := range []struct {
@@ -1679,7 +1695,7 @@ func TestObservationsHandler_TopologyOlderThanUnchangedKeepsProps(t *testing.T) 
 
 	thing := &phaseThing{srv: srv}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	for _, obs := range []struct {
@@ -1706,7 +1722,7 @@ func TestObservationsHandler_CloudConnectedFlipSendsConnectivityReport(t *testin
 
 	thing := &phaseThing{}
 
-	handler, err := signalr.NewObservationsHandler(thing, mockedcache.NewCache(t), nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, mockedcache.NewCache(t), nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	thing.online = handler.IsOnline
@@ -1733,6 +1749,7 @@ func TestObservationsHandler_StateOnlineFlipSendsConnectivityReport(t *testing.T
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
@@ -1743,7 +1760,7 @@ func TestObservationsHandler_StateOnlineFlipSendsConnectivityReport(t *testing.T
 
 	thing := &phaseThing{srv: srv}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	thing.online = handler.IsOnline
@@ -1786,7 +1803,7 @@ func TestObservationsHandler_OutputPhaseUsesPendingTopology(t *testing.T) {
 	thing := &phaseThing{srv: srv, block: block}
 	store := &fakePhaseStore{}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -1833,7 +1850,7 @@ func TestObservationsHandler_FailedMeterReportStillSendsTheStateReport(t *testin
 	meter.On("SendMeterReport", numericmeter.UnitW, false).Return(false, assert.AnError).Once()
 	meter.On("SendMeterExtendedReport", numericmeter.Values{numericmeter.ValuePowerImport}, false).Return(true, nil).Once()
 
-	handler, err := signalr.NewObservationsHandler(&meterThing{cp: cp, meter: meter}, c, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&meterThing{cp: cp, meter: meter}, c, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -1865,7 +1882,7 @@ func TestObservationsHandler_PowerBeforeAnyChargerStateSendsNoStateReport(t *tes
 	meter.On("SendMeterExtendedReport", numericmeter.Values{numericmeter.ValuePowerImport}, false).Return(true, nil).Once()
 
 	handler, err := signalr.NewObservationsHandler(
-		&meterThing{cp: cp, meter: meter}, cache.NewCache(testChargerID), nil, nil, testChargerID, nil)
+		&meterThing{cp: cp, meter: meter}, cache.NewCache(testChargerID), nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -1932,7 +1949,7 @@ func TestObservationsHandler_ChargerStateMovesTheThreePhaseLock(t *testing.T) {
 			cfg.UseLocked3Phases = tt.lock
 			confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
 
-			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
 			require.NoError(t, err)
 
 			require.NoError(t, handler.HandleObservation(model.Observation{
@@ -1970,7 +1987,7 @@ func TestObservationsHandler_SettingTurnedOffReleasesTheLockAtTheSessionEnd(t *t
 	cfg.UseLocked3Phases = true
 	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	observe := func(state model.ChargerState) {
@@ -2015,7 +2032,7 @@ func TestObservationsHandler_LockPlacedAfterTheSessionStartIsReleasedAtItsEnd(t 
 
 	confSrv := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	observe := func(id model.ObservationID, value int) {
@@ -2049,13 +2066,15 @@ func TestObservationsHandler_ModeThreeSetElsewhereAfterAReleaseIsLeftAlone(t *te
 	srv.On("SendStateReport", false).Return(true, nil).Maybe()
 	srv.On("IsPhaseModeAware").Return(true).Maybe()
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
-	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Maybe()
+	var released atomic.Bool
+
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Run(func(mock.Arguments) { released.Store(true) }).Maybe()
 
 	cfg := &config.Config{}
 	cfg.UseLocked3Phases = true
 	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	observe := func(id model.ObservationID, value int) {
@@ -2066,6 +2085,7 @@ func TestObservationsHandler_ModeThreeSetElsewhereAfterAReleaseIsLeftAlone(t *te
 	}
 
 	observe(model.ChargerOPState, int(model.ChargerStateDisconnected))
+	waitFor(t, released.Load)
 	observe(model.PhaseMode, model.EaseePhaseModeAuto)
 	require.NoError(t, confSrv.SetUseLocked3Phases(false))
 	observe(model.PhaseMode, model.EaseePhaseModeLock3)
@@ -2097,7 +2117,7 @@ func TestObservationsHandler_FailedReleaseIsAskedAgain(t *testing.T) {
 	cfg.UseLocked3Phases = true
 	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	observe := func(state model.ChargerState) {
@@ -2140,7 +2160,7 @@ func TestObservationsHandler_ReleaseSkippedOnAOneModeTopologyIsAskedAgain(t *tes
 	cfg.UseLocked3Phases = true
 	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	observe := func(state model.ChargerState) {
@@ -2198,7 +2218,7 @@ func TestObservationsHandler_SinglePhaseSetWhileTheLockWaitsIsLeftAlone(t *testi
 			cfg.UseLocked3Phases = true
 			confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
 
-			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
 			require.NoError(t, err)
 
 			observe := func(id model.ObservationID, value int) {
@@ -2254,7 +2274,7 @@ func TestObservationsHandler_OnlyAnAcceptedModeThreeIsTheAdapters(t *testing.T) 
 			cfg.UseLocked3Phases = true
 			confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
 
-			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil)
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
 			require.NoError(t, err)
 
 			observe := func(id model.ObservationID, value int, at time.Time) {
@@ -2315,7 +2335,7 @@ func TestObservationsHandler_ChargerStateAfterTheStopEndsAUserStop(t *testing.T)
 			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 			srv.On("SendStateReport", false).Return(true, nil).Maybe()
 
-			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, nil, storage, testChargerID, nil)
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, nil, storage, testChargerID, nil, nil)
 			require.NoError(t, err)
 
 			require.NoError(t, handler.HandleObservation(model.Observation{
@@ -2327,6 +2347,57 @@ func TestObservationsHandler_ChargerStateAfterTheStopEndsAUserStop(t *testing.T)
 			at, err := storage.UserStop(testChargerID)
 			require.NoError(t, err)
 			assert.Equal(t, tt.ends, at.IsZero())
+		})
+	}
+}
+
+func TestObservationsHandler_ChargerStateTellsWhetherTheSessionCharged(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		charged bool
+		state   model.ChargerState
+		want    bool
+		ended   []bool
+	}{
+		{"charging", false, model.ChargerStateCharging, true, nil},
+		{"waiting for the first start", false, model.ChargerStateAwaitingStart, false, nil},
+		{"paused", true, model.ChargerStateAwaitingStart, true, nil},
+		{"paused by the car", true, model.ChargerStateReadyToCharge, true, nil},
+		{"unplugged", true, model.ChargerStateDisconnected, false, []bool{true}},
+		{"completed", true, model.ChargerStateCompleted, false, []bool{false}},
+		{"offline", true, model.ChargerStateOffline, false, []bool{false}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observed := time.Now().Add(-time.Hour)
+
+			c := cache.NewCache(testChargerID)
+			c.SetChargerState(chargepoint.StateReadyToCharge, observed)
+			c.SetSessionCharged(tt.charged, observed)
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("SendStateReport", false).Return(true, nil).Maybe()
+
+			var ended []bool
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, nil, nil, testChargerID, nil,
+				func(unplugged bool) { ended = append(ended, unplugged) })
+			require.NoError(t, err)
+
+			require.NoError(t, handler.HandleObservation(model.Observation{
+				ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+				Timestamp: time.Now(), Value: strconv.Itoa(int(tt.state)),
+			}))
+			flushReports(t, handler)
+
+			assert.Equal(t, tt.want, c.SessionCharged())
+			assert.Equal(t, tt.ended, ended)
 		})
 	}
 }

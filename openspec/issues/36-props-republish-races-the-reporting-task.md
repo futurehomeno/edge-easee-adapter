@@ -11,3 +11,8 @@ those two stacks.
 
 Closes when the props are replaced through a path cliffhanger synchronises (or the reporting task cannot run during
 the republish), and the loop above passes.
+
+Seen again in CI on PR 240 (run 45398162517, 2026-11-24, commit 6a2adce), in `TestEaseeAdapter/Inclusion report
+updated - different grid type`: the read side was `chargepoint.(*service).SendMaxCurrentReport` on the handler's sender
+goroutine. The run on the next commit passed.
+Seen again on PR 240 run 45419346856 (commit 9c1a7c8), the same two stacks; the rerun passed.

@@ -53,6 +53,7 @@ type observationsHandler struct {
 	chargerID      string
 	storedObs      map[model.ObservationID]model.Observation
 	phaseStore     PhaseStore
+	endSession     func(unplugged bool)
 	confSrv        *config.Service
 	lockWasOn      atomic.Bool
 	inSession      bool
@@ -92,6 +93,7 @@ func NewObservationsHandler(
 	sessionStorage db.ChargingSessionStorage,
 	chargerID string,
 	phaseStore PhaseStore,
+	endSession func(unplugged bool),
 ) (Handler, error) {
 	handler := observationsHandler{
 		cache:          cache,
@@ -101,6 +103,7 @@ func NewObservationsHandler(
 		chargerID:      chargerID,
 		storedObs:      make(map[model.ObservationID]model.Observation),
 		phaseStore:     phaseStore,
+		endSession:     endSession,
 		confSrv:        confSrv,
 		reports:        make(chan func() error, reportQueueSize),
 	}
@@ -425,6 +428,21 @@ func (h *observationsHandler) handleCableRating(observation model.Observation) e
 	return nil
 }
 
+func (h *observationsHandler) trackSession(state model.ChargerState, fresh bool, at time.Time) {
+	if state.IsSessionFinished() && fresh {
+		if h.endSession != nil {
+			h.endSession(state == model.ChargerStateDisconnected)
+		}
+
+		h.cache.SetRequestedOfferedCurrent(0, time.Now())
+		h.cache.SetSessionCharged(false, at)
+	}
+
+	if state == model.ChargerStateCharging {
+		h.cache.SetSessionCharged(true, at)
+	}
+}
+
 func (h *observationsHandler) handleChargerState(observation model.Observation) error {
 	val, err := observation.IntValue()
 	if err != nil {
@@ -447,9 +465,7 @@ func (h *observationsHandler) handleChargerState(observation model.Observation) 
 		return nil
 	}
 
-	if state.IsSessionFinished() && (changed || observation.Timestamp.After(prevAt)) {
-		h.cache.SetRequestedOfferedCurrent(0, time.Now())
-	}
+	h.trackSession(state, changed || observation.Timestamp.After(prevAt), observation.Timestamp)
 
 	ended := state == model.ChargerStateDisconnected || (changed && state.ToFimpState() == chargepoint.StateCharging)
 	if ended && h.sessionStorage != nil {

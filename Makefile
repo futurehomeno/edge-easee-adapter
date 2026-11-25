@@ -10,7 +10,7 @@ endef
 
 SHELL := /bin/bash
 
-VERSION := 3.4.2
+VERSION := 3.4.3
 APP_NAME := easee
 
 ARCH ?= armhf

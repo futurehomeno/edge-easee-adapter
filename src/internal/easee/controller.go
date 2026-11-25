@@ -50,6 +50,7 @@ type Controller interface {
 	numericmeter.ExtendedReporter
 	alarm.Reporter
 	UpdateState(chargerID string, state *State) error
+	EndSession(unplugged bool)
 	Teardown()
 }
 
@@ -118,6 +119,8 @@ type controller struct {
 	// offeredPause marks a pause made for a sub-minimum offered current, which the next valid one resumes. Atomic: a
 	// value under 6 A arrives through the routing divert, outside the chargepoint service lock.
 	offeredPause atomic.Bool
+	// sessionEnds counts session ends, so a command running across one does not put back what the end forgot.
+	sessionEnds atomic.Uint64
 	// closed is set by Teardown. The router runs messages concurrently, so a command for the
 	// deleted charger can still arrive; it must not be sent, nor Add to inFlight under its Wait.
 	closed bool
@@ -225,22 +228,53 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 func (c *controller) Teardown() {
 	c.pace.Lock()
 
-	if c.stopTimer != nil {
-		c.stopTimer()
-		c.stopTimer = nil
-	}
+	c.dropPending()
 
 	if c.stopResync != nil {
 		c.stopResync()
 	}
 
-	c.pending = nil
-	c.followUp = nil
 	c.closed = true
 
 	c.pace.Unlock()
 
 	c.inFlight.Wait()
+}
+
+// EndSession forgets the adapter's own pause and the slow start at every session end, even when a waiting write puts a
+// current back into the cache afterwards. An unplugged car also drops a write or phase bounce still waiting in the
+// channel: sent later, it would put the finished session's current back into the cache. A charger that is only offline
+// or completed keeps the car, so the hub's last command, a cut or a bounce's resume, still goes out.
+func (c *controller) EndSession(unplugged bool) {
+	c.offeredPause.Store(false)
+
+	c.pace.Lock()
+	defer c.pace.Unlock()
+
+	c.slowSince = time.Time{}
+	// Counted after the clears: a command that reads the new count has seen them.
+	c.sessionEnds.Add(1)
+
+	if !unplugged {
+		return
+	}
+
+	if c.pending != nil {
+		log.Infof("[%s] Car unplugged, %s dropped", c.chargerID, c.pending)
+	}
+
+	c.dropPending()
+}
+
+// dropPending empties the channel's slot; the caller holds pace.
+func (c *controller) dropPending() {
+	if c.stopTimer != nil {
+		c.stopTimer()
+		c.stopTimer = nil
+	}
+
+	c.pending = nil
+	c.followUp = nil
 }
 
 // clearFollowUp drops a pair's second half when the first never reached Easee. Armed before the
@@ -251,17 +285,9 @@ func (c *controller) clearFollowUp(follow *chargerCommand) {
 	c.pace.Lock()
 	defer c.pace.Unlock()
 
-	if c.pending != follow {
-		return
+	if c.pending == follow {
+		c.dropPending()
 	}
-
-	if c.stopTimer != nil {
-		c.stopTimer()
-		c.stopTimer = nil
-	}
-
-	c.pending = nil
-	c.followUp = nil
 }
 
 // pendingDiffers reports whether the slot holds a current this write would supersede.
@@ -327,10 +353,13 @@ func (c *controller) send(cmd chargerCommand) error {
 
 	var err error
 
+	// Stamped when the write leaves, so a session end cleared while Easee answers stays the newer value.
+	at := clock.Now()
+
 	if cmd.stop {
 		err = c.client.StopCharging(c.chargerID)
 	} else if err = c.client.UpdateDynamicCurrent(c.chargerID, float64(cmd.current)); err == nil {
-		c.cache.SetRequestedOfferedCurrent(cmd.current, clock.Now())
+		c.cache.SetRequestedOfferedCurrent(cmd.current, at)
 	}
 
 	if err == nil && (cmd.stop || cmd.start) {
@@ -749,9 +778,8 @@ func (c *controller) restartForPhaseMode(target int) error {
 		return fmt.Errorf("phase mode set to %d, but no current is known to resume at", target)
 	}
 
-	// Resumed at the session's own current rather than through StartChargepointCharging: a
-	// non-slow start floors the current to initial_charging_current, which would silently
-	// raise a slow session - its mode is not known after an adapter restart.
+	// Resumed at the session's own current rather than through StartChargepointCharging, which
+	// knows no cached current after an adapter restart and would start at the max current.
 	if _, err := c.dispatchPair(chargerCommand{stop: true}, &chargerCommand{start: true, current: c.clampToMax(resume, false)}); err != nil {
 		log.Warnf("[%s] Phase mode set, but pausing to apply it failed: %v", c.chargerID, err)
 
@@ -799,11 +827,13 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 		return nil
 	}
 
+	ends := c.sessionEnds.Load()
+
 	if current < c.cfgService.MinChargingCurrent() {
 		// Owned before the send: a value arriving during it must resume.
 		owned := c.offeredPause.Swap(true)
 		if _, err := c.dispatch(chargerCommand{stop: true}); err != nil {
-			c.offeredPause.Store(owned)
+			c.offeredPause.Store(owned && c.sessionEnds.Load() == ends)
 
 			return err
 		}
@@ -815,7 +845,7 @@ func (c *controller) SetChargepointOfferedCurrent(current int) error {
 	resume := c.offeredPause.Swap(false)
 
 	_, err = c.setOfferedCurrent(current, resume)
-	if err != nil && resume {
+	if err != nil && resume && c.sessionEnds.Load() == ends {
 		c.offeredPause.Store(true)
 	}
 
@@ -859,6 +889,7 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 
 	// A start without a mode may be a load balancer resuming the session it paused, so it keeps
 	// the session's mode.
+	ends := c.sessionEnds.Load()
 	slowSince := c.forgetEndedSlowSession()
 
 	startCurrent, _ := c.cache.RequestedOfferedCurrent()
@@ -872,6 +903,8 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	}
 
 	switch {
+	case slowSince.IsZero() && (c.offeredPause.Load() || startCurrent > 0 && startCurrent < c.cfgService.MinChargingCurrent()):
+		startCurrent = max(c.cfgService.InitialChargingCurrent(), c.cfgService.MinChargingCurrent())
 	case startCurrent <= 0:
 		// A cached offered current of 0 means "unknown" - either no load balancer ever set one, or
 		// the session-finished observation cleared it - so the charger starts at the user's max.
@@ -882,8 +915,9 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 		if startCurrent <= 0 {
 			startCurrent = maxCurrentValue
 		}
-	case slowSince.IsZero():
-		// Some cars need the higher current to start; the balancer adjusts it afterwards.
+	case slowSince.IsZero() && !c.cache.SessionCharged():
+		// Some cars need the higher current to start; the balancer adjusts it afterwards. A resume keeps the current
+		// in force, so a balancer's resume does not start above its budget (issue 42).
 		startCurrent = max(startCurrent, c.cfgService.InitialChargingCurrent())
 	}
 
@@ -919,7 +953,9 @@ func (c *controller) StartChargepointCharging(settings *chargepoint.ChargingSett
 	}
 
 	c.pace.Lock()
-	c.slowSince = slowSince
+	if c.sessionEnds.Load() == ends {
+		c.slowSince = slowSince
+	}
 	c.pace.Unlock()
 
 	// A paused charger can take well over CurrentWaitDuration to act on the resume, and waiting
