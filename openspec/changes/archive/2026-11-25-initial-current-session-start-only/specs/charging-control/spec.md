@@ -12,8 +12,8 @@ The starting current SHALL be chosen as follows. While the adapter's own pause f
 offered current is remembered (Sub-Minimum Current Pauses), or when the cached requested current is
 below `min_charging_current` (a value kept under a user stop), a start that is not slow SHALL start at
 the greater of `initial_charging_current` and `min_charging_current`, whether or not the session has
-charged, as the Zaptec adapter does (issue 44, the operator, 2026-11-24: "when below minimum, chargins
-hould start with initial_charging"). Otherwise: the cached requested offered current; if that is zero
+charged, as the Zaptec adapter does (issue 44, the operator, 2026-11-24: "when below minimum, charging
+should start with initial_charging"). Otherwise: the cached requested offered current; if that is zero
 or less — meaning unknown, either because no load balancer ever set one or because the
 session-finished observation cleared it — the cached max current instead, so installs without a power
 manager start at full current; if that is also zero — meaning the cache has not been seeded by an
@@ -52,10 +52,16 @@ shows whether the charger resumed.
   and a start arrives, with or without a mode, with an initial charging current of 16A
 - **THEN** the charger is started at 16A, a session start
 
-#### Scenario: session start floor capped by the charger maximum
+#### Scenario: start floor capped by the charger maximum
 - **WHEN** the session has not charged, a start without a mode arrives, the cached requested offered
   current is 7A, the initial charging current is 16A and the charger's max current is 10A
 - **THEN** the charger is started at 10A
+
+#### Scenario: start without a mode after a cut
+- **WHEN** a start without a mode arrives, the cached requested offered current is 7A and the initial
+  charging current is 16A
+- **THEN** the charger is started at 16A when the session has not charged, a session start, and at
+  7A when it has, a resume
 
 #### Scenario: no cached current
 - **WHEN** the cached requested offered current is zero or negative and the charger's max current is

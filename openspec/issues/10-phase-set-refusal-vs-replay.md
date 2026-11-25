@@ -57,3 +57,14 @@ and phase sends can interleave (issue 11), so only an echo of the sent mode newe
 observation the target replaced could count; a replayed or unmatched observation keeps the re-sync.
 That alone is not unique: with 2→1→2→1 sent before any echo, the echo of the second send passes for
 the fourth. A send made while an earlier send is still unechoed keeps the re-sync too.
+
+## Status 2026-11-25
+
+Done: the 15 s re-sync after a phase send (`phase-set-resync`, PR #219; `resyncDelay` in
+`src/internal/easee/controller.go:32`) and, for 15 s after a send, a request for the mode a replay
+put back is sent (`phase-set-newer-send`, PR #229).
+
+Still open: an echo slower than 15 s still opens the gap once that window lapses; the report names
+the recorded request after the replay; a pause that fails, or no current to resume at, arms no
+re-sync; and the open question at the end, whether to skip the re-sync once the echo has arrived.
+Acting on `CommandResponse` was looked at and set aside (field data above).

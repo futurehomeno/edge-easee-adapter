@@ -16,3 +16,8 @@ Seen again in CI on PR 240 (run 45398162517, 2026-11-24, commit 6a2adce), in `Te
 updated - different grid type`: the read side was `chargepoint.(*service).SendMaxCurrentReport` on the handler's sender
 goroutine. The run on the next commit passed.
 Seen again on PR 240 run 45419346856 (commit 9c1a7c8), the same two stacks; the rerun passed.
+
+## Status 2026-11-25
+
+Not fixed by PR #240: `republishChargepointProps` still assigns `service.Specification().Props`
+without a lock that cliffhanger's readers share (`src/internal/signalr/handler.go:867`). Stays open.

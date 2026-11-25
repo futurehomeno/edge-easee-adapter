@@ -8,9 +8,15 @@ older versions, and keep the Easee credentials in a store separate from the publ
 The configuration SHALL expose these settings with the following defaults when unset or unparsable:
 `pollingInterval` 20m, `token_refresh_interval` 30m, `currentWaitDuration` 3s,
 `offered_current_wait_time` 30s, `energyLifetimeInterval` 10s, `httpTimeout` 30s,
-`initial_charging_current` 16A, `auth_max_unauthorized` 2h, SignalR `connCreationTimeout` 30s,
-`keepAliveInterval2` 30s, `timeoutInterval2` 1m and `invokeTimeout` 10s. Duration settings are stored
-as strings and SHALL fall back to their default when they cannot be parsed.
+`initial_charging_current` 16A, `min_charging_current` 6A, `use_locked_3_phases` false,
+`auth_max_unauthorized` 2h, SignalR `connCreationTimeout` 30s, `keepAliveInterval2` 30s,
+`timeoutInterval2` 1m and `invokeTimeout` 10s.
+Duration settings are stored as strings and SHALL fall back to their default when they cannot be
+parsed. The `min_charging_current` setter SHALL accept 1–32 A. The `initial_charging_current` setter
+SHALL accept 6–32 A and never a value below `min_charging_current`. Setting `min_charging_current`
+above the effective `initial_charging_current` (stored or default) SHALL raise the initial current to
+the new minimum in the same update; lowering the minimum SHALL NOT change the initial current. A
+rejected value SHALL fail with a range error and leave the stored value unchanged.
 
 #### Scenario: unset duration
 - **WHEN** a duration setting is absent from the stored configuration
@@ -24,10 +30,35 @@ as strings and SHALL fall back to their default when they cannot be parsed.
 - **WHEN** `initial_charging_current` is zero or negative
 - **THEN** 16 is used
 
+#### Scenario: three-phase lock unset
+- **WHEN** `use_locked_3_phases` is absent from the stored configuration
+- **THEN** it reads false
+
+#### Scenario: minimum charging current not positive
+- **WHEN** `min_charging_current` is zero or negative
+- **THEN** 6 is used
+
+#### Scenario: out-of-range minimum charging current
+- **WHEN** 0 or 33 is written through the `min_charging_current` setter
+- **THEN** the write is rejected with a range error and the stored value is left unchanged
+
+#### Scenario: initial charging current below the minimum
+- **WHEN** `min_charging_current` is 10 and an `initial_charging_current` of 8 is written
+- **THEN** the write is rejected with a range error and the stored value is left unchanged
+
+#### Scenario: the minimum is raised above the initial charging current
+- **WHEN** `min_charging_current` is set to 20 while `initial_charging_current` is 16, stored or by default
+- **THEN** both are stored as 20 in one update
+- **AND** setting the minimum lower later leaves `initial_charging_current` at 20
+
+#### Scenario: the minimum and the initial charging current are written at the same time
+- **WHEN** `min_charging_current` 20 and `initial_charging_current` 18 are written concurrently
+- **THEN** `initial_charging_current` is stored no lower than the minimum, whichever write lands first
+
 ### Requirement: Backoff Settings
 Both the authenticator and the SignalR client SHALL be driven by a stateful backoff configured from
 initial, repeated and final durations plus an initial and repeated failure count. The authenticator
-defaults to 1m / 5m / 10m and SignalR to 5s / 30s / 10m. A failure count of zero SHALL be read as 1.
+defaults to 1m / 5m / 10m and SignalR to 60s / 5m / 30m. A failure count of zero SHALL be read as 1.
 
 #### Scenario: zero failure counts
 - **WHEN** the initial or repeated failure count is zero
@@ -35,7 +66,7 @@ defaults to 1m / 5m / 10m and SignalR to 5s / 30s / 10m. A failure count of zero
 
 #### Scenario: defaults applied
 - **WHEN** no backoff durations are configured
-- **THEN** the authenticator uses 1m / 5m / 10m and SignalR uses 5s / 30s / 10m
+- **THEN** the authenticator uses 1m / 5m / 10m and SignalR uses 60s / 5m / 30m
 
 ### Requirement: Legacy Auth Backoff Migration
 A configuration carrying the superseded `authenticatorBackoff` object SHALL have its five backoff
@@ -119,8 +150,9 @@ so the version does not advance and the next startup retries with the tokens sti
 
 ### Requirement: Configuration Routes
 The adapter SHALL expose get and set routes on the Easee service for `polling_interval`,
-`current_wait_duration`, `easee_base_url`, `slow_charging_current_in_amperes`, `http_timeout`,
-`signalr_base_url`, `signalr_conn_creation_timeout`, `signalr_keep_alive_interval`,
+`current_wait_duration`, `easee_base_url`, `slow_charging_current_in_amperes`, `use_locked_3_phases`,
+`initial_charging_current`, `min_charging_current`,
+`http_timeout`, `signalr_base_url`, `signalr_conn_creation_timeout`, `signalr_keep_alive_interval`,
 `signalr_timeout_interval`, `signalr_initial_backoff`, `signalr_repeated_backoff`,
 `signalr_final_backoff`, `signalr_initial_failure_count`, `signalr_repeated_failure_count` and
 `signalr_invoke_timeout`, alongside the framework's default route bundle.
@@ -209,4 +241,20 @@ suppression, with its window starting at startup, and SHALL run only once.
 #### Scenario: already migrated
 - **WHEN** a version 8 configuration carries a disabled telemetry block
 - **THEN** it is left disabled
+
+### Requirement: SignalR Backoff Schedule
+The packaged SignalR backoff SHALL be 60 s for 3 failures, 5 min for the next 3, then 30 min, so
+attempts after a reconnect run at 0, 60, 120, 180, 480, 780 and 1080 s and then every 30 min. The
+migration to config version 10 SHALL set all five stored SignalR backoff values (`initialBackoff`
+`60s`, `repeatedBackoff` `5m`, `finalBackoff` `30m`, `initialFailureCount` 3, `repeatedFailureCount`
+3) whatever they were, because an installed hub's stored values override the packaged defaults. A
+value set on purpose is overwritten too.
+
+#### Scenario: packaged schedule
+- **WHEN** the packaged defaults drive the SignalR backoff
+- **THEN** the delay is 60 s for failures 1-3, 5 min for failures 4-6 and 30 min from the seventh
+
+#### Scenario: older stored schedule
+- **WHEN** a version 9 configuration carries SignalR 5s / 30s / 10m with counts 2 / 3
+- **THEN** it carries 60s / 5m / 30m with counts 3 / 3 and reaches version 10
 

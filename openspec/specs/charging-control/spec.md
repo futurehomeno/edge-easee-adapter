@@ -17,19 +17,42 @@ for max current and offered current SHALL NOT apply this gate.
 
 ### Requirement: Start Charging
 `cmd.charge.start` SHALL resume the charger by writing a dynamic current, because the Easee resume
-command clears the dynamic current. The starting current SHALL be chosen as follows: the cached
-requested offered current; if that is zero or less — meaning unknown, either because no load balancer
-ever set one or because the session-finished observation cleared it — the cached max current
-instead; if that is also zero — meaning the cache has not been seeded by an observation since the
-last restart — 32A, the same ceiling the offered-current write already falls back to, so a restart
-does not leave the charger unstartable until observation 47 arrives; otherwise, for a non-slow mode,
-raised to at least `initial_charging_current` (default 16A).
-Slow mode SHALL be exempt from that floor and SHALL instead use `slowChargingCurrentInAmperes` when
-that is greater than zero, rounded to the nearest ampere. A resulting current of zero SHALL fail with
-`invalid start current`. A start Easee accepts SHALL succeed even when the charger does not echo it
-back within the current wait duration; the miss SHALL be logged at info. A paused charger can take
-well over that wait to act on the resume, and waiting longer would hold the chargepoint service lock
-that a stop or a lower current needs. The state report shows whether the charger resumed.
+command clears the dynamic current. A start SHALL be a session start when the charger has not been
+observed charging since the car was connected or since the previous session ended (the
+session-finished observation); a `set_current` before it SHALL NOT make it a resume. Every later
+start in the same session SHALL be a resume. Whether the session has charged is kept in memory: after
+an adapter restart the replayed charger state sets it again when the charger is charging.
+
+The starting current SHALL be chosen as follows. While the adapter's own pause for a sub-minimum
+offered current is remembered (Sub-Minimum Current Pauses), or when the cached requested current is
+below `min_charging_current` (a value kept under a user stop), a start that is not slow SHALL start at
+the greater of `initial_charging_current` and `min_charging_current`, whether or not the session has
+charged, as the Zaptec adapter does (issue 44, the operator, 2026-11-24: "when below minimum, charging
+should start with initial_charging"). Otherwise: the cached requested offered current; if that is zero
+or less — meaning unknown, either because no load balancer ever set one or because the
+session-finished observation cleared it — the cached max current instead, so installs without a power
+manager start at full current; if that is also zero — meaning the cache has not been seeded by an
+observation since the last restart — 32A, the same ceiling the offered-current write already falls
+back to, so a restart does not leave the charger unstartable until observation 47 arrives. A session
+start that is not slow SHALL raise a cached requested current to at least `initial_charging_current`
+(default 16A), because some cars need the higher current to start; the balancer adjusts it
+afterwards. A resume SHALL start at the cached requested current, the current in force before the
+pause, and SHALL NOT raise it to `initial_charging_current` (the operator, 2026-11-24: "initial
+current is for session start, not resume"), so a load balancer's resume does not start above the
+current it had balanced the charger to. This reverses the decision of 2026-11-23 that every start
+that is not slow starts at the initial charging current (issue 42). The charger's max current SHALL
+cap the starting current, 32A when it is not known. A start SHALL NOT otherwise check `min_charging_current`.
+
+A start without a mode SHALL keep the mode of the session it resumes: after a slow start it is not
+raised, until a start with a mode arrives or the session ends and the cached requested offered
+current is cleared. This memory is not kept across an adapter restart.
+Slow mode SHALL be exempt from the initial charging current and SHALL instead use
+`slowChargingCurrentInAmperes` when that is greater than zero, rounded to the nearest ampere. A
+resulting current of zero SHALL fail with `invalid start current`. A start Easee accepts SHALL succeed
+even when the charger does not echo it back within the current wait duration; the miss SHALL be
+logged at info. A paused charger can take well over that wait to act on the resume, and waiting
+longer would hold the chargepoint service lock that a stop or a lower current needs. The state report
+shows whether the charger resumed.
 
 #### Scenario: the charger never echoes the start back
 - **WHEN** Easee accepts the start and no observation confirms the current within the wait duration
@@ -40,20 +63,84 @@ that a stop or a lower current needs. The state report shows whether the charger
 - **THEN** the command succeeds without waiting for an echo, and the write goes out at the deadline
 
 #### Scenario: normal start with a cached current below the floor
-- **WHEN** the cached requested offered current is 10A and the initial charging current is 16A
+- **WHEN** the charger has not charged since the car was connected, a `set_current` of 8A was made
+  and a start arrives, with or without a mode, with an initial charging current of 16A
+- **THEN** the charger is started at 16A, a session start
+
+#### Scenario: start floor capped by the charger maximum
+- **WHEN** the session has not charged, a start without a mode arrives, the cached requested offered
+  current is 7A, the initial charging current is 16A and the charger's max current is 10A
+- **THEN** the charger is started at 10A
+
+#### Scenario: start without a mode after a cut
+- **WHEN** a start without a mode arrives, the cached requested offered current is 7A and the initial
+  charging current is 16A
+- **THEN** the charger is started at 16A when the session has not charged, a session start, and at
+  7A when it has, a resume
+
+#### Scenario: no cached current
+- **WHEN** the cached requested offered current is zero or negative and the charger's max current is
+  20A
+- **THEN** the charger is started at 20A, the cached max current, whether or not the session has
+  charged
+
+#### Scenario: resume after an energy-guard pause
+- **WHEN** the charger charged in this session, energy guard set 7A, stopped the charger and sends a
+  start without a mode, with an initial charging current of 16A
+- **THEN** the charger is started at 7A
+
+#### Scenario: resume after a user stop
+- **WHEN** the charger charged in this session at 10A, the user stopped it and starts it in mode
+  `normal`
+- **THEN** the charger is started at 10A
+
+#### Scenario: resume capped by the charger maximum
+- **WHEN** the session charged at 20A and the charger's max current is now 10A
+- **THEN** the resume starts at 10A
+
+#### Scenario: the next session starts again at the floor
+- **WHEN** the charger charged, the session ended, a new car was connected, a `set_current` of 8A was
+  made and a start arrives
+- **THEN** the charger is started at 16A
+
+#### Scenario: start after the adapter's own pause
+- **WHEN** the adapter paused the charger for a value below `min_charging_current` (6A), the value
+  before the pause was 10A or 20A, the initial charging current is 16A and the charger's max current
+  is 32A
+- **THEN** the start writes 16A, whether or not the session had charged
+
+#### Scenario: start after a user stop that kept a sub-minimum value
+- **WHEN** the session charged, the user stopped it, a `set_current` of 3A was kept and a start in
+  mode `normal` arrives
+- **THEN** the charger is started at 16A; with `min_charging_current` 20A and 12A kept, at 20A
+
+#### Scenario: start after the adapter's own pause with a raised minimum
+- **WHEN** `min_charging_current` is 10A, the initial charging current is 16A, the charger's max
+  current is 8A and the adapter paused the charger
+- **THEN** the start writes 8A
+
+#### Scenario: start without a mode in a slow session
+- **WHEN** the session was started in mode `slow`, the cached requested offered current is 6A and a
+  start without a mode arrives
+- **THEN** the charger is started at 6A
+
+#### Scenario: start without a mode after the slow session ended
+- **WHEN** the slow session ended, a new session that has not charged was started without a mode,
+  the cached requested offered current is 7A and a start without a mode arrives
+- **THEN** the charger is started at 16A
+
+#### Scenario: the session after a slow one begins with a current
+- **WHEN** the slow session ended, the next session's first command is a `set_current` of 7A, the
+  session has not charged, and a start without a mode arrives
 - **THEN** the charger is started at 16A
 
 #### Scenario: slow start
 - **WHEN** the mode is `slow` and `slowChargingCurrentInAmperes` is 6
-- **THEN** the charger is started at 6A, without the initial-charging-current floor
+- **THEN** the charger is started at 6A, without the initial charging current
 
 #### Scenario: slow start with no slow current configured
 - **WHEN** the mode is `slow` and `slowChargingCurrentInAmperes` is 0
 - **THEN** the cached requested offered current is used unchanged
-
-#### Scenario: no cached current
-- **WHEN** the cached requested offered current is zero or negative
-- **THEN** the cached max current is used as the starting current
 
 #### Scenario: nothing to start from
 - **WHEN** both the cached requested offered current and the cached max current are zero
@@ -74,7 +161,8 @@ leave the charger stopped.
 ### Requirement: Stop Charging
 `cmd.charge.stop` SHALL send the Easee pause-charging command through the per-charger command
 channel, stamping the channel like any other send, because Easee sets the dynamic current to zero
-on stop and ignores a dynamic-current write that follows it too closely.
+on stop and ignores a dynamic-current write that follows it too closely. It SHALL mark the charger
+user-stopped (A User Stop Holds Until A Start).
 
 #### Scenario: stop after a quiet period
 - **WHEN** no command was sent for the charger within `offered_current_wait_time`
@@ -85,8 +173,8 @@ on stop and ignores a dynamic-current write that follows it too closely.
 - **THEN** the stop is stored rather than refused, and sent at the deadline
 
 #### Scenario: write shortly after a stop
-- **WHEN** a dynamic-current write arrives within `offered_current_wait_time` of a stop
-- **THEN** it is stored and sent at the deadline the stop opened
+- **WHEN** a `cmd.charge.start` arrives within `offered_current_wait_time` of a stop
+- **THEN** its write is stored and sent at the deadline the stop opened
 
 ### Requirement: Offered Current
 `cmd.current_session.set_current` SHALL write the dynamic current through the per-charger command
@@ -295,10 +383,13 @@ not for its echo.
 ### Requirement: The Last Command Always Wins
 The command stored in the per-charger channel SHALL always be the most recent one, whatever kind it
 is and whichever command issued it: a stop SHALL displace a stored dynamic-current write, and a
-dynamic-current write - an explicit `cmd.charge.start` among them - SHALL displace a stored stop.
-The displaced command SHALL NOT reach Easee, its own command having already reported success, and
-the deadline SHALL NOT move. The dedup that suppresses a repeated current SHALL NOT apply while a
-stop is stored, so a write carrying the last-sent value displaces that stop like any other.
+dynamic-current write SHALL displace a stored stop. A `cmd.current_session.set_current` under a user
+stop SHALL NOT reach the channel (A User Stop Holds Until A Start), so a user's stop is displaced
+only by `cmd.charge.start`; the stops a value displaces are the adapter's own sub-minimum pause and
+the first half of a restart. The displaced command SHALL NOT reach Easee, its own command having
+already reported success, and the deadline SHALL NOT move. The dedup that suppresses a repeated
+current SHALL NOT apply while a stop is stored, so a write carrying the last-sent value displaces
+the adapter's own pause or a restart's stop like any other value.
 
 Displacing a stored command SHALL be logged as `[<id>] <new> preempts <old>`, naming both, so the
 log shows which command was dropped and what replaced it rather than only what was stored. When the
@@ -306,18 +397,19 @@ displaced command is a pair, both halves SHALL be named, or a discarded resume w
 
 The charger acts on whatever it last heard, so the hub's latest intent is the only one worth
 sending; holding an older command in the slot makes the adapter answer a command it did not carry
-out. This supersedes the rule that a stored stop could not be displaced: a balancing refresh landing
-inside `offered_current_wait_time` after a pause now cancels that pause, an emergency pause among
-them, because nothing on this path distinguishes one stop from another.
+out. This supersedes the rule that a balancing refresh inside `offered_current_wait_time` after a
+user's pause cancels that pause (issue 33).
 
 #### Scenario: a different current arrives after a stop
-- **WHEN** `cmd.charge.stop` is stored in the slot and a `cmd.smart_charge.set` for a different
-  current arrives before the deadline
-- **THEN** the write replaces the stop and is sent at the deadline; the charger is never paused
+- **WHEN** `cmd.charge.stop` is stored in the slot and a `cmd.current_session.set_current` for a
+  different current arrives before the deadline
+- **THEN** the stop stays stored and is sent at the deadline; the value is only kept for the next
+  `cmd.charge.start`
 
 #### Scenario: a same current arrives after a stop
-- **WHEN** `cmd.charge.stop` is stored in the slot and a write for the last-sent current arrives
-- **THEN** the write replaces the stop and is sent at the deadline, the dedup notwithstanding
+- **WHEN** `cmd.charge.stop` is stored in the slot and a `cmd.current_session.set_current` for the
+  last-sent current arrives
+- **THEN** the stop stays stored and is sent at the deadline, and nothing else is sent
 
 #### Scenario: a stop replaces a stored current
 - **WHEN** a dynamic-current write is stored in the slot and `cmd.charge.stop` arrives before the
@@ -333,7 +425,7 @@ them, because nothing on this path distinguishes one stop from another.
 - **THEN** exactly one command reaches Easee at the deadline and it is the final stop
 
 #### Scenario: the displacement is logged
-- **WHEN** a `set_current 26` displaces a stored stop
+- **WHEN** a `set_current 26` displaces the adapter's own stored sub-minimum pause
 - **THEN** `set_current 26 preempts stop` is logged for that charger
 
 ### Requirement: A Restart Is An Ordered Pair
@@ -445,4 +537,198 @@ mode among them, SHALL arm no re-sync.
 #### Scenario: command after Teardown
 - **WHEN** a start, stop or dynamic-current write for the charger arrives after Teardown
 - **THEN** it never reaches Easee and arms no re-sync
+
+### Requirement: Sub-Minimum Current Pauses
+A `cmd.current_session.set_current` below `min_charging_current` (default 6 A), 0 A included, SHALL
+pause the charger with the Easee pause-charging command, through the per-charger command channel
+like `cmd.charge.stop`, and the adapter SHALL remember that pause as its own. The next value at or
+above the minimum SHALL be written as the dynamic current with the recent-value dedup bypassed, which
+resumes the charger, and SHALL clear that memory. A `cmd.charge.stop` SHALL
+clear it too: under a user stop no value resumes the charger (A User Stop Holds Until A Start).
+Not met yet: two sub-minimum values handled at the same moment can leave the pause unremembered
+when the first one's pause command fails (issue 40, open).
+
+The framework rejects a current under 6 A before the controller runs, so a value from 0 to 5 A SHALL
+be handed to the controller in routing before the framework's handler: on success the message
+interface SHALL be renamed with a `.paused` suffix so the framework's handler skips it, and the
+adapter SHALL send the current-session report itself. A value from 6 A up to the minimum reaches the
+controller through the framework and pauses there. A max current is still checked against 6 A.
+
+#### Scenario: an energy manager sets 0 A
+- **WHEN** `cmd.current_session.set_current` arrives with a value of 0
+- **THEN** the pause-charging command is sent and no dynamic current is written
+- **AND** the message interface is renamed with a `.paused` suffix and a current-session report is sent
+
+#### Scenario: a current below a raised minimum
+- **WHEN** `min_charging_current` is 10 and `cmd.current_session.set_current` arrives with 8
+- **THEN** the charger is paused and no dynamic current is written
+
+#### Scenario: the next valid value resumes the adapter's pause
+- **WHEN** the adapter paused the charger for a sub-minimum value and a value at or above the minimum
+  arrives, equal to the last one written inside `offered_current_wait_time`
+- **THEN** the dynamic current is written anyway, resuming the charger
+
+#### Scenario: a pause arrives while a valid value is being written
+- **WHEN** a value at or above the minimum is still on its way to Easee and a sub-minimum value arrives
+- **THEN** the pause stays the adapter's own once the write returns, and the next valid value resumes it
+
+#### Scenario: a valid value arrives while the pause is being sent
+- **WHEN** a sub-minimum value's pause is still on its way to Easee and a value at or above the
+  minimum arrives, equal to the last one written inside `offered_current_wait_time`
+- **THEN** the value is written anyway, resuming the charger
+
+#### Scenario: a user stop is not resumed by the adapter
+- **WHEN** the adapter paused the charger, then `cmd.charge.stop` arrives, then a value at or above
+  the minimum equal to the last one written inside `offered_current_wait_time`
+- **THEN** nothing is sent, and the value is kept only for the next `cmd.charge.start`
+
+#### Scenario: a current under 6 A at a lowered minimum
+- **WHEN** `min_charging_current` is 1 and `cmd.current_session.set_current` arrives with 3
+- **THEN** 3 A is written as the dynamic current and the message interface is renamed with a `.paused` suffix
+
+#### Scenario: the pause fails
+- **WHEN** handing a value under 6 A to the controller returns an error
+- **THEN** the message is left unrenamed and the framework handles it normally
+
+#### Scenario: the pause is sent but the session report fails
+- **WHEN** the pause for 0 A succeeds and the current-session report cannot be sent
+- **THEN** the caller is answered with an error report
+
+#### Scenario: a negative value
+- **WHEN** the value is below zero
+- **THEN** the message is left untouched
+
+### Requirement: A User Stop Holds Until A Start
+`cmd.charge.stop` SHALL mark the charger user-stopped, with the hub time of the stop, in the
+adapter's database, so the mark survives an adapter restart. While it is marked,
+`cmd.current_session.set_current` SHALL send nothing to Easee, a sub-minimum value included, and
+SHALL only keep the value as the requested current, so the next `cmd.charge.start` starts at it (a
+sub-minimum one at the initial charging current, Start Charging); the
+adapter's own pause stays unmarked. A phase mode change SHALL NOT bounce the session while it is
+marked. Easee resumes a stopped charger on any dynamic-current write, so only `cmd.charge.start`
+may start charging after a user stop (the operator, 2026-11-23). Not met yet: a value under 6 A
+that arrives at the same moment as the stop can be dropped instead of kept (issue 40, open).
+
+The mark SHALL end on `cmd.charge.start`, and SHALL be put back when the start's write fails. A
+start stored in the channel has already been answered as accepted: its later failure is only logged
+and the mark stays ended, so the next value resumes the charger as the start asked. It
+SHALL also end on a charger state observation timestamped after the stop that is either
+disconnected (the car unplugged) or a change into charging (started from the Easee app, for
+example). Every other state SHALL keep it. An observation timestamped before the stop describes the
+charger before Easee acted on the stop and SHALL NOT end it.
+
+#### Scenario: a value after a user stop
+- **WHEN** `cmd.charge.stop` was sent and `cmd.current_session.set_current` arrives with a value at
+  or above the minimum
+- **THEN** nothing is sent and a later `cmd.charge.start` starts at that value
+
+#### Scenario: a sub-minimum value under a user stop
+- **WHEN** `cmd.charge.stop` was sent and a value below the minimum arrives
+- **THEN** nothing is sent, and a later valid value sends nothing either
+
+#### Scenario: a start lifts the stop
+- **WHEN** `cmd.charge.stop` was sent, then `cmd.charge.start`, then a new value
+- **THEN** the start resumes the charger and the value is written as usual
+
+#### Scenario: the start fails
+- **WHEN** Easee refuses the write of a `cmd.charge.start` after a user stop
+- **THEN** the charger stays marked user-stopped
+
+#### Scenario: the car is unplugged
+- **WHEN** the charger reports disconnected after the stop
+- **THEN** the mark ends and the next value is written as usual
+
+#### Scenario: charging started elsewhere
+- **WHEN** the charger reports a change into charging, timestamped after the stop
+- **THEN** the mark ends
+
+#### Scenario: a charging observation older than the stop
+- **WHEN** a charging observation timestamped before the stop arrives after it
+- **THEN** the mark holds
+
+#### Scenario: Other states keep a user stop
+- **WHEN** the charger reports error, completed, await_auth, de_auth, unknown or offline after the
+  stop
+- **THEN** the mark holds
+
+#### Scenario: an adapter restart keeps the stop
+- **WHEN** the adapter restarts after `cmd.charge.stop` and a value arrives
+- **THEN** nothing is sent
+
+#### Scenario: a stop between a value's check and its write
+- **WHEN** a value under 6 A, outside the chargepoint service lock, passes the user-stop check and
+  `cmd.charge.stop` lands before its write takes the channel
+- **THEN** the write is not sent and the stop stays the last command
+
+#### Scenario: a stop made while an observation ends an older one
+- **WHEN** a charger state that ends the user stop is being handled and `cmd.charge.stop` lands
+  meanwhile
+- **THEN** the new stop holds
+
+#### Scenario: a phase mode change under a user stop
+- **WHEN** the charger still reports charging after `cmd.charge.stop` and a new phase mode is set
+- **THEN** the mode is sent but the session is not bounced
+
+### Requirement: A Session End Resets The Session Values
+A charger state observation that ends the session — the one that clears the cached requested offered
+current: disconnected, completed, error, offline, unknown, awaiting authentication or
+de-authenticating — SHALL return every value the adapter keeps for that session to its default (the
+operator, 2026-11-24: "Unplugging is session finished so session specific values should be reset to
+default"): the cached requested offered current, whether the session charged, the adapter's own
+pause (Sub-Minimum Current Pauses) and the slow-session memory (Start Charging). The user stop (A
+User Stop Holds Until A Start) and the `use_locked_3_phases` lock end when the car is disconnected.
+
+When the car is disconnected, a write or a phase bounce still waiting in the command channel SHALL be
+dropped: sent later, it would put the finished session's current back into the cache for the next
+car. A charger that reports any other session end keeps the car, so a waiting command, a cut or a
+bounce's resume, SHALL still be sent. A write already being sent cannot be called back, but it SHALL NOT put
+its current back into the cache: it is stamped with the time it left, older than the session end.
+The slow-session memory SHALL be forgotten at the session end itself, even when a write still waiting
+puts a current back into the cache afterwards.
+A pause or a resume whose command fails while the session ends SHALL NOT put back the adapter's own
+pause the session end forgot, and a start being sent while it ends SHALL NOT put back the slow-start
+memory.
+
+#### Scenario: a session end resets the session values
+- **WHEN** the session charged at 10A, the adapter paused the charger for a value below the minimum,
+  the car is unplugged, and a start without a mode arrives for the next car
+- **THEN** the start is a session start with nothing cached: the charger is started at its max
+  current, not at the initial charging current
+
+#### Scenario: the adapter's pause ends with an offline session end
+- **WHEN** the adapter paused the charger and the charger reports offline
+- **THEN** the pause is forgotten, and a later start with nothing cached starts at the max current
+
+#### Scenario: an unplugged car drops a waiting write
+- **WHEN** a write of 7A waits in the command channel and the car is unplugged
+- **THEN** the write is not sent
+
+#### Scenario: an unplugged car drops a waiting phase bounce
+- **WHEN** a phase bounce's stop and resume wait in the command channel and the car is unplugged
+- **THEN** neither is sent
+
+#### Scenario: an offline charger still gets the waiting write
+- **WHEN** a write of 7A waits in the command channel and the charger reports offline
+- **THEN** the write is sent at its deadline
+
+#### Scenario: an unplugged car during a write being sent
+- **WHEN** a write of 7A is being sent, the car is unplugged before Easee answers, and a start without a
+  mode arrives for the next car
+- **THEN** the cached requested current stays cleared and the charger is started at its max current
+
+#### Scenario: a command failing across the unplug
+- **WHEN** the adapter paused the charger, a resume or another sub-minimum value is being sent, the car
+  is unplugged and the command fails, and a start without a mode arrives for the next car
+- **THEN** the charger is started at its max current, not at the initial charging current
+
+#### Scenario: a session end during a slow start being sent
+- **WHEN** a start in mode `slow` is being sent, the charger reports completed before Easee answers, a
+  waiting write puts 7A into the cache, and a start without a mode arrives before the session charges
+- **THEN** the start is a session start: the charger is started at 16A
+
+#### Scenario: a session end forgets the slow start
+- **WHEN** the session was started in mode `slow`, a write of 7A waits in the command channel, the
+  charger reports completed, the write is sent, and a start without a mode arrives before the
+  session charges again
+- **THEN** the start is a session start: the charger is started at 16A
 

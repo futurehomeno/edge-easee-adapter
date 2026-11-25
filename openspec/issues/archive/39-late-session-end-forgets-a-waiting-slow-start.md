@@ -31,3 +31,11 @@ unplug no longer leaves the finished session's current behind). The same holds f
 landing while the new session's first write is being sent: its current is not cached, and a start before the next
 write starts at the max current. `EndSession` also forgets the slow start at the end itself, a start being sent at that
 moment included, so the memory no longer depends on a `set_current` arriving first.
+
+## Status 2026-11-25
+
+Archived: the 16 A resume in step 3 of "How to reproduce" no longer happens. Since PR #240 a resume
+(the session has charged) starts at the cached requested current and is never raised to
+`initial_charging_current` (`src/internal/easee/controller.go:918`), and `EndSession` forgets the
+slow start itself (`controller.go:254`); a start sent across a session end does not put the memory
+back (`controller.go:956`).
