@@ -48,10 +48,10 @@ github.com/eclipse/paho.mqtt.golang v1.5.1 h1:/VSOv3oDLlpqR2Epjn1Q7b2bSTplJIeV2I
 github.com/eclipse/paho.mqtt.golang v1.5.1/go.mod h1:1/yJCneuyOoCOzKSsOTUc0AJfpsItBGWvYpBLimhArU=
 github.com/felixge/httpsnoop v1.1.0 h1:3YtUj32ZZkqZtt3sZZsClsymw/QDuVfpNhoA31zeORc=
 github.com/felixge/httpsnoop v1.1.0/go.mod h1:Zqxgdd+1Rkcz8euOqdr7lqgCRJztwr5hp9vDSi5UZCE=
-github.com/futurehomeno/cliffhanger v1.5.5 h1:+cTAuJzR16wMUZbEbllQDUMyFO3xUct4cuoHsDtOd2A=
-github.com/futurehomeno/cliffhanger v1.5.5/go.mod h1:zvCZyFk8RuAgljKDi77qj+UZ+bIKhNhz2AzxA3Vp8Mk=
-github.com/futurehomeno/fimpgo v1.18.1 h1:t0syk/f3CxXOfWgYQKerdM0nyANTNr0jSzKVE2DxBTQ=
-github.com/futurehomeno/fimpgo v1.18.1/go.mod h1:Nr7SX0K6vO/7l9nIhFBToPSjB7Jr1yfK5AmrAfbAMVU=
+github.com/futurehomeno/cliffhanger v1.5.6-0.20261125074354-8512d99cf9ba h1:fLuXA1NMksvGTYBLkt997SLyu8Uxhz4NLe8tZXUP6hA=
+github.com/futurehomeno/cliffhanger v1.5.6-0.20261125074354-8512d99cf9ba/go.mod h1:YyPqZsM+EbgZXZkY2OyCzy0SbHp+owOAnwNyM7wRyQE=
+github.com/futurehomeno/fimpgo v1.18.2-0.20261125065600-1ed5fad8c3e5 h1:YXRJ22IIvJYGGGpgF46aeY6/LTa1FGfPC7xUaMX1JAo=
+github.com/futurehomeno/fimpgo v1.18.2-0.20261125065600-1ed5fad8c3e5/go.mod h1:Nr7SX0K6vO/7l9nIhFBToPSjB7Jr1yfK5AmrAfbAMVU=
 github.com/go-kit/log v0.2.1 h1:MRVx0/zhvdseW+Gza6N9rVzU/IVzaeE1SFI4raAhmBU=
 github.com/go-kit/log v0.2.1/go.mod h1:NwTd00d/i8cPZ3xOwwiv2PO5MOcx78fFErGNcVmBjv0=
 github.com/go-logfmt/logfmt v0.6.1 h1:4hvbpePJKnIzH1B+8OR/JPbTx37NktoI9LE2QZBBkvE=
