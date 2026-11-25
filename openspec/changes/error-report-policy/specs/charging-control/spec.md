@@ -79,6 +79,15 @@ A write displaced from the channel by a newer command is not reported.
 - **WHEN** a deferred write is replaced in the channel by a newer command before it is sent
 - **THEN** no report answers the displaced command
 
+### Requirement: Only Commands Are Bound
+The adapter SHALL bind each chargepoint command to its charger's controller from the first route to
+the last, so commands of one charger run one at a time. A report request (a message type ending in
+`.get_report`) SHALL NOT be bound and SHALL NOT wait for a running command of the same charger.
+
+#### Scenario: report request during a running command is answered at once
+- **WHEN** `cmd.state.get_report` arrives for a charger while a command for that charger is running
+- **THEN** it is answered from the last known state without waiting for the command
+
 ### Requirement: Coded Command Failures
 A command failing on the Easee cloud SHALL be answered with an error code and a plain sentence that
 carries no URL, charger serial, token or response body; those SHALL reach the log only. The code

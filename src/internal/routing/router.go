@@ -2,6 +2,7 @@ package routing
 
 import (
 	"fmt"
+	"strings"
 
 	cliffAdapter "github.com/futurehomeno/cliffhanger/adapter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
@@ -95,10 +96,11 @@ func New(
 
 // bindCommand runs first and last on every chargepoint message, so a write the controller defers knows the command
 // to answer if Easee refuses it later. Both match on the service only: the divert may rename the interface between.
+// Report requests are not bound, so they never wait for a command of the same charger.
 func bindCommand(ad cliffAdapter.Adapter, controllerByAddress func(string) Controller, bind bool) router.MessageHandlerFn {
 	return func(message *fimpgo.Message) *fimpgo.Message {
 		t := ad.ThingByTopic(message.Topic)
-		if t == nil {
+		if t == nil || strings.HasSuffix(message.Payload.Interface, ".get_report") {
 			return nil
 		}
 

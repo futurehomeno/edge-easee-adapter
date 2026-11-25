@@ -15,8 +15,8 @@ current under 6 A, which it does not.
   `unavailable`, `rate_limited` (429) and `device_refused`, with the URL and body kept in the cause for the log; the
   client's own log line goes.
 - A lost stream answers report requests with `unavailable`.
-- Every chargepoint message binds its charger's controller from the first route to the last, so a
-  deferred write keeps its command; a refused deferred write publishes `router.NewErrorReport`.
+- Every chargepoint command binds its charger's controller from the first route to the last, so a
+  deferred write keeps its command; report requests are not bound and are answered at once; a refused deferred write publishes `router.NewErrorReport`.
 - The unmapped phase mode is returned, not also logged.
 - The wrong "cliffhanger rejects under 6 A" statements in code and spec are corrected.
 - The app manifest already declares `out evt.error.report string` (checked by its test): no change.

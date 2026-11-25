@@ -1,7 +1,9 @@
 package routing
 
 import (
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	mockedchargepoint "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/chargepoint"
@@ -47,6 +49,45 @@ func TestBindCommand_BindsThenUnbindsARenamedMessage(t *testing.T) {
 	bindCommand(ad, lookup, false)(msg)
 
 	assert.Equal(t, []string{"bind", "unbind"}, ctrl.calls)
+}
+
+type heldBinding struct {
+	offeredCurrentFn
+	sync.Mutex
+}
+
+func (h *heldBinding) Bind(*fimpgo.Message)   { h.Lock() }
+func (h *heldBinding) Unbind(*fimpgo.Message) { h.Unlock() }
+
+func TestBindCommand_ReportRequestDuringACommandPassesAtOnce(t *testing.T) {
+	t.Parallel()
+
+	thing := mockedadapter.NewThing(t)
+	thing.On("Address").Return("1").Maybe()
+
+	ad := mockedadapter.NewAdapter(t)
+	ad.On("ThingByTopic", pauseTopic).Return(thing).Maybe()
+
+	ctrl := &heldBinding{}
+	lookup := func(string) Controller { return ctrl }
+	ctrl.Lock()
+	defer ctrl.Unlock()
+
+	report := newSetCurrentMessage(0)
+	report.Payload.Interface = chargepoint.CmdStateGetReport
+	done := make(chan struct{})
+
+	go func() {
+		bindCommand(ad, lookup, true)(report)
+		bindCommand(ad, lookup, false)(report)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("report request waited for the running command")
+	}
 }
 
 func newSetCurrentMessage(current int) *fimpgo.Message {
