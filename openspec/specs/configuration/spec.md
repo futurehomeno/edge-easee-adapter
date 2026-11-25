@@ -259,10 +259,11 @@ value set on purpose is overwritten too.
 - **THEN** it carries 60s / 5m / 30m with counts 3 / 3 and reaches version 10
 
 ### Requirement: Secret File Modes Pinned At Startup
-On every start the adapter SHALL set `data/secrets.json`, `data/secrets.json.bak` and `data/config.json.bak` to mode
-0640, because the storage enforces that mode when it saves a file but not when it loads one, and postinst cannot
-change it safely as root. A missing file SHALL be skipped; any other failure SHALL be logged as a warning and the
-start SHALL continue.
+On every start that loads the configuration the adapter SHALL set `data/secrets.json`, `data/secrets.json.bak` and
+`data/config.json.bak` to mode 0640, because the storage enforces that mode when it saves a file but not when it
+loads one, and postinst cannot change it safely as root. A missing file SHALL be skipped; any other failure SHALL be
+logged as a warning and the start SHALL continue. A start that stops because the configuration does not load
+("Startup Stops On A Configuration Error") exits before this step and leaves the modes as they were.
 
 #### Scenario: world-readable secrets
 - **WHEN** the adapter starts with the three files at mode 0644
@@ -298,9 +299,19 @@ credentials, because a file that fails to decode partway leaves the fields alrea
 on disk, and SHALL log an error that omits the load error, because that error carries the file body with the
 tokens. The start SHALL continue, so a corrupt file does not cause a restart loop and a new login rewrites it.
 
+One start differs: when the configuration is still at version 5 and carries credentials, the migration to version 6
+finds the emptied store and saves those credentials as a new secrets file, the unreadable one becoming its backup,
+so the adapter starts logged in.
+
 #### Scenario: corrupt secrets file
-- **WHEN** `data/secrets.json` holds an access token followed by bytes that do not decode
+- **WHEN** `data/secrets.json` holds an access token followed by bytes that do not decode and the configuration carries
+  no credentials
 - **THEN** the app starts not configured, the file is still on disk, and no log line contains the token
+
+#### Scenario: corrupt secrets file next to a version 5 configuration with credentials
+- **WHEN** `data/secrets.json` does not decode and `data/config.json` is at version 5 with an access and a refresh
+  token
+- **THEN** the migration to version 6 writes those tokens to a new `data/secrets.json` and the app starts configured
 
 ### Requirement: Startup Stops On A Configuration Error
 When the configuration cannot be loaded, or a configuration migration fails, the adapter SHALL log the error and

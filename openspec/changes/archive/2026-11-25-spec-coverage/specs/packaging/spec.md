@@ -103,6 +103,10 @@ a symlink planted there:
   warning, and postinst SHALL NOT change the mode of those files by path; the adapter sets their mode when it starts
   (configuration "Secret File Modes Pinned At Startup").
 
+The mode pass over the data tree (`find -type d -exec chmod`) checks the type and changes the mode in two separate
+path lookups, so a process running as `easee` during configure can still swap a checked directory for a symlink in
+between; closing that window is issue 54.
+
 #### Scenario: defaults replaced by a directory
 - **WHEN** `/var/lib/futurehome/easee/defaults` is a real directory or points elsewhere
 - **THEN** postinst replaces it with the symlink to `/usr/share/futurehome/easee/defaults`
@@ -122,8 +126,9 @@ a symlink planted there:
 ### Requirement: Legacy State Migration Trigger
 `postinst configure` SHALL run `migrate.sh` as user `easee` through `fh-drop` when, probed as root, the legacy
 directory `/opt/thingsplex/easee/data` or the legacy session file `/opt/thingsplex/easee/data.db` exists. Probing as
-root SHALL keep an untraversable legacy parent from silently skipping the migration. A failed migration SHALL fail
-the configure, so the service does not start without the migrated state.
+root SHALL keep an untraversable legacy parent from silently skipping the trigger. A failed migration SHALL fail
+the configure, so the service does not start without the migrated state. `migrate.sh` itself probes as `easee`, so
+legacy state `easee` cannot reach is still skipped with success; making that fail is issue 55.
 
 #### Scenario: upgrade from the thingsplex layout
 - **WHEN** postinst configures a hub with `/opt/thingsplex/easee/data`
@@ -163,8 +168,8 @@ failed log copy SHALL NOT fail the migration. A failed copy of `data/` or `data.
 `migrate.sh` SHALL refuse to run as root. Everything it creates SHALL be closed to others (umask 027), and it SHALL
 remove all access for others from the legacy `data/` tree, which older packages left world-readable while its
 `config.json` still carried the tokens, ignoring a failure to do so; the files SHALL stay readable by `easee` for a
-downgrade. A symlink at the
-legacy `data/` SHALL fail the migration, because postinst found legacy state through it and skipping would leave the
+downgrade. While the new `data/` does
+not exist, a symlink at the legacy `data/` SHALL fail the migration, because postinst found legacy state through it and skipping would leave the
 hub logged out for good. A symlink at the legacy `data.db` or the legacy log SHALL be skipped, and a migrated config
 file that is a symlink SHALL NOT be rewritten.
 
