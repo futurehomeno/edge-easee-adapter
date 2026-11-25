@@ -283,9 +283,14 @@ warning and SHALL NOT stop the start.
 - **WHEN** a version 6 configuration starts next to a `config.json.bak` holding an access token
 - **THEN** the backup is removed
 
-#### Scenario: corrupt configuration with a good backup
-- **WHEN** `data/config.json` does not decode and `data/config.json.bak` does
+#### Scenario: corrupt configuration with a good backup at the latest version
+- **WHEN** `data/config.json` does not decode and `data/config.json.bak` decodes at the latest configuration version
 - **THEN** the backup is moved into place unchanged and the next start loads it
+
+#### Scenario: corrupt configuration with an older backup
+- **WHEN** `data/config.json` does not decode and `data/config.json.bak` decodes at an older configuration version
+- **THEN** the migrations run on the backup, their save writes a new `data/config.json`, and the corrupt file it moved
+  to the backup is removed
 
 ### Requirement: Unreadable Secrets File Starts Logged Out
 When the secrets file cannot be loaded at start, the adapter SHALL start logged out: it SHALL empty the in-memory
