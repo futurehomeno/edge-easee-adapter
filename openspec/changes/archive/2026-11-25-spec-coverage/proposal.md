@@ -37,7 +37,7 @@ every number was checked against its constant. The code is the reference: no cod
 | Packaged Default Configuration | `usr/share/futurehome/easee/defaults/config.json`; `cmd/factory.go` `migrateConfig` | `TestUninstall_resetAndReMigrate`, `TestPackagedDefaults_signalRBackoffSchedule`, `TestTelemetry_freshInstallIsEnabled`, `TestService_*_MatchesPackagedDefault`; MQTT, path and log values: no test |
 | Secret File Modes Pinned At Startup | `config/credentials.go` `PinSecretModes`, called from `cmd/factory.go` `getCredentialsStore` | `TestPinSecretModes_ClosesTokenBearingFilesToOthers` |
 | Config Backup Cleared At Startup | `config/credentials.go` `DropConfigBackup`, called from `cmd/factory.go` `migrateConfig` | `TestDropConfigBackup_RemovesTokenBearingBackup`, `TestMigrateConfig_dropsBackupLeftByAnInterruptedMigration`, `TestMigrateConfig_restoresTheBackupOverACorruptConfig` |
-| Unreadable Secrets File Starts Logged Out | `cmd/factory.go` `getCredentialsStore`; `config/credentials.go` `DiscardLoaded` | `TestDiscardLoadedEmptiesAPartiallyDecodedModel` (the model only); the boot path and the log text: no test |
+| Unreadable Secrets File Starts Logged Out | `cmd/factory.go` `getCredentialsStore`; `config/credentials.go` `DiscardLoaded` | `TestDiscardLoadedEmptiesAPartiallyDecodedModel` (the model only); the boot path, the log text and the start at version 5 with credentials: no test |
 | Startup Stops On A Configuration Error | `cmd/factory.go` `getConfigService` (`log.Fatalf`) | `TestMigrateConfig_failedCredentialsMigrationSurfaces` (the error is returned); the exit: no test |
 | Log Defaults Reset On Migration To Version 2 | `cmd/factory.go` `migrateConfig` (`resetLogDefaults`) | no test (`TestUninstall_resetAndReMigrate` sees `info` / `budzik`, but the packaged file already carries them) |
 | Login Request | `api/authenticator.go` `Login`; `api/http.go` `httpClient.Login` | `TestLoginRejectsEmptyCredentialsWithoutCallingTheAPI`, `TestLoginFailureByStatusCode`, `TestClient_Login`; whitespace removal in the request: no test |
@@ -50,6 +50,7 @@ every number was checked against its constant. The code is the reference: no cod
 
 | Package / route | Covered by |
 |---|---|
+| `src` (`main.go`) | packaging (Service Unit: a failed run exits with status 1 and the unit restarts it); the goroutine dump and the error logged before the exit are log lines, not specified |
 | `src/cmd` | configuration (migrations, Configuration Persisted At Initialization, the five new ones), packaging (Packaged Default Configuration), charger-discovery (FIMP Topics And Route Bundles), app-manifest (Routed Interfaces Declared, `TestPackagedManifest_DeclaresRoutedLogAndNodeInterfaces`) |
 | `src/internal/api` | cloud-authentication (all; new Login Request), charging-control (Command Response Codes; new Easee HTTP Requests) |
 | `src/internal/app` | charger-discovery (selection, manifest selector, re-seed, uninstall, charger list cache), cloud-authentication (Explicit Logout, Connection State From Ping; new Application Login Lifecycle), reporting (Diagnostic Error Report) |
