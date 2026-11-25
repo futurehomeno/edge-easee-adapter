@@ -27,7 +27,7 @@ Routed by: D = `bootstrap.DefaultRoute` (config report + `debug.Route`), A = `ap
 
 | Interface (type, msg_t, val_t) | In manifest | Routed | Action |
 |---|---|---|---|
-| in `cmd.app.get_manifest` null | yes | A | keep |
+| in `cmd.app.get_manifest` null | yes | A (also takes a string mode, `manifest_state` or `full`) | keep as null |
 | out `evt.app.manifest_report` object | yes | A reply | keep |
 | out `cmd.app.get_full_state` string | yes | no | remove |
 | out `cmd.app.full_state_report` object | yes | no | remove |
@@ -88,30 +88,26 @@ How the sibling adapters declare the list:
   type to parse the file (as adax and hue do) and cliffhanger's exported message constants for the
   names.
 
-## Decisions needed
-1. Per-setting config routes (`cmd.config.get_<setting>` / `set_<setting>`, 63 messages here):
-   recommend leaving them out. They are support settings, the `configuration` spec lists them, the
-   manifest's `configs` block plus `cmd.config.extended_set` is what the UI uses, and nothing reads
-   the interface list. Listing them would add about 315 lines of JSON.
-2. Framework log routes: recommend listing all of `debug.Route` (level, format, file, revert timeout:
-   12 messages), so the rule stays "everything routed on the app service except per-setting config".
-   The alternative is the level pair only; the requirement would then need a second exception.
-3. Declared but unrouted commands (`cmd.auth.set_tokens`, `cmd.thing.inclusion`, the full-state pair):
-   recommend removing them. The app logs in with a password (`auth.type` `password`), has no OAuth
-   token step and includes chargers by selection, so there is nothing to route them to.
-4. The manifest copies under `testdata/` (used by `src/internal/test/util.go` and the suite): recommend
-   leaving them as they are; they are fixtures and no test reads their interface list. The test reads
-   the packaged file only.
-5. Detecting a new route automatically: `router.Routing` keeps its voters unexported, so a test cannot
-   list routes or ask one whether it handles a message without an MQTT broker. Recommend not solving
-   it here; if wanted, a later cliffhanger change could export a matcher (for example
-   `Routing.Handles(*fimpgo.Message) bool`), and this test would then derive its table.
-6. The same template errors in the seven sibling adapters: recommend one change per repo after this
-   one lands, with the same requirement text.
+## Decisions (user, 2026-11-25)
+The user approved the recommendations:
+1. Per-setting config routes (`cmd.config.get_<setting>` / `set_<setting>` and their
+   `evt.config.<setting>_report`, 63 messages here, the telemetry settings included) stay out of the
+   interface list. The `configuration` spec lists them; the manifest's `configs` block plus
+   `cmd.config.extended_set` is what the UI uses.
+2. All of `debug.Route` is listed (level, format, file, revert timeout: 12 messages), so the rule stays
+   "everything routed on the app service except per-setting config".
+3. Declared but unrouted commands (`cmd.auth.set_tokens`, `cmd.thing.inclusion`, the full-state pair)
+   are removed; no route is added for them.
+4. The manifest copies under `testdata/` stay as they are; the test reads the packaged file only.
+5. No automatic route discovery here: `router.Routing` keeps its voters unexported. A later
+   cliffhanger change could export a matcher (for example `Routing.Handles(*fimpgo.Message) bool`),
+   and this test would then derive its table.
+6. The same template errors in the seven sibling adapters: one change per repo after this one lands,
+   with the same requirement text.
 
 ## Impact
 - Affected specs: `app-manifest` (requirement "Routed Interfaces Declared" modified).
-- Affected files: `src/cmd/manifest_internal_test.go` (rewritten, about 50 → 75 lines),
-  `package/debian/usr/share/futurehome/easee/defaults/app-manifest.json` (interfaces 90 → 205 lines).
+- Affected files: `src/cmd/manifest_internal_test.go` (rewritten, 46 → 79 lines),
+  `package/debian/usr/share/futurehome/easee/defaults/app-manifest.json` (interfaces 104 → 246 lines).
 - No behaviour change on the hub: routes, replies and the manifest's other blocks stay the same.
 - Closes issue 48.
