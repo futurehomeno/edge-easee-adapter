@@ -1272,10 +1272,10 @@ func TestWatchdog_ResyncsAChargingChargerWhoseStateWentSilent(t *testing.T) {
 
 	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.TotalPower, DataType: model.ObservationDataTypeDouble, Value: "7.2"}))
 
-	clk.Add(4 * time.Minute)
+	clk.Add(19 * time.Minute)
 	m.resyncStale()
 	runSubscriptions(t, m)
-	assert.Zero(t, client.subscribes.Load(), "four minutes of silence is not stale yet")
+	assert.Zero(t, client.subscribes.Load(), "nineteen minutes of silence is not stale yet")
 
 	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.DynamicChargerCurrent}))
 	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.InCurrentT3}))
@@ -1285,10 +1285,10 @@ func TestWatchdog_ResyncsAChargingChargerWhoseStateWentSilent(t *testing.T) {
 	runSubscriptions(t, m)
 	assert.Equal(t, int32(1), client.subscribes.Load(), "echoes and phase currents do not keep the state fresh")
 
-	clk.Add(4 * time.Minute)
+	clk.Add(19 * time.Minute)
 	m.resyncStale()
 	runSubscriptions(t, m)
-	assert.Equal(t, int32(1), client.subscribes.Load(), "re-syncs are at least five minutes apart")
+	assert.Equal(t, int32(1), client.subscribes.Load(), "re-syncs are at least twenty minutes apart")
 
 	clk.Add(time.Minute)
 	m.resyncStale()
@@ -1305,7 +1305,7 @@ func TestWatchdog_ZeroPowerDoesNotKeepAChargingChargerFresh(t *testing.T) {
 
 	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.ChargerOPState}))
 
-	for range 5 {
+	for range 20 {
 		clk.Add(time.Minute)
 		require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.TotalPower, DataType: model.ObservationDataTypeDouble, Value: "0"}))
 	}
@@ -1313,6 +1313,28 @@ func TestWatchdog_ZeroPowerDoesNotKeepAChargingChargerFresh(t *testing.T) {
 	m.resyncStale()
 	runSubscriptions(t, m)
 	assert.Equal(t, int32(1), client.subscribes.Load())
+}
+
+// Hub 9c1edbb3d437c8f1, EUFLF683, 2026-11-16 22:56-23:42: at a steady current Easee resent TotalPower
+// every 900 s and nothing else that counts.
+func TestWatchdog_LeavesASteadilyChargingChargerAlone(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 16, 22, 56, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	m, client := newResyncManager(t)
+	m.chargers[chargerID].handler = &recordingHandler{handled: make(chan struct{}), charging: true}
+
+	for range 3 {
+		require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.TotalPower, DataType: model.ObservationDataTypeDouble, Value: "7.2"}))
+
+		for range 15 {
+			clk.Add(time.Minute)
+			m.resyncStale()
+		}
+	}
+
+	runSubscriptions(t, m)
+	assert.Zero(t, client.subscribes.Load())
 }
 
 func TestWatchdog_LeavesAChargerThatIsNotChargingAlone(t *testing.T) {

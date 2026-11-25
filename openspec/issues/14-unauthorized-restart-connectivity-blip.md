@@ -13,3 +13,7 @@ connected if the reconnect then fails, because no further state change is emitte
 
 Open: is the blip visible or harmful in the app, or to energy guard (which waits up to 60 s for the
 state change), and is a suppressed-with-timeout report worth the code?
+
+2026-11-25: `charging-watchdog-window` (20-minute watchdog) removes most re-syncs during a session. What is left is
+the re-sync 15 s after a start or stop: the first one after the connection's token has ended still restarts the
+client. 3.3.1 beta logs of that day: 63 restarts on 7 of 98 sites.

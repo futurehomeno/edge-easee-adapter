@@ -25,8 +25,9 @@ const (
 	ChargerOffline       DisconnectionReason = "charger is offline"
 )
 
-// staleStateWindow mirrors the Zaptec adapter's chargingStaleWindow.
-const staleStateWindow = 5 * time.Minute
+// staleStateWindow outlasts the 15 min at which Easee resends TotalPower while charging at a steady
+// current (observed, not documented), so only a stream that really went silent is re-synced.
+const staleStateWindow = 20 * time.Minute
 
 // refreshesState reports whether an observation confirms the state the report is built from.
 // Easee kept streaming DynamicChargerCurrent echoes and phase currents while these stopped
