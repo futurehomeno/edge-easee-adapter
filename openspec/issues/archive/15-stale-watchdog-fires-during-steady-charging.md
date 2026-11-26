@@ -33,3 +33,12 @@ change. Neither is a heartbeat. EUFLF683, 2026-11-18 22:00-23:50: 36 `TotalPower
 2026-11-18 03:15 -> 2026-11-19 16:14 the two chargers were re-synced 55 times, and 20 of the re-subscribes were refused
 as unauthorized (restart, issue 14). So a window of any fixed length fires whenever the current is held steady for that
 long. A longer window only spaces the re-syncs out.
+
+2026-11-25, 3.3.1 beta logs (rollo `logs/beta/2026-11-25/easee`): 63 unauthorized restarts on 7 of 98 sites, 54 of
+them on 3 sites. One site, one charger charging overnight: watchdog re-sync every 6-17 min, refused and
+restarted at 23:27, 00:36, 01:36, 02:33. `staleStateWindow` and `resyncStale` are unchanged in 3.4.2 and on
+release_3.4, so the hourly restart is still there.
+
+Closed by `charging-watchdog-window` (2026-11-25): the window is 20 minutes. Easee resends `TotalPower` no later
+than 900 s after the last one while charging (observed on three hubs, not documented), so a healthy session no
+longer trips the watchdog. Other observations do not reset it, as before.

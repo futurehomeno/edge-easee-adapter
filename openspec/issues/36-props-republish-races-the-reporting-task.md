@@ -21,3 +21,8 @@ Seen again on PR 240 run 45419346856 (commit 9c1a7c8), the same two stacks; the 
 
 Not fixed by PR #240: `republishChargepointProps` still assigns `service.Specification().Props`
 without a lock that cliffhanger's readers share (`src/internal/signalr/handler.go:867`). Stays open.
+Seen again on PR 242 run 45600775036 (commit 3c1f4be, 2026-11-25), a PR that changes only `openspec/`: the same
+test and the same two stacks (write at handler.go:867, read in `SendMaxCurrentReport` on the sender goroutine). Every
+reader (`fimptype.Service.PropertyInteger`/`PropertyStrings` from cliffhanger's reporting task, the router and the
+sender) reads `Props` with no lock, so moving the write to another adapter goroutine only swaps which reader races;
+the fix needs a synchronised props setter in cliffhanger/fimpgo.

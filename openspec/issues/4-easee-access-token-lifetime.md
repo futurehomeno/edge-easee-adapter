@@ -30,3 +30,9 @@ so field logs can answer the first open point.
 Still open: no lifetime read from that line is recorded here yet, so the real lifetime is unknown; the
 cause of the refusal is still inferred; the `reloginLead` comment still calls it a 24h token
 (`src/internal/api/authenticator.go:29`).
+
+2026-11-25, hub 9c1edbb3d437c8f1 (3.3.1, 2026-11-20 19:21 to 2026-11-21 08:26): the authenticator logged in again 14
+times, about an hour apart (`[auth] Log in again with the stored password: session ends`). Each of the first 13 was
+followed by exactly one refused re-sync, 91 s to 38 min later; a re-sync 84 s after a login was still accepted. So the
+refusal follows the end of the token the connection was opened with, about 90 s after the new login, not the age of
+the connection (one connection was 18 min old when refused). Details in `charging-watchdog-window` design.md.
