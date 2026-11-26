@@ -126,9 +126,11 @@ a symlink planted there:
 - the defaults symlink SHALL be re-created on every configure when it does not point at
   `/usr/share/futurehome/easee/defaults`, whatever sits at its path;
 - a symlink at `data/` SHALL be removed with a warning and replaced by a real directory; when `data/` is still not a
-  real directory afterwards, postinst SHALL fail;
+  real directory afterwards, postinst SHALL fail. The removal runs after the migration, so a symlink at `data/` that
+  resolves to a directory makes the migration see `data/` as present and skip;
 - a symlink at `easee.log` SHALL be removed with a warning, and the log file SHALL be created in the root-owned
-  parent and hard-linked into place, which fails rather than follows when anything already sits at the path;
+  parent and hard-linked into place, which fails rather than follows when anything already sits at the path; postinst
+  ignores that failure, so a directory or other non-symlink left at `easee.log` stays and no log file is created;
 - a symlink at `data/secrets.json`, `data/secrets.json.bak` or `data/config.json.bak` SHALL be removed with a
   warning, and postinst SHALL NOT change the mode of those files by path; the adapter sets their mode when it starts
   (configuration "Secret File Modes Pinned At Startup").
