@@ -308,7 +308,7 @@ func (cs *Service) MinChargingCurrent() int {
 	return defaultMinChargingCurrent
 }
 
-// SetMinChargingCurrent accepts values under 6 A: the routing divert passes them past cliffhanger's validation.
+// SetMinChargingCurrent accepts values under 6 A: an offered current under the minimum pauses the charger.
 func (cs *Service) SetMinChargingCurrent(current int) error {
 	if err := checkChargingCurrent("minimum", 1, current); err != nil {
 		return err

@@ -23,6 +23,7 @@ import (
 	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/google/go-cmp/cmp"
 	"github.com/pkg/errors"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
@@ -335,6 +336,12 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 						Command: suite.NullMessage(cmdDeviceAlarmTopic, "cmd.alarm.get_report", "alarm_system"),
 						Expectations: []*suite.Expectation{
 							suite.ExpectError(evtDeviceAlarmTopic, "alarm_system"),
+						},
+					},
+					{
+						Command: suite.NullMessage(cmdDeviceChargepointTopic, "cmd.state.get_report", "chargepoint"),
+						Expectations: []*suite.Expectation{
+							suite.ExpectCodedError(evtDeviceChargepointTopic, "chargepoint", fimptype.ErrorCodeUnavailable),
 						},
 					},
 				},
@@ -1356,6 +1363,13 @@ func TestEaseeAdapter(t *testing.T) { //nolint:paralleltest
 					},
 				},
 			},
+			// Each case has a Never, so the router waits out its timeout and ExactlyOnce also catches a late duplicate.
+			offeredPauseCase(testContainer, mqttAddr, "Offered current under the minimum pauses once and reports the session once", nil,
+				suite.ExpectFloat(evtDeviceChargepointTopic, "evt.current_session.report", "chargepoint", 0).ExactlyOnce(),
+				suite.ExpectError(evtDeviceChargepointTopic, "chargepoint").Never()),
+			offeredPauseCase(testContainer, mqttAddr, "A failed pause is tried once and answered with one error", errors.New("easee 500"),
+				suite.ExpectError(evtDeviceChargepointTopic, "chargepoint").ExactlyOnce(),
+				suite.ExpectFloat(evtDeviceChargepointTopic, "evt.current_session.report", "chargepoint", 0).Never()),
 			{
 				Name: "Get sessions report",
 				//nolint:dupl
@@ -1796,4 +1810,49 @@ func ExpectInclusionReportWithChargepointProps(topic string, wanted map[string]a
 	}))
 
 	return e
+}
+
+func offeredPauseCase(testContainer *testContainer, mqttAddr, name string, stopErr error, expect ...*suite.Expectation) *suite.Case {
+	var stops atomic.Int32
+
+	return &suite.Case{
+		Name: name,
+		Setup: serviceSetup(
+			testContainer,
+			"configured",
+			mqttAddr,
+			func(client *mockapi.Client) {
+				client.On("ChargerConfig", "XX12345").Return(&model.ChargerConfig{PhaseMode: 1}, nil)
+				client.On("ChargerSiteInfo", "XX12345").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
+				client.On("Ping").Return(nil)
+				client.On("StopCharging", "XX12345").Run(func(mock.Arguments) { stops.Add(1) }).Return(stopErr)
+			},
+			signalRSetup(test.DefaultSignalRAddr, func(s *test.SignalRServer) {
+				s.MockObservations(0, []model.Observation{{
+					ChargerID: test.ChargerID,
+					DataType:  model.ObservationDataTypeInteger,
+					Timestamp: time.Now(),
+					ID:        model.ChargerOPState,
+					Value:     strconv.Itoa(int(model.ChargerStateCharging)),
+				}})
+			})),
+		TearDown: []suite.Callback{tearDown("configured"), testContainer.TearDown()},
+		Nodes: []*suite.Node{
+			{
+				InitCallbacks: []suite.Callback{waitForRunning(), func(t *testing.T) {
+					t.Helper()
+					testContainer.signalRServer.WaitForObservations(t)
+				}},
+				Command:      suite.IntMessage(cmdDeviceChargepointTopic, "cmd.current_session.set_current", "chargepoint", 3),
+				Expectations: expect,
+			},
+			{
+				InitCallbacks: []suite.Callback{func(t *testing.T) {
+					t.Helper()
+					time.Sleep(200 * time.Millisecond)
+					assert.Equal(t, int32(1), stops.Load())
+				}},
+			},
+		},
+	}
 }

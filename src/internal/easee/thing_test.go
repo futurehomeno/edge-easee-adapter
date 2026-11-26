@@ -86,7 +86,7 @@ func TestThingFactory_Create_NotLoggedIn_DoesNotOverwriteStoredState(t *testing.
 	storage := fakes.NewConfigStorage(t, cfg, config.Factory)
 	cfgService := config.NewService(storage)
 
-	factory := easee.NewThingFactory(clientMock, cfgService, nil, nil)
+	factory := easee.NewThingFactory(clientMock, cfgService, nil, nil, nil)
 
 	ts := &fakeThingState{
 		info:     easee.Info{ChargerID: "test-charger", Product: "Home"},
@@ -110,7 +110,7 @@ func TestThingFactory_Create_KeepsMaxCurrentCommandsWithoutState(t *testing.T) {
 	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{}, nil)
 
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil, nil)
 
 	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
 		info: easee.Info{ChargerID: "test-charger", Product: "Home"},
@@ -137,7 +137,7 @@ func TestThingFactory_Create_FallsBackToStoredStateOnFetchError(t *testing.T) {
 	clientMock.On("ChargerSiteInfo", "test-charger").Return((*model.ChargerSiteInfo)(nil), errors.New("internal server error"))
 
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil, nil)
 
 	ts := &fakeThingState{info: easee.Info{ChargerID: "test-charger", Product: "Home"}}
 
@@ -164,7 +164,7 @@ func TestThingFactory_Create_RegistersAlarmSystemService(t *testing.T) {
 	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{}, nil)
 
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil, nil)
 
 	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
 		info: easee.Info{ChargerID: "test-charger", Product: "Home"},
@@ -193,7 +193,7 @@ func TestThingFactory_Create_RegistersPhaseModeSet(t *testing.T) {
 	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
 
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil, nil)
 
 	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
 		info: easee.Info{ChargerID: "test-charger", Product: "Home"},
@@ -251,7 +251,7 @@ func TestThingFactory_Create_TN2PhaseVariants(t *testing.T) {
 			clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
 
 			storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-			factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+			factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil, nil)
 
 			ts := &fakeThingState{info: easee.Info{ChargerID: "test-charger", Product: "Home"}, state: tt.stored}
 
@@ -283,7 +283,7 @@ func TestThingFactory_Create_SinglePhaseGridKeepsPhaseModeReport(t *testing.T) {
 	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
 
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil, nil)
 
 	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
 		info: easee.Info{ChargerID: "test-charger", Product: "Home"},
@@ -310,7 +310,7 @@ func TestThingFactory_Create_AdvertisesDeduplicatedFimpStates(t *testing.T) {
 	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{}, nil)
 
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil, nil)
 
 	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
 		info: easee.Info{ChargerID: "test-charger", Product: "Home"},
@@ -337,7 +337,7 @@ func TestThingFactory_Create_PersistedOutputPhaseKeepsEveryLeg(t *testing.T) {
 	clientMock.On("ChargerSiteInfo", "test-charger").Return(&model.ChargerSiteInfo{RatedCurrent: 32}, nil)
 
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil)
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), nil, nil, nil)
 
 	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
 		info:  easee.Info{ChargerID: "test-charger", Product: "Home"},
@@ -368,7 +368,7 @@ func TestThingFactory_Create_SeedsMaxCurrentFromStoredState(t *testing.T) {
 	managerMock.On("Resync", "test-charger").Maybe()
 
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
-	factory := easee.NewThingFactory(clientMock, config.NewService(storage), managerMock, newSessionStorage(t))
+	factory := easee.NewThingFactory(clientMock, config.NewService(storage), managerMock, newSessionStorage(t), nil)
 
 	thing, err := factory.Create(fakeAdapter{}, fakePublisher{}, &fakeThingState{
 		info:  easee.Info{ChargerID: "test-charger", Product: "Home"},

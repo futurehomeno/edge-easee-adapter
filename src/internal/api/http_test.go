@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/futurehomeno/cliffhanger/router"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/michalkurzeja/go-clock"
 	log "github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
@@ -991,4 +993,39 @@ func TestClient_UpdateDynamicCurrent_IsNotThrottled(t *testing.T) {
 	require.NoError(t, c.UpdateDynamicCurrent("token", "test-charger", 10), "a second write right behind the first reaches the server")
 	require.NoError(t, c.StopCharging("token", "test-charger"), "a stop right behind a write reaches the server")
 	assert.Equal(t, 3, calls)
+}
+
+func TestClient_FailureIsCodedAndNotLogged(t *testing.T) { //nolint:paralleltest // Swaps the global logger.
+	hook := logtest.NewGlobal()
+	t.Cleanup(hook.Reset)
+
+	for status, code := range map[int]fimptype.ErrorCodeT{
+		http.StatusUnauthorized:        fimptype.ErrorCodeUnauthorized,
+		http.StatusNotFound:            fimptype.ErrorCodeNotFound,
+		http.StatusBadRequest:          fimptype.ErrorCodeDeviceRefused,
+		http.StatusTooManyRequests:     fimptype.ErrorCodeRateLimited,
+		http.StatusInternalServerError: fimptype.ErrorCodeUnavailable,
+		0:                              fimptype.ErrorCodeUnavailable,
+	} {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte("secret body"))
+		}))
+		if status == 0 {
+			s.Close()
+		}
+
+		err := api.NewHTTPClient(&http.Client{Timeout: 3 * time.Second}, s.URL).StopCharging(test.AccessToken, test.ChargerID)
+		s.Close()
+
+		var coded *router.Error
+		require.ErrorAs(t, err, &coded, "status %d", status)
+		assert.Equal(t, code, coded.Code, "status %d", status)
+		assert.NotContains(t, coded.Msg, "XX12345")
+		assert.NotContains(t, coded.Msg, "secret body")
+		assert.NotContains(t, coded.Msg, "://")
+		assert.Contains(t, err.Error(), s.URL, "status %d: the log keeps the URL", status)
+	}
+
+	assert.Empty(t, hook.AllEntries())
 }

@@ -12,6 +12,8 @@ import (
 
 	"github.com/futurehomeno/cliffhanger/auth"
 	"github.com/futurehomeno/cliffhanger/httpclient"
+	"github.com/futurehomeno/cliffhanger/router"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 
@@ -96,14 +98,12 @@ func (c *httpClient) Login(userName, password string) (*model.Credentials, error
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("transport error: %w", err)
+		return nil, transportError(err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		c.logFailedResponse(resp)
-
 		err = c.handleFailedResponse(resp, "login request failed: unexpected status code")
 		if resp.StatusCode == http.StatusBadRequest || errors.Is(err, httpclient.ErrUnauthorized) {
 			err = fmt.Errorf("%w: %w", ErrInvalidCredentials, err)
@@ -142,14 +142,12 @@ func (c *httpClient) RefreshToken(accessToken, refreshToken string) (*model.Cred
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("transport error: %w", err)
+		return nil, transportError(err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		c.logFailedResponse(resp)
-
 		return nil, c.handleFailedResponse(resp, "token refresh request failed")
 	}
 
@@ -243,14 +241,12 @@ func (c *httpClient) Ping(accessToken string) error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("transport error: %w", err)
+		return transportError(err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		c.logFailedResponse(resp)
-
 		return c.handleFailedResponse(resp, "ping request failed: unexpected status code")
 	}
 
@@ -261,31 +257,33 @@ func (c *httpClient) buildURL(path string, args ...any) string {
 	return c.baseURL + fmt.Sprintf(path, args...)
 }
 
+func transportError(err error) error {
+	return router.NewError(fimptype.ErrorCodeUnavailable, "Easee cloud cannot be reached", fmt.Errorf("transport error: %w", err))
+}
+
+// handleFailedResponse carries the URL and response body in the cause, which only the log shows.
 func (c *httpClient) handleFailedResponse(resp *http.Response, message string) error {
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	cause := fmt.Errorf("%s %s: %s, status code: %d, body: %q", resp.Request.Method, resp.Request.URL, message, resp.StatusCode, body)
+
 	// ErrorFromResponse is nil below 300, and the command endpoints treat anything but 202 as a
 	// failure - Easee answers some of them 200. Wrapping nil renders as %!w(<nil>).
 	if err := httpclient.ErrorFromResponse(resp); err != nil {
-		return fmt.Errorf("%s, status code: %d: %w", message, resp.StatusCode, err)
+		cause = fmt.Errorf("%w: %w", cause, err)
 	}
 
-	return fmt.Errorf("%s, status code: %d", message, resp.StatusCode)
-}
-
-func (c *httpClient) logFailedResponse(resp *http.Response) {
-	if resp == nil {
-		return
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		return router.NewError(fimptype.ErrorCodeUnauthorized, "Easee refused the credentials", cause)
+	case resp.StatusCode == http.StatusNotFound:
+		return router.NewError(fimptype.ErrorCodeNotFound, "Easee does not know the charger", cause)
+	case resp.StatusCode == http.StatusTooManyRequests:
+		return router.NewError(fimptype.ErrorCodeRateLimited, "the Easee cloud limits requests for now", cause)
+	case resp.StatusCode >= http.StatusInternalServerError:
+		return router.NewError(fimptype.ErrorCodeUnavailable, "Easee cloud is not available", cause)
+	default:
+		return router.NewError(fimptype.ErrorCodeDeviceRefused, "Easee refused the request", cause)
 	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.WithError(err).
-			Errorf("%s %s %s: failed to read response body", resp.Request.Method, resp.Request.URL.String(), resp.Status)
-
-		return
-	}
-
-	log.WithField("body", string(body)).
-		Errorf("%s %s resulted in %s", resp.Request.Method, resp.Request.URL.String(), resp.Status)
 }
 
 func (c *httpClient) readResponseBody(r *http.Response, body any) error {
@@ -317,7 +315,7 @@ func (c *httpClient) postCommand(accessToken, url string, body any, message stri
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("transport error: %w", err)
+		return transportError(err)
 	}
 
 	defer func() { _ = resp.Body.Close() }()
@@ -327,8 +325,6 @@ func (c *httpClient) postCommand(accessToken, url string, body any, message stri
 	}
 
 	if !slices.Contains(okStatuses, resp.StatusCode) {
-		c.logFailedResponse(resp)
-
 		return c.handleFailedResponse(resp, message+" failed: unexpected status code")
 	}
 
@@ -344,7 +340,7 @@ func (c *httpClient) getResponse(state any, url, accessToken string) error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("transport error: %w", err)
+		return transportError(err)
 	}
 
 	defer func() {
@@ -354,7 +350,6 @@ func (c *httpClient) getResponse(state any, url, accessToken string) error {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		c.logFailedResponse(resp)
 		return c.handleFailedResponse(resp, "unexpected status code")
 	}
 

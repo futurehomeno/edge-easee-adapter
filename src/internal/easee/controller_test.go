@@ -16,7 +16,10 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
 	"github.com/futurehomeno/cliffhanger/adapter/service/parameters"
 	"github.com/futurehomeno/cliffhanger/database"
+	"github.com/futurehomeno/cliffhanger/router"
 	"github.com/futurehomeno/cliffhanger/types"
+	"github.com/futurehomeno/fimpgo"
+	"github.com/futurehomeno/fimpgo/fimptype"
 	"github.com/michalkurzeja/go-clock"
 	log "github.com/sirupsen/logrus"
 	logtest "github.com/sirupsen/logrus/hooks/test"
@@ -78,6 +81,7 @@ func newTestController(
 		cfgService,
 		sessionStorage,
 		func() types.PhaseMode { return persistedPhase },
+		nil,
 	)
 
 	// Runs before an earlier-registered clock.Restore: a deferred send still in flight reads the clock.
@@ -101,7 +105,7 @@ func newLiveCacheController(t *testing.T, c cache.Cache, clientMock *mockapi.Cli
 	keepUserStop(sessionStorage)
 
 	ctrl := easee.NewController(managerMock, clientMock, "test-charger", c, config.NewService(storage),
-		sessionStorage, func() types.PhaseMode { return types.PhaseModeNL3 })
+		sessionStorage, func() types.PhaseMode { return types.PhaseModeNL3 }, nil)
 	t.Cleanup(ctrl.Teardown)
 
 	return ctrl
@@ -1918,6 +1922,12 @@ func TestController_ChargepointPhaseModeReport_InternalModeUnset(t *testing.T) {
 			mode, err := ctrl.ChargepointPhaseModeReport()
 			assert.Equal(t, tt.want == "", err != nil, err)
 			assert.Equal(t, tt.want, mode)
+
+			var coded *router.Error
+			if tt.want == "" && assert.ErrorAs(t, err, &coded) {
+				assert.Equal(t, fimptype.ErrorCodeUnavailable, coded.Code)
+				assert.NotContains(t, coded.Msg, "test-charger")
+			}
 		})
 	}
 }
@@ -2583,7 +2593,7 @@ func phaseResyncController(t *testing.T, clientMock *mockapi.Client) (easee.Cont
 
 	storage := fakes.NewConfigStorage(t, &config.Config{}, config.Factory)
 	ctrl := easee.NewController(managerMock, clientMock, "test-charger", c, config.NewService(storage),
-		newSessionStorage(t), func() types.PhaseMode { return "" })
+		newSessionStorage(t), func() types.PhaseMode { return "" }, nil)
 	t.Cleanup(ctrl.Teardown)
 
 	return ctrl, c, managerMock
@@ -3750,7 +3760,7 @@ func TestController_SetChargepointPhaseMode_UseLocked3Phases(t *testing.T) {
 
 			ctrl := easee.NewController(managerMock, clientMock, "test-charger", c,
 				config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory)),
-				newSessionStorage(t), func() types.PhaseMode { return "" })
+				newSessionStorage(t), func() types.PhaseMode { return "" }, nil)
 			t.Cleanup(ctrl.Teardown)
 
 			require.NoError(t, ctrl.SetChargepointPhaseMode(tt.mode))
@@ -3787,7 +3797,7 @@ func TestController_SetChargepointPhaseMode_ReleaseAfterASessionDoesNotBounce(t 
 
 	ctrl := easee.NewController(managerMock, clientMock, "test-charger", c,
 		config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory)),
-		mockeddb.NewChargingSessionStorage(t), func() types.PhaseMode { return "" })
+		mockeddb.NewChargingSessionStorage(t), func() types.PhaseMode { return "" }, nil)
 	t.Cleanup(ctrl.Teardown)
 
 	require.NoError(t, ctrl.SetChargepointPhaseMode(types.PhaseModeNL1L2L3))
@@ -4475,4 +4485,80 @@ func TestController_EndSession_ForgetsTheSlowStart(t *testing.T) {
 	clk.Add(time.Minute)
 	require.NoError(t, ctrl.StartChargepointCharging(&chargepoint.ChargingSettings{}))
 	assert.Equal(t, float64(16), clientMock.Calls[len(clientMock.Calls)-1].Arguments.Get(1))
+}
+
+// A write the channel deferred was answered as accepted; Easee refusing it later answers the command again, with its corid.
+// The report's sentence names no charger serial, also when the failure carries no code.
+func TestController_DeferredFailureAnswersTheCommand(t *testing.T) {
+	for code, failure := range map[fimptype.ErrorCodeT]error{
+		fimptype.ErrorCodeDeviceRefused: router.NewError(fimptype.ErrorCodeDeviceRefused, "Easee refused the request", nil),
+		fimptype.ErrorCodeInternal:      errors.New("get token err: not logged in"),
+	} {
+		t.Run(code.Str(), func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("MaxCurrent").Return(32, time.Time{})
+			cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+			cacheMock.On("SetRequestedOfferedCurrent", 10, mock.AnythingOfType("time.Time")).Return(true)
+			cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true)
+
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+			clientMock.On("UpdateDynamicCurrent", "test-charger", float64(12)).Return(failure).Once()
+
+			sessionStorage := mockeddb.NewChargingSessionStorage(t)
+			keepUserStop(sessionStorage)
+
+			published := make(chan *fimpgo.FimpMessage, 1)
+			ctrl := easee.NewController(mockedsignalr.NewManager(t), clientMock, "test-charger", cacheMock,
+				config.NewService(fakes.NewConfigStorage(t, pacedConfig(), config.Factory)), sessionStorage,
+				func() types.PhaseMode { return types.PhaseModeNL3 },
+				func(_ *fimpgo.Address, msg *fimpgo.FimpMessage) error { published <- msg; return nil })
+			t.Cleanup(ctrl.Teardown)
+
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+
+			addr, err := fimpgo.NewAddressFromString("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1")
+			require.NoError(t, err)
+
+			request := &fimpgo.Message{
+				Topic:   addr.Serialize(),
+				Addr:    addr,
+				Payload: fimpgo.NewIntMessage(chargepoint.CmdCurrentSessionSetCurrent, chargepoint.Chargepoint, 12, nil, nil, nil),
+			}
+
+			ctrl.Bind(request)
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
+			ctrl.Unbind(request)
+
+			clk.Add(20 * time.Second)
+
+			select {
+			case msg := <-published:
+				assert.Equal(t, "evt.error.report", msg.Interface)
+				assert.Equal(t, code.Str(), msg.Value)
+				assert.Equal(t, request.Payload.UID, msg.CorrelationID)
+				assert.NotContains(t, msg.Properties["msg"], "test-charger")
+			case <-time.After(5 * time.Second):
+				t.Fatal("the deferred failure was not answered")
+			}
+		})
+	}
+}
+
+func TestController_DisconnectedIsUnavailable(t *testing.T) {
+	t.Parallel()
+
+	manager := mockedsignalr.NewManager(t)
+	manager.On("Connected", "test-charger").Return(false, signalr.DisconnectionReason("lost"))
+
+	ctrl := newTestController(t, manager, mockedcache.NewCache(t), mockapi.NewClient(t), mockeddb.NewChargingSessionStorage(t), nil)
+
+	_, err := ctrl.ChargepointStateReport()
+
+	var coded *router.Error
+	require.ErrorAs(t, err, &coded)
+	assert.Equal(t, fimptype.ErrorCodeUnavailable, coded.Code)
 }
