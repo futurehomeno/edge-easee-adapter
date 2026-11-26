@@ -48,7 +48,7 @@ type serviceContainer struct {
 	manifestLoader  manifest.Loader
 	eventManager    event.Manager
 	adapter         adapter.Adapter
-	thingFactory    adapter.ThingFactory
+	thingFactory    *easee.ThingFactory
 	adapterState    adapter.State
 	httpClient      *http.Client
 	easeeHTTPClient api.HTTPClient
@@ -136,6 +136,8 @@ func migrateConfig(cfgSvc *config.Service, credentials *config.CredentialsStore)
 		}},
 		cliffCfg.Migration{From: 6, To: 7, Do: cfg.MigrateOfferedCurrentWaitTime},
 		cliffCfg.Migration{From: 7, To: 8, Do: cfg.MigrateTelemetryOn},
+		cliffCfg.Migration{From: 8, To: 9, Do: cfg.MigratePollingInterval},
+		cliffCfg.Migration{From: 9, To: 10, Do: cfg.MigrateSignalRBackoffSchedule},
 	)
 	if err != nil {
 		return fmt.Errorf("migrate config: %w", err)
@@ -275,7 +277,7 @@ func getAdapterState() adapter.State {
 	return services.adapterState
 }
 
-func getThingFactory(cfg *config.Config) adapter.ThingFactory {
+func getThingFactory(cfg *config.Config) *easee.ThingFactory {
 	if services.thingFactory == nil {
 		services.thingFactory = easee.NewThingFactory(
 			getEaseeAPIClient(cfg),
@@ -382,6 +384,7 @@ func newRouting(cfg *config.Config) []*cliffRouter.Routing {
 		getApplication(cfg),
 		getAdapter(cfg),
 		getTelemetry(cfg),
+		getThingFactory(cfg).ControllerByAddress,
 	)
 }
 

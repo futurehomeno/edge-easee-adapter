@@ -3,6 +3,7 @@ package signalr
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,8 +25,9 @@ const (
 	ChargerOffline       DisconnectionReason = "charger is offline"
 )
 
-// staleStateWindow mirrors the Zaptec adapter's chargingStaleWindow.
-const staleStateWindow = 5 * time.Minute
+// staleStateWindow outlasts the 15 min at which Easee resends TotalPower while charging at a steady
+// current (observed, not documented), so only a stream that really went silent is re-synced.
+const staleStateWindow = 20 * time.Minute
 
 // refreshesState reports whether an observation confirms the state the report is built from.
 // Easee kept streaming DynamicChargerCurrent echoes and phase currents while these stopped
@@ -59,11 +61,8 @@ type manager struct {
 	done    chan struct{}
 	cfg     *config.Service
 
-	// Bumped by every Register that adds a charger. Close() blocks on the network - it
-	// waits out the connection goroutine - so Unregister cannot decide to close and close
-	// under one lock; it snapshots this instead and re-starts the client when a Register
-	// bumped it in between.
-	startEpoch uint64
+	// Set when a refused subscribe or unsubscribe restarts the client; cleared by the next connect.
+	reconnecting bool
 
 	subscriptions chan string
 
@@ -139,8 +138,6 @@ func (m *manager) Register(chargerID string, handler Handler) {
 		backoff:      m.cfg.SignalRBackoffStateful(),
 	}
 
-	m.startEpoch++
-
 	m.client.Start()
 
 	connected := m.client.Connected()
@@ -177,6 +174,7 @@ func (m *manager) Unregister(chargerID string) error {
 		return nil
 	}
 
+	epoch, subscribed := m.epoch, charger.isSubscribed
 	delete(m.chargers, chargerID)
 
 	m.mu.Unlock()
@@ -191,11 +189,7 @@ func (m *manager) Unregister(chargerID string) error {
 	// they run after the map write is published rather than under m.mu, which would stall
 	// Connected(), Register() and every observation lookup for the whole invocation. Stop()
 	// already takes this shape.
-	var errs error
-
-	if err := m.client.UnsubscribeCharger(chargerID); err != nil {
-		errs = errors.Join(errs, err)
-	}
+	errs := m.client.UnsubscribeCharger(chargerID)
 
 	// Re-tested under the lock rather than snapshotted before the invoke above: Register adds
 	// its charger and calls Start() while holding m.mu, so it can complete entirely while this
@@ -212,24 +206,33 @@ func (m *manager) Unregister(chargerID string) error {
 
 	m.mu.Lock()
 	last := len(m.chargers) == 0
-	startEpoch := m.startEpoch
+	// Easee keeps streaming a charger whose unsubscribe was refused, until the connection is replaced.
+	restart := !last && subscribed && epoch == m.epoch && !m.reconnecting && isUnauthorized(errs)
+	m.reconnecting = m.reconnecting || restart
 	m.mu.Unlock()
 
-	if last {
-		if err := m.client.Close(); err != nil {
-			errs = errors.Join(errs, err)
-		}
+	if restart {
+		log.Warnf("signalR: unsubscribe of '%s' refused as unauthorized, reconnecting with the current token", chargerID)
+		m.client.Restart()
+	}
 
-		m.mu.RLock()
-		raced := m.startEpoch != startEpoch && len(m.chargers) > 0
-		m.mu.RUnlock()
+	if !last {
+		return errs
+	}
 
-		// That Register ran its Start() before this Close(), so the client's own
-		// startRequested rescue had nothing to defer and the close simply undid it. Unless
-		// its charger has since gone too: then its own Unregister closed the client last.
-		if raced {
-			m.client.Start()
-		}
+	// Close() blocks on the network, so it runs off m.mu and a Register can land meanwhile: its
+	// Start() ran before this Close(), so the client's own startRequested rescue had nothing to
+	// defer and the close simply undid it. Unless its charger has since gone too: then its own
+	// Unregister closed it last.
+	errs = errors.Join(errs, m.client.Close())
+
+	// Started under the lock: released first, the last Unregister could close the client in
+	// between and this Start would bring it back up for nobody.
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if len(m.chargers) > 0 {
+		m.client.Start()
 	}
 
 	return errs
@@ -376,8 +379,14 @@ func (m *manager) handleSubscription(chargerID string) error {
 	// enqueueSubscription takes m.mu itself.
 	requeue := false
 	report := false
+	restart := false
 
 	defer func() {
+		if restart {
+			log.Warnf("signalR: subscribe of '%s' refused as unauthorized, reconnecting with the current token", chargerID)
+			m.client.Restart()
+		}
+
 		if report {
 			charger.handler.ReportConnectivity()
 		}
@@ -444,10 +453,18 @@ func (m *manager) handleSubscription(chargerID string) error {
 			charger.subscribeFailed = true
 		}
 
+		// The connection keeps the access token it was opened with; a refusal on it means that
+		// token is no longer accepted.
+		if !m.reconnecting && !charger.unauthorizedRestarted && isUnauthorized(err) {
+			m.reconnecting = true
+			charger.unauthorizedRestarted = true
+			restart = true
+		}
+
 		// One retry chain per charger. Every reconnect enqueues a subscription for every
 		// charger, so without this a charger that keeps failing accumulated one more
 		// self-perpetuating chain - and one more blocking invoke per cycle - per reconnect.
-		if !charger.retryArmed {
+		if !restart && !charger.retryArmed {
 			charger.retryArmed = true
 
 			go m.addChargerSubscription(chargerID, charger)
@@ -471,6 +488,7 @@ func (m *manager) handleSubscription(chargerID string) error {
 	charger.backoff.Reset()
 	charger.isSubscribed = true
 	charger.subscribeFailed = false
+	charger.unauthorizedRestarted = false
 	// A re-sync asked for while this subscribe ran may postdate the state it replayed.
 	requeue = charger.resync
 
@@ -525,6 +543,7 @@ func (m *manager) handleClientState(state model.ClientState) {
 		// A subscribe still in flight belongs to the previous connection: its result must not
 		// mark this one subscribed, and it must not block the re-subscribe enqueued below.
 		m.epoch++
+		m.reconnecting = false
 
 		for chargerID, charger := range m.chargers {
 			// A subscription belongs to the connection that made it. Clearing the flag here
@@ -664,4 +683,15 @@ type charger struct {
 	// subscribe that was already in flight cannot report success for a subscription that is
 	// gone. The manager-wide epoch above covers a reconnect; this one covers a repair.
 	subscribeEpoch uint64
+
+	// Set when this charger's unauthorized refusal restarts the client, cleared only by its next
+	// successful subscribe. The reconnect sweep must keep it: a charger that left the account is
+	// refused on every connection and would otherwise restart the client on each one.
+	unauthorizedRestarted bool
+}
+
+// isUnauthorized tells a refusal of the token the connection was opened with: the library returns the
+// hub's error text, with no typed error.
+func isUnauthorized(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "HubException: Unauthorized")
 }

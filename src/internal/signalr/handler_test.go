@@ -12,6 +12,7 @@ import (
 	"github.com/futurehomeno/cliffhanger/adapter/service/alarm"
 	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/adapter/service/numericmeter"
+	"github.com/futurehomeno/cliffhanger/database"
 	mockedalarm "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/alarm"
 	mockedchargepoint "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/chargepoint"
 	mockednumericmeter "github.com/futurehomeno/cliffhanger/test/mocks/adapter/service/numericmeter"
@@ -23,7 +24,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/futurehomeno/edge-easee-adapter/internal/cache"
 	"github.com/futurehomeno/edge-easee-adapter/internal/config"
+	"github.com/futurehomeno/edge-easee-adapter/internal/db"
 	"github.com/futurehomeno/edge-easee-adapter/internal/model"
 	"github.com/futurehomeno/edge-easee-adapter/internal/signalr"
 	"github.com/futurehomeno/edge-easee-adapter/internal/test/fakes"
@@ -55,13 +58,20 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 	stale := time.Now().Add(-time.Hour)
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, stale)
 	cacheMock.On("SetChargerState", chargepoint.StateDisconnected, stale).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.MatchedBy(func(ts time.Time) bool {
 		return ts.After(stale)
 	})).Return(true)
 
-	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil)
+	unplugged := false
+	endSession := func(u bool) {
+		unplugged = u
+		cacheMock.AssertNotCalled(t, "SetRequestedOfferedCurrent", 0, mock.Anything)
+	}
+
+	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil, endSession)
 	require.NoError(t, err)
 
 	require.Error(t, handler.HandleObservation(model.Observation{
@@ -71,6 +81,7 @@ func TestObservationsHandler_SessionFinishedClearsRequestedCurrentWithNow(t *tes
 		Timestamp: stale,
 		Value:     strconv.Itoa(int(model.ChargerStateDisconnected)),
 	}))
+	assert.True(t, unplugged)
 }
 
 // A re-sync replays the snapshot with the timestamps already cached; that is no new end of a
@@ -84,7 +95,7 @@ func TestObservationsHandler_ReplayedSessionFinishedKeepsRequestedCurrent(t *tes
 	cacheMock.On("ChargerState").Return(chargepoint.StateFinished, at)
 	cacheMock.On("SetChargerState", chargepoint.StateFinished, at).Return(true)
 
-	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(serviceLessThing{}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	require.Error(t, handler.HandleObservation(model.Observation{
@@ -176,67 +187,161 @@ func waitFor(t *testing.T, cond func() bool) {
 }
 
 type fakePhaseStore struct {
-	mode types.PhaseMode
+	mode     types.PhaseMode
+	gridType model.GridType
+	block    chan struct{}
+	err      error
 }
 
-func (s *fakePhaseStore) OutputPhase() types.PhaseMode { return s.mode }
+func (s *fakePhaseStore) OutputPhase() types.PhaseMode     { return s.mode }
+func (s *fakePhaseStore) DetectedGridType() model.GridType { return s.gridType }
 
 func (s *fakePhaseStore) SetOutputPhase(mode types.PhaseMode) error {
+	if s.block != nil {
+		<-s.block
+	}
+
+	if s.err != nil {
+		return s.err
+	}
+
 	s.mode = mode
 
 	return nil
 }
 
-// An Easee always uses the phase it is wired to, so the first OutputPhase observation must narrow
-// sup_phase_modes to that phase - a hub asking for any other one retries forever. A repeat
-// observation carries no news, so it must not republish the inclusion report.
-func TestObservationsHandler_OutputPhaseNarrowsAdvertisedPhaseModes(t *testing.T) {
+// The leg is written to flash, so the write goes with the queued report: on the drain it would
+// park the only reader of the observation channel, and its failure would cost the hub the report.
+func TestObservationsHandler_OutputPhaseStoreWriteStaysOffTheDrain(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true).Once()
-	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(false)
+	cacheMock.On("SetOutputPhaseType", types.PhaseModeL3L1, now).Return(true).Once()
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
-		chargepoint.PropertyGridType: types.GridTypeTN,
-		chargepoint.PropertyPhases:   3,
-		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{
-			types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL3, types.PhaseModeNL1L2L3,
-		},
+		chargepoint.PropertyGridType: types.GridTypeIT,
 	}})
-	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
+	srv.On("SendPhaseModeReport", false).Return(true, nil).Once()
 
-	thing := &phaseThing{srv: srv}
-	store := &fakePhaseStore{}
+	store := &fakePhaseStore{mode: types.PhaseModeL1L2, block: make(chan struct{}), err: assert.AnError}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store, nil)
 	require.NoError(t, err)
 
-	observation := model.Observation{
+	handled := make(chan error, 1)
+
+	go func() {
+		handled <- handler.HandleObservation(model.Observation{
+			ID:        model.OutputPhase,
+			ChargerID: testChargerID,
+			DataType:  model.ObservationDataTypeInteger,
+			Timestamp: now,
+			Value:     strconv.Itoa(int(model.P1T2T4IT)),
+		})
+	}()
+
+	select {
+	case err := <-handled:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		close(store.block)
+		t.Fatal("the store write parked the observation drain")
+	}
+
+	close(store.block)
+	flushReports(t, handler)
+}
+
+// One sender publishes every report of the charger in order, so a write that blocks has to come
+// after the report it would otherwise hold back.
+func TestObservationsHandler_OutputPhaseReportDoesNotWaitForTheStoreWrite(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetOutputPhaseType", types.PhaseModeL3L1, now).Return(true).Once()
+
+	reported := make(chan struct{})
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType: types.GridTypeIT,
+	}})
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
+	srv.On("SendPhaseModeReport", false).Run(func(mock.Arguments) { close(reported) }).Return(true, nil).Once()
+
+	store := &fakePhaseStore{mode: types.PhaseModeL1L2, block: make(chan struct{})}
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
 		ID:        model.OutputPhase,
 		ChargerID: testChargerID,
 		DataType:  model.ObservationDataTypeInteger,
 		Timestamp: now,
-		Value:     strconv.Itoa(int(model.P1T2T5TN)),
+		Value:     strconv.Itoa(int(model.P1T2T4IT)),
+	}))
+
+	select {
+	case <-reported:
+	case <-time.After(time.Second):
+		t.Error("the report waited for the store write")
 	}
 
-	require.NoError(t, handler.HandleObservation(observation))
+	close(store.block)
+	flushReports(t, handler)
 
-	// The props assignment is synchronous; the report and the phase-store write that follows it
-	// run on the sender goroutine, so both need the queue flushed first.
-	assert.Equal(t, []types.PhaseMode{types.PhaseModeNL3, types.PhaseModeNL1L2L3},
-		srv.Specification().Props[chargepoint.PropertySupportedPhaseModes])
+	assert.Equal(t, types.PhaseModeL3L1, store.mode)
+}
 
-	require.NoError(t, handler.HandleObservation(observation))
+// An Easee picks its leg per session (hub 8ee88ca8: T2T3 and T2T4 in turn on an IT grid), so a new
+// leg must not narrow sup_phase_modes: cliffhanger would reject the leg a hub requested a moment ago.
+func TestObservationsHandler_OutputPhaseKeepsEveryLegAdvertised(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	all := []types.PhaseMode{types.PhaseModeL1L2, types.PhaseModeL2L3, types.PhaseModeL3L1, types.PhaseModeL1L2L3}
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetOutputPhaseType", types.PhaseModeL3L1, now).Return(true).Once()
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType:            types.GridTypeIT,
+		chargepoint.PropertyPhases:              3,
+		chargepoint.PropertySupportedPhaseModes: all,
+	}})
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
+	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+
+	thing := &phaseThing{srv: srv}
+	store := &fakePhaseStore{mode: types.PhaseModeL1L2}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID:        model.OutputPhase,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.P1T2T4IT)),
+	}))
 
 	flushReports(t, handler)
 
-	assert.Equal(t, types.PhaseModeNL3, store.mode)
-	assert.Equal(t, 1, thing.inclusionCount(), "an unchanged phase must not republish the inclusion report")
+	assert.Equal(t, all, srv.Specification().Props[chargepoint.PropertySupportedPhaseModes])
+	assert.Equal(t, types.PhaseModeL3L1, store.mode)
+	assert.Zero(t, thing.inclusionCount(), "a new leg must not republish the inclusion report")
 }
 
 // An Easee on an IT grid has been seen reporting the TN variant of its output phase; the grid it
@@ -257,11 +362,12 @@ func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
 		chargepoint.PropertyGridType: types.GridTypeIT,
 		chargepoint.PropertyPhases:   1,
 	}})
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Once()
 
 	store := &fakePhaseStore{}
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, store, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -277,51 +383,90 @@ func TestObservationsHandler_OutputPhaseFollowsDetectedGridType(t *testing.T) {
 	assert.Equal(t, types.PhaseModeL1L2, store.mode)
 }
 
-// A republish that fails must not be recorded as done: the next observation has to retry it.
-func TestObservationsHandler_OutputPhaseRepublishRetriedAfterFailure(t *testing.T) {
+// The controller caches a sent target with the timestamp of the observation it replaced, so the
+// echo of that target must record its own: the library dispatches each hub call on its own
+// goroutine, and an older observation landing after the echo would otherwise win.
+func TestObservationsHandler_PhaseModeRepeatKeepsItsTimestamp(t *testing.T) {
 	t.Parallel()
 
-	now := time.Now()
+	t0 := time.Now()
+	t1, t2 := t0.Add(time.Second), t0.Add(2*time.Second)
 
-	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("SetOutputPhaseType", types.PhaseModeNL3, now).Return(true)
+	phases := cache.NewCache(testChargerID)
+	phases.SetPhaseMode(1, t0)
 
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
-	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
-		chargepoint.PropertyGridType: types.GridTypeTN,
-		chargepoint.PropertyPhases:   3,
-	}})
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
 
-	thing := &phaseThing{srv: srv, fail: 1}
-	store := &fakePhaseStore{}
-
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, phases, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
-	observation := model.Observation{
-		ID:        model.OutputPhase,
-		ChargerID: testChargerID,
-		DataType:  model.ObservationDataTypeInteger,
-		Timestamp: now,
-		Value:     strconv.Itoa(int(model.P1T2T5TN)),
+	for _, obs := range []struct {
+		mode int
+		at   time.Time
+	}{{1, t2}, {2, t1}} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.PhaseMode, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: obs.at, Value: strconv.Itoa(obs.mode),
+		}))
 	}
-
-	// The failure now surfaces on the sender goroutine rather than from HandleObservation, so
-	// the drain sees no error; what must still hold is that the phase is not persisted, which is
-	// what makes the next observation retry the republish.
-	require.NoError(t, handler.HandleObservation(observation))
-
-	waitFor(t, func() bool { return thing.inclusionCount() == 1 })
-	assert.Equal(t, types.PhaseModeUnknown, store.mode, "a failed republish must not be persisted")
-
-	require.NoError(t, handler.HandleObservation(observation))
 
 	flushReports(t, handler)
 
-	assert.Equal(t, types.PhaseModeNL3, store.mode)
-	assert.Equal(t, 2, thing.inclusionCount())
+	mode, at := phases.PhaseMode()
+	assert.Equal(t, 1, mode)
+	assert.Equal(t, t2, at)
+	srv.AssertNotCalled(t, "SendPhaseModeReport", false)
+}
+
+type chargepointThing struct {
+	adapter.Thing
+
+	srv chargepoint.Service
+}
+
+func (t chargepointThing) Services(fimptype.ServiceNameT) []adapter.Service {
+	return []adapter.Service{t.srv}
+}
+
+// Grid type 30, or one not yet detected, advertises no sup_phase_modes, and cliffhanger refuses
+// a phase-mode report on such a chargepoint, so sending one anyway warns on every change.
+func TestObservationsHandler_NoPhaseModesSendsNoPhaseModeReport(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	now := time.Now()
+
+	srv := chargepoint.NewService(nil, &chargepoint.Config{
+		Specification: &fimptype.Service{Props: map[string]interface{}{
+			chargepoint.PropertyGridType: types.GridTypeTN,
+			chargepoint.PropertyPhases:   2,
+		}},
+		Controller: mockedchargepoint.NewController(t),
+	})
+	store := &fakePhaseStore{}
+
+	handler, err := signalr.NewObservationsHandler(chargepointThing{srv: srv}, cache.NewCache(testChargerID), nil, nil, testChargerID, store, nil)
+	require.NoError(t, err)
+
+	for _, obs := range []struct {
+		id  model.ObservationID
+		val int
+	}{{model.PhaseMode, 1}, {model.OutputPhase, int(model.P1T2T3TN)}} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: obs.id, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: now, Value: strconv.Itoa(obs.val),
+		}))
+	}
+
+	flushReports(t, handler)
+
+	for _, entry := range hook.AllEntries() {
+		assert.NotContains(t, entry.Message, "aware phase modes is not supported")
+	}
+
+	assert.Equal(t, types.PhaseModeNL1, store.mode)
 }
 
 // The offline state report is the one report that must survive the offline gate. The handler
@@ -334,6 +479,7 @@ func TestObservationsHandler_OfflineStateIsReportedBeforeTheFlagFlips(t *testing
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", chargepoint.StateUnknown, now).Return(true)
 	// Offline counts as a finished session, so the requested current is cleared on the way.
@@ -342,7 +488,7 @@ func TestObservationsHandler_OfflineStateIsReportedBeforeTheFlagFlips(t *testing
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	// isCloudOnline starts true, so the handler is online until this observation lands.
@@ -376,6 +522,7 @@ func TestObservationsHandler_RecoveryStateIsReportedWhileAlreadyOnline(t *testin
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", chargepoint.StateUnknown, now).Return(true)
 	cacheMock.On("SetChargerState", chargepoint.StateSuspendedByEV, now).Return(true)
@@ -383,7 +530,7 @@ func TestObservationsHandler_RecoveryStateIsReportedWhileAlreadyOnline(t *testin
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	// Drive it offline first, so the recovery below is a real transition. The sender publishes
@@ -452,7 +599,7 @@ func TestObservationsHandler_ZeroPhaseFaultKeepsTheChargepointProps(t *testing.T
 
 			thing := &phaseThing{srv: srv}
 
-			handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+			handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 			require.NoError(t, err)
 
 			require.NoError(t, handler.HandleObservation(model.Observation{
@@ -493,7 +640,7 @@ func TestObservationsHandler_TopologyAfterZeroPhaseFaultStillRepublishes(t *test
 
 	thing := &phaseThing{srv: srv}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	for _, gridType := range []model.GridType{model.GridTypeErrorTN400VNeutralOnWrongPin, model.GridTypeIT1Phase} {
@@ -537,7 +684,7 @@ func TestObservationsHandler_FaultGridTypeKeepsTheChargepointProps(t *testing.T)
 
 	thing := &phaseThing{srv: srv}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -593,7 +740,7 @@ func TestObservationsHandler_FaultyGridTypeWarnsOnChange(t *testing.T) {
 			cacheMock.On("GridType").Return(types.GridTypeTN, now)
 			cacheMock.On("Phases").Return(1, now)
 
-			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: mockedchargepoint.NewService(t)}, cacheMock, nil, nil, testChargerID, nil)
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: mockedchargepoint.NewService(t)}, cacheMock, nil, nil, testChargerID, nil, nil)
 			require.NoError(t, err)
 
 			for _, o := range tt.obs {
@@ -637,6 +784,7 @@ func TestObservationsHandler_ReportsDoNotBlockTheDrain(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now)
 	cacheMock.On("SetChargerState", chargepoint.StateCharging, now).Return(true)
 	cacheMock.On("OfferedCurrent").Return(0, now)
@@ -653,7 +801,7 @@ func TestObservationsHandler_ReportsDoNotBlockTheDrain(t *testing.T) {
 	srv.On("SendStateReport", false).Run(func(mock.Arguments) { <-commandDone }).Return(true, nil).Maybe()
 	srv.On("SendCurrentSessionReport", false).Return(true, nil).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	defer func() {
@@ -693,6 +841,7 @@ func TestObservationsHandler_CloseWaitsForTheSender(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now)
 	cacheMock.On("SetChargerState", chargepoint.StateCharging, now).Return(true)
 
@@ -702,7 +851,7 @@ func TestObservationsHandler_CloseWaitsForTheSender(t *testing.T) {
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 	srv.On("SendStateReport", false).Run(func(mock.Arguments) { <-release }).Return(true, nil).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -740,6 +889,7 @@ func TestObservationsHandler_CloseRacingADispatch(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now).Maybe()
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true).Maybe()
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
@@ -748,7 +898,7 @@ func TestObservationsHandler_CloseRacingADispatch(t *testing.T) {
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 	srv.On("SendStateReport", false).Return(true, nil).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	var wg sync.WaitGroup
@@ -781,6 +931,7 @@ func TestObservationsHandler_DroppedStateTransitionStillMovesTheFlag(t *testing.
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
@@ -789,7 +940,7 @@ func TestObservationsHandler_DroppedStateTransitionStillMovesTheFlag(t *testing.
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 
-	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	observe := func(id model.ObservationID, dataType model.ObservationDataType, value string) {
@@ -873,6 +1024,7 @@ func TestObservationsHandler_AlarmReportsDoNotBlockTheDrain(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("AlarmActive", alarm.EventOtherChargeErr).Return(false).Maybe()
 	cacheMock.On("SetAlarm", alarm.EventOtherChargeErr, true, now).Return(true)
 	cacheMock.On("ChargerState").Return(chargepoint.StateDisconnected, now).Maybe()
@@ -894,7 +1046,7 @@ func TestObservationsHandler_AlarmReportsDoNotBlockTheDrain(t *testing.T) {
 	cp.On("SendStateReport", false).Return(true, nil).Maybe()
 
 	handler, err := signalr.NewObservationsHandler(
-		&alarmThing{cp: cp, alarm: alarmSrv}, cacheMock, nil, nil, testChargerID, nil)
+		&alarmThing{cp: cp, alarm: alarmSrv}, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	defer func() {
@@ -932,6 +1084,7 @@ func TestObservationsHandler_InclusionReportsDoNotBlockTheDrain(t *testing.T) {
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("GridType").Return(types.GridTypeTN, now).Maybe()
 	cacheMock.On("Phases").Return(1, now).Maybe()
 	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 3, now).Return(true)
@@ -955,7 +1108,7 @@ func TestObservationsHandler_InclusionReportsDoNotBlockTheDrain(t *testing.T) {
 
 	thing := &alarmThing{cp: cp, alarm: alarmSrv, inclusionBlock: release}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	defer func() {
@@ -1005,6 +1158,124 @@ func (t *meterThing) Services(name fimptype.ServiceNameT) []adapter.Service {
 func (t *meterThing) Update(...adapter.ThingUpdate) error    { return nil }
 func (t *meterThing) SendInclusionReport(bool) (bool, error) { return true, nil }
 
+// Easee's backplate is PE, N, L1, L2, L3 on TN and PE, L1, L2, L3 on IT/TT, so the lines sit on
+// terminals T3-T5 on TN but T2-T4 on IT/TT. An IT hub showed L1L2L3 at 17 A as i1/i2 only.
+func TestObservationsHandler_PhaseCurrentsFollowTheGridType(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		gridType types.GridType
+		ignored  model.ObservationID
+		want     [3]float64
+	}{
+		{"TN", types.GridTypeTN, model.InCurrentT2, [3]float64{3, 4, 5}},
+		{"unknown", "", model.InCurrentT2, [3]float64{3, 4, 5}},
+		{"IT", types.GridTypeIT, model.InCurrentT5, [3]float64{2, 3, 4}},
+		{"TT", types.GridTypeTT, model.InCurrentT5, [3]float64{2, 3, 4}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			now := time.Now()
+			phases := cache.NewCache(testChargerID)
+
+			cp := mockedchargepoint.NewService(t)
+			cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			cp.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+				chargepoint.PropertyGridType: tc.gridType,
+			}}).Maybe()
+
+			meter := mockednumericmeter.NewService(t)
+			meter.On("Name").Return(numericmeter.MeterElec).Maybe()
+			for _, v := range []numericmeter.Value{numericmeter.ValueCurrentPhase1, numericmeter.ValueCurrentPhase2, numericmeter.ValueCurrentPhase3} {
+				meter.On("SendMeterExtendedReport", numericmeter.Values{v}, false).Return(true, nil).Once()
+			}
+
+			handler, err := signalr.NewObservationsHandler(
+				&meterThing{cp: cp, meter: meter}, phases, nil, nil, testChargerID, nil, nil)
+			require.NoError(t, err)
+
+			for i, id := range []model.ObservationID{model.InCurrentT2, model.InCurrentT3, model.InCurrentT4, model.InCurrentT5} {
+				value := strconv.Itoa(i + 2)
+				if id == tc.ignored {
+					value = "x"
+				}
+
+				assert.True(t, id.Supported(), "the receiver drops %s", id.Str())
+				assert.NoError(t, handler.HandleObservation(model.Observation{
+					ID: id, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+					Timestamp: now, Value: value,
+				}))
+			}
+
+			flushReports(t, handler)
+
+			i1, _ := phases.Phase1Current()
+			i2, _ := phases.Phase2Current()
+			i3, _ := phases.Phase3Current()
+			assert.Equal(t, tc.want, [3]float64{i1, i2, i3})
+		})
+	}
+}
+
+// On TN the neutral current streams as often as the line currents, so dropping it must not cost a
+// service lookup per reading.
+func TestObservationsHandler_NeutralCurrentReadsTheGridTypeOnce(t *testing.T) {
+	t.Parallel()
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	cp.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType: types.GridTypeTN,
+	}}).Once()
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: cp}, mockedcache.NewCache(t), nil, nil, testChargerID, nil, nil)
+	require.NoError(t, err)
+
+	for _, value := range []string{"1", "2"} {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.InCurrentT2, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+			Timestamp: time.Now(), Value: value,
+		}))
+	}
+}
+
+// The grid type is kept after the first reading, so a topology change has to replace it.
+func TestObservationsHandler_PhaseCurrentsFollowATopologyChange(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	phases := cache.NewCache(testChargerID)
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	cp.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType: types.GridTypeTN,
+	}}).Maybe()
+
+	meter := mockednumericmeter.NewService(t)
+	meter.On("Name").Return(numericmeter.MeterElec).Maybe()
+	meter.On("SendMeterExtendedReport", numericmeter.Values{numericmeter.ValueCurrentPhase1}, false).Return(true, nil).Once()
+
+	handler, err := signalr.NewObservationsHandler(&meterThing{cp: cp, meter: meter}, phases, nil, nil, testChargerID, nil, nil)
+	require.NoError(t, err)
+
+	for _, o := range []model.Observation{
+		{ID: model.InCurrentT2, DataType: model.ObservationDataTypeDouble, Value: "7"},
+		{ID: model.DetectedPowerGridType, DataType: model.ObservationDataTypeInteger, Value: strconv.Itoa(int(model.GridTypeIT3Phase))},
+		{ID: model.InCurrentT2, DataType: model.ObservationDataTypeDouble, Value: "8"},
+	} {
+		o.ChargerID, o.Timestamp = testChargerID, now
+		require.NoError(t, handler.HandleObservation(o))
+	}
+
+	flushReports(t, handler)
+
+	i1, _ := phases.Phase1Current()
+	assert.InDelta(t, 8, i1, 0)
+}
+
 // #166: Close closed the report queue and waited for runSender, but never stopped the
 // lifetime-energy goroutine. Unregister calls Close, so after cmd.thing.delete that goroutine
 // still woke at EnergyLifetimeInterval and published a meter report on a torn-down thing.
@@ -1035,7 +1306,7 @@ func TestObservationsHandler_CloseStopsTheEnergyGoroutine(t *testing.T) {
 	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
 
 	handler, err := signalr.NewObservationsHandler(
-		&meterThing{cp: cp, meter: meter}, cacheMock, cfgSrv, nil, testChargerID, nil)
+		&meterThing{cp: cp, meter: meter}, cacheMock, cfgSrv, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	// Starts the energy goroutine and its timer.
@@ -1089,7 +1360,7 @@ func TestObservationsHandler_CloseStopsTheEnergyGoroutineBeforeDrainingReports(t
 		Run(func(mock.Arguments) { <-release }).Return(true, nil).Maybe()
 
 	handler, err := signalr.NewObservationsHandler(
-		&meterThing{cp: cp, meter: meter}, cacheMock, cfgSrv, nil, testChargerID, nil)
+		&meterThing{cp: cp, meter: meter}, cacheMock, cfgSrv, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	// Starts the energy goroutine and its timer.
@@ -1129,8 +1400,7 @@ func TestObservationsHandler_CloseStopsTheEnergyGoroutineBeforeDrainingReports(t
 // #176: the topology was written to the cache before the inclusion report was enqueued, so a
 // republish the sender dropped or failed left the cache already holding the new grid type - and
 // the equality check turned every repeat observation away, leaving the hub advertising the old
-// topology until the next restart. persistOutputPhase gates its write on onPublished for the
-// same reason; the grid-type path passed nil.
+// topology until the next restart.
 func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
 	t.Parallel()
 
@@ -1178,7 +1448,7 @@ func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
 	// The first inclusion report fails; the second must still be attempted.
 	thing := &phaseThing{srv: srv, fail: 1}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	obs := model.Observation{
@@ -1199,6 +1469,138 @@ func TestObservationsHandler_FailedTopologyRepublishIsRetried(t *testing.T) {
 	flushReports(t, handler)
 
 	assert.Equal(t, 2, thing.inclusionCount(), "the dropped topology republish was never retried")
+}
+
+// Raw grid types 2 and 30 share TN with 2 phases but not their modes: 30 drives L1 and L3 and
+// advertises none. A change between them must republish although the FIMP pair stays, and the
+// raw type the thing was created with must keep a start on an unchanged charger quiet.
+func TestObservationsHandler_TN2PhaseVariantRefreshesTheModes(t *testing.T) {
+	t.Parallel()
+
+	nominal := []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL1L2}
+	tn3 := []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL3, types.PhaseModeNL1L2L3}
+
+	tests := []struct {
+		name       string
+		created    model.GridType // raw type in the thing state; zero in one stored by an older adapter
+		phases     int
+		advertised []types.PhaseMode
+		observed   model.GridType
+		want       []types.PhaseMode
+		inclusions int
+	}{
+		{"pins 2, 3, 5 appear", model.GridTypeTN2PhasePin23, 2, nominal, model.GridTypeWarningTN2PhasePin235, nil, 1},
+		{"pins 2, 3, 5 cleared", model.GridTypeWarningTN2PhasePin235, 2, nil, model.GridTypeTN2PhasePin23, nominal, 1},
+		{"a new topology on pins 2, 3, 5", model.GridTypeTN3Phase, 3, tn3, model.GridTypeWarningTN2PhasePin235, nil, 1},
+		{"unchanged pins 2, 3, 5", model.GridTypeWarningTN2PhasePin235, 2, nil, model.GridTypeWarningTN2PhasePin235, nil, 0},
+		{"unchanged nominal", model.GridTypeTN2PhasePin23, 2, nominal, model.GridTypeTN2PhasePin23, nominal, 0},
+		{"warning on pins 2, 3, 4", model.GridTypeTN2PhasePin23, 2, nominal, model.GridTypeWarningTN2PhasePIN234, nominal, 0},
+		{"ground fault", model.GridTypeTN2PhasePin23, 2, nominal, model.GridTypeWarningTN2PhaseGNDFault, nominal, 0},
+		{"older adapter's state, pins 2, 3, 5", model.GridTypeNotYetDetected, 2, nominal, model.GridTypeWarningTN2PhasePin235, nil, 1},
+		{"older adapter's state, nominal", model.GridTypeNotYetDetected, 2, nominal, model.GridTypeTN2PhasePin23, nominal, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			now := time.Now()
+
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+			cacheMock.On("Phases").Return(tt.phases, time.Time{})
+			cacheMock.On("SetInstallationParameters", types.GridTypeTN, 2, now).Return(true).Maybe()
+
+			props := map[string]interface{}{
+				chargepoint.PropertyGridType: types.GridTypeTN,
+				chargepoint.PropertyPhases:   tt.phases,
+			}
+			if tt.advertised != nil {
+				props[chargepoint.PropertySupportedPhaseModes] = tt.advertised
+			}
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("Specification").Return(&fimptype.Service{Props: props}).Maybe()
+
+			thing := &phaseThing{srv: srv}
+
+			handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, &fakePhaseStore{gridType: tt.created}, nil)
+			require.NoError(t, err)
+
+			require.NoError(t, handler.HandleObservation(model.Observation{
+				ID:        model.DetectedPowerGridType,
+				ChargerID: testChargerID,
+				DataType:  model.ObservationDataTypeInteger,
+				Timestamp: now,
+				Value:     strconv.Itoa(int(tt.observed)),
+			}))
+
+			flushReports(t, handler)
+
+			got := srv.Specification().Props
+			if tt.want == nil {
+				assert.NotContains(t, got, chargepoint.PropertySupportedPhaseModes)
+			} else {
+				assert.Equal(t, tt.want, got[chargepoint.PropertySupportedPhaseModes])
+			}
+
+			assert.Equal(t, types.GridTypeTN, got[chargepoint.PropertyGridType])
+			assert.Equal(t, tt.inclusions, thing.inclusionCount())
+		})
+	}
+}
+
+// The raw type is committed with the cache only once the inclusion report is out, so a dropped
+// report is retried by the next observation and a landed one is not repeated.
+func TestObservationsHandler_DroppedPin235RepublishIsRetried(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	published := make(chan struct{}, 1)
+
+	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("GridType").Return(types.GridTypeTN, time.Time{})
+	cacheMock.On("Phases").Return(2, time.Time{})
+	cacheMock.On("SetInstallationParameters", types.GridTypeTN, 2, now).
+		Run(func(mock.Arguments) { published <- struct{}{} }).Return(true).Once()
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{
+		chargepoint.PropertyGridType:            types.GridTypeTN,
+		chargepoint.PropertyPhases:              2,
+		chargepoint.PropertySupportedPhaseModes: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL1L2},
+	}}).Maybe()
+
+	thing := &phaseThing{srv: srv, fail: 1}
+
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, &fakePhaseStore{gridType: model.GridTypeTN2PhasePin23}, nil)
+	require.NoError(t, err)
+
+	obs := model.Observation{
+		ID:        model.DetectedPowerGridType,
+		ChargerID: testChargerID,
+		DataType:  model.ObservationDataTypeInteger,
+		Timestamp: now,
+		Value:     strconv.Itoa(int(model.GridTypeWarningTN2PhasePin235)),
+	}
+
+	require.NoError(t, handler.HandleObservation(obs))
+	waitFor(t, func() bool { return thing.inclusionCount() == 1 })
+
+	require.NoError(t, handler.HandleObservation(obs))
+
+	select {
+	case <-published:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the dropped republish was never retried")
+	}
+
+	require.NoError(t, handler.HandleObservation(obs))
+	flushReports(t, handler)
+
+	assert.Equal(t, 2, thing.inclusionCount(), "a landed republish must not be repeated")
 }
 
 func TestObservationsHandler_OutdatedTopologyKeepsProps(t *testing.T) {
@@ -1222,7 +1624,7 @@ func TestObservationsHandler_OutdatedTopologyKeepsProps(t *testing.T) {
 
 	thing := &phaseThing{srv: srv}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -1256,7 +1658,7 @@ func TestObservationsHandler_TopologyOlderThanPendingKeepsProps(t *testing.T) {
 	block := make(chan struct{})
 	thing := &phaseThing{srv: srv, block: block}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	for _, obs := range []struct {
@@ -1293,7 +1695,7 @@ func TestObservationsHandler_TopologyOlderThanUnchangedKeepsProps(t *testing.T) 
 
 	thing := &phaseThing{srv: srv}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	for _, obs := range []struct {
@@ -1320,7 +1722,7 @@ func TestObservationsHandler_CloudConnectedFlipSendsConnectivityReport(t *testin
 
 	thing := &phaseThing{}
 
-	handler, err := signalr.NewObservationsHandler(thing, mockedcache.NewCache(t), nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, mockedcache.NewCache(t), nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	thing.online = handler.IsOnline
@@ -1347,6 +1749,7 @@ func TestObservationsHandler_StateOnlineFlipSendsConnectivityReport(t *testing.T
 	now := time.Now()
 
 	cacheMock := mockedcache.NewCache(t)
+	cacheMock.On("SetSessionCharged", mock.Anything, mock.Anything).Return(true).Maybe()
 	cacheMock.On("ChargerState").Return(chargepoint.StateCharging, now)
 	cacheMock.On("SetChargerState", mock.Anything, now).Return(true)
 	cacheMock.On("SetRequestedOfferedCurrent", 0, mock.Anything).Return(true).Maybe()
@@ -1357,7 +1760,7 @@ func TestObservationsHandler_StateOnlineFlipSendsConnectivityReport(t *testing.T
 
 	thing := &phaseThing{srv: srv}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, nil, nil)
 	require.NoError(t, err)
 
 	thing.online = handler.IsOnline
@@ -1393,13 +1796,14 @@ func TestObservationsHandler_OutputPhaseUsesPendingTopology(t *testing.T) {
 	srv := mockedchargepoint.NewService(t)
 	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
 	srv.On("Specification").Return(&fimptype.Service{Props: map[string]interface{}{}})
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
 	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
 
 	block := make(chan struct{})
 	thing := &phaseThing{srv: srv, block: block}
 	store := &fakePhaseStore{}
 
-	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store)
+	handler, err := signalr.NewObservationsHandler(thing, cacheMock, nil, nil, testChargerID, store, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, handler.HandleObservation(model.Observation{
@@ -1417,12 +1821,583 @@ func TestObservationsHandler_OutputPhaseUsesPendingTopology(t *testing.T) {
 		Value:     strconv.Itoa(int(model.P1T2T4TN)),
 	}))
 
-	assert.Equal(t, model.AdvertisedPhaseModes(types.GridTypeTN, 3, types.PhaseModeNL2),
+	assert.Equal(t, model.SettablePhaseModes(types.GridTypeTN, 3),
 		srv.Specification().Props[chargepoint.PropertySupportedPhaseModes])
 
 	close(block)
 	flushReports(t, handler)
 
 	assert.Equal(t, types.PhaseModeNL2, store.mode)
-	assert.Equal(t, 2, thing.inclusionCount())
+	assert.Equal(t, 1, thing.inclusionCount(), "only the topology republishes")
+}
+
+// The 0 W reading after a stop is the one reading that publishes ready_to_charge, so a failed
+// meter report must not cost the hub the state report.
+func TestObservationsHandler_FailedMeterReportStillSendsTheStateReport(t *testing.T) {
+	hook := logtest.NewLocal(log.StandardLogger())
+	t.Cleanup(hook.Reset)
+
+	now := time.Now()
+	c := cache.NewCache(testChargerID)
+	c.SetChargerState(chargepoint.StateReadyToCharge, now)
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	cp.On("SendStateReport", false).Return(true, nil).Once()
+
+	meter := mockednumericmeter.NewService(t)
+	meter.On("Name").Return(numericmeter.MeterElec).Maybe()
+	meter.On("SendMeterReport", numericmeter.UnitW, false).Return(false, assert.AnError).Once()
+	meter.On("SendMeterExtendedReport", numericmeter.Values{numericmeter.ValuePowerImport}, false).Return(true, nil).Once()
+
+	handler, err := signalr.NewObservationsHandler(&meterThing{cp: cp, meter: meter}, c, nil, nil, testChargerID, nil, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID: model.TotalPower, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+		Timestamp: now, Value: "0",
+	}))
+
+	flushReports(t, handler)
+
+	var logged bool
+
+	for _, entry := range hook.AllEntries() {
+		logged = logged || strings.Contains(entry.Message, assert.AnError.Error())
+	}
+
+	assert.True(t, logged, "the meter report error is still logged")
+}
+
+// After a restart no charger state is cached yet, so a 0 W reading would publish an empty state.
+func TestObservationsHandler_PowerBeforeAnyChargerStateSendsNoStateReport(t *testing.T) {
+	t.Parallel()
+
+	cp := mockedchargepoint.NewService(t)
+	cp.On("Name").Return(chargepoint.Chargepoint).Maybe()
+
+	meter := mockednumericmeter.NewService(t)
+	meter.On("Name").Return(numericmeter.MeterElec).Maybe()
+	meter.On("SendMeterReport", numericmeter.UnitW, false).Return(true, nil).Once()
+	meter.On("SendMeterExtendedReport", numericmeter.Values{numericmeter.ValuePowerImport}, false).Return(true, nil).Once()
+
+	handler, err := signalr.NewObservationsHandler(
+		&meterThing{cp: cp, meter: meter}, cache.NewCache(testChargerID), nil, nil, testChargerID, nil, nil)
+	require.NoError(t, err)
+
+	require.NoError(t, handler.HandleObservation(model.Observation{
+		ID: model.TotalPower, ChargerID: testChargerID, DataType: model.ObservationDataTypeDouble,
+		Timestamp: time.Now(), Value: "0",
+	}))
+
+	flushReports(t, handler)
+}
+
+func TestObservationsHandler_ChargerStateMovesTheThreePhaseLock(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		lock     bool
+		prev     chargepoint.State
+		next     model.ChargerState
+		internal int
+		wantSet  bool
+	}{
+		{name: "a session start locks auto", lock: true, prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingStart, internal: 2, wantSet: true},
+		{name: "a disconnect releases the lock", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateDisconnected, internal: 3, wantSet: true},
+		{name: "a completed session keeps the lock", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateCompleted, internal: 3},
+		{name: "a disconnect after completed releases the lock", lock: true, prev: chargepoint.StateFinished, next: model.ChargerStateDisconnected, internal: 3, wantSet: true},
+		{name: "a change inside a session leaves auto alone", lock: true, prev: chargepoint.StateReadyToCharge, next: model.ChargerStateCharging, internal: 2},
+		{name: "single phase is left alone at a start", lock: true, prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingStart, internal: 1},
+		{name: "single phase is left alone at a disconnect", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateDisconnected, internal: 1},
+		{name: "auto stays at a disconnect", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateDisconnected, internal: 2},
+		{name: "plugging in locks auto", lock: true, prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingAuthentication, internal: 2, wantSet: true},
+		{name: "an error keeps the lock", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateError, internal: 3},
+		{name: "awaiting authentication keeps the lock", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateAwaitingAuthentication, internal: 3},
+		{name: "a disconnect after an error releases the lock", lock: true, prev: chargepoint.StateError, next: model.ChargerStateDisconnected, internal: 3, wantSet: true},
+		{name: "the first state after a restart releases an idle lock", lock: true, next: model.ChargerStateDisconnected, internal: 3, wantSet: true},
+		{name: "the lock stays while charging", lock: true, prev: chargepoint.StateReadyToCharge, next: model.ChargerStateCharging, internal: 3},
+		{name: "setting off", prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingStart, internal: 2},
+		{name: "offline triggers nothing", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateOffline, internal: 3},
+		{name: "an unchanged state triggers nothing", lock: true, prev: chargepoint.StateCharging, next: model.ChargerStateCharging, internal: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observed := time.Now().Add(-time.Hour)
+
+			c := cache.NewCache(testChargerID)
+			c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+			c.SetPhaseMode(tt.internal, observed)
+			c.SetChargerState(tt.prev, observed)
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("SendStateReport", false).Return(true, nil).Maybe()
+
+			if tt.wantSet {
+				srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Run(func(mock.Arguments) {
+					state, _ := c.ChargerState()
+					assert.Equal(t, tt.next.ToFimpState(), state, "the queued set must see the new state")
+				}).Once()
+			}
+
+			cfg := &config.Config{}
+			cfg.UseLocked3Phases = tt.lock
+			confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
+			require.NoError(t, err)
+
+			require.NoError(t, handler.HandleObservation(model.Observation{
+				ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+				Timestamp: time.Now(), Value: strconv.Itoa(int(tt.next)),
+			}))
+			flushReports(t, handler)
+
+			if !tt.wantSet {
+				srv.AssertNotCalled(t, "SetPhaseMode", mock.Anything)
+			}
+		})
+	}
+}
+
+func TestObservationsHandler_SettingTurnedOffReleasesTheLockAtTheSessionEnd(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-time.Hour)
+
+	c := cache.NewCache(testChargerID)
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(3, observed)
+	c.SetChargerState(chargepoint.StateDisconnected, observed)
+
+	// One sender runs the reports in order, so the calls show which state change released the lock.
+	var calls []string
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil).Run(func(mock.Arguments) { calls = append(calls, "state") })
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Run(func(mock.Arguments) { calls = append(calls, "set") })
+
+	cfg := &config.Config{}
+	cfg.UseLocked3Phases = true
+	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
+	require.NoError(t, err)
+
+	observe := func(state model.ChargerState) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: time.Now(), Value: strconv.Itoa(int(state)),
+		}))
+	}
+
+	observe(model.ChargerStateCharging)
+	require.NoError(t, confSrv.SetUseLocked3Phases(false))
+	observe(model.ChargerStateReadyToCharge)
+	// Offline and back is still the same session.
+	observe(model.ChargerStateOffline)
+	observe(model.ChargerStateCharging)
+	observe(model.ChargerStateDisconnected)
+	// The mock leaves the cache on mode 3: from here on it counts as set elsewhere.
+	observe(model.ChargerStateAwaitingStart)
+	observe(model.ChargerStateDisconnected)
+	flushReports(t, handler)
+
+	assert.Equal(t, []string{"state", "state", "state", "state", "state", "set", "state", "state"}, calls,
+		"released once, after the state report of the first disconnect")
+}
+
+func TestObservationsHandler_LockPlacedAfterTheSessionStartIsReleasedAtItsEnd(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-time.Hour)
+
+	c := cache.NewCache(testChargerID)
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(2, observed)
+	c.SetChargerState(chargepoint.StateDisconnected, observed)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil).Maybe()
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
+	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Once()
+
+	confSrv := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
+	require.NoError(t, err)
+
+	observe := func(id model.ObservationID, value int) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: id, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: time.Now(), Value: strconv.Itoa(value),
+		}))
+	}
+
+	// The session starts with the setting off; a hub request locks it while the setting is on.
+	observe(model.ChargerOPState, int(model.ChargerStateCharging))
+	require.NoError(t, confSrv.SetUseLocked3Phases(true))
+	observe(model.PhaseMode, model.EaseePhaseModeLock3)
+	require.NoError(t, confSrv.SetUseLocked3Phases(false))
+	observe(model.ChargerOPState, int(model.ChargerStateDisconnected))
+	flushReports(t, handler)
+}
+
+func TestObservationsHandler_ModeThreeSetElsewhereAfterAReleaseIsLeftAlone(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-time.Hour)
+
+	c := cache.NewCache(testChargerID)
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(3, observed)
+	c.SetChargerState(chargepoint.StateCharging, observed)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil).Maybe()
+	srv.On("IsPhaseModeAware").Return(true).Maybe()
+	srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+	var released atomic.Bool
+
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Run(func(mock.Arguments) { released.Store(true) }).Maybe()
+
+	cfg := &config.Config{}
+	cfg.UseLocked3Phases = true
+	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
+	require.NoError(t, err)
+
+	observe := func(id model.ObservationID, value int) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: id, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: time.Now(), Value: strconv.Itoa(value),
+		}))
+	}
+
+	observe(model.ChargerOPState, int(model.ChargerStateDisconnected))
+	waitFor(t, released.Load)
+	observe(model.PhaseMode, model.EaseePhaseModeAuto)
+	require.NoError(t, confSrv.SetUseLocked3Phases(false))
+	observe(model.PhaseMode, model.EaseePhaseModeLock3)
+	observe(model.ChargerOPState, int(model.ChargerStateAwaitingStart))
+	flushReports(t, handler)
+
+	srv.AssertNumberOfCalls(t, "SetPhaseMode", 1)
+}
+
+func TestObservationsHandler_FailedReleaseIsAskedAgain(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-time.Hour)
+
+	c := cache.NewCache(testChargerID)
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(3, observed)
+	c.SetChargerState(chargepoint.StateDisconnected, observed)
+
+	reported := make(chan struct{}, 8)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil).Run(func(mock.Arguments) { reported <- struct{}{} })
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(assert.AnError).Once()
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Once()
+
+	cfg := &config.Config{}
+	cfg.UseLocked3Phases = true
+	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
+	require.NoError(t, err)
+
+	observe := func(state model.ChargerState) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: time.Now(), Value: strconv.Itoa(int(state)),
+		}))
+	}
+
+	observe(model.ChargerStateCharging)
+	require.NoError(t, confSrv.SetUseLocked3Phases(false))
+	observe(model.ChargerStateDisconnected)
+	// One sender: the third state report goes out only after the failed release.
+	observe(model.ChargerStateDisconnected)
+
+	for range 3 {
+		<-reported
+	}
+
+	observe(model.ChargerStateAwaitingStart)
+	flushReports(t, handler)
+}
+
+func TestObservationsHandler_ReleaseSkippedOnAOneModeTopologyIsAskedAgain(t *testing.T) {
+	t.Parallel()
+
+	observed := time.Now().Add(-time.Hour)
+
+	c := cache.NewCache(testChargerID)
+	c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+	c.SetPhaseMode(3, observed)
+	c.SetChargerState(chargepoint.StateDisconnected, observed)
+
+	srv := mockedchargepoint.NewService(t)
+	srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+	srv.On("SendStateReport", false).Return(true, nil).Maybe()
+	srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Once()
+
+	cfg := &config.Config{}
+	cfg.UseLocked3Phases = true
+	confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+	handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
+	require.NoError(t, err)
+
+	observe := func(state model.ChargerState) {
+		require.NoError(t, handler.HandleObservation(model.Observation{
+			ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+			Timestamp: time.Now(), Value: strconv.Itoa(int(state)),
+		}))
+	}
+
+	observe(model.ChargerStateCharging)
+	require.NoError(t, confSrv.SetUseLocked3Phases(false))
+
+	c.SetInstallationParameters(types.GridTypeTN, 1, time.Now())
+	observe(model.ChargerStateDisconnected)
+	srv.AssertNotCalled(t, "SetPhaseMode", mock.Anything)
+
+	c.SetInstallationParameters(types.GridTypeTN, 3, time.Now())
+	observe(model.ChargerStateAwaitingStart)
+	flushReports(t, handler)
+}
+
+func TestObservationsHandler_SinglePhaseSetWhileTheLockWaitsIsLeftAlone(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		prev     chargepoint.State
+		next     model.ChargerState
+		internal int
+	}{
+		{name: "a session start on auto", prev: chargepoint.StateDisconnected, next: model.ChargerStateAwaitingStart, internal: 2},
+		{name: "a disconnect on the lock", prev: chargepoint.StateCharging, next: model.ChargerStateDisconnected, internal: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observed := time.Now().Add(-time.Hour)
+
+			c := cache.NewCache(testChargerID)
+			c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+			c.SetPhaseMode(tt.internal, observed)
+			c.SetChargerState(tt.prev, observed)
+
+			release := make(chan struct{})
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("SendStateReport", false).Return(true, nil).Run(func(mock.Arguments) { <-release }).Once()
+			srv.On("IsPhaseModeAware").Return(true).Maybe()
+			srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+
+			cfg := &config.Config{}
+			cfg.UseLocked3Phases = true
+			confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
+			require.NoError(t, err)
+
+			observe := func(id model.ObservationID, value int) {
+				require.NoError(t, handler.HandleObservation(model.Observation{
+					ID: id, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+					Timestamp: time.Now(), Value: strconv.Itoa(value),
+				}))
+			}
+
+			// The sender holds the queued set behind the state report while single phase is set.
+			observe(model.ChargerOPState, int(tt.next))
+			observe(model.PhaseMode, 1)
+			close(release)
+			flushReports(t, handler)
+
+			srv.AssertNotCalled(t, "SetPhaseMode", mock.Anything)
+		})
+	}
+}
+
+func TestObservationsHandler_OnlyAnAcceptedModeThreeIsTheAdapters(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cached  int
+		seenAt  time.Duration
+		wantSet int
+	}{
+		{name: "the echo of a lock the controller already cached", cached: 3, seenAt: time.Minute, wantSet: 1},
+		{name: "a mode 3 older than the cached mode", cached: 2, seenAt: -time.Minute},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observed := time.Now().Add(-time.Hour)
+
+			c := cache.NewCache(testChargerID)
+			c.SetInstallationParameters(types.GridTypeTN, 3, observed)
+			c.SetPhaseMode(tt.cached, observed)
+			c.SetChargerState(chargepoint.StateCharging, observed)
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("SendStateReport", false).Return(true, nil).Maybe()
+			srv.On("IsPhaseModeAware").Return(true).Maybe()
+			srv.On("SendPhaseModeReport", false).Return(true, nil).Maybe()
+			srv.On("SetPhaseMode", types.PhaseModeNL1L2L3).Return(nil).Maybe()
+
+			cfg := &config.Config{}
+			cfg.UseLocked3Phases = true
+			confSrv := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, confSrv, nil, testChargerID, nil, nil)
+			require.NoError(t, err)
+
+			observe := func(id model.ObservationID, value int, at time.Time) {
+				require.NoError(t, handler.HandleObservation(model.Observation{
+					ID: id, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+					Timestamp: at, Value: strconv.Itoa(value),
+				}))
+			}
+
+			observe(model.PhaseMode, model.EaseePhaseModeLock3, observed.Add(tt.seenAt))
+			require.NoError(t, confSrv.SetUseLocked3Phases(false))
+			// Set in the Easee app with the setting off.
+			observe(model.PhaseMode, model.EaseePhaseModeLock3, time.Now())
+			observe(model.ChargerOPState, int(model.ChargerStateDisconnected), time.Now())
+			flushReports(t, handler)
+
+			srv.AssertNumberOfCalls(t, "SetPhaseMode", tt.wantSet)
+		})
+	}
+}
+
+func TestObservationsHandler_ChargerStateAfterTheStopEndsAUserStop(t *testing.T) {
+	t.Parallel()
+
+	stoppedAt := time.Now().Add(-time.Minute)
+
+	tests := []struct {
+		name  string
+		state model.ChargerState
+		at    time.Time
+		ends  bool
+	}{
+		{"unplugged", model.ChargerStateDisconnected, stoppedAt.Add(time.Second), true},
+		{"charging started elsewhere", model.ChargerStateCharging, stoppedAt.Add(time.Second), true},
+		{"charging observed before the stop", model.ChargerStateCharging, stoppedAt.Add(-time.Second), false},
+		{"offline", model.ChargerStateOffline, stoppedAt.Add(time.Second), false},
+		{"error", model.ChargerStateError, stoppedAt.Add(time.Second), false},
+		{"completed", model.ChargerStateCompleted, stoppedAt.Add(time.Second), false},
+		{"awaiting authentication", model.ChargerStateAwaitingAuthentication, stoppedAt.Add(time.Second), false},
+		{"de-authenticating", model.ChargerStateDeAuthenticating, stoppedAt.Add(time.Second), false},
+		{"unknown", model.ChargerStateUnknown, stoppedAt.Add(time.Second), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fileDB, err := database.NewDatabase(t.TempDir())
+			require.NoError(t, err)
+
+			storage := db.NewSessionStorage(fileDB)
+			require.NoError(t, storage.SetUserStop(testChargerID, stoppedAt))
+
+			c := cache.NewCache(testChargerID)
+			c.SetChargerState(chargepoint.StateReadyToCharge, stoppedAt.Add(-time.Hour))
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("SendStateReport", false).Return(true, nil).Maybe()
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, nil, storage, testChargerID, nil, nil)
+			require.NoError(t, err)
+
+			require.NoError(t, handler.HandleObservation(model.Observation{
+				ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+				Timestamp: tt.at, Value: strconv.Itoa(int(tt.state)),
+			}))
+			flushReports(t, handler)
+
+			at, err := storage.UserStop(testChargerID)
+			require.NoError(t, err)
+			assert.Equal(t, tt.ends, at.IsZero())
+		})
+	}
+}
+
+func TestObservationsHandler_ChargerStateTellsWhetherTheSessionCharged(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		charged bool
+		state   model.ChargerState
+		want    bool
+		ended   []bool
+	}{
+		{"charging", false, model.ChargerStateCharging, true, nil},
+		{"waiting for the first start", false, model.ChargerStateAwaitingStart, false, nil},
+		{"paused", true, model.ChargerStateAwaitingStart, true, nil},
+		{"paused by the car", true, model.ChargerStateReadyToCharge, true, nil},
+		{"unplugged", true, model.ChargerStateDisconnected, false, []bool{true}},
+		{"completed", true, model.ChargerStateCompleted, false, []bool{false}},
+		{"offline", true, model.ChargerStateOffline, false, []bool{false}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			observed := time.Now().Add(-time.Hour)
+
+			c := cache.NewCache(testChargerID)
+			c.SetChargerState(chargepoint.StateReadyToCharge, observed)
+			c.SetSessionCharged(tt.charged, observed)
+
+			srv := mockedchargepoint.NewService(t)
+			srv.On("Name").Return(chargepoint.Chargepoint).Maybe()
+			srv.On("SendStateReport", false).Return(true, nil).Maybe()
+
+			var ended []bool
+
+			handler, err := signalr.NewObservationsHandler(&phaseThing{srv: srv}, c, nil, nil, testChargerID, nil,
+				func(unplugged bool) { ended = append(ended, unplugged) })
+			require.NoError(t, err)
+
+			require.NoError(t, handler.HandleObservation(model.Observation{
+				ID: model.ChargerOPState, ChargerID: testChargerID, DataType: model.ObservationDataTypeInteger,
+				Timestamp: time.Now(), Value: strconv.Itoa(int(tt.state)),
+			}))
+			flushReports(t, handler)
+
+			assert.Equal(t, tt.want, c.SessionCharged())
+			assert.Equal(t, tt.ended, ended)
+		})
+	}
 }

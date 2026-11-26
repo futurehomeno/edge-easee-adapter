@@ -31,7 +31,7 @@ Idempotence SHALL live in the client itself rather than in a manager-side start 
 
 ### Requirement: Connection Retry With Backoff
 The client SHALL reconnect on its own after a dropped or failed connection, spacing attempts with the
-configured stateful backoff (`signalr` initial 5s, repeated 30s, final 10m by default). Two failure
+configured stateful backoff (`signalr` initial 60s, repeated 5m, final 30m by default). Two failure
 modes add a fixed sleep before the backoff is consulted: when the access token cannot be obtained the
 client SHALL sleep 1 minute, throttling the adapter's own reconnect loop; when the SignalR HTTP
 connection cannot be established it SHALL sleep 30 seconds, throttling the underlying library's tight
@@ -171,12 +171,16 @@ observation.
 ### Requirement: Supported Observations
 The adapter SHALL handle these observation IDs: detected power grid type, phase mode, max charger
 current, dynamic charger current, charger operating state, output phase, total power, lifetime
-energy, energy session, cable rating, error code, in-current T3/T4/T5, cloud connected, cable locked,
-lock cable permanently, charging session start and charging session stop.
+energy, energy session, cable rating, error code, in-current T2/T3/T4/T5, cloud connected, cable
+locked, lock cable permanently, charging session start and charging session stop.
 
 #### Scenario: dispatch table coverage
 - **WHEN** an observation with any of these IDs arrives for a registered charger
 - **THEN** its dedicated handler runs
+
+#### Scenario: in-current T2 passes the receiver
+- **WHEN** Easee streams in-current T2 (observation 182)
+- **THEN** the receiver buffers it for the handler instead of dropping it as unsupported
 
 ### Requirement: Timestamp-Guarded Cache Writes
 Every cached value SHALL carry the timestamp of the observation that produced it, except
@@ -320,4 +324,104 @@ backoff.
 #### Scenario: login while the client waits
 - **WHEN** the user logs in and the login path calls `Start()` on the waiting client
 - **THEN** the client asks for a token again immediately, not after its backoff
+
+### Requirement: Unauthorized Re-subscribe Reconnects Once
+When a subscribe on an established connection, a re-sync or a charger's first subscribe, is refused
+with the `HubException: Unauthorized` hub error, the manager SHALL restart the SignalR client once,
+so it reconnects with the current access token. The connection carries the token it was opened with,
+and nothing renews it while it lives. The restart SHALL be the client's own: it closes the connection
+and launches a new one, and a `Close()` arriving before the relaunch, such as a logout or a manager
+stop, SHALL win and leave the client closed. On a client that is not running or already closing the
+restart SHALL do nothing, and SHALL NOT cancel a start that close deferred. The manager SHALL restart
+at most once per connection, and at most once per charger until that charger next subscribes
+successfully; a reconnect SHALL NOT reset that per-charger limit, so an Unauthorized that persists
+after the reconnect, such as a charger that left the account, cannot restart the client again and
+again. The unsubscribe of a removed charger refused with that error SHALL restart the client too when
+other chargers remain registered, within the same once-per-connection limit, so Easee stops streaming
+the removed charger; only when that charger was subscribed and the refusal came from the connection
+still current; the last charger's unsubscribe SHALL NOT restart, since the client is closed. The
+manager SHALL NOT restart for any other error.
+
+#### Scenario: re-sync refused as unauthorized
+- **WHEN** a re-sync of a charger subscribed on the current connection is refused as unauthorized
+- **THEN** the client is restarted once
+
+#### Scenario: a logout or stop during the restart leaves the client closed
+- **WHEN** the client is closed while the restart is closing the connection
+- **THEN** the restart does not launch a new connection and the client stays closed
+
+#### Scenario: restart of a client that is not running
+- **WHEN** the restart reaches a client that is stopped, or closing with a start deferred
+- **THEN** it starts nothing itself and the deferred start still runs
+
+#### Scenario: second refusal on the same connection
+- **WHEN** a second re-subscribe on the same connection is refused as unauthorized
+- **THEN** the client is not restarted again
+
+#### Scenario: refusal persists after the reconnect
+- **WHEN** the subscribe of that charger on the new connection is refused as unauthorized
+- **THEN** the client is not restarted
+
+#### Scenario: first subscribe refused after connect
+- **WHEN** the first subscribe of a charger on a connection is refused as unauthorized
+- **THEN** the client is restarted once
+
+#### Scenario: first subscribe refused again after the restart
+- **WHEN** the subscribe of that charger on the new connection is refused as unauthorized too
+- **THEN** the client is not restarted and the subscribe is retried with backoff
+
+#### Scenario: first subscribe refused after the charger subscribed
+- **WHEN** that charger has subscribed successfully since its refusal restarted the client, and a
+  later first subscribe of it is refused as unauthorized
+- **THEN** the client is restarted again
+
+#### Scenario: unsubscribe refused while other chargers remain
+- **WHEN** the unsubscribe of a removed charger is refused as unauthorized and another charger is
+  still registered
+- **THEN** the client is restarted once
+
+#### Scenario: second refused unsubscribe on the same connection
+- **WHEN** two chargers are removed on one connection and both unsubscribes are refused as unauthorized
+- **THEN** the client is restarted once
+
+#### Scenario: unsubscribe refused by a replaced connection
+- **WHEN** the connection is replaced while a removed charger's unsubscribe is in flight, and that
+  unsubscribe is then refused as unauthorized
+- **THEN** the client is not restarted
+
+#### Scenario: unsubscribe of a charger never subscribed refused
+- **WHEN** a charger that is not subscribed is removed and its unsubscribe is refused as unauthorized
+- **THEN** the client is not restarted
+
+#### Scenario: unsubscribe of the last charger refused
+- **WHEN** the unsubscribe of the last registered charger is refused as unauthorized
+- **THEN** the client is closed and not restarted
+
+#### Scenario: other error
+- **WHEN** a re-subscribe of a subscribed charger, or the unsubscribe of a removed one, fails with
+  another error
+- **THEN** the client is not restarted
+
+### Requirement: SignalR Hub Endpoint
+The SignalR client SHALL connect to `<signalr_base_url>/hubs/chargers` with the header
+`Authorization: Bearer <access token>`, giving up on creating the connection after `signalr_conn_creation_timeout`,
+and SHALL run it with the keep-alive interval `signalr_keep_alive_interval` and the server timeout
+`signalr_timeout_interval`. A charger SHALL be subscribed with the hub method `SubscribeWithCurrentState(<id>, true)`,
+so Easee sends its current state first, and unsubscribed with `Unsubscribe(<id>)`. A hub call SHALL fail with
+`timeout` when no result arrives within `signalr_invoke_timeout`, and with `client is not running` when the client
+is stopped or has no connection object. A call on a connection still being set up waits for it, so it succeeds when
+the connection comes up within `signalr_invoke_timeout` and otherwise fails with `timeout`. A connection that drops
+is not resumed: a call on it fails with `client closed` and the connection's error, and the client dials a new one.
+
+#### Scenario: charger subscribed
+- **WHEN** a charger is subscribed on a live connection
+- **THEN** `SubscribeWithCurrentState` is invoked with its ID and `true`
+
+#### Scenario: hub call without an answer
+- **WHEN** a hub call gets no result within `signalr_invoke_timeout`
+- **THEN** it fails with `timeout`
+
+#### Scenario: hub call while disconnected
+- **WHEN** a hub call is made while the client is not running
+- **THEN** it fails with `client is not running` and nothing is sent
 

@@ -1,0 +1,4 @@
+- [x] Two neutral-current readings on TN read the props once (test first)
+- [x] A reading after a grid-type change uses the new grid type (guard test)
+- [x] `propsGridType` serves `handlePhaseCurrent` and `handleOutPhase`; `republishChargepointProps` drops the kept value
+- [x] `restartClient` inlined into `Unregister`

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/futurehomeno/cliffhanger/adapter/service/chargepoint"
 	"github.com/futurehomeno/cliffhanger/types"
 	log "github.com/sirupsen/logrus"
 )
@@ -11,18 +12,19 @@ import (
 // easeePhaseModeSingle and EaseePhaseModeAuto are Easee's internal phase modes:
 // 1 locks the charger to one phase, 2 lets it choose, 3 locks it to three phases.
 // Three-phase requests map to auto rather than 3, because most EVs refuse a
-// 1->3 phase transition mid-session and would stall on a hard lock.
+// 1->3 phase transition mid-session and would stall on a hard lock, unless
+// use_locked_3_phases asks for 3 during a session.
 const (
 	easeePhaseModeSingle = 1
 	// EaseePhaseModeAuto lets the charger pick, so it is not pinned to any single leg.
 	EaseePhaseModeAuto  = 2
-	easeePhaseModeLock3 = 3
+	EaseePhaseModeLock3 = 3
 )
 
 var phaseModeNames = map[int]string{
 	easeePhaseModeSingle: "single phase",
 	EaseePhaseModeAuto:   "auto",
-	easeePhaseModeLock3:  "three phase",
+	EaseePhaseModeLock3:  "three phase",
 }
 
 // PhaseModeName names an Easee internal phase mode for a log line. A value Easee adds later is
@@ -38,47 +40,44 @@ func PhaseModeName(phaseMode int) string {
 // SettablePhaseModes returns every phase mode the charger can be switched to, regardless
 // of the mode it currently sits in. The auto row of the matrix is the union of the others.
 func SettablePhaseModes(gridType types.GridType, phases int) []types.PhaseMode {
-	return SupportedPhaseModes(gridType, EaseePhaseModeAuto, phases)
+	return slices.Clone(SupportedPhaseModes(gridType, EaseePhaseModeAuto, phases))
 }
 
-// AdvertisedPhaseModes returns the settable modes with every single-phase entry collapsed to
-// one. An Easee cannot choose its phase: it always uses the phase it is wired to, so advertising
-// the others makes a hub ask for a phase the charger will never report and retry forever.
-func AdvertisedPhaseModes(gridType types.GridType, phases int, outputPhase types.PhaseMode) []types.PhaseMode {
-	modes := SettablePhaseModes(gridType, phases)
-
-	single := slices.IndexFunc(modes, func(m types.PhaseMode) bool { return m.EffectivePhasesCnt() == 1 })
-	if single < 0 {
-		return modes
+// SettablePhaseModesFor is what a charger advertises: SettablePhaseModes of the FIMP pair the raw
+// grid type detected maps to. WarningTN2PhasePin235 drives L1 and L3 (pins 3, 5), out of the TN
+// 2-phase row's NL2 and NL1L2, and FIMP has no NL1L3 to name its two-phase mode, so it advertises
+// none. An unknown raw type - a state stored by an older adapter - keeps the pair's row.
+func SettablePhaseModesFor(detected GridType, gridType types.GridType, phases int) []types.PhaseMode {
+	if detected == GridTypeWarningTN2PhasePin235 {
+		return nil
 	}
 
-	kept := modes[single]
-	if outputPhase.EffectivePhasesCnt() == 1 && slices.Contains(modes, outputPhase) {
-		kept = outputPhase
-	}
-
-	advertised := []types.PhaseMode{kept}
-
-	for _, m := range modes {
-		if m.EffectivePhasesCnt() > 1 {
-			advertised = append(advertised, m)
-		}
-	}
-
-	return advertised
+	return SettablePhaseModes(gridType, phases)
 }
 
 // ToEaseePhaseMode maps a FIMP phase mode onto Easee's internal phase mode.
-func ToEaseePhaseMode(gridType types.GridType, phases int, mode types.PhaseMode) (int, error) {
+func ToEaseePhaseMode(gridType types.GridType, phases int, mode types.PhaseMode, lock3 bool) (int, error) {
 	if slices.Contains(SupportedPhaseModes(gridType, easeePhaseModeSingle, phases), mode) {
 		return easeePhaseModeSingle, nil
 	}
 
 	if slices.Contains(SettablePhaseModes(gridType, phases), mode) {
+		if lock3 {
+			return EaseePhaseModeLock3, nil
+		}
+
 		return EaseePhaseModeAuto, nil
 	}
 
 	return 0, fmt.Errorf("phase modes mapper: mode %s unsupported on a %s grid with %d phases", mode, gridType, phases)
+}
+
+// SessionInProgress covers every state of a plugged-in car, so only disconnected ends the lock.
+// A positive list: the empty state of an empty cache is no session.
+func SessionInProgress(state chargepoint.State) bool {
+	return state == chargepoint.StateReadyToCharge || state == chargepoint.StateCharging ||
+		state == chargepoint.StateSuspendedByEV || state == chargepoint.StateFinished ||
+		state == chargepoint.StateError || state == chargepoint.StateRequesting
 }
 
 func SupportedPhaseModes(gridType types.GridType, phaseMode, phases int) []types.PhaseMode {
@@ -115,6 +114,11 @@ var phaseModeMatrix = map[types.GridType]map[int]map[int][]types.PhaseMode{
 		1: {
 			1: []types.PhaseMode{types.PhaseModeNL1},
 			2: []types.PhaseMode{types.PhaseModeNL1},
+		},
+		2: {
+			1: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2},
+			2: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL1L2},
+			3: []types.PhaseMode{types.PhaseModeNL1L2},
 		},
 		3: {
 			1: []types.PhaseMode{types.PhaseModeNL1, types.PhaseModeNL2, types.PhaseModeNL3},

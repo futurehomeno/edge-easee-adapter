@@ -1,0 +1,1 @@
+- [x] The phase-mode report is published while the leg's write is still blocked (test first)

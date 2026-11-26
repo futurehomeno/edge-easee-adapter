@@ -3,6 +3,7 @@ package config
 import (
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/futurehomeno/cliffhanger/backoff"
@@ -13,7 +14,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const defaultInitialChargingCurrent = 16
+const (
+	defaultInitialChargingCurrent = 16
+	defaultMinChargingCurrent     = 6
+	maxChargingCurrent            = 32
+)
 
 type PublicConfig struct {
 	EaseeBaseURL                 string  `json:"easeeBaseURL2"`
@@ -22,10 +27,12 @@ type PublicConfig struct {
 	CurrentWaitDuration          string  `json:"currentWaitDuration"`
 	SlowChargingCurrentInAmperes float64 `json:"slowChargingCurrentInAmperes"`
 	InitialChargingCurrent       int     `json:"initial_charging_current"`
+	MinChargingCurrent           int     `json:"min_charging_current"`
 	HTTPTimeout                  string  `json:"httpTimeout"`
 	SignalR                      SignalR `json:"signalR"`
 	OfferedCurrentWaitTime       string  `json:"offered_current_wait_time"`
 	EnergyLifetimeInterval       string  `json:"energyLifetimeInterval"`
+	UseLocked3Phases             bool    `json:"use_locked_3_phases"`
 
 	AuthBackoff         backoffSettings `json:"auth_backoff"`
 	AuthMaxUnauthorized string          `json:"auth_max_unauthorized,omitempty"`
@@ -162,6 +169,17 @@ func (c *Config) MigrateOfferedCurrentWaitTime() error {
 	return nil
 }
 
+// MigratePollingInterval lifts sub-minute intervals such as the 2.5 packaged default ("30s"):
+// each poll fetches an idle charger's config and site info over REST. Unset or unparsable
+// values are left to the getter's fallback.
+func (c *Config) MigratePollingInterval() error {
+	if d, err := time.ParseDuration(c.PollingInterval); err == nil && d < time.Minute {
+		c.PollingInterval = "20m"
+	}
+
+	return nil
+}
+
 // MigrateSignalRFinalBackoff lifts installs still carrying the superseded packaged
 // default ("2m") onto the calmer ceiling. Any other value is left alone; a "2m" chosen
 // deliberately is indistinguishable from the old default and is rewritten too.
@@ -169,6 +187,14 @@ func (c *Config) MigrateSignalRFinalBackoff() error {
 	if c.SignalR.FinalBackoff == "2m" {
 		c.SignalR.FinalBackoff = "10m"
 	}
+
+	return nil
+}
+
+// MigrateSignalRBackoffSchedule overwrites every stored SignalR backoff value, tuned ones too:
+// older installs retry as often as every 5 s, more than Easee's server should take.
+func (c *Config) MigrateSignalRBackoffSchedule() error {
+	c.SignalR.backoffSettings = backoffSettings{InitialBackoff: "60s", RepeatedBackoff: "5m", FinalBackoff: "30m", InitialFailureCount: 3, RepeatedFailureCount: 3}
 
 	return nil
 }
@@ -226,7 +252,7 @@ func (cs *Service) SetSelectedDevices(devices selection.Selection) error {
 }
 
 func (cs *Service) PollingInterval() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.PollingInterval }, 10*time.Minute)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.PollingInterval }, 20*time.Minute)
 }
 
 func (cs *Service) SetPollingInterval(interval time.Duration) error {
@@ -249,12 +275,60 @@ func (cs *Service) SetSlowChargingCurrentInAmperes(current float64) error {
 	return cs.Update(func(c *Config) { c.SlowChargingCurrentInAmperes = current })
 }
 
+func (cs *Service) UseLocked3Phases() bool {
+	return config.Get(cs.Service, func(c *Config) bool { return c.UseLocked3Phases })
+}
+
+func (cs *Service) SetUseLocked3Phases(lock bool) error {
+	return cs.Update(func(c *Config) { c.UseLocked3Phases = lock })
+}
+
 func (cs *Service) InitialChargingCurrent() int {
 	if current := config.Get(cs.Service, func(c *Config) int { return c.InitialChargingCurrent }); current > 0 {
 		return current
 	}
 
 	return defaultInitialChargingCurrent
+}
+
+func (cs *Service) SetInitialChargingCurrent(current int) error {
+	if err := checkChargingCurrent("initial", max(defaultMinChargingCurrent, cs.MinChargingCurrent()), current); err != nil {
+		return err
+	}
+
+	// max: SetMinChargingCurrent may have raised the minimum since the check.
+	return cs.Update(func(c *Config) { c.InitialChargingCurrent = max(current, c.MinChargingCurrent) })
+}
+
+func (cs *Service) MinChargingCurrent() int {
+	if current := config.Get(cs.Service, func(c *Config) int { return c.MinChargingCurrent }); current > 0 {
+		return current
+	}
+
+	return defaultMinChargingCurrent
+}
+
+// SetMinChargingCurrent accepts values under 6 A: the routing divert passes them past cliffhanger's validation.
+func (cs *Service) SetMinChargingCurrent(current int) error {
+	if err := checkChargingCurrent("minimum", 1, current); err != nil {
+		return err
+	}
+
+	return cs.Update(func(c *Config) {
+		c.MinChargingCurrent = current
+
+		if current > cmp.Or(c.InitialChargingCurrent, defaultInitialChargingCurrent) {
+			c.InitialChargingCurrent = current
+		}
+	})
+}
+
+func checkChargingCurrent(name string, lowest, current int) error {
+	if current < lowest || current > maxChargingCurrent {
+		return fmt.Errorf("config: %s charging current must be between %d and %d, got %d", name, lowest, maxChargingCurrent, current)
+	}
+
+	return nil
 }
 
 func (cs *Service) HTTPTimeout() time.Duration {
@@ -298,7 +372,7 @@ func (cs *Service) SetSignalRTimeoutInterval(interval time.Duration) error {
 }
 
 func (cs *Service) SignalRInitialBackoff() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.InitialBackoff }, 5*time.Second)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.InitialBackoff }, time.Minute)
 }
 
 func (cs *Service) SetSignalRInitialBackoff(interval time.Duration) error {
@@ -306,7 +380,7 @@ func (cs *Service) SetSignalRInitialBackoff(interval time.Duration) error {
 }
 
 func (cs *Service) SignalRRepeatedBackoff() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.RepeatedBackoff }, 30*time.Second)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.RepeatedBackoff }, 5*time.Minute)
 }
 
 func (cs *Service) SetSignalRRepeatedBackoff(interval time.Duration) error {
@@ -314,7 +388,7 @@ func (cs *Service) SetSignalRRepeatedBackoff(interval time.Duration) error {
 }
 
 func (cs *Service) SignalRFinalBackoff() time.Duration {
-	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.FinalBackoff }, 10*time.Minute)
+	return config.GetDuration(cs.Service, func(c *Config) string { return c.SignalR.FinalBackoff }, 30*time.Minute)
 }
 
 func (cs *Service) SetSignalRFinalBackoff(interval time.Duration) error {
@@ -357,7 +431,7 @@ func (cs *Service) AuthenticatorBackoffStateful() backoff.Stateful {
 
 func (cs *Service) SignalRBackoffStateful() backoff.Stateful {
 	return config.Get(cs.Service, func(c *Config) backoff.Stateful {
-		return c.SignalR.stateful(5*time.Second, 30*time.Second, 10*time.Minute)
+		return c.SignalR.stateful(time.Minute, 5*time.Minute, 30*time.Minute)
 	})
 }
 

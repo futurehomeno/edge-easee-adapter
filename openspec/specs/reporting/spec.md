@@ -81,19 +81,73 @@ mapping SHALL be omitted silently.
 ### Requirement: Power Observation
 A total-power observation SHALL be cached in watts, converting from the kilowatts Easee reports by
 multiplying by 1000. A successful cache update SHALL publish an unforced `W` meter report followed by
-an unforced extended report for `power_import`.
+an unforced extended report for `power_import`, and then an unforced chargepoint state report, so a
+state change that the power reading reveals is published without waiting for the next state
+observation. The state report SHALL be attempted even when a meter report fails, and SHALL NOT be
+sent until a charger state has been observed.
 
 #### Scenario: power observation arrives
 - **WHEN** a total-power observation of 7.4 arrives
 - **THEN** 7400 is cached and the two unforced meter reports are published
 
+#### Scenario: power drops to zero after a state masked by residual power
+- **WHEN** `charging` was the last state report, an `await_start` state observation arrived while a
+  power reading above zero not older than it was cached, and then a 0 W power observation arrives
+- **THEN** one `evt.state.report` with `ready_to_charge` is published after the 0 W reading
+
+#### Scenario: power reading without a state change
+- **WHEN** a power observation arrives and the reported state is unchanged
+- **THEN** no state report is published
+
+#### Scenario: meter report fails
+- **WHEN** `ready_to_charge` is cached, a 0 W power observation arrives and the `W` meter report
+  fails
+- **THEN** the unforced state report is still published and the meter report error is logged
+
+#### Scenario: power reading before any charger state
+- **WHEN** no charger state has been observed and a 0 W power observation arrives
+- **THEN** the two meter reports are published and no state report
+
 ### Requirement: Phase Current Observations
-The in-current T3, T4 and T5 observations SHALL populate the phase 1, 2 and 3 currents respectively,
-each publishing its own unforced extended meter report on a successful cache update.
+The in-current observations SHALL populate the phase 1, 2 and 3 currents from the terminals that
+carry the lines on the grid type held in the chargepoint props: T3, T4 and T5 on a TN grid and while
+the props carry no grid type, T2, T3 and T4 on an IT or TT grid. An in-current observation for a
+terminal that carries no line on that grid (T2 on TN, T5 on IT or TT) SHALL be ignored: no cache
+write, no report and no error. The handler SHALL read the grid type from the props once and keep it
+until a grid-type observation replaces the props, so an ignored observation costs no service lookup.
+Each accepted observation SHALL publish its own unforced extended meter report on a successful cache
+update.
 
 #### Scenario: phase current observed
-- **WHEN** an in-current T3 observation arrives newer than the cached value
+- **WHEN** an in-current T3 observation arrives newer than the cached value on a TN charger
 - **THEN** the phase 1 current is cached and an unforced extended report is published
+
+#### Scenario: IT or TT charger
+- **WHEN** a charger whose props carry grid type IT or TT reports in-current T2, T3 and T4
+- **THEN** they are cached as the phase 1, 2 and 3 currents, each with its own extended report
+
+#### Scenario: terminal without a line
+- **WHEN** a TN charger reports in-current T2, or an IT or TT charger reports in-current T5, even
+  with a value that does not parse
+- **THEN** no phase current is written, no report is published and the handler returns no error
+
+#### Scenario: repeated neutral current
+- **WHEN** a TN charger reports in-current T2 twice
+- **THEN** the props are read for the first reading only
+
+#### Scenario: grid type unknown
+- **WHEN** the props carry no grid type and in-current T2, T3, T4 and T5 arrive
+- **THEN** T3, T4 and T5 are cached as the phase 1, 2 and 3 currents and T2 is ignored
+
+#### Scenario: topology republish still pending
+- **WHEN** the props already carry IT while the cache holds no or another grid type, and in-current
+  T2 arrives
+- **THEN** it is cached as the phase 1 current
+
+#### Scenario: grid type changes after a reading
+- **WHEN** in-current T2 was ignored under TN props, a grid-type observation then replaces them with
+  IT, and in-current T2 arrives again
+- **THEN** it is cached as the phase 1 current
 
 ### Requirement: Alarm Reports
 The alarm service SHALL advertise the grounding fault, grid type fault and other charge error events.
@@ -116,11 +170,20 @@ otherwise.
 Charging sessions SHALL be persisted per charger in a buntdb bucket named
 `charging-sessions:<chargerID>`, keyed by the Easee session ID. Registering a session start SHALL
 first close a previous session left open, by stamping its stop time with the new session's start
-time. Registering a session stop SHALL write the session's start, stop and energy.
+time. Registering a session start whose ID is already stored SHALL leave that session unchanged.
+Registering a session stop SHALL write the session's start, stop and energy.
 
 #### Scenario: previous session left open
 - **WHEN** a session start is registered and the latest stored session has a zero stop time
 - **THEN** that session's stop is set to the new session's start before the new one is stored
+
+#### Scenario: start replayed after its stop
+- **WHEN** a session start is registered for a session ID that is already stored with a stop time
+- **THEN** the stored session keeps its start, stop and energy
+
+#### Scenario: start of an older stored session replayed
+- **WHEN** a session start is registered for a stored session ID older than the latest session
+- **THEN** both sessions stay unchanged and the latest one is not closed
 
 #### Scenario: session stop
 - **WHEN** a session stop observation arrives
@@ -178,7 +241,7 @@ Observations that pass SHALL be enqueued, and the manager SHALL emit at most one
 - **THEN** it is enqueued and reported subject to the configured interval
 
 ### Requirement: Periodic Reporting Task
-A car-charger reporting task SHALL run on `polling_interval` (default 10m) and SHALL be gated on the
+A car-charger reporting task SHALL run on `polling_interval` (default 20m) and SHALL be gated on the
 app being connected, so that polling stops while the app reports a disconnected state.
 
 #### Scenario: app connected

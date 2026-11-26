@@ -1,0 +1,5 @@
+- [x] A phase-mode echo equal to the cached mode keeps its timestamp, so an older observation after it is rejected and nothing is published (test first)
+- [x] `Restart()` relaunches a running client (test first)
+- [x] A `Close()` during the restart's drain leaves the client closed (test first)
+- [x] `Restart()` on a stopped or closing client starts nothing and keeps a `Start` the close deferred (test first)
+- [x] The refused re-subscribe calls `Restart()` instead of close-then-start (test updated first)

@@ -1,0 +1,5 @@
+- [x] Auto sent, single sent, the auto echo lands, auto requested: auto is sent (test first)
+- [x] A replay restoring the pre-send mode within 15 s of a send, then a request for it: sent (test first)
+- [x] A repeat of the last sent target while the cache holds it: no call (guard test)
+- [x] More than 15 s after an unapplied send, the re-sync replay restored the cache, a request equal to it: no call (guard test)
+- [x] `SetChargepointPhaseMode` remembers the last accepted target and skips an equal one only when no other target was sent within the re-sync window

@@ -3,6 +3,7 @@ package config_test
 import (
 	"encoding/json"
 	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -57,7 +58,7 @@ func TestService_SignalRFinalBackoff_MatchesPackagedDefault(t *testing.T) {
 	st := &mockedstorage.Storage[*config.Config]{}
 	st.On("Model").Return(cfg)
 
-	assert.Equal(t, 10*time.Minute, config.NewService(st).SignalRFinalBackoff())
+	assert.Equal(t, 30*time.Minute, config.NewService(st).SignalRFinalBackoff())
 }
 
 // TestService_OfferedCurrentWaitTime_MatchesPackagedDefault ties the getter's unset-config
@@ -101,6 +102,96 @@ func TestService_InitialChargingCurrent_MatchesPackagedDefault(t *testing.T) {
 	}
 }
 
+func TestService_MinChargingCurrent_MatchesPackagedDefault(t *testing.T) {
+	body, err := os.ReadFile("../../../package/debian/usr/share/futurehome/easee/defaults/config.json")
+	require.NoError(t, err)
+
+	packaged := &config.Config{}
+	require.NoError(t, json.Unmarshal(body, packaged))
+
+	assert.Equal(t, 6, packaged.MinChargingCurrent, "packaged JSON key no longer binds to the config field")
+	assert.Equal(t, 6, config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory)).MinChargingCurrent())
+}
+
+func TestService_SetMinChargingCurrent(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		current int
+		wantErr bool
+	}{
+		{name: "1 A is accepted", current: 1},
+		{name: "a minimum under 6 A is accepted", current: 5},
+		{name: "a raised minimum is accepted", current: 10},
+		{name: "the supported maximum is accepted", current: 32},
+		{name: "zero is rejected", current: 0, wantErr: true},
+		{name: "above the supported maximum is rejected", current: 33, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := &config.Config{}
+			cs := config.NewService(fakes.NewConfigStorage(t, cfg, config.Factory))
+
+			err := cs.SetMinChargingCurrent(tt.current)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Zero(t, cfg.MinChargingCurrent)
+				assert.Equal(t, 6, cs.MinChargingCurrent())
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.current, cs.MinChargingCurrent())
+		})
+	}
+}
+
+func TestService_SetInitialChargingCurrent(t *testing.T) {
+	t.Parallel()
+
+	cs := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+
+	require.Error(t, cs.SetInitialChargingCurrent(5))
+	require.Error(t, cs.SetInitialChargingCurrent(33))
+	assert.Equal(t, 16, cs.InitialChargingCurrent())
+
+	require.NoError(t, cs.SetInitialChargingCurrent(6))
+	assert.Equal(t, 6, cs.InitialChargingCurrent())
+}
+
+func TestService_InitialChargingCurrentNotBelowMinimum(t *testing.T) {
+	t.Parallel()
+
+	cs := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+	require.NoError(t, cs.SetMinChargingCurrent(10))
+
+	require.Error(t, cs.SetInitialChargingCurrent(8))
+	assert.Equal(t, 16, cs.InitialChargingCurrent())
+
+	require.NoError(t, cs.SetInitialChargingCurrent(10))
+	assert.Equal(t, 10, cs.InitialChargingCurrent())
+}
+
+func TestService_RaisingMinimumRaisesInitialChargingCurrent(t *testing.T) {
+	t.Parallel()
+
+	cs := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+
+	require.NoError(t, cs.SetMinChargingCurrent(20))
+	assert.Equal(t, 20, cs.InitialChargingCurrent(), "the 16 A default is raised")
+
+	require.NoError(t, cs.SetMinChargingCurrent(10))
+	assert.Equal(t, 20, cs.InitialChargingCurrent(), "lowering the minimum keeps the initial current")
+
+	require.NoError(t, cs.SetMinChargingCurrent(4))
+	assert.Equal(t, 20, cs.InitialChargingCurrent())
+}
+
 func TestConfig_MigrateSignalRFinalBackoff(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -119,6 +210,43 @@ func TestConfig_MigrateSignalRFinalBackoff(t *testing.T) {
 
 			require.NoError(t, cfg.MigrateSignalRFinalBackoff())
 			assert.Equal(t, tt.expected, cfg.SignalR.FinalBackoff)
+		})
+	}
+}
+
+func TestConfig_MigrateSignalRBackoffSchedule(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.SignalR.InitialBackoff, cfg.SignalR.RepeatedBackoff, cfg.SignalR.FinalBackoff = "5s", "30s", "10m"
+	cfg.SignalR.InitialFailureCount, cfg.SignalR.RepeatedFailureCount = 2, 3
+
+	require.NoError(t, cfg.MigrateSignalRBackoffSchedule())
+
+	s := cfg.SignalR
+	assert.Equal(t, []any{"60s", "5m", "30m", uint32(3), uint32(3)},
+		[]any{s.InitialBackoff, s.RepeatedBackoff, s.FinalBackoff, s.InitialFailureCount, s.RepeatedFailureCount})
+}
+
+func TestConfig_MigratePollingInterval(t *testing.T) {
+	tests := []struct {
+		name     string
+		current  string
+		expected string
+	}{
+		{name: "the 2.5 packaged default is lifted", current: "30s", expected: "20m"},
+		{name: "any sub-minute value is lifted", current: "59s", expected: "20m"},
+		{name: "one minute is preserved", current: "1m", expected: "1m"},
+		{name: "tuned value is preserved", current: "5m", expected: "5m"},
+		{name: "unset value is left to the getter fallback", current: "", expected: ""},
+		{name: "unparsable value is left to the getter fallback", current: "soon", expected: "soon"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.PollingInterval = tt.current
+
+			require.NoError(t, cfg.MigratePollingInterval())
+			assert.Equal(t, tt.expected, cfg.PollingInterval)
 		})
 	}
 }
@@ -203,15 +331,15 @@ func TestService_SettingsRoundTrip(t *testing.T) {
 		get  func(*config.Service) time.Duration
 		set  func(*config.Service, time.Duration) error
 	}{
-		{"polling interval", 10 * time.Minute, (*config.Service).PollingInterval, (*config.Service).SetPollingInterval},
+		{"polling interval", 20 * time.Minute, (*config.Service).PollingInterval, (*config.Service).SetPollingInterval},
 		{"current wait", 3 * time.Second, (*config.Service).CurrentWaitDuration, (*config.Service).SetCurrentWaitDuration},
 		{"http timeout", 30 * time.Second, (*config.Service).HTTPTimeout, (*config.Service).SetHTTPTimeout},
 		{"signalr conn creation", 30 * time.Second, (*config.Service).SignalRConnCreationTimeout, (*config.Service).SetSignalRConnCreationTimeout},
 		{"signalr keepalive", 30 * time.Second, (*config.Service).SignalRKeepAliveInterval, (*config.Service).SetSignalRKeepAliveInterval},
 		{"signalr timeout", time.Minute, (*config.Service).SignalRTimeoutInterval, (*config.Service).SetSignalRTimeoutInterval},
-		{"signalr initial backoff", 5 * time.Second, (*config.Service).SignalRInitialBackoff, (*config.Service).SetSignalRInitialBackoff},
-		{"signalr repeated backoff", 30 * time.Second, (*config.Service).SignalRRepeatedBackoff, (*config.Service).SetSignalRRepeatedBackoff},
-		{"signalr final backoff", 10 * time.Minute, (*config.Service).SignalRFinalBackoff, (*config.Service).SetSignalRFinalBackoff},
+		{"signalr initial backoff", time.Minute, (*config.Service).SignalRInitialBackoff, (*config.Service).SetSignalRInitialBackoff},
+		{"signalr repeated backoff", 5 * time.Minute, (*config.Service).SignalRRepeatedBackoff, (*config.Service).SetSignalRRepeatedBackoff},
+		{"signalr final backoff", 30 * time.Minute, (*config.Service).SignalRFinalBackoff, (*config.Service).SetSignalRFinalBackoff},
 		{"signalr invoke timeout", 10 * time.Second, (*config.Service).SignalRInvokeTimeout, (*config.Service).SetSignalRInvokeTimeout},
 	}
 
@@ -230,10 +358,12 @@ func TestService_SettingsRoundTrip(t *testing.T) {
 	assert.Empty(t, empty.EaseeBaseURL())
 	assert.Empty(t, empty.SignalRBaseURL())
 	assert.InDelta(t, 0, empty.SlowChargingCurrentInAmperes(), 0)
+	assert.False(t, empty.UseLocked3Phases())
 
 	require.NoError(t, set.SetEaseeBaseURL("https://api"))
 	require.NoError(t, set.SetSignalRBaseURL("https://streams"))
 	require.NoError(t, set.SetSlowChargingCurrentInAmperes(6))
+	require.NoError(t, set.SetUseLocked3Phases(true))
 	require.NoError(t, set.SetSignalRInitialFailureCount(2))
 	require.NoError(t, set.SetSignalRRepeatedFailureCount(3))
 	require.NoError(t, set.SetSelectedDevices(selection.Selection{"EH1"}))
@@ -242,6 +372,8 @@ func TestService_SettingsRoundTrip(t *testing.T) {
 	assert.Equal(t, "https://api", set.EaseeBaseURL())
 	assert.Equal(t, "https://streams", set.SignalRBaseURL())
 	assert.InDelta(t, 6, set.SlowChargingCurrentInAmperes(), 0)
+	assert.True(t, set.UseLocked3Phases())
+	assert.True(t, set.PublicConfig().UseLocked3Phases)
 	assert.Equal(t, uint32(2), set.SignalRInitialFailureCount())
 	assert.Equal(t, uint32(3), set.SignalRRepeatedFailureCount())
 	assert.Equal(t, selection.Selection{"EH1"}, set.SelectedDevices())
@@ -284,4 +416,31 @@ func TestCredentials_AccessTokenExpired(t *testing.T) {
 	assert.True(t, config.Credentials{AccessTokenExpiresAt: time.Now().Add(-time.Minute)}.AccessTokenExpired())
 	assert.False(t, config.Credentials{AccessTokenExpiresAt: time.Now().Add(time.Minute)}.AccessTokenExpired())
 	assert.True(t, config.Credentials{}.Empty())
+}
+
+// Both setters wait behind a running update, so they check the same old values and then write one after the other.
+func TestService_ConcurrentMinimumAndInitialKeepInitialNotBelowMinimum(t *testing.T) {
+	t.Parallel()
+
+	for range 50 {
+		cs := config.NewService(fakes.NewConfigStorage(t, &config.Config{}, config.Factory))
+		held, release := make(chan struct{}), make(chan struct{})
+
+		var wg sync.WaitGroup
+
+		wg.Go(func() {
+			_ = cs.Update(func(*config.Config) {
+				close(held)
+				<-release
+			})
+		})
+		<-held
+		wg.Go(func() { _ = cs.SetInitialChargingCurrent(18) })
+		wg.Go(func() { _ = cs.SetMinChargingCurrent(20) })
+		time.Sleep(time.Millisecond)
+		close(release)
+		wg.Wait()
+
+		require.GreaterOrEqual(t, cs.InitialChargingCurrent(), cs.MinChargingCurrent())
+	}
 }

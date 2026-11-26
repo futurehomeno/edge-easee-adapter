@@ -602,6 +602,7 @@ type failingSubscribeClient struct{}
 
 func (c *failingSubscribeClient) Start()                                 {}
 func (c *failingSubscribeClient) Close() error                           { return nil }
+func (c *failingSubscribeClient) Restart()                               {}
 func (c *failingSubscribeClient) SubscribeCharger(string) error          { return errors.New("not logged in") }
 func (c *failingSubscribeClient) UnsubscribeCharger(string) error        { return nil }
 func (c *failingSubscribeClient) Connected() bool                        { return false }
@@ -1025,8 +1026,8 @@ func TestUnregister_KeepsTheClientUpForARegisterLandingBeforeClose(t *testing.T)
 // gapClient parks inside Close so a test can land a Register in Unregister's decide-then-close
 // gap, and tracks running the way the real client does.
 // The raced Register can itself be gone by the time Close returns: Unregister(A) parks in
-// Close, Register(B) bumps the epoch, Unregister(B) removes the last charger and parks in its
-// own Close. A restart on the epoch alone would then leave the client up for nobody.
+// Close, Register(B) lands, Unregister(B) removes the last charger and parks in its own Close.
+// A restart for that Register alone would then leave the client up for nobody.
 func TestUnregister_DoesNotRestartWhenTheRacedChargerIsGoneToo(t *testing.T) {
 	client := &orderedGapClient{entered: make(chan struct{}), releases: []chan struct{}{make(chan struct{}), make(chan struct{})}}
 
@@ -1271,10 +1272,10 @@ func TestWatchdog_ResyncsAChargingChargerWhoseStateWentSilent(t *testing.T) {
 
 	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.TotalPower, DataType: model.ObservationDataTypeDouble, Value: "7.2"}))
 
-	clk.Add(4 * time.Minute)
+	clk.Add(19 * time.Minute)
 	m.resyncStale()
 	runSubscriptions(t, m)
-	assert.Zero(t, client.subscribes.Load(), "four minutes of silence is not stale yet")
+	assert.Zero(t, client.subscribes.Load(), "nineteen minutes of silence is not stale yet")
 
 	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.DynamicChargerCurrent}))
 	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.InCurrentT3}))
@@ -1284,10 +1285,10 @@ func TestWatchdog_ResyncsAChargingChargerWhoseStateWentSilent(t *testing.T) {
 	runSubscriptions(t, m)
 	assert.Equal(t, int32(1), client.subscribes.Load(), "echoes and phase currents do not keep the state fresh")
 
-	clk.Add(4 * time.Minute)
+	clk.Add(19 * time.Minute)
 	m.resyncStale()
 	runSubscriptions(t, m)
-	assert.Equal(t, int32(1), client.subscribes.Load(), "re-syncs are at least five minutes apart")
+	assert.Equal(t, int32(1), client.subscribes.Load(), "re-syncs are at least twenty minutes apart")
 
 	clk.Add(time.Minute)
 	m.resyncStale()
@@ -1304,7 +1305,7 @@ func TestWatchdog_ZeroPowerDoesNotKeepAChargingChargerFresh(t *testing.T) {
 
 	require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.ChargerOPState}))
 
-	for range 5 {
+	for range 20 {
 		clk.Add(time.Minute)
 		require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.TotalPower, DataType: model.ObservationDataTypeDouble, Value: "0"}))
 	}
@@ -1312,6 +1313,28 @@ func TestWatchdog_ZeroPowerDoesNotKeepAChargingChargerFresh(t *testing.T) {
 	m.resyncStale()
 	runSubscriptions(t, m)
 	assert.Equal(t, int32(1), client.subscribes.Load())
+}
+
+// Hub 9c1edbb3d437c8f1, EUFLF683, 2026-11-16 22:56-23:42: at a steady current Easee resent TotalPower
+// every 900 s and nothing else that counts.
+func TestWatchdog_LeavesASteadilyChargingChargerAlone(t *testing.T) {
+	clk := clock.Mock(time.Date(2026, time.November, 16, 22, 56, 0, 0, time.UTC))
+	t.Cleanup(clock.Restore)
+
+	m, client := newResyncManager(t)
+	m.chargers[chargerID].handler = &recordingHandler{handled: make(chan struct{}), charging: true}
+
+	for range 3 {
+		require.NoError(t, m.handleObservation(model.Observation{ChargerID: chargerID, ID: model.TotalPower, DataType: model.ObservationDataTypeDouble, Value: "7.2"}))
+
+		for range 15 {
+			clk.Add(time.Minute)
+			m.resyncStale()
+		}
+	}
+
+	runSubscriptions(t, m)
+	assert.Zero(t, client.subscribes.Load())
 }
 
 func TestWatchdog_LeavesAChargerThatIsNotChargingAlone(t *testing.T) {
@@ -1368,4 +1391,221 @@ func TestDisconnectReportsConnectivityDown(t *testing.T) {
 	m.handleClientState(model.ClientStateDisconnected)
 
 	assert.Equal(t, []bool{false}, *reports)
+}
+
+var errUnauthorized = errors.New("invoking 'SubscribeWithCurrentState' on the server. HubException: Unauthorized for " + chargerID)
+
+// scriptedSubscribeClient fails its subscribes with errs in call order, then succeeds.
+type scriptedSubscribeClient struct {
+	failingSubscribeClient
+
+	errs            []error
+	calls, restarts atomic.Int32
+}
+
+func (c *scriptedSubscribeClient) SubscribeCharger(string) error {
+	if n := int(c.calls.Add(1)) - 1; n < len(c.errs) {
+		return c.errs[n]
+	}
+
+	return nil
+}
+
+func (c *scriptedSubscribeClient) Restart() { c.restarts.Add(1) }
+
+func resubscribe(t *testing.T, m *manager) {
+	t.Helper()
+
+	m.chargers[chargerID].isSubscribed = true
+	m.chargers[chargerID].resync = true
+	require.NoError(t, m.handleSubscription(chargerID))
+}
+
+func TestUnauthorizedResubscribe_RestartsTheClientOncePerConnection(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	resubscribe(t, m)
+	resubscribe(t, m)
+
+	assert.Equal(t, int32(1), client.restarts.Load())
+}
+
+func TestUnauthorizedResubscribe_RestartsAgainOnTheNextConnection(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, nil, errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	resubscribe(t, m)
+	m.handleClientState(model.ClientStateConnected)
+	require.NoError(t, m.handleSubscription(chargerID))
+	resubscribe(t, m)
+
+	assert.Equal(t, int32(2), client.restarts.Load())
+}
+
+// The reconnect sweep re-subscribes every charger; a retry armed here would outlive its connection.
+func TestUnauthorizedResubscribe_LeavesTheRetryToTheReconnect(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	resubscribe(t, m)
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assert.False(t, m.chargers[chargerID].retryArmed)
+}
+
+func TestUnauthorizedResubscribe_DoesNotRestartAgainWhenTheNewConnectionRefusesToo(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	resubscribe(t, m)
+	m.handleClientState(model.ClientStateConnected)
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, int32(1), client.restarts.Load())
+}
+
+func TestUnauthorizedFirstSubscribe_RestartsTheClient(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, int32(1), client.restarts.Load())
+}
+
+func TestUnauthorizedFirstSubscribe_RefusedAgainAfterTheRestartRetriesWithBackoff(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	m.done = make(chan struct{})
+	t.Cleanup(func() { close(m.done) })
+
+	arms := &countingBackoff{Stateful: m.cfg.SignalRBackoffStateful()}
+	m.chargers[chargerID].backoff = arms
+
+	require.NoError(t, m.handleSubscription(chargerID))
+	m.handleClientState(model.ClientStateConnected)
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, int32(1), client.restarts.Load())
+	assert.Eventually(t, func() bool { return arms.count() == 1 }, time.Second, time.Millisecond)
+}
+
+func TestUnauthorizedFirstSubscribe_RestartsAgainAfterTheChargerSubscribed(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized, nil, errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+	m.handleClientState(model.ClientStateConnected)
+	require.NoError(t, m.handleSubscription(chargerID))
+	m.handleClientState(model.ClientStateConnected)
+	require.NoError(t, m.handleSubscription(chargerID))
+
+	assert.Equal(t, int32(2), client.restarts.Load())
+}
+
+func TestReconnectKeepsTheUnauthorizedRestartGuard(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errUnauthorized}}
+	m := newTestManagerWithClient(t, client)
+
+	require.NoError(t, m.handleSubscription(chargerID))
+	m.handleClientState(model.ClientStateDisconnected)
+	m.handleClientState(model.ClientStateConnected)
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	assert.True(t, m.chargers[chargerID].unauthorizedRestarted)
+}
+
+func TestResubscribeFailingWithAnotherError_DoesNotRestartTheClient(t *testing.T) {
+	client := &scriptedSubscribeClient{errs: []error{errors.New("timeout")}}
+	m := newTestManagerWithClient(t, client)
+
+	resubscribe(t, m)
+
+	assert.Zero(t, client.restarts.Load())
+}
+
+type refusedUnsubscribeClient struct {
+	scriptedSubscribeClient
+
+	err    error
+	before func()
+}
+
+func (c *refusedUnsubscribeClient) UnsubscribeCharger(string) error {
+	if c.before != nil {
+		c.before()
+	}
+
+	return c.err
+}
+
+func newRefusedUnsubscribeManager(t *testing.T, err error, others ...string) (*manager, *refusedUnsubscribeClient) {
+	t.Helper()
+
+	client := &refusedUnsubscribeClient{err: err}
+	m := newTestManagerWithClient(t, client)
+	m.chargers[chargerID].isSubscribed = true
+
+	for _, id := range others {
+		m.chargers[id] = &charger{handler: &recordingHandler{handled: make(chan struct{})}, backoff: m.cfg.SignalRBackoffStateful(), isSubscribed: true}
+	}
+
+	return m, client
+}
+
+func TestUnauthorizedUnsubscribe_RestartsTheClientForTheChargersLeft(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errUnauthorized, "YY67890")
+
+	require.ErrorIs(t, m.Unregister(chargerID), errUnauthorized)
+
+	assert.Equal(t, int32(1), client.restarts.Load())
+}
+
+func TestUnauthorizedUnsubscribe_RestartsOncePerConnection(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errUnauthorized, "YY67890", "ZZ13579")
+
+	_ = m.Unregister(chargerID)
+	_ = m.Unregister("YY67890")
+
+	assert.Equal(t, int32(1), client.restarts.Load())
+}
+
+func TestUnauthorizedUnsubscribe_OfTheLastChargerDoesNotRestart(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errUnauthorized)
+
+	_ = m.Unregister(chargerID)
+
+	assert.Zero(t, client.restarts.Load())
+}
+
+func TestUnsubscribeFailingWithAnotherError_DoesNotRestartTheClient(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errors.New("timeout"), "YY67890")
+
+	_ = m.Unregister(chargerID)
+
+	assert.Zero(t, client.restarts.Load())
+}
+
+func TestUnauthorizedUnsubscribe_FromAReplacedConnectionDoesNotRestart(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errUnauthorized, "YY67890")
+	client.before = func() { m.handleClientState(model.ClientStateConnected) }
+
+	_ = m.Unregister(chargerID)
+
+	assert.Zero(t, client.restarts.Load())
+}
+
+func TestUnauthorizedUnsubscribe_OfAChargerNeverSubscribedDoesNotRestart(t *testing.T) {
+	m, client := newRefusedUnsubscribeManager(t, errUnauthorized, "YY67890")
+	m.chargers[chargerID].isSubscribed = false
+
+	_ = m.Unregister(chargerID)
+
+	assert.Zero(t, client.restarts.Load())
 }
