@@ -463,7 +463,7 @@ func (c *controller) answer(cmd *chargerCommand, err error) {
 		return
 	}
 
-	report := router.NewErrorReport(cmd.request, fmt.Errorf("deferred %s on %s: %w", cmd, c.chargerID, err))
+	report := router.NewErrorReport(cmd.request, fmt.Errorf("deferred %s: %w", cmd, err))
 	if pubErr := c.publish(report.Addr, report.Payload); pubErr != nil {
 		log.Errorf("[%s] Publish error report err: %v", c.chargerID, pubErr)
 	}
@@ -598,8 +598,8 @@ func (c *controller) ChargepointPhaseModeReport() (types.PhaseMode, error) {
 		return modes[0], nil
 	}
 
-	return "", fmt.Errorf("unable to map phase modes: charger_id=%s grid_type=%s phases=%d internal_phase_mode=%d",
-		c.chargerID, state.GridType, state.Phases, state.PhaseMode)
+	return "", router.NewError(fimptype.ErrorCodeUnavailable, "unable to map phase modes", fmt.Errorf("charger_id=%s grid_type=%s phases=%d internal_phase_mode=%d",
+		c.chargerID, state.GridType, state.Phases, state.PhaseMode))
 }
 
 // requestStillHolds reports whether the charger is still set to the mode we asked for. A

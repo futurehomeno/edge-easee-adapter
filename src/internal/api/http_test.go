@@ -1024,6 +1024,7 @@ func TestClient_FailureIsCodedAndNotLogged(t *testing.T) { //nolint:paralleltest
 		assert.NotContains(t, coded.Msg, "XX12345")
 		assert.NotContains(t, coded.Msg, "secret body")
 		assert.NotContains(t, coded.Msg, "://")
+		assert.Contains(t, err.Error(), s.URL, "status %d: the log keeps the URL", status)
 	}
 
 	assert.Empty(t, hook.AllEntries())

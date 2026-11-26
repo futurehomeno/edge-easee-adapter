@@ -261,10 +261,10 @@ func transportError(err error) error {
 	return router.NewError(fimptype.ErrorCodeUnavailable, "Easee cloud cannot be reached", fmt.Errorf("transport error: %w", err))
 }
 
-// handleFailedResponse carries the response body in the cause, which only the log shows.
+// handleFailedResponse carries the URL and response body in the cause, which only the log shows.
 func (c *httpClient) handleFailedResponse(resp *http.Response, message string) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
-	cause := fmt.Errorf("%s, status code: %d, body: %q", message, resp.StatusCode, body)
+	cause := fmt.Errorf("%s %s: %s, status code: %d, body: %q", resp.Request.Method, resp.Request.URL, message, resp.StatusCode, body)
 
 	// ErrorFromResponse is nil below 300, and the command endpoints treat anything but 202 as a
 	// failure - Easee answers some of them 200. Wrapping nil renders as %!w(<nil>).

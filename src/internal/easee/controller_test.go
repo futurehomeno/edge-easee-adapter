@@ -1922,6 +1922,12 @@ func TestController_ChargepointPhaseModeReport_InternalModeUnset(t *testing.T) {
 			mode, err := ctrl.ChargepointPhaseModeReport()
 			assert.Equal(t, tt.want == "", err != nil, err)
 			assert.Equal(t, tt.want, mode)
+
+			var coded *router.Error
+			if tt.want == "" && assert.ErrorAs(t, err, &coded) {
+				assert.Equal(t, fimptype.ErrorCodeUnavailable, coded.Code)
+				assert.NotContains(t, coded.Msg, "test-charger")
+			}
 		})
 	}
 }
@@ -4482,55 +4488,63 @@ func TestController_EndSession_ForgetsTheSlowStart(t *testing.T) {
 }
 
 // A write the channel deferred was answered as accepted; Easee refusing it later answers the command again, with its corid.
+// The report's sentence names no charger serial, also when the failure carries no code.
 func TestController_DeferredFailureAnswersTheCommand(t *testing.T) {
-	clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
-	t.Cleanup(clock.Restore)
+	for code, failure := range map[fimptype.ErrorCodeT]error{
+		fimptype.ErrorCodeDeviceRefused: router.NewError(fimptype.ErrorCodeDeviceRefused, "Easee refused the request", nil),
+		fimptype.ErrorCodeInternal:      errors.New("get token err: not logged in"),
+	} {
+		t.Run(code.Str(), func(t *testing.T) {
+			clk := clock.Mock(time.Date(2026, time.September, 20, 1, 0, 0, 0, time.UTC))
+			t.Cleanup(clock.Restore)
 
-	cacheMock := mockedcache.NewCache(t)
-	cacheMock.On("MaxCurrent").Return(32, time.Time{})
-	cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
-	cacheMock.On("SetRequestedOfferedCurrent", 10, mock.AnythingOfType("time.Time")).Return(true)
-	cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true)
+			cacheMock := mockedcache.NewCache(t)
+			cacheMock.On("MaxCurrent").Return(32, time.Time{})
+			cacheMock.On("RequestedOfferedCurrent").Return(0, time.Time{})
+			cacheMock.On("SetRequestedOfferedCurrent", 10, mock.AnythingOfType("time.Time")).Return(true)
+			cacheMock.On("WaitForOfferedCurrent", 10, mock.Anything).Return(true)
 
-	clientMock := mockapi.NewClient(t)
-	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
-	clientMock.On("UpdateDynamicCurrent", "test-charger", float64(12)).
-		Return(router.NewError(fimptype.ErrorCodeDeviceRefused, "Easee refused the request", nil)).Once()
+			clientMock := mockapi.NewClient(t)
+			clientMock.On("UpdateDynamicCurrent", "test-charger", float64(10)).Return(nil).Once()
+			clientMock.On("UpdateDynamicCurrent", "test-charger", float64(12)).Return(failure).Once()
 
-	sessionStorage := mockeddb.NewChargingSessionStorage(t)
-	keepUserStop(sessionStorage)
+			sessionStorage := mockeddb.NewChargingSessionStorage(t)
+			keepUserStop(sessionStorage)
 
-	published := make(chan *fimpgo.FimpMessage, 1)
-	ctrl := easee.NewController(mockedsignalr.NewManager(t), clientMock, "test-charger", cacheMock,
-		config.NewService(fakes.NewConfigStorage(t, pacedConfig(), config.Factory)), sessionStorage,
-		func() types.PhaseMode { return types.PhaseModeNL3 },
-		func(_ *fimpgo.Address, msg *fimpgo.FimpMessage) error { published <- msg; return nil })
-	t.Cleanup(ctrl.Teardown)
+			published := make(chan *fimpgo.FimpMessage, 1)
+			ctrl := easee.NewController(mockedsignalr.NewManager(t), clientMock, "test-charger", cacheMock,
+				config.NewService(fakes.NewConfigStorage(t, pacedConfig(), config.Factory)), sessionStorage,
+				func() types.PhaseMode { return types.PhaseModeNL3 },
+				func(_ *fimpgo.Address, msg *fimpgo.FimpMessage) error { published <- msg; return nil })
+			t.Cleanup(ctrl.Teardown)
 
-	require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(10))
 
-	addr, err := fimpgo.NewAddressFromString("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1")
-	require.NoError(t, err)
+			addr, err := fimpgo.NewAddressFromString("pt:j1/mt:cmd/rt:dev/rn:easee/ad:1/sv:chargepoint/ad:1")
+			require.NoError(t, err)
 
-	request := &fimpgo.Message{
-		Topic:   addr.Serialize(),
-		Addr:    addr,
-		Payload: fimpgo.NewIntMessage(chargepoint.CmdCurrentSessionSetCurrent, chargepoint.Chargepoint, 12, nil, nil, nil),
-	}
+			request := &fimpgo.Message{
+				Topic:   addr.Serialize(),
+				Addr:    addr,
+				Payload: fimpgo.NewIntMessage(chargepoint.CmdCurrentSessionSetCurrent, chargepoint.Chargepoint, 12, nil, nil, nil),
+			}
 
-	ctrl.Bind(request)
-	require.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
-	ctrl.Unbind(request)
+			ctrl.Bind(request)
+			require.NoError(t, ctrl.SetChargepointOfferedCurrent(12))
+			ctrl.Unbind(request)
 
-	clk.Add(20 * time.Second)
+			clk.Add(20 * time.Second)
 
-	select {
-	case msg := <-published:
-		assert.Equal(t, "evt.error.report", msg.Interface)
-		assert.Equal(t, "device_refused", msg.Value)
-		assert.Equal(t, request.Payload.UID, msg.CorrelationID)
-	case <-time.After(5 * time.Second):
-		t.Fatal("the deferred failure was not answered")
+			select {
+			case msg := <-published:
+				assert.Equal(t, "evt.error.report", msg.Interface)
+				assert.Equal(t, code.Str(), msg.Value)
+				assert.Equal(t, request.Payload.UID, msg.CorrelationID)
+				assert.NotContains(t, msg.Properties["msg"], "test-charger")
+			case <-time.After(5 * time.Second):
+				t.Fatal("the deferred failure was not answered")
+			}
+		})
 	}
 }
 
