@@ -94,7 +94,7 @@ type controller struct {
 	// bound serialises the commands of one charger from Bind to Unbind; request is guarded by pace.
 	bound   sync.Mutex
 	request *fimpgo.Message
-	// Guarded by pace: a value under 6 A arrives through the routing divert, outside the chargepoint service lock.
+	// Guarded by pace.
 	clamp [2]int
 	// When the running session was started in slow mode; zero when it was not. Guarded by pace, like clamp.
 	slowSince time.Time
@@ -129,7 +129,7 @@ type controller struct {
 	stopResync func() bool
 	resyncAt   time.Time
 	// offeredPause marks a pause made for a sub-minimum offered current, which the next valid one resumes. Atomic: a
-	// value under 6 A arrives through the routing divert, outside the chargepoint service lock.
+	// session end clears it from the observation path.
 	offeredPause atomic.Bool
 	// sessionEnds counts session ends, so a command running across one does not put back what the end forgot.
 	sessionEnds atomic.Uint64
@@ -174,8 +174,8 @@ func (c *controller) dispatchPair(cmd chargerCommand, follow *chargerCommand) (b
 		return false, errors.New("charger removed")
 	}
 
-	// Checked again in one step with taking the channel: a value under 6 A comes through the routing divert, outside
-	// the chargepoint service lock, so a user stop can land after the caller's check. A start clears it first.
+	// Checked again in one step with taking the channel, so a user stop landing after the caller's check wins. A start
+	// clears it first.
 	if !cmd.stop {
 		if stopped, err := c.userStopped(); err != nil || stopped {
 			c.pace.Unlock()
