@@ -36,11 +36,12 @@ warning and SHALL NOT stop the start.
   to the backup is removed
 
 ### Requirement: Unreadable Secrets File Starts Logged Out
-When neither the secrets file nor its backup `data/secrets.json.bak` can be loaded at start, the adapter SHALL start
-logged out: it SHALL empty the in-memory
-credentials, because a file that fails to decode partway leaves the fields already read behind, SHALL keep the file
-on disk, and SHALL log an error that omits the load error, because that error carries the file body with the
-tokens. The start SHALL continue, so a corrupt file does not cause a restart loop and a new login rewrites it.
+When the secrets file or its backup `data/secrets.json.bak` is on disk but neither can be loaded at start, the
+adapter SHALL start logged out: it SHALL empty the in-memory credentials, because a file that fails to decode
+partway leaves the fields already read behind, SHALL keep the file on disk, and SHALL log an error that omits the
+load error, because that error carries the file body with the tokens. The start SHALL continue, so a corrupt file
+does not cause a restart loop and a new login rewrites it. With neither file on disk, as on a fresh install, the
+load succeeds empty and the adapter starts logged out without an error.
 
 When `data/secrets.json` cannot be loaded but its backup can, the storage decodes the backup over the fields the
 primary already filled, without clearing them, and the adapter starts with that mix: the backup's credentials plus any

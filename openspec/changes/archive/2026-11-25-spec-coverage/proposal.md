@@ -16,7 +16,7 @@ every number was checked against its constant. The code is the reference: no cod
   Migration, Legacy State Protection, Packaged Default Configuration.
 - `configuration`: ADDED Secret File Modes Pinned At Startup, Config Backup Cleared At Startup, Unreadable Secrets
   File Starts Logged Out, Startup Stops On A Configuration Error, Log Defaults Reset On Migration To Version 2.
-- `cloud-authentication`: ADDED Login Request, Application Login Lifecycle.
+- `cloud-authentication`: ADDED Login Request, Application Login Lifecycle; MODIFIED Stored Password Encrypted.
 - `charging-control`: ADDED Easee HTTP Requests.
 - `observation-streaming`: ADDED SignalR Hub Endpoint.
 - `charger-discovery`: ADDED FIMP Topics And Route Bundles.
@@ -99,7 +99,8 @@ every number was checked against its constant. The code is the reference: no cod
   - issue 51: `polling_interval`, `http_timeout`, `easee_base_url` and the SignalR reconnect backoff set over FIMP
     take effect only after a restart;
   - issue 52: a failed login marks a running app not configured while its stored session stays.
-- No existing requirement was found wrong against the code, so nothing is MODIFIED.
+- One existing requirement was incomplete against the code and is MODIFIED: Stored Password Encrypted gains the
+  password dropped on every load when the username is empty (PR 242 review).
 - A comment in `migrate.sh` says postinst's permission pass runs before the script, so the modes it sets stick;
   since `set_data_modes` was split out, postinst widens the migrated directories to 0755 after the script. The
   comment is stale; the behaviour is the one "Directory Layout At Configure" states.
