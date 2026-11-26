@@ -16,3 +16,9 @@
 ## 4. Text
 - [x] 4.1 Correct the "cliffhanger rejects under 6 A" comments and spec text (issue 56 for the divert left behind)
 - [x] 4.2 Manifest declares `out evt.error.report string` (already, tested)
+
+## 5. Review round (PR 245)
+- [x] 5.1 Test and code: the HTTP failure cause carries the method and URL for the log
+- [x] 5.2 Test and code: a deferred failure's report names no charger serial, coded or not
+- [x] 5.3 Test and code: an unmapped phase mode is coded `unavailable` with the details in the cause
+- [x] 5.4 Drop the Sub-Minimum Current Pauses delta, superseded by `offered-current-normal-path`; state that a report request still waits for the framework service's lock during a command's controller call

@@ -92,7 +92,8 @@ func New(
 
 // bindCommand runs first and last on every chargepoint message, so a write the controller defers knows the command
 // to answer if Easee refuses it later.
-// Report requests are not bound, so they never wait for a command of the same charger.
+// Report requests are not bound; they still wait for the chargepoint service's lock, held during a command's controller
+// call.
 func bindCommand(ad cliffAdapter.Adapter, controllerByAddress func(string) Controller, bind bool) router.MessageHandlerFn {
 	return func(message *fimpgo.Message) *fimpgo.Message {
 		t := ad.ThingByTopic(message.Topic)
